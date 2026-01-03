@@ -1,0 +1,13 @@
+epicgames.com
+epicgames.dev
+unrealengine.com
+fortnite.com
+epicgames.net
+epicgames-download1.akamaized.net
+epicgames-download2.akamaized.net
+download.epicgames.com
+download2.epicgames.com
+download3.epicgames.com
+download4.epicgames.com
+launcher-public-service-prod06.ol.epicgames.com
+tracking.epicgames.com

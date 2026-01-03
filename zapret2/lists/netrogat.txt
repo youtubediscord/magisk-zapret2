@@ -1,0 +1,2 @@
+# Excluded domains (netrogat)
+# Domains in this list will be excluded from bypass

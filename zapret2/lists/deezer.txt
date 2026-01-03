@@ -1,0 +1,14 @@
+deezer.com
+dzcdn.net
+deezer.io
+e-cdns-files.dzcdn.net
+e-cdns-proxy-0.dzcdn.net
+e-cdns-proxy-1.dzcdn.net
+e-cdns-proxy-2.dzcdn.net
+e-cdns-proxy-3.dzcdn.net
+e-cdns-proxy-4.dzcdn.net
+e-cdns-proxy-5.dzcdn.net
+e-cdns-proxy-6.dzcdn.net
+api.deezer.com
+www.deezer.com
+mobile-api.deezer.com

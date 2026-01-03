@@ -1,0 +1,10 @@
+openai.com
+chat.openai.com
+api.openai.com
+platform.openai.com
+cdn.openai.com
+auth0.openai.com
+openaiapi-site.azureedge.net
+oaistatic.com
+oaiusercontent.com
+chatgpt.com
