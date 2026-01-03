@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- Signal bars icon for network type -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M2,22h20V2L2,22zM20,20H6.83L20,6.83V20z" />
+</vector>

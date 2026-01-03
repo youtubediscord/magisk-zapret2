@@ -84,7 +84,6 @@ set_default_config() {
     # Packet interception limits
     PKT_OUT=20
     PKT_IN=10
-    PKT_COUNT=4
 
     # Strategy configuration
     STRATEGY_PRESET="youtube"
@@ -562,8 +561,8 @@ add_category() {
         return
     fi
 
-    # Build full filter with --out-range
-    local full_filter="--out-range=-d$PKT_COUNT $filter"
+    # Build full filter with --out-range (uses PKT_OUT from config.sh)
+    local full_filter="--out-range=-d$PKT_OUT $filter"
 
     # Add hostlist if available
     local hostlist_opt=$(get_category_hostlist "$hostlist")
@@ -586,7 +585,7 @@ add_category() {
 
     OPTS="$OPTS $strat_opts"
     first=0
-    log_msg "Added $name: $strategy (pkt=$PKT_COUNT)"
+    log_msg "Added $name: $strategy (pkt=$PKT_OUT)"
 }
 
 ##########################################################################################
@@ -653,8 +652,8 @@ build_category_options_single() {
             ;;
     esac
 
-    # Build full filter with --out-range
-    local full_filter="--out-range=-d$PKT_COUNT $proto_filter"
+    # Build full filter with --out-range (uses PKT_OUT from config.sh)
+    local full_filter="--out-range=-d$PKT_OUT $proto_filter"
 
     # Add hostlist/ipset if specified
     local filter_opts=$(build_category_filter "$filter_mode" "$hostlist")
@@ -763,9 +762,9 @@ build_category_options() {
         if [ $first -eq 0 ]; then
             OPTS="$OPTS --new"
         fi
-        OPTS="$OPTS --out-range=-d$PKT_COUNT --filter-l7=stun,discord --payload=stun,discord_ip_discovery --lua-desync=fake:blob=fake_stun:repeats=6"
+        OPTS="$OPTS --out-range=-d$PKT_OUT --filter-l7=stun,discord --payload=stun,discord_ip_discovery --lua-desync=fake:blob=fake_stun:repeats=6"
         first=0
-        log_msg "Added Voice (STUN/Discord) (pkt=$PKT_COUNT)"
+        log_msg "Added Voice (STUN/Discord) (pkt=$PKT_OUT)"
     fi
 
     # Telegram TCP
@@ -848,7 +847,7 @@ build_options() {
     # Build strategy options based on mode
     if [ "$USE_CATEGORIES" = "1" ]; then
         log_msg "Mode: Category-based configuration"
-        log_msg "Packet count (--out-range): $PKT_COUNT"
+        log_msg "Packet count (--out-range): $PKT_OUT"
         build_category_options
     else
         log_msg "Mode: Preset-based configuration"
