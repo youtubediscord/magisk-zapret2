@@ -214,7 +214,8 @@ build_options() {
     # IP cache for better performance
     OPTS="$OPTS --ipcache-lifetime=84600 --ipcache-hostname=1"
 
-    # Debug mode - default to full android logging
+    # Debug mode - default to FILE logging for WebUI access
+    NFQWS_LOG="/data/local/tmp/nfqws2-debug.log"
     case "$LOG_MODE" in
         android)
             OPTS="$OPTS --debug=android"
@@ -223,16 +224,19 @@ build_options() {
             OPTS="$OPTS --debug=syslog"
             ;;
         file)
-            OPTS="$OPTS --debug=@/data/local/tmp/nfqws2-debug.log"
+            OPTS="$OPTS --debug=@$NFQWS_LOG"
             ;;
         none)
             # No debug output
             ;;
         *)
-            # Default to android for Magisk module with full logging
-            OPTS="$OPTS --debug=android"
+            # Default to FILE for WebUI access (not android/logcat)
+            OPTS="$OPTS --debug=@$NFQWS_LOG"
             ;;
     esac
+
+    # Clear old debug log on start
+    > "$NFQWS_LOG" 2>/dev/null
 
     # Lua init files (order matters: lib first, then antidpi)
     if [ -f "$ZAPRET_DIR/lua/zapret-lib.lua" ]; then
@@ -437,8 +441,16 @@ start_nfqws2() {
     log_msg "Starting nfqws2..."
 
     OPTS=$(build_options)
-    log_msg "Options: $OPTS"
-    log_msg "Full command: $NFQWS2 $OPTS"
+
+    # Save full command line to file for WebUI access
+    CMDLINE_FILE="/data/local/tmp/nfqws2-cmdline.txt"
+    echo "$NFQWS2 $OPTS" > "$CMDLINE_FILE"
+
+    log_msg "========================================"
+    log_msg "FULL COMMAND LINE:"
+    log_msg "$NFQWS2 $OPTS"
+    log_msg "========================================"
+    log_msg "Command saved to: $CMDLINE_FILE"
 
     # Output files for parsing
     STARTUP_LOG="/data/local/tmp/nfqws2-startup.log"
