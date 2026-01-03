@@ -15,6 +15,33 @@ permissions:
   contents: write
 
 jobs:
+  build-apk:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Build Release APK
+        run: ./gradlew assembleRelease
+        working-directory: android-app
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: zapret2-apk
+          path: android-app/app/build/outputs/apk/release/app-release-unsigned.apk
+
   build-nfqws2:
     name: Build nfqws2 for ${{ matrix.abi }}
     runs-on: ubuntu-latest
@@ -122,7 +149,7 @@ jobs:
   package-module:
     name: Package Magisk Module
     runs-on: ubuntu-latest
-    needs: build-nfqws2
+    needs: [build-nfqws2, build-apk]
 
     steps:
       - name: Checkout
@@ -132,6 +159,12 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: binaries
+
+      - name: Download APK
+        uses: actions/download-artifact@v4
+        with:
+          name: zapret2-apk
+          path: apk-artifact
 
       - name: Prepare module
         run: |
@@ -176,11 +209,13 @@ jobs:
             service.sh \
             uninstall.sh \
             action.sh \
-            webroot \
             zapret2 \
             -x "*.git*" \
             -x "CLAUDE.md" \
             -x ".github/*"
+
+          # Rename APK with version
+          cp apk-artifact/app-release-unsigned.apk zapret2-control-v${VERSION}.apk
 
       - name: Upload module
         uses: actions/upload-artifact@v4
@@ -188,11 +223,19 @@ jobs:
           name: zapret2-magisk-module
           path: zapret2-magisk-*.zip
 
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: zapret2-control-apk
+          path: zapret2-control-*.apk
+
       - name: Create Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v1
         with:
-          files: zapret2-magisk-*.zip
+          files: |
+            zapret2-magisk-*.zip
+            zapret2-control-*.apk
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
