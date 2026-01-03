@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Windows 11 Fluent Design colors -->
+
+    <!-- Status colors -->
+    <color name="status_running">#107C10</color>
+    <color name="status_stopped">#888888</color>
+    <color name="status_error">#D13438</color>
+
+    <!-- Accent colors -->
+    <color name="accent_blue">#0078D4</color>
+    <color name="accent_light_blue">#60CDFF</color>
+
+    <!-- Background colors -->
+    <color name="background_dark">#202020</color>
+    <color name="surface">#2D2D2D</color>
+    <color name="surface_variant">#383838</color>
+
+    <!-- Border colors -->
+    <color name="border">#3D3D3D</color>
+    <color name="border_light">#505050</color>
+
+    <!-- Text colors -->
+    <color name="text_primary">#FFFFFF</color>
+    <color name="text_secondary">#888888</color>
+
+    <!-- Button colors -->
+    <color name="btn_success">#107C10</color>
+    <color name="btn_danger">#D13438</color>
+    <color name="btn_secondary">#383838</color>
+
+    <!-- Category colors -->
+    <color name="youtube_red">#FF0000</color>
+    <color name="discord_blue">#5865F2</color>
+    <color name="voice_purple">#9B59B6</color>
+</resources>

@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Windows 11 Dark Theme -->
+    <style name="Theme.Zapret2" parent="Theme.Material3.Dark.NoActionBar">
+        <!-- Mica-like dark background -->
+        <item name="android:colorBackground">#202020</item>
+        <item name="colorSurface">#2D2D2D</item>
+        <item name="colorSurfaceVariant">#383838</item>
+
+        <!-- Windows 11 accent (blue) -->
+        <item name="colorPrimary">#60CDFF</item>
+        <item name="colorPrimaryContainer">#0078D4</item>
+        <item name="colorOnPrimary">#000000</item>
+
+        <!-- Secondary -->
+        <item name="colorSecondary">#96D6FF</item>
+        <item name="colorOnSecondary">#000000</item>
+
+        <!-- Error -->
+        <item name="colorError">#FF6B6B</item>
+
+        <!-- Status bar -->
+        <item name="android:statusBarColor">#1A1A1A</item>
+        <item name="android:navigationBarColor">#1A1A1A</item>
+        <item name="android:windowLightStatusBar">false</item>
+
+        <!-- Ripple -->
+        <item name="colorControlHighlight">#3360CDFF</item>
+    </style>
+
+    <!-- Card style -->
+    <style name="Widget.Zapret2.Card" parent="Widget.Material3.CardView.Elevated">
+        <item name="cardBackgroundColor">#2D2D2D</item>
+        <item name="cardCornerRadius">8dp</item>
+        <item name="cardElevation">0dp</item>
+        <item name="strokeWidth">1dp</item>
+        <item name="strokeColor">#3D3D3D</item>
+    </style>
+
+    <!-- Button style -->
+    <style name="Widget.Zapret2.Button" parent="Widget.Material3.Button">
+        <item name="cornerRadius">4dp</item>
+        <item name="android:textAllCaps">false</item>
+        <item name="android:letterSpacing">0</item>
+    </style>
+
+    <style name="Widget.Zapret2.Button.Accent">
+        <item name="backgroundTint">#0078D4</item>
+        <item name="android:textColor">#FFFFFF</item>
+    </style>
+
+    <style name="Widget.Zapret2.Button.Secondary">
+        <item name="backgroundTint">#383838</item>
+        <item name="android:textColor">#FFFFFF</item>
+    </style>
+
+    <style name="Widget.Zapret2.Button.Success">
+        <item name="backgroundTint">#107C10</item>
+        <item name="android:textColor">#FFFFFF</item>
+    </style>
+
+    <style name="Widget.Zapret2.Button.Danger">
+        <item name="backgroundTint">#D13438</item>
+        <item name="android:textColor">#FFFFFF</item>
+    </style>
+</resources>

@@ -1,0 +1,811 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="#202020">
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:fillViewport="true">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <!-- Header -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Strategy Configuration"
+                android:textColor="#FFFFFF"
+                android:textSize="20sp"
+                android:textStyle="bold"
+                android:layout_marginBottom="8dp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Select DPI bypass strategy for each service category"
+                android:textColor="#808080"
+                android:textSize="14sp"
+                android:layout_marginBottom="16dp" />
+
+            <!-- Video Services Card -->
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="12dp"
+                app:cardBackgroundColor="#2D2D2D"
+                app:cardCornerRadius="8dp"
+                app:cardElevation="2dp"
+                app:strokeWidth="0dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Video Services"
+                        android:textColor="#0078D4"
+                        android:textSize="14sp"
+                        android:textStyle="bold"
+                        android:layout_marginBottom="12dp" />
+
+                    <!-- YouTube TCP -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginBottom="12dp">
+
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="YouTube TCP"
+                            android:textColor="#FFFFFF"
+                            android:textSize="14sp" />
+
+                        <Spinner
+                            android:id="@+id/spinnerYoutubeTcp"
+                            android:layout_width="160dp"
+                            android:layout_height="40dp"
+                            android:background="@drawable/spinner_background"
+                            android:popupBackground="#2D2D2D"
+                            android:dropDownWidth="160dp" />
+
+                    </LinearLayout>
+
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="1dp"
+                        android:background="#404040"
+                        android:layout_marginBottom="12dp" />
+
+                    <!-- YouTube QUIC -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginBottom="12dp">
+
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="YouTube QUIC"
+                            android:textColor="#FFFFFF"
+                            android:textSize="14sp" />
+
+                        <Spinner
+                            android:id="@+id/spinnerYoutubeQuic"
+                            android:layout_width="160dp"
+                            android:layout_height="40dp"
+                            android:background="@drawable/spinner_background"
+                            android:popupBackground="#2D2D2D"
+                            android:dropDownWidth="160dp" />
+
+                    </LinearLayout>
+
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="1dp"
+                        android:background="#404040"
+                        android:layout_marginBottom="12dp" />
+
+                    <!-- Twitch TCP -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical">
+
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="Twitch TCP"
+                            android:textColor="#FFFFFF"
+                            android:textSize="14sp" />
+
+                        <Spinner
+                            android:id="@+id/spinnerTwitch"
+                            android:layout_width="160dp"
+                            android:layout_height="40dp"
+                            android:background="@drawable/spinner_background"
+                            android:popupBackground="#2D2D2D"
+                            android:dropDownWidth="160dp" />
+
+                    </LinearLayout>
+
+                </LinearLayout>
+
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- Messaging Services Card -->
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="12dp"
+                app:cardBackgroundColor="#2D2D2D"
+                app:cardCornerRadius="8dp"
+                app:cardElevation="2dp"
+                app:strokeWidth="0dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Messaging"
+                        android:textColor="#0078D4"
+                        android:textSize="14sp"
+                        android:textStyle="bold"
+                        android:layout_marginBottom="12dp" />
+
+                    <!-- Discord TCP -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginBottom="12dp">
+
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="Discord TCP"
+                            android:textColor="#FFFFFF"
+                            android:textSize="14sp" />
+
+                        <Spinner
+                            android:id="@+id/spinnerDiscordTcp"
+                            android:layout_width="160dp"
+                            android:layout_height="40dp"
+                            android:background="@drawable/spinner_background"
+                            android:popupBackground="#2D2D2D"
+                            android:dropDownWidth="160dp" />
+
+                    </LinearLayout>
+
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="1dp"
+                        android:background="#404040"
+                        android:layout_marginBottom="12dp" />
+
+                    <!-- Discord QUIC -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginBottom="12dp">
+
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="Discord QUIC"
+                            android:textColor="#FFFFFF"
+                            android:textSize="14sp" />
+
+                        <Spinner
+                            android:id="@+id/spinnerDiscordQuic"
+                            android:layout_width="160dp"
+                            android:layout_height="40dp"
+                            android:background="@drawable/spinner_background"
+                            android:popupBackground="#2D2D2D"
+                            android:dropDownWidth="160dp" />
+
+                    </LinearLayout>
+
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="1dp"
+                        android:background="#404040"
+                        android:layout_marginBottom="12dp" />
+
+                    <!-- Voice/STUN -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginBottom="12dp">
+
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="Voice/STUN"
+                            android:textColor="#FFFFFF"
+                            android:textSize="14sp" />
+
+                        <Spinner
+                            android:id="@+id/spinnerVoice"
+                            android:layout_width="160dp"
+                            android:layout_height="40dp"
+                            android:background="@drawable/spinner_background"
+                            android:popupBackground="#2D2D2D"
+                            android:dropDownWidth="160dp" />
+
+                    </LinearLayout>
+
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="1dp"
+                        android:background="#404040"
+                        android:layout_marginBottom="12dp" />
+
+                    <!-- Telegram TCP -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginBottom="12dp">
+
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="Telegram TCP"
+                            android:textColor="#FFFFFF"
+                            android:textSize="14sp" />
+
+                        <Spinner
+                            android:id="@+id/spinnerTelegram"
+                            android:layout_width="160dp"
+                            android:layout_height="40dp"
+                            android:background="@drawable/spinner_background"
+                            android:popupBackground="#2D2D2D"
+                            android:dropDownWidth="160dp" />
+
+                    </LinearLayout>
+
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="1dp"
+                        android:background="#404040"
+                        android:layout_marginBottom="12dp" />
+
+                    <!-- WhatsApp TCP -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical">
+
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="WhatsApp TCP"
+                            android:textColor="#FFFFFF"
+                            android:textSize="14sp" />
+
+                        <Spinner
+                            android:id="@+id/spinnerWhatsapp"
+                            android:layout_width="160dp"
+                            android:layout_height="40dp"
+                            android:background="@drawable/spinner_background"
+                            android:popupBackground="#2D2D2D"
+                            android:dropDownWidth="160dp" />
+
+                    </LinearLayout>
+
+                </LinearLayout>
+
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- Social Media Card -->
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="12dp"
+                app:cardBackgroundColor="#2D2D2D"
+                app:cardCornerRadius="8dp"
+                app:cardElevation="2dp"
+                app:strokeWidth="0dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Social Media"
+                        android:textColor="#0078D4"
+                        android:textSize="14sp"
+                        android:textStyle="bold"
+                        android:layout_marginBottom="12dp" />
+
+                    <!-- Facebook TCP -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginBottom="12dp">
+
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="Facebook TCP"
+                            android:textColor="#FFFFFF"
+                            android:textSize="14sp" />
+
+                        <Spinner
+                            android:id="@+id/spinnerFacebook"
+                            android:layout_width="160dp"
+                            android:layout_height="40dp"
+                            android:background="@drawable/spinner_background"
+                            android:popupBackground="#2D2D2D"
+                            android:dropDownWidth="160dp" />
+
+                    </LinearLayout>
+
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="1dp"
+                        android:background="#404040"
+                        android:layout_marginBottom="12dp" />
+
+                    <!-- Instagram TCP -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginBottom="12dp">
+
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="Instagram TCP"
+                            android:textColor="#FFFFFF"
+                            android:textSize="14sp" />
+
+                        <Spinner
+                            android:id="@+id/spinnerInstagram"
+                            android:layout_width="160dp"
+                            android:layout_height="40dp"
+                            android:background="@drawable/spinner_background"
+                            android:popupBackground="#2D2D2D"
+                            android:dropDownWidth="160dp" />
+
+                    </LinearLayout>
+
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="1dp"
+                        android:background="#404040"
+                        android:layout_marginBottom="12dp" />
+
+                    <!-- Twitter TCP -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical">
+
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="Twitter TCP"
+                            android:textColor="#FFFFFF"
+                            android:textSize="14sp" />
+
+                        <Spinner
+                            android:id="@+id/spinnerTwitter"
+                            android:layout_width="160dp"
+                            android:layout_height="40dp"
+                            android:background="@drawable/spinner_background"
+                            android:popupBackground="#2D2D2D"
+                            android:dropDownWidth="160dp" />
+
+                    </LinearLayout>
+
+                </LinearLayout>
+
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- Other Services Card -->
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="12dp"
+                app:cardBackgroundColor="#2D2D2D"
+                app:cardCornerRadius="8dp"
+                app:cardElevation="2dp"
+                app:strokeWidth="0dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Other Services"
+                        android:textColor="#0078D4"
+                        android:textSize="14sp"
+                        android:textStyle="bold"
+                        android:layout_marginBottom="12dp" />
+
+                    <!-- GitHub TCP -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginBottom="12dp">
+
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="GitHub TCP"
+                            android:textColor="#FFFFFF"
+                            android:textSize="14sp" />
+
+                        <Spinner
+                            android:id="@+id/spinnerGithub"
+                            android:layout_width="160dp"
+                            android:layout_height="40dp"
+                            android:background="@drawable/spinner_background"
+                            android:popupBackground="#2D2D2D"
+                            android:dropDownWidth="160dp" />
+
+                    </LinearLayout>
+
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="1dp"
+                        android:background="#404040"
+                        android:layout_marginBottom="12dp" />
+
+                    <!-- Steam TCP -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginBottom="12dp">
+
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="Steam TCP"
+                            android:textColor="#FFFFFF"
+                            android:textSize="14sp" />
+
+                        <Spinner
+                            android:id="@+id/spinnerSteam"
+                            android:layout_width="160dp"
+                            android:layout_height="40dp"
+                            android:background="@drawable/spinner_background"
+                            android:popupBackground="#2D2D2D"
+                            android:dropDownWidth="160dp" />
+
+                    </LinearLayout>
+
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="1dp"
+                        android:background="#404040"
+                        android:layout_marginBottom="12dp" />
+
+                    <!-- SoundCloud TCP -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginBottom="12dp">
+
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="SoundCloud TCP"
+                            android:textColor="#FFFFFF"
+                            android:textSize="14sp" />
+
+                        <Spinner
+                            android:id="@+id/spinnerSoundcloud"
+                            android:layout_width="160dp"
+                            android:layout_height="40dp"
+                            android:background="@drawable/spinner_background"
+                            android:popupBackground="#2D2D2D"
+                            android:dropDownWidth="160dp" />
+
+                    </LinearLayout>
+
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="1dp"
+                        android:background="#404040"
+                        android:layout_marginBottom="12dp" />
+
+                    <!-- Rutracker TCP -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginBottom="12dp">
+
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="Rutracker TCP"
+                            android:textColor="#FFFFFF"
+                            android:textSize="14sp" />
+
+                        <Spinner
+                            android:id="@+id/spinnerRutracker"
+                            android:layout_width="160dp"
+                            android:layout_height="40dp"
+                            android:background="@drawable/spinner_background"
+                            android:popupBackground="#2D2D2D"
+                            android:dropDownWidth="160dp" />
+
+                    </LinearLayout>
+
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="1dp"
+                        android:background="#404040"
+                        android:layout_marginBottom="12dp" />
+
+                    <!-- Other/Hostlist TCP -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical">
+
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="Other/Hostlist TCP"
+                            android:textColor="#FFFFFF"
+                            android:textSize="14sp" />
+
+                        <Spinner
+                            android:id="@+id/spinnerOther"
+                            android:layout_width="160dp"
+                            android:layout_height="40dp"
+                            android:background="@drawable/spinner_background"
+                            android:popupBackground="#2D2D2D"
+                            android:dropDownWidth="160dp" />
+
+                    </LinearLayout>
+
+                </LinearLayout>
+
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- Advanced Settings Card -->
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="16dp"
+                app:cardBackgroundColor="#2D2D2D"
+                app:cardCornerRadius="8dp"
+                app:cardElevation="2dp"
+                app:strokeWidth="0dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Advanced Settings"
+                        android:textColor="#0078D4"
+                        android:textSize="14sp"
+                        android:textStyle="bold"
+                        android:layout_marginBottom="12dp" />
+
+                    <!-- PKT_COUNT Setting -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginBottom="12dp">
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="PKT_COUNT"
+                                android:textColor="#FFFFFF"
+                                android:textSize="14sp" />
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="Number of packets to modify"
+                                android:textColor="#808080"
+                                android:textSize="12sp" />
+
+                        </LinearLayout>
+
+                        <com.google.android.material.textfield.TextInputLayout
+                            android:layout_width="80dp"
+                            android:layout_height="wrap_content"
+                            style="@style/Widget.Material3.TextInputLayout.OutlinedBox.Dense"
+                            app:boxStrokeColor="#0078D4"
+                            app:hintTextColor="#808080">
+
+                            <com.google.android.material.textfield.TextInputEditText
+                                android:id="@+id/editPktCount"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:inputType="number"
+                                android:text="5"
+                                android:textColor="#FFFFFF"
+                                android:textSize="14sp"
+                                android:gravity="center"
+                                android:background="#383838" />
+
+                        </com.google.android.material.textfield.TextInputLayout>
+
+                    </LinearLayout>
+
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="1dp"
+                        android:background="#404040"
+                        android:layout_marginBottom="12dp" />
+
+                    <!-- Debug Mode -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical">
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="Debug Mode"
+                                android:textColor="#FFFFFF"
+                                android:textSize="14sp" />
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="Log output destination"
+                                android:textColor="#808080"
+                                android:textSize="12sp" />
+
+                        </LinearLayout>
+
+                        <Spinner
+                            android:id="@+id/spinnerDebug"
+                            android:layout_width="120dp"
+                            android:layout_height="40dp"
+                            android:background="@drawable/spinner_background"
+                            android:popupBackground="#2D2D2D"
+                            android:dropDownWidth="120dp" />
+
+                    </LinearLayout>
+
+                </LinearLayout>
+
+            </com.google.android.material.card.MaterialCardView>
+
+        </LinearLayout>
+
+    </ScrollView>
+
+    <!-- Save Button (Fixed at Bottom) -->
+    <com.google.android.material.card.MaterialCardView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        app:cardBackgroundColor="#2D2D2D"
+        app:cardCornerRadius="0dp"
+        app:cardElevation="8dp"
+        app:strokeWidth="0dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/buttonSave"
+                android:layout_width="match_parent"
+                android:layout_height="56dp"
+                android:text="SAVE CONFIGURATION"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                app:backgroundTint="#0078D4"
+                app:cornerRadius="8dp"
+                app:icon="@drawable/ic_save"
+                app:iconGravity="textStart"
+                app:iconPadding="8dp" />
+
+            <TextView
+                android:id="@+id/textSaveHint"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Changes will be applied after restart"
+                android:textColor="#808080"
+                android:textSize="12sp"
+                android:layout_gravity="center"
+                android:layout_marginTop="8dp" />
+
+        </LinearLayout>
+
+    </com.google.android.material.card.MaterialCardView>
+
+</LinearLayout>

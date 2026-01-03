@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Zapret2</string>
+
+    <!-- Update Dialog -->
+    <string name="update_available">Доступно обновление</string>
+    <string name="update_whats_new">Что нового:</string>
+    <string name="update_no_changelog">Нет информации об изменениях</string>
+    <string name="update_apk">Обновить APK</string>
+    <string name="update_module">Обновить модуль Magisk</string>
+    <string name="update_apk_unavailable">Обновить APK (недоступно)</string>
+    <string name="update_module_unavailable">Обновить модуль Magisk (недоступно)</string>
+    <string name="update_downloading">Скачивание… %d%%</string>
+    <string name="update_downloading_apk">Скачивание APK…</string>
+    <string name="update_downloading_module">Скачивание модуля…</string>
+    <string name="update_installing_module">Установка модуля…</string>
+    <string name="update_launching_installer">Запуск установщика APK…</string>
+    <string name="update_later">Позже</string>
+    <string name="update_now">Обновить</string>
+    <string name="update_in_progress">Загрузка…</string>
+    <string name="update_select_option">Выберите что обновить</string>
+    <string name="update_apk_error">Ошибка загрузки APK: %s</string>
+    <string name="update_module_error">Ошибка загрузки модуля: %s</string>
+    <string name="update_module_success">Модуль установлен. Требуется перезагрузка.</string>
+    <string name="update_module_install_error">Ошибка установки модуля</string>
+</resources>
