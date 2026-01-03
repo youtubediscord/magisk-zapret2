@@ -211,27 +211,28 @@ build_options() {
     # Base options with uid for privilege drop (1=system, 3003=inet)
     OPTS="--qnum=$QNUM --fwmark=$DESYNC_MARK --uid=1:3003"
 
+    # PKT_COUNT controls how many packets to process per connection
+    # This is set dynamically from WebUI config (default: 4)
+    PKT_COUNT="${PKT_COUNT:-4}"
+    log_msg "Packet count (--out-range): $PKT_COUNT"
+
     # IP cache for better performance
     OPTS="$OPTS --ipcache-lifetime=84600 --ipcache-hostname=1"
 
-    # Debug mode - default to FILE logging for WebUI access
+    # Debug mode - default OFF for production
     NFQWS_LOG="/data/local/tmp/nfqws2-debug.log"
     case "$LOG_MODE" in
         android)
             OPTS="$OPTS --debug=android"
-            ;;
-        syslog)
-            OPTS="$OPTS --debug=syslog"
+            log_msg "Debug: android logcat"
             ;;
         file)
             OPTS="$OPTS --debug=@$NFQWS_LOG"
+            log_msg "Debug: file ($NFQWS_LOG)"
             ;;
-        none)
-            # No debug output
-            ;;
-        *)
-            # Default to FILE for WebUI access (not android/logcat)
-            OPTS="$OPTS --debug=@$NFQWS_LOG"
+        none|*)
+            # No debug output (default for production)
+            log_msg "Debug: disabled"
             ;;
     esac
 
@@ -342,7 +343,8 @@ build_category_options() {
         local hostlist="$4"
 
         if [ -n "$strategy" ] && [ "$strategy" != "none" ]; then
-            local full_filter="$filter"
+            # Build full filter with --out-range (from PKT_COUNT config)
+            local full_filter="--out-range=-d$PKT_COUNT $filter"
             if [ -n "$hostlist" ] && [ -f "$LISTS_DIR/$hostlist" ]; then
                 full_filter="$full_filter --hostlist=$LISTS_DIR/$hostlist"
             fi
@@ -353,7 +355,7 @@ build_category_options() {
                 fi
                 OPTS="$OPTS $strat_opts"
                 first=0
-                log_msg "Added $name: $strategy"
+                log_msg "Added $name: $strategy (pkt=$PKT_COUNT)"
             else
                 log_msg "WARNING: No options for $name: $strategy"
             fi
@@ -417,7 +419,6 @@ build_category_options() {
         log_msg "No categories configured, using default YouTube strategy"
         OPTS="$OPTS \
 --filter-tcp=443 --filter-l7=tls \
---out-range=-d10 \
 --payload=tls_client_hello \
 --lua-desync=send:repeats=2 \
 --lua-desync=syndata:blob=tls_google \
