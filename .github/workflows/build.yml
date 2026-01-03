@@ -55,7 +55,62 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential wget
+          sudo apt-get install -y build-essential wget autoconf automake libtool pkg-config
+
+      - name: Build libmnl for Android
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+        run: |
+          TOOLCHAIN=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64
+          export CC=$TOOLCHAIN/bin/${{ matrix.ndk_arch }}${{ matrix.api }}-clang
+          export AR=$TOOLCHAIN/bin/llvm-ar
+          export RANLIB=$TOOLCHAIN/bin/llvm-ranlib
+          export PREFIX=$GITHUB_WORKSPACE/android-libs
+
+          git clone --depth 1 https://git.netfilter.org/libmnl
+          cd libmnl
+          ./autogen.sh
+          ./configure --host=${{ matrix.ndk_arch }} --prefix=$PREFIX --enable-static --disable-shared
+          make -j$(nproc)
+          make install
+
+      - name: Build libnfnetlink for Android
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+        run: |
+          TOOLCHAIN=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64
+          export CC=$TOOLCHAIN/bin/${{ matrix.ndk_arch }}${{ matrix.api }}-clang
+          export AR=$TOOLCHAIN/bin/llvm-ar
+          export RANLIB=$TOOLCHAIN/bin/llvm-ranlib
+          export PREFIX=$GITHUB_WORKSPACE/android-libs
+          export PKG_CONFIG_PATH=$PREFIX/lib/pkgconfig
+
+          git clone --depth 1 https://git.netfilter.org/libnfnetlink
+          cd libnfnetlink
+          ./autogen.sh
+          ./configure --host=${{ matrix.ndk_arch }} --prefix=$PREFIX --enable-static --disable-shared
+          make -j$(nproc)
+          make install
+
+      - name: Build libnetfilter_queue for Android
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+        run: |
+          TOOLCHAIN=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64
+          export CC=$TOOLCHAIN/bin/${{ matrix.ndk_arch }}${{ matrix.api }}-clang
+          export AR=$TOOLCHAIN/bin/llvm-ar
+          export RANLIB=$TOOLCHAIN/bin/llvm-ranlib
+          export PREFIX=$GITHUB_WORKSPACE/android-libs
+          export PKG_CONFIG_PATH=$PREFIX/lib/pkgconfig
+          export CFLAGS="-I$PREFIX/include"
+          export LDFLAGS="-L$PREFIX/lib"
+
+          git clone --depth 1 https://git.netfilter.org/libnetfilter_queue
+          cd libnetfilter_queue
+          ./autogen.sh
+          ./configure --host=${{ matrix.ndk_arch }} --prefix=$PREFIX --enable-static --disable-shared
+          make -j$(nproc)
+          make install
 
       - name: Build Lua 5.4 for Android
         env:
@@ -95,11 +150,23 @@ jobs:
           export AR=$TOOLCHAIN/bin/llvm-ar
           export STRIP=$TOOLCHAIN/bin/llvm-strip
 
-          # Build with our Lua
-          export LUA_CFLAGS="-I$GITHUB_WORKSPACE/lua-android/include"
-          export LUA_LIB="-L$GITHUB_WORKSPACE/lua-android/lib -llua -lm"
+          # Paths to our built libraries
+          PREFIX=$GITHUB_WORKSPACE/android-libs
+          LUA_PREFIX=$GITHUB_WORKSPACE/lua-android
 
-          make android CC=$CC LUA_JIT=0 LUA_CFLAGS="$LUA_CFLAGS" LUA_LIB="$LUA_LIB"
+          # Build with all dependencies
+          export CFLAGS="-I$PREFIX/include -I$LUA_PREFIX/include"
+          export LDFLAGS="-L$PREFIX/lib -L$LUA_PREFIX/lib"
+          export LUA_CFLAGS="-I$LUA_PREFIX/include"
+          export LUA_LIB="-L$LUA_PREFIX/lib -llua"
+          export LIBS_LINUX="-L$PREFIX/lib -lnetfilter_queue -lnfnetlink -lmnl -lz -lm"
+
+          make android CC=$CC LUA_JIT=0 \
+            CFLAGS="$CFLAGS" \
+            LDFLAGS="$LDFLAGS" \
+            LUA_CFLAGS="$LUA_CFLAGS" \
+            LUA_LIB="$LUA_LIB" \
+            LIBS_LINUX="$LIBS_LINUX"
 
           # Strip binary
           $STRIP nfqws2 || true
