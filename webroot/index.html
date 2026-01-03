@@ -34,7 +34,6 @@
             padding-bottom: 70px;
         }
 
-        /* Tab Navigation */
         .tab-bar {
             position: fixed;
             bottom: 0;
@@ -61,33 +60,20 @@
             transition: all 0.2s;
         }
 
-        .tab-btn.active {
-            color: var(--primary);
-        }
+        .tab-btn.active { color: var(--primary); }
+        .tab-btn:active { background: var(--surface2); }
+        .tab-icon { font-size: 20px; }
 
-        .tab-btn:active {
-            background: var(--surface2);
-        }
-
-        .tab-icon {
-            font-size: 20px;
-        }
-
-        /* Tab Content */
         .tab-content {
             display: none;
             padding: 16px;
         }
-
-        .tab-content.active {
-            display: block;
-        }
+        .tab-content.active { display: block; }
 
         .header {
             text-align: center;
             padding: 16px 0;
         }
-
         .header h1 {
             font-size: 20px;
             font-weight: 500;
@@ -112,20 +98,9 @@
             margin-bottom: 16px;
         }
 
-        .status-indicator.running {
-            background: rgba(76, 175, 80, 0.15);
-            color: var(--success);
-        }
-
-        .status-indicator.stopped {
-            background: rgba(207, 102, 121, 0.15);
-            color: var(--error);
-        }
-
-        .status-indicator.loading {
-            background: rgba(255, 152, 0, 0.15);
-            color: var(--warning);
-        }
+        .status-indicator.running { background: rgba(76, 175, 80, 0.15); color: var(--success); }
+        .status-indicator.stopped { background: rgba(207, 102, 121, 0.15); color: var(--error); }
+        .status-indicator.loading { background: rgba(255, 152, 0, 0.15); color: var(--warning); }
 
         .status-dot {
             width: 10px;
@@ -133,10 +108,7 @@
             border-radius: 50%;
             background: currentColor;
         }
-
-        .status-indicator.running .status-dot {
-            animation: pulse 2s ease-in-out infinite;
-        }
+        .status-indicator.running .status-dot { animation: pulse 2s ease-in-out infinite; }
 
         @keyframes pulse {
             0%, 100% { opacity: 1; transform: scale(1); }
@@ -155,14 +127,12 @@
             padding: 12px;
             border-radius: 10px;
         }
-
         .status-item-label {
             font-size: 11px;
             color: var(--text3);
             text-transform: uppercase;
             margin-bottom: 4px;
         }
-
         .status-item-value {
             font-size: 14px;
             color: var(--text);
@@ -175,7 +145,6 @@
             padding: 20px;
             margin-bottom: 16px;
         }
-
         .card-title {
             font-size: 14px;
             font-weight: 500;
@@ -206,15 +175,8 @@
             position: relative;
             overflow: hidden;
         }
-
-        .btn:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
-
-        .btn:active:not(:disabled) {
-            transform: scale(0.97);
-        }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn:active:not(:disabled) { transform: scale(0.97); }
 
         .btn-start { background: var(--success); color: #000; }
         .btn-stop { background: var(--error); color: #fff; }
@@ -222,9 +184,7 @@
         .btn-update { background: var(--primary); color: #000; }
         .btn-secondary { background: var(--surface2); color: var(--text); }
 
-        .btn-icon {
-            font-size: 18px;
-        }
+        .btn-icon { font-size: 18px; }
 
         .btn-loading::after {
             content: '';
@@ -236,16 +196,10 @@
             border-radius: 50%;
             animation: spin 0.8s linear infinite;
         }
+        .btn-loading span { visibility: hidden; }
 
-        .btn-loading span {
-            visibility: hidden;
-        }
+        @keyframes spin { to { transform: rotate(360deg); } }
 
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-
-        /* Strategy styles */
         .strategy-row {
             display: flex;
             justify-content: space-between;
@@ -253,14 +207,8 @@
             padding: 14px 0;
             border-bottom: 1px solid var(--surface2);
         }
-
-        .strategy-row:last-child {
-            border-bottom: none;
-        }
-
-        .strategy-label {
-            font-size: 15px;
-        }
+        .strategy-row:last-child { border-bottom: none; }
+        .strategy-label { font-size: 15px; }
 
         .strategy-select {
             background: var(--surface2);
@@ -268,22 +216,12 @@
             border: none;
             border-radius: 8px;
             padding: 10px 12px;
-            font-size: 13px;
-            max-width: 180px;
+            font-size: 12px;
+            max-width: 200px;
             cursor: pointer;
         }
-
-        .strategy-select:focus {
-            outline: 2px solid var(--primary);
-        }
-
-        /* Logs styles */
-        .logs-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 12px;
-        }
+        .strategy-select:focus { outline: 2px solid var(--primary); }
+        .strategy-select optgroup { font-weight: bold; color: var(--primary); }
 
         .logs-actions {
             display: flex;
@@ -291,17 +229,8 @@
             flex-wrap: wrap;
             margin-bottom: 12px;
         }
-
-        .btn-small {
-            padding: 10px 14px;
-            font-size: 13px;
-        }
-
-        .logs-count {
-            font-size: 12px;
-            color: var(--text3);
-            margin-bottom: 8px;
-        }
+        .btn-small { padding: 10px 14px; font-size: 13px; }
+        .logs-count { font-size: 12px; color: var(--text3); margin-bottom: 8px; }
 
         .logs-box {
             background: var(--bg);
@@ -315,25 +244,11 @@
             line-height: 1.6;
             color: var(--text2);
         }
+        .log-line { padding: 2px 0; word-break: break-all; }
+        .log-line.error { color: var(--error); }
+        .log-line.info { color: var(--secondary); }
+        .log-line.warn { color: var(--warning); }
 
-        .log-line {
-            padding: 2px 0;
-            word-break: break-all;
-        }
-
-        .log-line.error {
-            color: var(--error);
-        }
-
-        .log-line.info {
-            color: var(--secondary);
-        }
-
-        .log-line.warn {
-            color: var(--warning);
-        }
-
-        /* Toast */
         .toast {
             position: fixed;
             bottom: 80px;
@@ -350,20 +265,10 @@
             max-width: 90%;
             text-align: center;
         }
+        .toast.show { transform: translateX(-50%) translateY(0); }
+        .toast.error { border-left: 4px solid var(--error); }
+        .toast.success { border-left: 4px solid var(--success); }
 
-        .toast.show {
-            transform: translateX(-50%) translateY(0);
-        }
-
-        .toast.error {
-            border-left: 4px solid var(--error);
-        }
-
-        .toast.success {
-            border-left: 4px solid var(--success);
-        }
-
-        /* Activity log */
         .activity-log {
             margin-top: 12px;
             padding: 12px;
@@ -374,22 +279,9 @@
             max-height: 120px;
             overflow-y: auto;
         }
-
-        .activity-item {
-            padding: 4px 0;
-            display: flex;
-            gap: 8px;
-        }
-
-        .activity-time {
-            color: var(--text3);
-            flex-shrink: 0;
-        }
-
-        .activity-msg {
-            color: var(--text2);
-        }
-
+        .activity-item { padding: 4px 0; display: flex; gap: 8px; }
+        .activity-time { color: var(--text3); flex-shrink: 0; }
+        .activity-msg { color: var(--text2); }
         .activity-msg.ok { color: var(--success); }
         .activity-msg.err { color: var(--error); }
         .activity-msg.warn { color: var(--warning); }
@@ -398,16 +290,12 @@
 <body>
     <!-- Tab 1: Control -->
     <div id="tab-control" class="tab-content active">
-        <div class="header">
-            <h1>Zapret2 DPI Bypass</h1>
-        </div>
-
+        <div class="header"><h1>Zapret2 DPI Bypass</h1></div>
         <div class="status-card">
             <div id="status-indicator" class="status-indicator loading">
                 <span class="status-dot"></span>
                 <span id="status-text">Проверка...</span>
             </div>
-
             <div class="status-details">
                 <div class="status-item">
                     <div class="status-item-label">Версия</div>
@@ -427,28 +315,22 @@
                 </div>
             </div>
         </div>
-
         <div class="card">
             <div class="card-title">Управление</div>
             <div class="btn-grid">
                 <button class="btn btn-start" id="btn-start" onclick="doStart()">
-                    <span class="btn-icon">▶</span>
-                    <span>Запустить</span>
+                    <span class="btn-icon">▶</span><span>Запустить</span>
                 </button>
                 <button class="btn btn-stop" id="btn-stop" onclick="doStop()">
-                    <span class="btn-icon">■</span>
-                    <span>Остановить</span>
+                    <span class="btn-icon">■</span><span>Остановить</span>
                 </button>
                 <button class="btn btn-restart" id="btn-restart" onclick="doRestart()">
-                    <span class="btn-icon">↻</span>
-                    <span>Перезапуск</span>
+                    <span class="btn-icon">↻</span><span>Перезапуск</span>
                 </button>
                 <button class="btn btn-update" id="btn-update" onclick="doUpdate()">
-                    <span class="btn-icon">↓</span>
-                    <span>Обновить</span>
+                    <span class="btn-icon">↓</span><span>Обновить</span>
                 </button>
             </div>
-
             <div class="activity-log" id="activity-log">
                 <div class="activity-item">
                     <span class="activity-time">--:--</span>
@@ -460,117 +342,905 @@
 
     <!-- Tab 2: Strategies -->
     <div id="tab-strategies" class="tab-content">
-        <div class="header">
-            <h1>Стратегии</h1>
-        </div>
-
+        <div class="header"><h1>Стратегии</h1></div>
         <div class="card">
-            <div class="card-title">YouTube</div>
+            <div class="card-title">YouTube (TLS)</div>
             <div class="strategy-row">
-                <span class="strategy-label">TLS (TCP 443)</span>
+                <span class="strategy-label">TCP 443</span>
                 <select class="strategy-select" id="strat-youtube" onchange="saveStrategies()">
-                    <option value="syndata_7_tls_google_multisplit_midsld">Syndata+Multisplit</option>
-                    <option value="censorliber_google_syndata">Censorliber</option>
-                    <option value="censorliber_google_syndata_v2">Censorliber v2</option>
-                    <option value="alt9">Alt v9 (fake)</option>
-                    <option value="alt11_100_syndata">Alt v11</option>
-                    <option value="multisplit_midsld">Multisplit</option>
-                    <option value="multidisorder_midsld">Multidisorder</option>
                     <option value="none">Выключено</option>
+                    <optgroup label="Syndata">
+                        <option value="syndata_2_tls_7">syndata repeats 2 tls 7 🧪</option>
+                        <option value="syndata_3_tls_google">syndata repeats 3 tls google 🧪</option>
+                        <option value="syndata_7_n3">syndata 7 n3 🧪</option>
+                        <option value="syndata_multisplit_tls_google_700">syndata multisplit tls google seqovl 700 🧪</option>
+                        <option value="syndata_multidisorder_tls_google_700">syndata multidisorder tls google seqovl ... 🧪</option>
+                        <option value="syndata_multisplit_tls_google_1000">syndata multisplit tls google seqovl 100... 🧪</option>
+                        <option value="syndata_multidisorder_tls_google_1000">syndata multidisorder tls google seqovl ... 🧪</option>
+                        <option value="syndata_7_tls_google_multisplit_midsld">syndata 7 tls google multisplit midsld 🧪</option>
+                        <option value="syndata_7_tls_max_ru_multisplit_midsld">syndata 7 tls max ru multisplit midsld 🧪</option>
+                        <option value="syndata_multidisorder_legacy_midsld">syndata multidisorder_legacy midsld 🧪</option>
+                        <option value="syndata_general_simple_fake_165_2">syndata + general simple fake 1.8.5 v2</option>
+                        <option value="syndata">syndata</option>
+                        <option value="syndata_md5sig_2">multisplit и md5sig 9</option>
+                        <option value="syndata_1">syndata 4 ⭐</option>
+                        <option value="syndata_4_badseq">syndata 4 badseq</option>
+                        <option value="syndata_tls_google_5_repeats">syndata tls_google 5 repeats</option>
+                        <option value="syndata_tls_google_5_repeats_multidisorder">syndata tls_google 5 repeats multidisord...</option>
+                        <option value="syndata_syn_packet_n3">syndata syn_packet.bin n3</option>
+                    </optgroup>
+                    <optgroup label="Censorliber">
+                        <option value="censorliber_google_syndata">Censorliber Google + Syndata ⭐</option>
+                        <option value="censorliber_google_syndata_v2">Censorliber Google + Syndata v2 ⭐</option>
+                        <option value="censorliber_google_syndata_tcpack">Censorliber Google + Syndata + TCP ACK ⭐</option>
+                        <option value="censorliber_tls_google_syndata_tcpack_fake">Censorliber tls google + Syndata + fake ... ⭐</option>
+                        <option value="censorliber_tls_google_syndata_tcpack_fake_seqovl_1">Censorliber tls google + Syndata + fake ... ⭐</option>
+                        <option value="censorliber_max_ru_syndata_tcpack_fake_seqovl_1">Censorliber max.ru + Syndata + fake + TC... ⭐</option>
+                        <option value="censorliber_google">Censorliber Google ⭐</option>
+                    </optgroup>
+                    <optgroup label="Alt">
+                        <option value="alt9">alt v9 ⭐</option>
+                        <option value="alt11_100_syndata">alt v11 + syndata ⭐</option>
+                        <option value="alt1_161">general (alt v1) 1.8.2</option>
+                        <option value="altmgts2_161_2">alt mgts (v2) 1.6.1 / 1.8.4</option>
+                        <option value="altmgts2_161_3">alt mgts (v3) 1.6.1</option>
+                    </optgroup>
+                    <optgroup label="Multisplit/Disorder">
+                        <option value="multidisorder_legacy_midsld">multidisorder_legacy midsld 🧪</option>
+                        <option value="multidisorder_legacy_seqovl_211">multidisorder_legacy seqovl 211 + tls5 🧪</option>
+                        <option value="multidisorder_legacy_seqovl_652">multidisorder_legacy seqovl 652 + tls5 🧪</option>
+                        <option value="multidisorder_legacy_badseq">multidisorder_legacy + fake badseq 🧪</option>
+                        <option value="multidisorder_legacy_md5sig">multidisorder_legacy + fake md5sig 🧪</option>
+                        <option value="multidisorder_legacy_syndata">syndata + multidisorder_legacy 🧪</option>
+                        <option value="multidisorder_legacy_autottl">multidisorder_legacy + autottl 🧪</option>
+                        <option value="multidisorder_legacy_sniext">multidisorder_legacy sniext+1 midsld 🧪</option>
+                        <option value="multisplit_sniext_midsld_18">multisplit sniext+1 midsld-1</option>
+                        <option value="multisplit_fake_tls_badseq">YTDisBystro 3.4 v1</option>
+                        <option value="multisplit_fake_tls_badseq_lite">YTDisBystro 3.4 v1 (Lite)</option>
+                        <option value="multisplit_fake_tls_badseq_autottl2">YTDisBystro 3.4 v1 (AutoTTL+2)</option>
+                        <option value="multisplit_fake_tls_md5sig">multisplit и md5sig 1</option>
+                        <option value="multisplit_fake_tls_md5sig_lite">YTDisBystro 3.4 v3 Lite</option>
+                        <option value="multidisorder_badseq_pos">original bol-van v2 (badsum)</option>
+                        <option value="multidisorder_md5sig_pos">original bol-van v2</option>
+                        <option value="multidisorder_ipset_syndata">Ulta v2 / 06.01.2025 ⭐</option>
+                        <option value="multisplit_286_pattern">YTDisBystro 3.4 v2 (1)</option>
+                        <option value="multidisorder_super_split_md5sig">Discord Voice & YT (badseq)</option>
+                        <option value="multidisorder_super_split_badseq">Discord Voice & YT (md5sig и badseq)</option>
+                        <option value="multidisorder_w3">Discord Voice & YT (DTLS)</option>
+                        <option value="multidisorder_pos_100">Split Position</option>
+                        <option value="multisplit_3">YTDisBystro 2.9.2 v1 / v2</option>
+                        <option value="multidisorder_seqovl_midsld">multidisorder seqovl midsld ⭐</option>
+                        <option value="multisplit_226_pattern_18">multisplit seqovl 226</option>
+                        <option value="multisplit_226_pattern_google_Com">multisplit seqovl 226 v2</option>
+                        <option value="multisplit_308_pattern">multisplit seqovl 308 с парттерном 9</option>
+                        <option value="multisplit_split_pos_1">multisplit split pos 1 ⭐</option>
+                        <option value="multisplit_datanoack">multisplit datanoack ⭐</option>
+                        <option value="multisplit_datanoack_split_pos_1">multisplit datanoack split pos 1 ⭐</option>
+                        <option value="fakeddisorder_datanoack_1">FakedDisorder datanoack ⭐</option>
+                        <option value="other_multidisorder">multidisorder 6 md5sig</option>
+                        <option value="multisplit_seqovl_2_midsld">fake multisplit seqovl 2 midsld</option>
+                        <option value="multisplit_17">YTDisBystro 3.4</option>
+                        <option value="multisplit_1_midsld">multisplit seqovl 1 и midsld</option>
+                        <option value="fake_multidisorder_1_split_pos_1">fake multidisorder badsum split pos 1</option>
+                        <option value="multisplit_seqovl_midsld">multisplit seqovl midsld ⭐</option>
+                        <option value="fake_multisplit_seqovl_md5sig">fake multisplit и seqovl 1 md5sig</option>
+                        <option value="multisplit_1">Мультисплит и смещение +1</option>
+                        <option value="multisplit_2_plus">Мультисплит и смещение +1 (вариант 2)</option>
+                        <option value="multisplit_1_plus_2">Мультисплит и смещение +1 с паттерном</option>
+                        <option value="multisplit_2">Мультисплит и смещение -1</option>
+                        <option value="multidisorder_fake_tls_1">YtDisBystro 3.4 v4 (без tls_mod)</option>
+                        <option value="multidisorder_fake_tls_1_tlsmod">YtDisBystro 3.4 v4 (с tls_mod fonts)</option>
+                        <option value="multidisorder_fake_tls_2">multidisorder 7 calendar (без tls_mod)</option>
+                        <option value="multidisorder_fake_tls_2_tlsmod">multidisorder 7 calendar (с tls_mod)</option>
+                        <option value="multisplit_md5sig">multisplit и md5sig</option>
+                        <option value="fake_multidisorder_seqovl_fake_tls">fake multidisorder seqovl fake tls</option>
+                        <option value="multisplit_seqovl_pos">multisplit seqovl с split pos</option>
+                        <option value="multisplit_seqovl_pos_2">multisplit seqovl с split pos и badseq</option>
+                        <option value="multidisorder_repeats_md5sig">original bol-van v2</option>
+                        <option value="multidisorder_repeats_md5sig_2">multidisorder с повторами и md5ig</option>
+                        <option value="multidisorder_midsld">multidisorder midsld ⭐</option>
+                        <option value="multidisorder_midsld_syndata">syndata multidisorder midsld</option>
+                        <option value="googlevideo_multidisorder">GoogleVideo MultiDisorder Complex</option>
+                        <option value="googlevideo_multisplit_pattern">GoogleVideo MultiSplit Pattern 7</option>
+                        <option value="googlevideo_fakeddisorder">GoogleVideo FakedDisorder AutoTTL</option>
+                        <option value="googlevideo_multidisorder_midsld">GoogleVideo MultiDisorder MidSLD</option>
+                        <option value="googlevideo_fake_multisplit">GoogleVideo Fake+MultiSplit</option>
+                        <option value="fake_multisplit_datanoack_wssize_midsld">GoogleVideo Fake+MultiSplit datanoack ws...</option>
+                        <option value="tls_multisplit_sni">🔀 TLS MultiSplit SNI ⭐</option>
+                        <option value="tls_multisplit_sni_652">🔀 TLS MultiSplit SNI seqovl 652</option>
+                        <option value="tls_disorder_gentle">🔀 TLS Disorder Gentle (3 parts) ⭐</option>
+                        <option value="tls_disorder_gentle_sld">🔀 TLS Disorder Gentle (sld)</option>
+                        <option value="tls_fake_disorder_gentle">🎭🔀 TLS Fake + Disorder Gentle ⭐</option>
+                        <option value="tls_fake_disorder_gentle_6">🎭🔀 TLS Fake x6 + Disorder Gentle ⭐</option>
+                    </optgroup>
+                    <optgroup label="Fake">
+                        <option value="fake_badseq_rnd">YTDisBystro 2.9.2 v1 (1)</option>
+                        <option value="fakedsplit_badseq_4">Фейк с фуулингом badseq и фейком tls 4</option>
+                        <option value="fake_autottl_faketls">Фейк с авто ttl и фейком tls</option>
+                        <option value="fake_datanoack_fake_tls">Фейк с datanoack и фейком tls</option>
+                        <option value="fake_badseq_2">Fake BadSeq Increment 2</option>
+                        <option value="fake_autottl_repeats_6_badseq">alt mgts (v1) 1.6.1 / 1.8.4</option>
+                        <option value="fake_md5sig_fake_tls">Launcher zapret 2.9.1 v2</option>
+                        <option value="fake_fakedsplit_autottl_2">fake fakedsplit badseq (рекомендуется дл...</option>
+                        <option value="fake_split2">Устаревший fake split2 seqovl 1</option>
+                        <option value="fake_fakedsplit_md5sig_80_port">Fake FakedSplit MD5Sig increment 10M</option>
+                    </optgroup>
+                    <optgroup label="SeqOvl">
+                        <option value="other_seqovl">YTDisBystro 3.4 v1 (all ports) ⭐</option>
+                        <option value="other_seqovl_v2">multidisorder 700 + tls_google ⭐</option>
+                        <option value="seqovl_211_google">seqovl 211 + tls_google</option>
+                        <option value="seqovl_211_tls4">seqovl 211 + tls4</option>
+                        <option value="seqovl_286_tls5">seqovl 286 + tls5</option>
+                        <option value="seqovl_286_google">seqovl 286 + tls_google</option>
+                        <option value="seqovl_308_tls5">seqovl 308 + tls5</option>
+                        <option value="seqovl_652_tls5">seqovl 652 + tls5</option>
+                        <option value="seqovl_681_tls5">seqovl 681 + tls5</option>
+                        <option value="seqovl_50_tls12">seqovl 50 + tls12</option>
+                        <option value="seqovl_150_tls5">seqovl 150 + tls5</option>
+                        <option value="seqovl_350_google">seqovl 350 + tls_google</option>
+                        <option value="seqovl_500_tls7">seqovl 500 + tls7</option>
+                        <option value="seqovl_211_tls9">seqovl 211 + tls9</option>
+                        <option value="other_seqovl_2">multidisorder seqovl 211 & pattern 5 ⭐</option>
+                        <option value="other_seqovl_fakedsplit_ttl2">fakedsplit ttl2 (без tls_mod) ⭐</option>
+                        <option value="other_seqovl_fakedsplit_ttl2_tlsmod">fakedsplit ttl2 (с tls_mod) ⭐</option>
+                        <option value="split2_seqovl_vk">Устаревший split2 с clienthello от VK</option>
+                        <option value="split2_seqovl_google">Устаревший split2 с clienthello от googl...</option>
+                        <option value="split2_seqovl_652">split2 seqovl 652</option>
+                        <option value="split_seqovl">Устаревший split и seqovl</option>
+                    </optgroup>
+                    <optgroup label="Dronatar">
+                        <option value="dronatar_4_2">Dronatar 4.2 (без tls_mod) ⭐</option>
+                        <option value="dronatar_4_2_tlsmod">Dronatar 4.2 (с tls_mod) ⭐</option>
+                        <option value="dronatar_4_3">Dronatar 4.3 ⭐</option>
+                    </optgroup>
+                    <optgroup label="Другие">
+                        <option value="general_alt11_191_syndata">general (alt v11) 1.9.1 + syndata ⭐</option>
+                        <option value="general_alt11_191">general (alt v11) 1.9.1 ⭐</option>
+                        <option value="general_simplefake_alt2_191">general (simple fake alt2) 1.9.1 ⭐</option>
+                        <option value="general_simplefake_alt2_191_v2">general (simple fake alt2 v2) 1.9.1 ⭐</option>
+                        <option value="dis4_dup">general (alt v2) + Dup</option>
+                        <option value="dis4_midsld">general (alt v2) MidSLD</option>
+                        <option value="original_bolvan_v2_badsum">Если стратегия не работает смени её! ⭐</option>
+                        <option value="original_bolvan_v2_badsum_max">Мессенджер Max ⭐</option>
+                        <option value="dis14">multisplit и seqovl</option>
+                        <option value="dis1">Фейк с datanoack и padencap</option>
+                        <option value="dis2">multisplit split pos padencap</option>
+                        <option value="dis3">split badseq 10</option>
+                        <option value="dis5">fake split 6 google</option>
+                        <option value="dis5_sberbank">fake split2 6 sberbank</option>
+                        <option value="dis6">syndata (на все домены!)</option>
+                        <option value="dis7">Ростелеком & Мегафон</option>
+                        <option value="dis8">Ростелеком & Мегафон v2</option>
+                        <option value="dis9">split2 sniext google</option>
+                        <option value="dis10">disorder2 badseq tls google</option>
+                        <option value="dis11">split badseq 10</option>
+                        <option value="split_pos_badseq">Ростелеком & Мегафон</option>
+                        <option value="dis12">split badseq 10 ttl</option>
+                        <option value="dis13">fakedsplit badsrq 10</option>
+                        <option value="general_alt183">general (alt) 1.8.3 / 1.8.4</option>
+                        <option value="general_alt185">general (alt) 1.8.5</option>
+                        <option value="general_alt2183">general (alt2) 1.8.3 / 1.8.4</option>
+                        <option value="general_alt3183_2">general (alt v3) 1.8.2 / 1.8.4</option>
+                        <option value="general_alt4_182">general (alt v4) 1.8.2 / 1.8.4</option>
+                        <option value="general_bf_2">general (BF) 2.0 🎮</option>
+                        <option value="general_alt5_182">general (alt v5) 1.8.2 / 1.8.4</option>
+                        <option value="general_alt6_182">general (alt v6) 1.8.2</option>
+                        <option value="general_alt6_184">general (alt v6) 1.8.4</option>
+                        <option value="general_alt7_184">general (alt v7) 1.8.4</option>
+                        <option value="general_alt8_185">general (alt v8) 1.8.5</option>
+                        <option value="general_alt8_185_2">general (alt v8) 1.8.5 (2)</option>
+                        <option value="general_alt8_185_3">general (alt v8) 1.8.5 (3)</option>
+                        <option value="general_simplefake_185">general simple fake alt 1.8.5</option>
+                        <option value="general_simple_fake_165_2">general simple fake 1.8.5 v2</option>
+                        <option value="general_fake_tls_auto_alt_184">general (fake TLS auto alt) 1.8.4</option>
+                        <option value="general_fake_tls_auto_alt_185">general (fake TLS auto alt) 1.8.5</option>
+                        <option value="general_fake_tls_auto_alt3_184">general (fake TLS auto alt3) 1.8.4</option>
+                        <option value="general_fake_tls_auto_alt2_184">general (fake TLS auto alt2) 1.8.4</option>
+                        <option value="general_fake_tls_auto_184">general (fake TLS auto) 1.8.4</option>
+                        <option value="launcher_zapret_2_9_1_v1">Launcher zapret 2.9.1 v1 (без tls_mod) ⭐</option>
+                        <option value="launcher_zapret_2_9_1_v1_tlsmod">Launcher zapret 2.9.1 v1 (с tls_mod) ⭐</option>
+                        <option value="launcher_zapret_2_9_1_v3">Launcher zapret 2.9.1 v3 ⭐</option>
+                        <option value="launcher_zapret_2_9_1_v4">Launcher zapret 2.9.1 v4 ⭐</option>
+                        <option value="datanoack">datanoack ⭐</option>
+                        <option value="other5">multidisorder datanoack deepseek</option>
+                        <option value="bolvan_md5sig">BolVan md5sig 11</option>
+                        <option value="bolvan_md5sig_2">BolVan v3</option>
+                        <option value="bolvan_fake_tls">BolVan fake TLS 4</option>
+                        <option value="general_alt3183">general (alt v3) 1.6.1</option>
+                        <option value="general_alt4_161">general (alt v4) 1.6.1</option>
+                        <option value="general_alt6_181">general (alt v6) 1.8.1</option>
+                        <option value="ankddev10">aankddev (v10)</option>
+                        <option value="split2_split">Устаревший split2 split</option>
+                        <option value="split2_split_google">Устаревший split2 split seqovl google</option>
+                        <option value="split2_split_2">Устаревший split2 split seqovl 2</option>
+                        <option value="split_pos_badseq_10">split badseq 10 и cutoff</option>
+                        <option value="split_pos_3">split pos 3 и повторы</option>
+                        <option value="googlevideo_fakedsplit">GoogleVideo FakedSplit badseq ⭐</option>
+                        <option value="googlevideo_split">GoogleVideo Split cutoff</option>
+                        <option value="googlevideo_fakedsplit_simple">GoogleVideo FakedSplit Simple</option>
+                        <option value="googlevideo_split_aggressive">GoogleVideo Split Aggressive</option>
+                        <option value="tls_aggressive">🔥 TLS Aggressive (browserleaks) ⭐</option>
+                        <option value="tls_aggressive_max">🔥 TLS Aggressive MAX</option>
+                        <option value="tls_aggressive_md5">🔥 TLS Aggressive MD5sig ⭐</option>
+                        <option value="tls_fake_flood">🌊 TLS Fake Flood x11 ⭐</option>
+                        <option value="tls_fake_flood_md5">🌊 TLS Fake Flood x11 MD5sig ⭐</option>
+                        <option value="tls_fake_flood_max">🌊 TLS Fake Flood x20 MAX</option>
+                        <option value="tls_combo_aggressive">💥 TLS Combo (Fake + MultiSplit + Disorde...</option>
+                        <option value="tls_fake_simple">🎭 TLS Fake Simple (browserleaks) ⭐</option>
+                        <option value="tls_fake_only">🎭 TLS Fake Only (без нарезки!) ⭐</option>
+                        <option value="tls_fake_only_ttl2">🎭 TLS Fake Only TTL=2 ⭐</option>
+                        <option value="tls_fake_only_badseq">🎭 TLS Fake Only + BadSeq ⭐</option>
+                        <option value="tls_fake_only_md5">🎭 TLS Fake Only + MD5sig ⭐</option>
+                        <option value="tls_pass">⚡ TLS Pass (без обработки)</option>
+                        <option value="tls_fake_simple_ttl2">🎭 TLS Fake Simple TTL=2 ⭐</option>
+                        <option value="tls_fake_simple_10">🎭 TLS Fake Simple x10</option>
+                        <option value="tls_split_gentle">✂️ TLS Split Gentle (midsld) ⭐</option>
+                        <option value="tls_split_gentle_host">✂️ TLS Split Gentle (host) ⭐</option>
+                        <option value="tls_split_gentle_sld">✂️ TLS Split Gentle (sld+1)</option>
+                        <option value="tls_fake_split">🎭✂️ TLS Fake + Split ⭐</option>
+                        <option value="tls_fake_split_host">🎭✂️ TLS Fake + Split (host) ⭐</option>
+                        <option value="discord_window_collapse">Discord Window Collapse 🧪</option>
+                        <option value="discord_router_alert">Discord Router Alert 🧪</option>
+                        <option value="discord_ecn_exploit">Discord ECN Exploit 🧪</option>
+                        <option value="discord_timestamp_travel">Discord Timestamp Travel 🧪</option>
+                        <option value="discord_urgent_sni">Discord Urgent SNI 🧪</option>
+                        <option value="discord_ultimate_combo">Discord Ultimate Combo 🧪</option>
+                    </optgroup>
+
                 </select>
             </div>
         </div>
-
         <div class="card">
             <div class="card-title">Discord</div>
             <div class="strategy-row">
-                <span class="strategy-label">TLS (TCP 443)</span>
+                <span class="strategy-label">TLS (TCP)</span>
                 <select class="strategy-select" id="strat-discord" onchange="saveStrategies()">
-                    <option value="syndata_7_tls_google_multisplit_midsld">Syndata+Multisplit</option>
-                    <option value="censorliber_google_syndata">Censorliber</option>
                     <option value="none">Выключено</option>
+                    <optgroup label="Syndata">
+                        <option value="syndata_2_tls_7">syndata repeats 2 tls 7 🧪</option>
+                        <option value="syndata_3_tls_google">syndata repeats 3 tls google 🧪</option>
+                        <option value="syndata_7_n3">syndata 7 n3 🧪</option>
+                        <option value="syndata_multisplit_tls_google_700">syndata multisplit tls google seqovl 700 🧪</option>
+                        <option value="syndata_multidisorder_tls_google_700">syndata multidisorder tls google seqovl ... 🧪</option>
+                        <option value="syndata_multisplit_tls_google_1000">syndata multisplit tls google seqovl 100... 🧪</option>
+                        <option value="syndata_multidisorder_tls_google_1000">syndata multidisorder tls google seqovl ... 🧪</option>
+                        <option value="syndata_7_tls_google_multisplit_midsld">syndata 7 tls google multisplit midsld 🧪</option>
+                        <option value="syndata_7_tls_max_ru_multisplit_midsld">syndata 7 tls max ru multisplit midsld 🧪</option>
+                        <option value="syndata_multidisorder_legacy_midsld">syndata multidisorder_legacy midsld 🧪</option>
+                        <option value="syndata_general_simple_fake_165_2">syndata + general simple fake 1.8.5 v2</option>
+                        <option value="syndata">syndata</option>
+                        <option value="syndata_md5sig_2">multisplit и md5sig 9</option>
+                        <option value="syndata_1">syndata 4 ⭐</option>
+                        <option value="syndata_4_badseq">syndata 4 badseq</option>
+                        <option value="syndata_tls_google_5_repeats">syndata tls_google 5 repeats</option>
+                        <option value="syndata_tls_google_5_repeats_multidisorder">syndata tls_google 5 repeats multidisord...</option>
+                        <option value="syndata_syn_packet_n3">syndata syn_packet.bin n3</option>
+                    </optgroup>
+                    <optgroup label="Censorliber">
+                        <option value="censorliber_google_syndata">Censorliber Google + Syndata ⭐</option>
+                        <option value="censorliber_google_syndata_v2">Censorliber Google + Syndata v2 ⭐</option>
+                        <option value="censorliber_google_syndata_tcpack">Censorliber Google + Syndata + TCP ACK ⭐</option>
+                        <option value="censorliber_tls_google_syndata_tcpack_fake">Censorliber tls google + Syndata + fake ... ⭐</option>
+                        <option value="censorliber_tls_google_syndata_tcpack_fake_seqovl_1">Censorliber tls google + Syndata + fake ... ⭐</option>
+                        <option value="censorliber_max_ru_syndata_tcpack_fake_seqovl_1">Censorliber max.ru + Syndata + fake + TC... ⭐</option>
+                        <option value="censorliber_google">Censorliber Google ⭐</option>
+                    </optgroup>
+                    <optgroup label="Alt">
+                        <option value="alt9">alt v9 ⭐</option>
+                        <option value="alt11_100_syndata">alt v11 + syndata ⭐</option>
+                        <option value="alt1_161">general (alt v1) 1.8.2</option>
+                        <option value="altmgts2_161_2">alt mgts (v2) 1.6.1 / 1.8.4</option>
+                        <option value="altmgts2_161_3">alt mgts (v3) 1.6.1</option>
+                    </optgroup>
+                    <optgroup label="Multisplit/Disorder">
+                        <option value="multidisorder_legacy_midsld">multidisorder_legacy midsld 🧪</option>
+                        <option value="multidisorder_legacy_seqovl_211">multidisorder_legacy seqovl 211 + tls5 🧪</option>
+                        <option value="multidisorder_legacy_seqovl_652">multidisorder_legacy seqovl 652 + tls5 🧪</option>
+                        <option value="multidisorder_legacy_badseq">multidisorder_legacy + fake badseq 🧪</option>
+                        <option value="multidisorder_legacy_md5sig">multidisorder_legacy + fake md5sig 🧪</option>
+                        <option value="multidisorder_legacy_syndata">syndata + multidisorder_legacy 🧪</option>
+                        <option value="multidisorder_legacy_autottl">multidisorder_legacy + autottl 🧪</option>
+                        <option value="multidisorder_legacy_sniext">multidisorder_legacy sniext+1 midsld 🧪</option>
+                        <option value="multisplit_sniext_midsld_18">multisplit sniext+1 midsld-1</option>
+                        <option value="multisplit_fake_tls_badseq">YTDisBystro 3.4 v1</option>
+                        <option value="multisplit_fake_tls_badseq_lite">YTDisBystro 3.4 v1 (Lite)</option>
+                        <option value="multisplit_fake_tls_badseq_autottl2">YTDisBystro 3.4 v1 (AutoTTL+2)</option>
+                        <option value="multisplit_fake_tls_md5sig">multisplit и md5sig 1</option>
+                        <option value="multisplit_fake_tls_md5sig_lite">YTDisBystro 3.4 v3 Lite</option>
+                        <option value="multidisorder_badseq_pos">original bol-van v2 (badsum)</option>
+                        <option value="multidisorder_md5sig_pos">original bol-van v2</option>
+                        <option value="multidisorder_ipset_syndata">Ulta v2 / 06.01.2025 ⭐</option>
+                        <option value="multisplit_286_pattern">YTDisBystro 3.4 v2 (1)</option>
+                        <option value="multidisorder_super_split_md5sig">Discord Voice & YT (badseq)</option>
+                        <option value="multidisorder_super_split_badseq">Discord Voice & YT (md5sig и badseq)</option>
+                        <option value="multidisorder_w3">Discord Voice & YT (DTLS)</option>
+                        <option value="multidisorder_pos_100">Split Position</option>
+                        <option value="multisplit_3">YTDisBystro 2.9.2 v1 / v2</option>
+                        <option value="multidisorder_seqovl_midsld">multidisorder seqovl midsld ⭐</option>
+                        <option value="multisplit_226_pattern_18">multisplit seqovl 226</option>
+                        <option value="multisplit_226_pattern_google_Com">multisplit seqovl 226 v2</option>
+                        <option value="multisplit_308_pattern">multisplit seqovl 308 с парттерном 9</option>
+                        <option value="multisplit_split_pos_1">multisplit split pos 1 ⭐</option>
+                        <option value="multisplit_datanoack">multisplit datanoack ⭐</option>
+                        <option value="multisplit_datanoack_split_pos_1">multisplit datanoack split pos 1 ⭐</option>
+                        <option value="fakeddisorder_datanoack_1">FakedDisorder datanoack ⭐</option>
+                        <option value="other_multidisorder">multidisorder 6 md5sig</option>
+                        <option value="multisplit_seqovl_2_midsld">fake multisplit seqovl 2 midsld</option>
+                        <option value="multisplit_17">YTDisBystro 3.4</option>
+                        <option value="multisplit_1_midsld">multisplit seqovl 1 и midsld</option>
+                        <option value="fake_multidisorder_1_split_pos_1">fake multidisorder badsum split pos 1</option>
+                        <option value="multisplit_seqovl_midsld">multisplit seqovl midsld ⭐</option>
+                        <option value="fake_multisplit_seqovl_md5sig">fake multisplit и seqovl 1 md5sig</option>
+                        <option value="multisplit_1">Мультисплит и смещение +1</option>
+                        <option value="multisplit_2_plus">Мультисплит и смещение +1 (вариант 2)</option>
+                        <option value="multisplit_1_plus_2">Мультисплит и смещение +1 с паттерном</option>
+                        <option value="multisplit_2">Мультисплит и смещение -1</option>
+                        <option value="multidisorder_fake_tls_1">YtDisBystro 3.4 v4 (без tls_mod)</option>
+                        <option value="multidisorder_fake_tls_1_tlsmod">YtDisBystro 3.4 v4 (с tls_mod fonts)</option>
+                        <option value="multidisorder_fake_tls_2">multidisorder 7 calendar (без tls_mod)</option>
+                        <option value="multidisorder_fake_tls_2_tlsmod">multidisorder 7 calendar (с tls_mod)</option>
+                        <option value="multisplit_md5sig">multisplit и md5sig</option>
+                        <option value="fake_multidisorder_seqovl_fake_tls">fake multidisorder seqovl fake tls</option>
+                        <option value="multisplit_seqovl_pos">multisplit seqovl с split pos</option>
+                        <option value="multisplit_seqovl_pos_2">multisplit seqovl с split pos и badseq</option>
+                        <option value="multidisorder_repeats_md5sig">original bol-van v2</option>
+                        <option value="multidisorder_repeats_md5sig_2">multidisorder с повторами и md5ig</option>
+                        <option value="multidisorder_midsld">multidisorder midsld ⭐</option>
+                        <option value="multidisorder_midsld_syndata">syndata multidisorder midsld</option>
+                        <option value="googlevideo_multidisorder">GoogleVideo MultiDisorder Complex</option>
+                        <option value="googlevideo_multisplit_pattern">GoogleVideo MultiSplit Pattern 7</option>
+                        <option value="googlevideo_fakeddisorder">GoogleVideo FakedDisorder AutoTTL</option>
+                        <option value="googlevideo_multidisorder_midsld">GoogleVideo MultiDisorder MidSLD</option>
+                        <option value="googlevideo_fake_multisplit">GoogleVideo Fake+MultiSplit</option>
+                        <option value="fake_multisplit_datanoack_wssize_midsld">GoogleVideo Fake+MultiSplit datanoack ws...</option>
+                        <option value="tls_multisplit_sni">🔀 TLS MultiSplit SNI ⭐</option>
+                        <option value="tls_multisplit_sni_652">🔀 TLS MultiSplit SNI seqovl 652</option>
+                        <option value="tls_disorder_gentle">🔀 TLS Disorder Gentle (3 parts) ⭐</option>
+                        <option value="tls_disorder_gentle_sld">🔀 TLS Disorder Gentle (sld)</option>
+                        <option value="tls_fake_disorder_gentle">🎭🔀 TLS Fake + Disorder Gentle ⭐</option>
+                        <option value="tls_fake_disorder_gentle_6">🎭🔀 TLS Fake x6 + Disorder Gentle ⭐</option>
+                    </optgroup>
+                    <optgroup label="Fake">
+                        <option value="fake_badseq_rnd">YTDisBystro 2.9.2 v1 (1)</option>
+                        <option value="fakedsplit_badseq_4">Фейк с фуулингом badseq и фейком tls 4</option>
+                        <option value="fake_autottl_faketls">Фейк с авто ttl и фейком tls</option>
+                        <option value="fake_datanoack_fake_tls">Фейк с datanoack и фейком tls</option>
+                        <option value="fake_badseq_2">Fake BadSeq Increment 2</option>
+                        <option value="fake_autottl_repeats_6_badseq">alt mgts (v1) 1.6.1 / 1.8.4</option>
+                        <option value="fake_md5sig_fake_tls">Launcher zapret 2.9.1 v2</option>
+                        <option value="fake_fakedsplit_autottl_2">fake fakedsplit badseq (рекомендуется дл...</option>
+                        <option value="fake_split2">Устаревший fake split2 seqovl 1</option>
+                        <option value="fake_fakedsplit_md5sig_80_port">Fake FakedSplit MD5Sig increment 10M</option>
+                    </optgroup>
+                    <optgroup label="SeqOvl">
+                        <option value="other_seqovl">YTDisBystro 3.4 v1 (all ports) ⭐</option>
+                        <option value="other_seqovl_v2">multidisorder 700 + tls_google ⭐</option>
+                        <option value="seqovl_211_google">seqovl 211 + tls_google</option>
+                        <option value="seqovl_211_tls4">seqovl 211 + tls4</option>
+                        <option value="seqovl_286_tls5">seqovl 286 + tls5</option>
+                        <option value="seqovl_286_google">seqovl 286 + tls_google</option>
+                        <option value="seqovl_308_tls5">seqovl 308 + tls5</option>
+                        <option value="seqovl_652_tls5">seqovl 652 + tls5</option>
+                        <option value="seqovl_681_tls5">seqovl 681 + tls5</option>
+                        <option value="seqovl_50_tls12">seqovl 50 + tls12</option>
+                        <option value="seqovl_150_tls5">seqovl 150 + tls5</option>
+                        <option value="seqovl_350_google">seqovl 350 + tls_google</option>
+                        <option value="seqovl_500_tls7">seqovl 500 + tls7</option>
+                        <option value="seqovl_211_tls9">seqovl 211 + tls9</option>
+                        <option value="other_seqovl_2">multidisorder seqovl 211 & pattern 5 ⭐</option>
+                        <option value="other_seqovl_fakedsplit_ttl2">fakedsplit ttl2 (без tls_mod) ⭐</option>
+                        <option value="other_seqovl_fakedsplit_ttl2_tlsmod">fakedsplit ttl2 (с tls_mod) ⭐</option>
+                        <option value="split2_seqovl_vk">Устаревший split2 с clienthello от VK</option>
+                        <option value="split2_seqovl_google">Устаревший split2 с clienthello от googl...</option>
+                        <option value="split2_seqovl_652">split2 seqovl 652</option>
+                        <option value="split_seqovl">Устаревший split и seqovl</option>
+                    </optgroup>
+                    <optgroup label="Dronatar">
+                        <option value="dronatar_4_2">Dronatar 4.2 (без tls_mod) ⭐</option>
+                        <option value="dronatar_4_2_tlsmod">Dronatar 4.2 (с tls_mod) ⭐</option>
+                        <option value="dronatar_4_3">Dronatar 4.3 ⭐</option>
+                    </optgroup>
+                    <optgroup label="Другие">
+                        <option value="general_alt11_191_syndata">general (alt v11) 1.9.1 + syndata ⭐</option>
+                        <option value="general_alt11_191">general (alt v11) 1.9.1 ⭐</option>
+                        <option value="general_simplefake_alt2_191">general (simple fake alt2) 1.9.1 ⭐</option>
+                        <option value="general_simplefake_alt2_191_v2">general (simple fake alt2 v2) 1.9.1 ⭐</option>
+                        <option value="dis4_dup">general (alt v2) + Dup</option>
+                        <option value="dis4_midsld">general (alt v2) MidSLD</option>
+                        <option value="original_bolvan_v2_badsum">Если стратегия не работает смени её! ⭐</option>
+                        <option value="original_bolvan_v2_badsum_max">Мессенджер Max ⭐</option>
+                        <option value="dis14">multisplit и seqovl</option>
+                        <option value="dis1">Фейк с datanoack и padencap</option>
+                        <option value="dis2">multisplit split pos padencap</option>
+                        <option value="dis3">split badseq 10</option>
+                        <option value="dis5">fake split 6 google</option>
+                        <option value="dis5_sberbank">fake split2 6 sberbank</option>
+                        <option value="dis6">syndata (на все домены!)</option>
+                        <option value="dis7">Ростелеком & Мегафон</option>
+                        <option value="dis8">Ростелеком & Мегафон v2</option>
+                        <option value="dis9">split2 sniext google</option>
+                        <option value="dis10">disorder2 badseq tls google</option>
+                        <option value="dis11">split badseq 10</option>
+                        <option value="split_pos_badseq">Ростелеком & Мегафон</option>
+                        <option value="dis12">split badseq 10 ttl</option>
+                        <option value="dis13">fakedsplit badsrq 10</option>
+                        <option value="general_alt183">general (alt) 1.8.3 / 1.8.4</option>
+                        <option value="general_alt185">general (alt) 1.8.5</option>
+                        <option value="general_alt2183">general (alt2) 1.8.3 / 1.8.4</option>
+                        <option value="general_alt3183_2">general (alt v3) 1.8.2 / 1.8.4</option>
+                        <option value="general_alt4_182">general (alt v4) 1.8.2 / 1.8.4</option>
+                        <option value="general_bf_2">general (BF) 2.0 🎮</option>
+                        <option value="general_alt5_182">general (alt v5) 1.8.2 / 1.8.4</option>
+                        <option value="general_alt6_182">general (alt v6) 1.8.2</option>
+                        <option value="general_alt6_184">general (alt v6) 1.8.4</option>
+                        <option value="general_alt7_184">general (alt v7) 1.8.4</option>
+                        <option value="general_alt8_185">general (alt v8) 1.8.5</option>
+                        <option value="general_alt8_185_2">general (alt v8) 1.8.5 (2)</option>
+                        <option value="general_alt8_185_3">general (alt v8) 1.8.5 (3)</option>
+                        <option value="general_simplefake_185">general simple fake alt 1.8.5</option>
+                        <option value="general_simple_fake_165_2">general simple fake 1.8.5 v2</option>
+                        <option value="general_fake_tls_auto_alt_184">general (fake TLS auto alt) 1.8.4</option>
+                        <option value="general_fake_tls_auto_alt_185">general (fake TLS auto alt) 1.8.5</option>
+                        <option value="general_fake_tls_auto_alt3_184">general (fake TLS auto alt3) 1.8.4</option>
+                        <option value="general_fake_tls_auto_alt2_184">general (fake TLS auto alt2) 1.8.4</option>
+                        <option value="general_fake_tls_auto_184">general (fake TLS auto) 1.8.4</option>
+                        <option value="launcher_zapret_2_9_1_v1">Launcher zapret 2.9.1 v1 (без tls_mod) ⭐</option>
+                        <option value="launcher_zapret_2_9_1_v1_tlsmod">Launcher zapret 2.9.1 v1 (с tls_mod) ⭐</option>
+                        <option value="launcher_zapret_2_9_1_v3">Launcher zapret 2.9.1 v3 ⭐</option>
+                        <option value="launcher_zapret_2_9_1_v4">Launcher zapret 2.9.1 v4 ⭐</option>
+                        <option value="datanoack">datanoack ⭐</option>
+                        <option value="other5">multidisorder datanoack deepseek</option>
+                        <option value="bolvan_md5sig">BolVan md5sig 11</option>
+                        <option value="bolvan_md5sig_2">BolVan v3</option>
+                        <option value="bolvan_fake_tls">BolVan fake TLS 4</option>
+                        <option value="general_alt3183">general (alt v3) 1.6.1</option>
+                        <option value="general_alt4_161">general (alt v4) 1.6.1</option>
+                        <option value="general_alt6_181">general (alt v6) 1.8.1</option>
+                        <option value="ankddev10">aankddev (v10)</option>
+                        <option value="split2_split">Устаревший split2 split</option>
+                        <option value="split2_split_google">Устаревший split2 split seqovl google</option>
+                        <option value="split2_split_2">Устаревший split2 split seqovl 2</option>
+                        <option value="split_pos_badseq_10">split badseq 10 и cutoff</option>
+                        <option value="split_pos_3">split pos 3 и повторы</option>
+                        <option value="googlevideo_fakedsplit">GoogleVideo FakedSplit badseq ⭐</option>
+                        <option value="googlevideo_split">GoogleVideo Split cutoff</option>
+                        <option value="googlevideo_fakedsplit_simple">GoogleVideo FakedSplit Simple</option>
+                        <option value="googlevideo_split_aggressive">GoogleVideo Split Aggressive</option>
+                        <option value="tls_aggressive">🔥 TLS Aggressive (browserleaks) ⭐</option>
+                        <option value="tls_aggressive_max">🔥 TLS Aggressive MAX</option>
+                        <option value="tls_aggressive_md5">🔥 TLS Aggressive MD5sig ⭐</option>
+                        <option value="tls_fake_flood">🌊 TLS Fake Flood x11 ⭐</option>
+                        <option value="tls_fake_flood_md5">🌊 TLS Fake Flood x11 MD5sig ⭐</option>
+                        <option value="tls_fake_flood_max">🌊 TLS Fake Flood x20 MAX</option>
+                        <option value="tls_combo_aggressive">💥 TLS Combo (Fake + MultiSplit + Disorde...</option>
+                        <option value="tls_fake_simple">🎭 TLS Fake Simple (browserleaks) ⭐</option>
+                        <option value="tls_fake_only">🎭 TLS Fake Only (без нарезки!) ⭐</option>
+                        <option value="tls_fake_only_ttl2">🎭 TLS Fake Only TTL=2 ⭐</option>
+                        <option value="tls_fake_only_badseq">🎭 TLS Fake Only + BadSeq ⭐</option>
+                        <option value="tls_fake_only_md5">🎭 TLS Fake Only + MD5sig ⭐</option>
+                        <option value="tls_pass">⚡ TLS Pass (без обработки)</option>
+                        <option value="tls_fake_simple_ttl2">🎭 TLS Fake Simple TTL=2 ⭐</option>
+                        <option value="tls_fake_simple_10">🎭 TLS Fake Simple x10</option>
+                        <option value="tls_split_gentle">✂️ TLS Split Gentle (midsld) ⭐</option>
+                        <option value="tls_split_gentle_host">✂️ TLS Split Gentle (host) ⭐</option>
+                        <option value="tls_split_gentle_sld">✂️ TLS Split Gentle (sld+1)</option>
+                        <option value="tls_fake_split">🎭✂️ TLS Fake + Split ⭐</option>
+                        <option value="tls_fake_split_host">🎭✂️ TLS Fake + Split (host) ⭐</option>
+                        <option value="discord_window_collapse">Discord Window Collapse 🧪</option>
+                        <option value="discord_router_alert">Discord Router Alert 🧪</option>
+                        <option value="discord_ecn_exploit">Discord ECN Exploit 🧪</option>
+                        <option value="discord_timestamp_travel">Discord Timestamp Travel 🧪</option>
+                        <option value="discord_urgent_sni">Discord Urgent SNI 🧪</option>
+                        <option value="discord_ultimate_combo">Discord Ultimate Combo 🧪</option>
+                    </optgroup>
+
                 </select>
             </div>
             <div class="strategy-row">
                 <span class="strategy-label">Voice (UDP)</span>
                 <select class="strategy-select" id="strat-discord-voice" onchange="saveStrategies()">
-                    <option value="fake_x6_stun_discord">Fake STUN x6</option>
                     <option value="none">Выключено</option>
+                    <optgroup label="Fake">
+                        <option value="fake_blob_quic_google_repeats_10_autottl">Fake Blob QUIC Google Repeats 10 Autottl...</option>
+                        <option value="fake_2_n2">fake_2_n2 🎮</option>
+                        <option value="fake_2_n2_google">fake_2_n2_google 🎮</option>
+                        <option value="fake_2_n2_test">fake_2_n2_test ⭐</option>
+                        <option value="fake_4_google">Fake x4 Google</option>
+                        <option value="fake_4_quic1">Fake x4 QUIC1</option>
+                        <option value="fake_2_n2_test_2">Rockstar v3 ⭐</option>
+                        <option value="fake_11_simple">Fake x11 Simple</option>
+                        <option value="fake_15_ttl0_md5sig">Fake x15 TTL0 MD5sig</option>
+                        <option value="fake_15_ttl0_badsum">Fake x15 TTL0 Badsum</option>
+                        <option value="fake_6_google">Fake x6 Google</option>
+                        <option value="fake_ipfrag2_quic5">Fake+IPFrag2 QUIC5</option>
+                        <option value="fake_ipfrag2_quic3">Fake+IPFrag2 QUIC3</option>
+                        <option value="fake_ipfrag2_quic7">Fake+IPFrag2 QUIC7</option>
+                        <option value="fake_udplen_2_quic3">Fake+UDPLen+2 QUIC3</option>
+                        <option value="fake_udplen_4_quic3">Fake+UDPLen+4 QUIC3</option>
+                        <option value="fake_udplen_4_quic4">Fake+UDPLen+4 QUIC4</option>
+                        <option value="fake_udplen_8_pattern1">Fake+UDPLen+8 Pattern1</option>
+                        <option value="fake_udplen_8_pattern1_autottl">Fake+UDPLen+8 Pattern1 AutoTTL</option>
+                        <option value="fake_udplen_8_pattern2">Fake+UDPLen+8 Pattern2</option>
+                        <option value="fake_udplen_8_pattern3">Fake+UDPLen+8 Pattern3</option>
+                        <option value="fake_udplen_25">Fake+UDPLen+25</option>
+                        <option value="fake_udplen_25_10">Fake+UDPLen+25 x10</option>
+                        <option value="fake_tamper_11">Fake+Tamper x11 (DHT) ⭐</option>
+                        <option value="fake_tamper_11_autottl">Fake+Tamper x11 AutoTTL (DHT) ⭐</option>
+                        <option value="fake_6_n15_unknown">Fake x6 N15 Unknown 🎮</option>
+                        <option value="fake_11_quic_bin">fake 11 повторов (Google QUIC)</option>
+                        <option value="fake_2_n2_quic">fake 2 повторов (Google QUIC) cutoff=n2</option>
+                        <option value="fake_repeat_2_quic">fake 2 повторов (fake_quic.bin)</option>
+                        <option value="fake_4_google_quic">fake 4 повтора (Google QUIC)</option>
+                        <option value="fake_6_google_quic">general (alt v2) 1.6.1 ⭐</option>
+                        <option value="fake_6_1">fake 6 quic 1 ⭐</option>
+                        <option value="fake_6_vk_com">fake 6 quic vk.com ⭐</option>
+                        <option value="fake_8_google">fake 8 google ⭐</option>
+                        <option value="fake_10_pattern">Ufanet 31.03.2025 ⭐</option>
+                        <option value="fake_udplen">YTDis Bystro 2.9.2 v1 / v2 ⭐</option>
+                        <option value="fake_updlen_7_quic_cutoff">fake udplen 7 quic cutoff ⭐</option>
+                        <option value="fake_updlen_7_quic_google">fake udplen 7 quic google ⭐</option>
+                        <option value="fake_updlen_10_pattern">fake udplen 10 pattern ⭐</option>
+                        <option value="fake_udplen_6_pattern">fake udplen 6 pattern ⭐</option>
+                        <option value="fake_udplen_11">fake udplen 11 ⭐</option>
+                    </optgroup>
+                    <optgroup label="Dronatar">
+                        <option value="dronator_43">Dronator 4.3</option>
+                    </optgroup>
+                    <optgroup label="Другие">
+                        <option value="ipset_fake_6_d3">ipset_fake_6_d3 🎮</option>
+                        <option value="general_bf_32">General-BF 3.2 ⭐</option>
+                        <option value="ipset_fake_12_n2_apex">Apex legends & Rockstar v2 🎮</option>
+                        <option value="ipset_fake_12_n3">IPSET Fake x12 N3 (Apex legends & Battle... 🎮</option>
+                        <option value="ipset_fake_10_n2">IPSET Fake x10 N2 (Apex legends & Battle... 🎮</option>
+                        <option value="ipset_fake_14_n3">IPSET Fake x14 N3 (Apex legends) 🎮</option>
+                        <option value="ipset_fake_tamper_11">IPSET Fake+Tamper x11 (DHT) 🎮</option>
+                        <option value="ipset_fake_quic6_ttl7">IPSET Fake QUIC6 TTL7 🎮</option>
+                    </optgroup>
+
                 </select>
             </div>
         </div>
-
         <div class="card">
-            <div class="card-title">Telegram</div>
+            <div class="card-title">Telegram (TLS)</div>
             <div class="strategy-row">
-                <span class="strategy-label">TLS (TCP 443)</span>
+                <span class="strategy-label">TCP 443</span>
                 <select class="strategy-select" id="strat-telegram" onchange="saveStrategies()">
-                    <option value="syndata_7_tls_google_multisplit_midsld">Syndata+Multisplit</option>
-                    <option value="censorliber_google_syndata">Censorliber</option>
                     <option value="none">Выключено</option>
+                    <optgroup label="Syndata">
+                        <option value="syndata_2_tls_7">syndata repeats 2 tls 7 🧪</option>
+                        <option value="syndata_3_tls_google">syndata repeats 3 tls google 🧪</option>
+                        <option value="syndata_7_n3">syndata 7 n3 🧪</option>
+                        <option value="syndata_multisplit_tls_google_700">syndata multisplit tls google seqovl 700 🧪</option>
+                        <option value="syndata_multidisorder_tls_google_700">syndata multidisorder tls google seqovl ... 🧪</option>
+                        <option value="syndata_multisplit_tls_google_1000">syndata multisplit tls google seqovl 100... 🧪</option>
+                        <option value="syndata_multidisorder_tls_google_1000">syndata multidisorder tls google seqovl ... 🧪</option>
+                        <option value="syndata_7_tls_google_multisplit_midsld">syndata 7 tls google multisplit midsld 🧪</option>
+                        <option value="syndata_7_tls_max_ru_multisplit_midsld">syndata 7 tls max ru multisplit midsld 🧪</option>
+                        <option value="syndata_multidisorder_legacy_midsld">syndata multidisorder_legacy midsld 🧪</option>
+                        <option value="syndata_general_simple_fake_165_2">syndata + general simple fake 1.8.5 v2</option>
+                        <option value="syndata">syndata</option>
+                        <option value="syndata_md5sig_2">multisplit и md5sig 9</option>
+                        <option value="syndata_1">syndata 4 ⭐</option>
+                        <option value="syndata_4_badseq">syndata 4 badseq</option>
+                        <option value="syndata_tls_google_5_repeats">syndata tls_google 5 repeats</option>
+                        <option value="syndata_tls_google_5_repeats_multidisorder">syndata tls_google 5 repeats multidisord...</option>
+                        <option value="syndata_syn_packet_n3">syndata syn_packet.bin n3</option>
+                    </optgroup>
+                    <optgroup label="Censorliber">
+                        <option value="censorliber_google_syndata">Censorliber Google + Syndata ⭐</option>
+                        <option value="censorliber_google_syndata_v2">Censorliber Google + Syndata v2 ⭐</option>
+                        <option value="censorliber_google_syndata_tcpack">Censorliber Google + Syndata + TCP ACK ⭐</option>
+                        <option value="censorliber_tls_google_syndata_tcpack_fake">Censorliber tls google + Syndata + fake ... ⭐</option>
+                        <option value="censorliber_tls_google_syndata_tcpack_fake_seqovl_1">Censorliber tls google + Syndata + fake ... ⭐</option>
+                        <option value="censorliber_max_ru_syndata_tcpack_fake_seqovl_1">Censorliber max.ru + Syndata + fake + TC... ⭐</option>
+                        <option value="censorliber_google">Censorliber Google ⭐</option>
+                    </optgroup>
+                    <optgroup label="Alt">
+                        <option value="alt9">alt v9 ⭐</option>
+                        <option value="alt11_100_syndata">alt v11 + syndata ⭐</option>
+                        <option value="alt1_161">general (alt v1) 1.8.2</option>
+                        <option value="altmgts2_161_2">alt mgts (v2) 1.6.1 / 1.8.4</option>
+                        <option value="altmgts2_161_3">alt mgts (v3) 1.6.1</option>
+                    </optgroup>
+                    <optgroup label="Multisplit/Disorder">
+                        <option value="multidisorder_legacy_midsld">multidisorder_legacy midsld 🧪</option>
+                        <option value="multidisorder_legacy_seqovl_211">multidisorder_legacy seqovl 211 + tls5 🧪</option>
+                        <option value="multidisorder_legacy_seqovl_652">multidisorder_legacy seqovl 652 + tls5 🧪</option>
+                        <option value="multidisorder_legacy_badseq">multidisorder_legacy + fake badseq 🧪</option>
+                        <option value="multidisorder_legacy_md5sig">multidisorder_legacy + fake md5sig 🧪</option>
+                        <option value="multidisorder_legacy_syndata">syndata + multidisorder_legacy 🧪</option>
+                        <option value="multidisorder_legacy_autottl">multidisorder_legacy + autottl 🧪</option>
+                        <option value="multidisorder_legacy_sniext">multidisorder_legacy sniext+1 midsld 🧪</option>
+                        <option value="multisplit_sniext_midsld_18">multisplit sniext+1 midsld-1</option>
+                        <option value="multisplit_fake_tls_badseq">YTDisBystro 3.4 v1</option>
+                        <option value="multisplit_fake_tls_badseq_lite">YTDisBystro 3.4 v1 (Lite)</option>
+                        <option value="multisplit_fake_tls_badseq_autottl2">YTDisBystro 3.4 v1 (AutoTTL+2)</option>
+                        <option value="multisplit_fake_tls_md5sig">multisplit и md5sig 1</option>
+                        <option value="multisplit_fake_tls_md5sig_lite">YTDisBystro 3.4 v3 Lite</option>
+                        <option value="multidisorder_badseq_pos">original bol-van v2 (badsum)</option>
+                        <option value="multidisorder_md5sig_pos">original bol-van v2</option>
+                        <option value="multidisorder_ipset_syndata">Ulta v2 / 06.01.2025 ⭐</option>
+                        <option value="multisplit_286_pattern">YTDisBystro 3.4 v2 (1)</option>
+                        <option value="multidisorder_super_split_md5sig">Discord Voice & YT (badseq)</option>
+                        <option value="multidisorder_super_split_badseq">Discord Voice & YT (md5sig и badseq)</option>
+                        <option value="multidisorder_w3">Discord Voice & YT (DTLS)</option>
+                        <option value="multidisorder_pos_100">Split Position</option>
+                        <option value="multisplit_3">YTDisBystro 2.9.2 v1 / v2</option>
+                        <option value="multidisorder_seqovl_midsld">multidisorder seqovl midsld ⭐</option>
+                        <option value="multisplit_226_pattern_18">multisplit seqovl 226</option>
+                        <option value="multisplit_226_pattern_google_Com">multisplit seqovl 226 v2</option>
+                        <option value="multisplit_308_pattern">multisplit seqovl 308 с парттерном 9</option>
+                        <option value="multisplit_split_pos_1">multisplit split pos 1 ⭐</option>
+                        <option value="multisplit_datanoack">multisplit datanoack ⭐</option>
+                        <option value="multisplit_datanoack_split_pos_1">multisplit datanoack split pos 1 ⭐</option>
+                        <option value="fakeddisorder_datanoack_1">FakedDisorder datanoack ⭐</option>
+                        <option value="other_multidisorder">multidisorder 6 md5sig</option>
+                        <option value="multisplit_seqovl_2_midsld">fake multisplit seqovl 2 midsld</option>
+                        <option value="multisplit_17">YTDisBystro 3.4</option>
+                        <option value="multisplit_1_midsld">multisplit seqovl 1 и midsld</option>
+                        <option value="fake_multidisorder_1_split_pos_1">fake multidisorder badsum split pos 1</option>
+                        <option value="multisplit_seqovl_midsld">multisplit seqovl midsld ⭐</option>
+                        <option value="fake_multisplit_seqovl_md5sig">fake multisplit и seqovl 1 md5sig</option>
+                        <option value="multisplit_1">Мультисплит и смещение +1</option>
+                        <option value="multisplit_2_plus">Мультисплит и смещение +1 (вариант 2)</option>
+                        <option value="multisplit_1_plus_2">Мультисплит и смещение +1 с паттерном</option>
+                        <option value="multisplit_2">Мультисплит и смещение -1</option>
+                        <option value="multidisorder_fake_tls_1">YtDisBystro 3.4 v4 (без tls_mod)</option>
+                        <option value="multidisorder_fake_tls_1_tlsmod">YtDisBystro 3.4 v4 (с tls_mod fonts)</option>
+                        <option value="multidisorder_fake_tls_2">multidisorder 7 calendar (без tls_mod)</option>
+                        <option value="multidisorder_fake_tls_2_tlsmod">multidisorder 7 calendar (с tls_mod)</option>
+                        <option value="multisplit_md5sig">multisplit и md5sig</option>
+                        <option value="fake_multidisorder_seqovl_fake_tls">fake multidisorder seqovl fake tls</option>
+                        <option value="multisplit_seqovl_pos">multisplit seqovl с split pos</option>
+                        <option value="multisplit_seqovl_pos_2">multisplit seqovl с split pos и badseq</option>
+                        <option value="multidisorder_repeats_md5sig">original bol-van v2</option>
+                        <option value="multidisorder_repeats_md5sig_2">multidisorder с повторами и md5ig</option>
+                        <option value="multidisorder_midsld">multidisorder midsld ⭐</option>
+                        <option value="multidisorder_midsld_syndata">syndata multidisorder midsld</option>
+                        <option value="googlevideo_multidisorder">GoogleVideo MultiDisorder Complex</option>
+                        <option value="googlevideo_multisplit_pattern">GoogleVideo MultiSplit Pattern 7</option>
+                        <option value="googlevideo_fakeddisorder">GoogleVideo FakedDisorder AutoTTL</option>
+                        <option value="googlevideo_multidisorder_midsld">GoogleVideo MultiDisorder MidSLD</option>
+                        <option value="googlevideo_fake_multisplit">GoogleVideo Fake+MultiSplit</option>
+                        <option value="fake_multisplit_datanoack_wssize_midsld">GoogleVideo Fake+MultiSplit datanoack ws...</option>
+                        <option value="tls_multisplit_sni">🔀 TLS MultiSplit SNI ⭐</option>
+                        <option value="tls_multisplit_sni_652">🔀 TLS MultiSplit SNI seqovl 652</option>
+                        <option value="tls_disorder_gentle">🔀 TLS Disorder Gentle (3 parts) ⭐</option>
+                        <option value="tls_disorder_gentle_sld">🔀 TLS Disorder Gentle (sld)</option>
+                        <option value="tls_fake_disorder_gentle">🎭🔀 TLS Fake + Disorder Gentle ⭐</option>
+                        <option value="tls_fake_disorder_gentle_6">🎭🔀 TLS Fake x6 + Disorder Gentle ⭐</option>
+                    </optgroup>
+                    <optgroup label="Fake">
+                        <option value="fake_badseq_rnd">YTDisBystro 2.9.2 v1 (1)</option>
+                        <option value="fakedsplit_badseq_4">Фейк с фуулингом badseq и фейком tls 4</option>
+                        <option value="fake_autottl_faketls">Фейк с авто ttl и фейком tls</option>
+                        <option value="fake_datanoack_fake_tls">Фейк с datanoack и фейком tls</option>
+                        <option value="fake_badseq_2">Fake BadSeq Increment 2</option>
+                        <option value="fake_autottl_repeats_6_badseq">alt mgts (v1) 1.6.1 / 1.8.4</option>
+                        <option value="fake_md5sig_fake_tls">Launcher zapret 2.9.1 v2</option>
+                        <option value="fake_fakedsplit_autottl_2">fake fakedsplit badseq (рекомендуется дл...</option>
+                        <option value="fake_split2">Устаревший fake split2 seqovl 1</option>
+                        <option value="fake_fakedsplit_md5sig_80_port">Fake FakedSplit MD5Sig increment 10M</option>
+                    </optgroup>
+                    <optgroup label="SeqOvl">
+                        <option value="other_seqovl">YTDisBystro 3.4 v1 (all ports) ⭐</option>
+                        <option value="other_seqovl_v2">multidisorder 700 + tls_google ⭐</option>
+                        <option value="seqovl_211_google">seqovl 211 + tls_google</option>
+                        <option value="seqovl_211_tls4">seqovl 211 + tls4</option>
+                        <option value="seqovl_286_tls5">seqovl 286 + tls5</option>
+                        <option value="seqovl_286_google">seqovl 286 + tls_google</option>
+                        <option value="seqovl_308_tls5">seqovl 308 + tls5</option>
+                        <option value="seqovl_652_tls5">seqovl 652 + tls5</option>
+                        <option value="seqovl_681_tls5">seqovl 681 + tls5</option>
+                        <option value="seqovl_50_tls12">seqovl 50 + tls12</option>
+                        <option value="seqovl_150_tls5">seqovl 150 + tls5</option>
+                        <option value="seqovl_350_google">seqovl 350 + tls_google</option>
+                        <option value="seqovl_500_tls7">seqovl 500 + tls7</option>
+                        <option value="seqovl_211_tls9">seqovl 211 + tls9</option>
+                        <option value="other_seqovl_2">multidisorder seqovl 211 & pattern 5 ⭐</option>
+                        <option value="other_seqovl_fakedsplit_ttl2">fakedsplit ttl2 (без tls_mod) ⭐</option>
+                        <option value="other_seqovl_fakedsplit_ttl2_tlsmod">fakedsplit ttl2 (с tls_mod) ⭐</option>
+                        <option value="split2_seqovl_vk">Устаревший split2 с clienthello от VK</option>
+                        <option value="split2_seqovl_google">Устаревший split2 с clienthello от googl...</option>
+                        <option value="split2_seqovl_652">split2 seqovl 652</option>
+                        <option value="split_seqovl">Устаревший split и seqovl</option>
+                    </optgroup>
+                    <optgroup label="Dronatar">
+                        <option value="dronatar_4_2">Dronatar 4.2 (без tls_mod) ⭐</option>
+                        <option value="dronatar_4_2_tlsmod">Dronatar 4.2 (с tls_mod) ⭐</option>
+                        <option value="dronatar_4_3">Dronatar 4.3 ⭐</option>
+                    </optgroup>
+                    <optgroup label="Другие">
+                        <option value="general_alt11_191_syndata">general (alt v11) 1.9.1 + syndata ⭐</option>
+                        <option value="general_alt11_191">general (alt v11) 1.9.1 ⭐</option>
+                        <option value="general_simplefake_alt2_191">general (simple fake alt2) 1.9.1 ⭐</option>
+                        <option value="general_simplefake_alt2_191_v2">general (simple fake alt2 v2) 1.9.1 ⭐</option>
+                        <option value="dis4_dup">general (alt v2) + Dup</option>
+                        <option value="dis4_midsld">general (alt v2) MidSLD</option>
+                        <option value="original_bolvan_v2_badsum">Если стратегия не работает смени её! ⭐</option>
+                        <option value="original_bolvan_v2_badsum_max">Мессенджер Max ⭐</option>
+                        <option value="dis14">multisplit и seqovl</option>
+                        <option value="dis1">Фейк с datanoack и padencap</option>
+                        <option value="dis2">multisplit split pos padencap</option>
+                        <option value="dis3">split badseq 10</option>
+                        <option value="dis5">fake split 6 google</option>
+                        <option value="dis5_sberbank">fake split2 6 sberbank</option>
+                        <option value="dis6">syndata (на все домены!)</option>
+                        <option value="dis7">Ростелеком & Мегафон</option>
+                        <option value="dis8">Ростелеком & Мегафон v2</option>
+                        <option value="dis9">split2 sniext google</option>
+                        <option value="dis10">disorder2 badseq tls google</option>
+                        <option value="dis11">split badseq 10</option>
+                        <option value="split_pos_badseq">Ростелеком & Мегафон</option>
+                        <option value="dis12">split badseq 10 ttl</option>
+                        <option value="dis13">fakedsplit badsrq 10</option>
+                        <option value="general_alt183">general (alt) 1.8.3 / 1.8.4</option>
+                        <option value="general_alt185">general (alt) 1.8.5</option>
+                        <option value="general_alt2183">general (alt2) 1.8.3 / 1.8.4</option>
+                        <option value="general_alt3183_2">general (alt v3) 1.8.2 / 1.8.4</option>
+                        <option value="general_alt4_182">general (alt v4) 1.8.2 / 1.8.4</option>
+                        <option value="general_bf_2">general (BF) 2.0 🎮</option>
+                        <option value="general_alt5_182">general (alt v5) 1.8.2 / 1.8.4</option>
+                        <option value="general_alt6_182">general (alt v6) 1.8.2</option>
+                        <option value="general_alt6_184">general (alt v6) 1.8.4</option>
+                        <option value="general_alt7_184">general (alt v7) 1.8.4</option>
+                        <option value="general_alt8_185">general (alt v8) 1.8.5</option>
+                        <option value="general_alt8_185_2">general (alt v8) 1.8.5 (2)</option>
+                        <option value="general_alt8_185_3">general (alt v8) 1.8.5 (3)</option>
+                        <option value="general_simplefake_185">general simple fake alt 1.8.5</option>
+                        <option value="general_simple_fake_165_2">general simple fake 1.8.5 v2</option>
+                        <option value="general_fake_tls_auto_alt_184">general (fake TLS auto alt) 1.8.4</option>
+                        <option value="general_fake_tls_auto_alt_185">general (fake TLS auto alt) 1.8.5</option>
+                        <option value="general_fake_tls_auto_alt3_184">general (fake TLS auto alt3) 1.8.4</option>
+                        <option value="general_fake_tls_auto_alt2_184">general (fake TLS auto alt2) 1.8.4</option>
+                        <option value="general_fake_tls_auto_184">general (fake TLS auto) 1.8.4</option>
+                        <option value="launcher_zapret_2_9_1_v1">Launcher zapret 2.9.1 v1 (без tls_mod) ⭐</option>
+                        <option value="launcher_zapret_2_9_1_v1_tlsmod">Launcher zapret 2.9.1 v1 (с tls_mod) ⭐</option>
+                        <option value="launcher_zapret_2_9_1_v3">Launcher zapret 2.9.1 v3 ⭐</option>
+                        <option value="launcher_zapret_2_9_1_v4">Launcher zapret 2.9.1 v4 ⭐</option>
+                        <option value="datanoack">datanoack ⭐</option>
+                        <option value="other5">multidisorder datanoack deepseek</option>
+                        <option value="bolvan_md5sig">BolVan md5sig 11</option>
+                        <option value="bolvan_md5sig_2">BolVan v3</option>
+                        <option value="bolvan_fake_tls">BolVan fake TLS 4</option>
+                        <option value="general_alt3183">general (alt v3) 1.6.1</option>
+                        <option value="general_alt4_161">general (alt v4) 1.6.1</option>
+                        <option value="general_alt6_181">general (alt v6) 1.8.1</option>
+                        <option value="ankddev10">aankddev (v10)</option>
+                        <option value="split2_split">Устаревший split2 split</option>
+                        <option value="split2_split_google">Устаревший split2 split seqovl google</option>
+                        <option value="split2_split_2">Устаревший split2 split seqovl 2</option>
+                        <option value="split_pos_badseq_10">split badseq 10 и cutoff</option>
+                        <option value="split_pos_3">split pos 3 и повторы</option>
+                        <option value="googlevideo_fakedsplit">GoogleVideo FakedSplit badseq ⭐</option>
+                        <option value="googlevideo_split">GoogleVideo Split cutoff</option>
+                        <option value="googlevideo_fakedsplit_simple">GoogleVideo FakedSplit Simple</option>
+                        <option value="googlevideo_split_aggressive">GoogleVideo Split Aggressive</option>
+                        <option value="tls_aggressive">🔥 TLS Aggressive (browserleaks) ⭐</option>
+                        <option value="tls_aggressive_max">🔥 TLS Aggressive MAX</option>
+                        <option value="tls_aggressive_md5">🔥 TLS Aggressive MD5sig ⭐</option>
+                        <option value="tls_fake_flood">🌊 TLS Fake Flood x11 ⭐</option>
+                        <option value="tls_fake_flood_md5">🌊 TLS Fake Flood x11 MD5sig ⭐</option>
+                        <option value="tls_fake_flood_max">🌊 TLS Fake Flood x20 MAX</option>
+                        <option value="tls_combo_aggressive">💥 TLS Combo (Fake + MultiSplit + Disorde...</option>
+                        <option value="tls_fake_simple">🎭 TLS Fake Simple (browserleaks) ⭐</option>
+                        <option value="tls_fake_only">🎭 TLS Fake Only (без нарезки!) ⭐</option>
+                        <option value="tls_fake_only_ttl2">🎭 TLS Fake Only TTL=2 ⭐</option>
+                        <option value="tls_fake_only_badseq">🎭 TLS Fake Only + BadSeq ⭐</option>
+                        <option value="tls_fake_only_md5">🎭 TLS Fake Only + MD5sig ⭐</option>
+                        <option value="tls_pass">⚡ TLS Pass (без обработки)</option>
+                        <option value="tls_fake_simple_ttl2">🎭 TLS Fake Simple TTL=2 ⭐</option>
+                        <option value="tls_fake_simple_10">🎭 TLS Fake Simple x10</option>
+                        <option value="tls_split_gentle">✂️ TLS Split Gentle (midsld) ⭐</option>
+                        <option value="tls_split_gentle_host">✂️ TLS Split Gentle (host) ⭐</option>
+                        <option value="tls_split_gentle_sld">✂️ TLS Split Gentle (sld+1)</option>
+                        <option value="tls_fake_split">🎭✂️ TLS Fake + Split ⭐</option>
+                        <option value="tls_fake_split_host">🎭✂️ TLS Fake + Split (host) ⭐</option>
+                        <option value="discord_window_collapse">Discord Window Collapse 🧪</option>
+                        <option value="discord_router_alert">Discord Router Alert 🧪</option>
+                        <option value="discord_ecn_exploit">Discord ECN Exploit 🧪</option>
+                        <option value="discord_timestamp_travel">Discord Timestamp Travel 🧪</option>
+                        <option value="discord_urgent_sni">Discord Urgent SNI 🧪</option>
+                        <option value="discord_ultimate_combo">Discord Ultimate Combo 🧪</option>
+                    </optgroup>
+
                 </select>
             </div>
         </div>
-
         <div class="card">
             <div class="card-title">QUIC/UDP</div>
             <div class="strategy-row">
                 <span class="strategy-label">UDP 443</span>
                 <select class="strategy-select" id="strat-udp" onchange="saveStrategies()">
-                    <option value="fake_x6_quic">Fake QUIC x6</option>
-                    <option value="fake_x11_quic">Fake QUIC x11</option>
                     <option value="none">Выключено</option>
+                    <optgroup label="Fake">
+                        <option value="fake_blob_quic_google_repeats_10_autottl">Fake Blob QUIC Google Repeats 10 Autottl...</option>
+                        <option value="fake_2_n2">fake_2_n2 🎮</option>
+                        <option value="fake_2_n2_google">fake_2_n2_google 🎮</option>
+                        <option value="fake_2_n2_test">fake_2_n2_test ⭐</option>
+                        <option value="fake_4_google">Fake x4 Google</option>
+                        <option value="fake_4_quic1">Fake x4 QUIC1</option>
+                        <option value="fake_2_n2_test_2">Rockstar v3 ⭐</option>
+                        <option value="fake_11_simple">Fake x11 Simple</option>
+                        <option value="fake_15_ttl0_md5sig">Fake x15 TTL0 MD5sig</option>
+                        <option value="fake_15_ttl0_badsum">Fake x15 TTL0 Badsum</option>
+                        <option value="fake_6_google">Fake x6 Google</option>
+                        <option value="fake_ipfrag2_quic5">Fake+IPFrag2 QUIC5</option>
+                        <option value="fake_ipfrag2_quic3">Fake+IPFrag2 QUIC3</option>
+                        <option value="fake_ipfrag2_quic7">Fake+IPFrag2 QUIC7</option>
+                        <option value="fake_udplen_2_quic3">Fake+UDPLen+2 QUIC3</option>
+                        <option value="fake_udplen_4_quic3">Fake+UDPLen+4 QUIC3</option>
+                        <option value="fake_udplen_4_quic4">Fake+UDPLen+4 QUIC4</option>
+                        <option value="fake_udplen_8_pattern1">Fake+UDPLen+8 Pattern1</option>
+                        <option value="fake_udplen_8_pattern1_autottl">Fake+UDPLen+8 Pattern1 AutoTTL</option>
+                        <option value="fake_udplen_8_pattern2">Fake+UDPLen+8 Pattern2</option>
+                        <option value="fake_udplen_8_pattern3">Fake+UDPLen+8 Pattern3</option>
+                        <option value="fake_udplen_25">Fake+UDPLen+25</option>
+                        <option value="fake_udplen_25_10">Fake+UDPLen+25 x10</option>
+                        <option value="fake_tamper_11">Fake+Tamper x11 (DHT) ⭐</option>
+                        <option value="fake_tamper_11_autottl">Fake+Tamper x11 AutoTTL (DHT) ⭐</option>
+                        <option value="fake_6_n15_unknown">Fake x6 N15 Unknown 🎮</option>
+                        <option value="fake_11_quic_bin">fake 11 повторов (Google QUIC)</option>
+                        <option value="fake_2_n2_quic">fake 2 повторов (Google QUIC) cutoff=n2</option>
+                        <option value="fake_repeat_2_quic">fake 2 повторов (fake_quic.bin)</option>
+                        <option value="fake_4_google_quic">fake 4 повтора (Google QUIC)</option>
+                        <option value="fake_6_google_quic">general (alt v2) 1.6.1 ⭐</option>
+                        <option value="fake_6_1">fake 6 quic 1 ⭐</option>
+                        <option value="fake_6_vk_com">fake 6 quic vk.com ⭐</option>
+                        <option value="fake_8_google">fake 8 google ⭐</option>
+                        <option value="fake_10_pattern">Ufanet 31.03.2025 ⭐</option>
+                        <option value="fake_udplen">YTDis Bystro 2.9.2 v1 / v2 ⭐</option>
+                        <option value="fake_updlen_7_quic_cutoff">fake udplen 7 quic cutoff ⭐</option>
+                        <option value="fake_updlen_7_quic_google">fake udplen 7 quic google ⭐</option>
+                        <option value="fake_updlen_10_pattern">fake udplen 10 pattern ⭐</option>
+                        <option value="fake_udplen_6_pattern">fake udplen 6 pattern ⭐</option>
+                        <option value="fake_udplen_11">fake udplen 11 ⭐</option>
+                    </optgroup>
+                    <optgroup label="Dronatar">
+                        <option value="dronator_43">Dronator 4.3</option>
+                    </optgroup>
+                    <optgroup label="Другие">
+                        <option value="ipset_fake_6_d3">ipset_fake_6_d3 🎮</option>
+                        <option value="general_bf_32">General-BF 3.2 ⭐</option>
+                        <option value="ipset_fake_12_n2_apex">Apex legends & Rockstar v2 🎮</option>
+                        <option value="ipset_fake_12_n3">IPSET Fake x12 N3 (Apex legends & Battle... 🎮</option>
+                        <option value="ipset_fake_10_n2">IPSET Fake x10 N2 (Apex legends & Battle... 🎮</option>
+                        <option value="ipset_fake_14_n3">IPSET Fake x14 N3 (Apex legends) 🎮</option>
+                        <option value="ipset_fake_tamper_11">IPSET Fake+Tamper x11 (DHT) 🎮</option>
+                        <option value="ipset_fake_quic6_ttl7">IPSET Fake QUIC6 TTL7 🎮</option>
+                    </optgroup>
+
                 </select>
             </div>
         </div>
-
         <button class="btn btn-restart" style="width:100%" onclick="doRestart()">
-            <span class="btn-icon">↻</span>
-            <span>Применить (перезапуск)</span>
+            <span class="btn-icon">↻</span><span>Применить (перезапуск)</span>
         </button>
     </div>
 
     <!-- Tab 3: Logs -->
     <div id="tab-logs" class="tab-content">
-        <div class="header">
-            <h1>Логи</h1>
-        </div>
-
+        <div class="header"><h1>Логи</h1></div>
         <div class="logs-actions">
-            <button class="btn btn-secondary btn-small" onclick="loadLogs()">
-                🔄 Обновить
-            </button>
-            <button class="btn btn-secondary btn-small" onclick="loadFullLogs()">
-                📜 Все логи
-            </button>
-            <button class="btn btn-secondary btn-small" onclick="loadErrorLogs()">
-                ⚠️ Ошибки
-            </button>
-            <button class="btn btn-secondary btn-small" onclick="copyLogs()">
-                📋 Копировать
-            </button>
+            <button class="btn btn-secondary btn-small" onclick="loadLogs()">🔄 Обновить</button>
+            <button class="btn btn-secondary btn-small" onclick="loadFullLogs()">📜 Все логи</button>
+            <button class="btn btn-secondary btn-small" onclick="loadErrorLogs()">⚠️ Ошибки</button>
+            <button class="btn btn-secondary btn-small" onclick="copyLogs()">📋 Копировать</button>
         </div>
-
         <div class="logs-count" id="logs-count">- строк</div>
-
-        <div class="logs-box" id="logs-box">
-            <div class="log-line">Загрузка...</div>
-        </div>
+        <div class="logs-box" id="logs-box"><div class="log-line">Загрузка...</div></div>
     </div>
 
     <!-- Tab Bar -->
     <div class="tab-bar">
         <button class="tab-btn active" onclick="switchTab('control')">
-            <span class="tab-icon">🎛️</span>
-            <span>Управление</span>
+            <span class="tab-icon">🎛️</span><span>Управление</span>
         </button>
         <button class="tab-btn" onclick="switchTab('strategies')">
-            <span class="tab-icon">⚡</span>
-            <span>Стратегии</span>
+            <span class="tab-icon">⚡</span><span>Стратегии</span>
         </button>
         <button class="tab-btn" onclick="switchTab('logs')">
-            <span class="tab-icon">📋</span>
-            <span>Логи</span>
+            <span class="tab-icon">📋</span><span>Логи</span>
         </button>
     </div>
 
@@ -587,30 +1257,20 @@
         let activityLog = [];
         let currentLogs = '';
 
-        // Tab switching
         function switchTab(tabName) {
             document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
             document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-
             document.getElementById('tab-' + tabName).classList.add('active');
             document.querySelectorAll('.tab-btn')[
                 tabName === 'control' ? 0 : tabName === 'strategies' ? 1 : 2
             ].classList.add('active');
-
-            // Load logs when switching to logs tab
-            if (tabName === 'logs') {
-                loadLogs();
-            }
+            if (tabName === 'logs') loadLogs();
         }
 
-        // Safe exec wrapper
         async function run(cmd) {
             try {
-                if (typeof ksu !== 'undefined' && ksu.exec) {
-                    return await ksu.exec(cmd);
-                } else {
-                    throw new Error('KSU API not available');
-                }
+                if (typeof ksu !== 'undefined' && ksu.exec) return await ksu.exec(cmd);
+                throw new Error('KSU API not available');
             } catch (e) {
                 logActivity('Ошибка: ' + e.message, 'err');
                 return '';
@@ -628,10 +1288,7 @@
         function renderActivity() {
             const el = document.getElementById('activity-log');
             el.innerHTML = activityLog.map(a =>
-                `<div class="activity-item">
-                    <span class="activity-time">${a.time}</span>
-                    <span class="activity-msg ${a.type}">${escapeHtml(a.msg)}</span>
-                </div>`
+                `<div class="activity-item"><span class="activity-time">${a.time}</span><span class="activity-msg ${a.type}">${escapeHtml(a.msg)}</span></div>`
             ).join('');
         }
 
@@ -651,13 +1308,8 @@
         function setLoading(btnId, loading) {
             const btn = document.getElementById(btnId);
             if (!btn) return;
-            if (loading) {
-                btn.classList.add('btn-loading');
-                btn.disabled = true;
-            } else {
-                btn.classList.remove('btn-loading');
-                btn.disabled = false;
-            }
+            btn.classList.toggle('btn-loading', loading);
+            btn.disabled = loading;
         }
 
         function setAllButtons(disabled) {
@@ -670,17 +1322,9 @@
         async function checkStatus() {
             const indicator = document.getElementById('status-indicator');
             const statusText = document.getElementById('status-text');
-
             try {
-                const pidCheck = await run(
-                    `if [ -f ${PIDFILE} ]; then ` +
-                    `PID=$(cat ${PIDFILE}); ` +
-                    `if [ -d /proc/$PID ]; then echo "running:$PID"; else echo "dead"; fi; ` +
-                    `else echo "stopped"; fi`
-                );
-
+                const pidCheck = await run(`if [ -f ${PIDFILE} ]; then PID=$(cat ${PIDFILE}); if [ -d /proc/$PID ]; then echo "running:$PID"; else echo "dead"; fi; else echo "stopped"; fi`);
                 const result = pidCheck.trim();
-
                 if (result.startsWith('running:')) {
                     isRunning = true;
                     const pid = result.split(':')[1];
@@ -693,13 +1337,10 @@
                     statusText.textContent = 'Остановлен';
                     document.getElementById('val-pid').textContent = '-';
                 }
-
                 const iptables = await run('iptables -t mangle -L OUTPUT -n 2>/dev/null | grep -c NFQUEUE || echo 0');
                 document.getElementById('val-iptables').textContent = iptables.trim() + ' правил';
-
                 const version = await run(`grep "^version=" ${MODDIR}/module.prop 2>/dev/null | cut -d= -f2`);
                 document.getElementById('val-version').textContent = version.trim() || '-';
-
             } catch (e) {
                 indicator.className = 'status-indicator stopped';
                 statusText.textContent = 'Ошибка';
@@ -710,24 +1351,17 @@
             try {
                 const cfg = await run(`cat ${CONFIG} 2>/dev/null`);
                 if (!cfg) return;
-
-                const match = (name) => {
-                    const m = cfg.match(new RegExp(name + '="([^"]*)"'));
-                    return m ? m[1] : null;
-                };
-
+                const match = (name) => { const m = cfg.match(new RegExp(name + '="([^"]*)"')); return m ? m[1] : null; };
                 const youtube = match('STRATEGY_YOUTUBE');
                 const discord = match('STRATEGY_DISCORD');
                 const discordVoice = match('STRATEGY_DISCORD_VOICE');
                 const telegram = match('STRATEGY_TELEGRAM');
                 const udp = match('STRATEGY_UDP');
-
                 if (youtube) document.getElementById('strat-youtube').value = youtube;
                 if (discord) document.getElementById('strat-discord').value = discord;
                 if (discordVoice) document.getElementById('strat-discord-voice').value = discordVoice;
                 if (telegram) document.getElementById('strat-telegram').value = telegram;
                 if (udp) document.getElementById('strat-udp').value = udp;
-
                 logActivity('Конфиг загружен', 'ok');
             } catch (e) {
                 logActivity('Ошибка загрузки конфига', 'err');
@@ -740,7 +1374,6 @@
             const discordVoice = document.getElementById('strat-discord-voice').value;
             const telegram = document.getElementById('strat-telegram').value;
             const udp = document.getElementById('strat-udp').value;
-
             const config = `#!/system/bin/sh
 AUTOSTART=1
 QNUM=200
@@ -769,11 +1402,9 @@ USE_CATEGORIES=1
         }
 
         async function doStart() {
-            setLoading('btn-start', true);
-            setAllButtons(true);
+            setLoading('btn-start', true); setAllButtons(true);
             logActivity('Запуск Zapret2...', 'warn');
             document.getElementById('val-lastaction').textContent = 'Запуск...';
-
             try {
                 await run(`sh ${SCRIPTS}/zapret-start.sh 2>&1`);
                 logActivity('Запущен', 'ok');
@@ -783,18 +1414,14 @@ USE_CATEGORIES=1
                 logActivity('Ошибка запуска: ' + e.message, 'err');
                 toast('Ошибка запуска', 'error');
             }
-
-            setLoading('btn-start', false);
-            setAllButtons(false);
+            setLoading('btn-start', false); setAllButtons(false);
             setTimeout(checkStatus, 500);
         }
 
         async function doStop() {
-            setLoading('btn-stop', true);
-            setAllButtons(true);
+            setLoading('btn-stop', true); setAllButtons(true);
             logActivity('Остановка Zapret2...', 'warn');
             document.getElementById('val-lastaction').textContent = 'Остановка...';
-
             try {
                 await run(`sh ${SCRIPTS}/zapret-stop.sh 2>&1`);
                 logActivity('Остановлен', 'ok');
@@ -804,18 +1431,14 @@ USE_CATEGORIES=1
                 logActivity('Ошибка остановки', 'err');
                 toast('Ошибка остановки', 'error');
             }
-
-            setLoading('btn-stop', false);
-            setAllButtons(false);
+            setLoading('btn-stop', false); setAllButtons(false);
             setTimeout(checkStatus, 500);
         }
 
         async function doRestart() {
-            setLoading('btn-restart', true);
-            setAllButtons(true);
+            setLoading('btn-restart', true); setAllButtons(true);
             logActivity('Перезапуск...', 'warn');
             document.getElementById('val-lastaction').textContent = 'Перезапуск...';
-
             try {
                 await run(`sh ${SCRIPTS}/zapret-stop.sh 2>&1`);
                 logActivity('Остановлен', 'ok');
@@ -828,9 +1451,7 @@ USE_CATEGORIES=1
                 logActivity('Ошибка перезапуска', 'err');
                 toast('Ошибка', 'error');
             }
-
-            setLoading('btn-restart', false);
-            setAllButtons(false);
+            setLoading('btn-restart', false); setAllButtons(false);
             setTimeout(checkStatus, 500);
         }
 
@@ -838,22 +1459,13 @@ USE_CATEGORIES=1
             setLoading('btn-update', true);
             logActivity('Проверка обновлений...', 'warn');
             document.getElementById('val-lastaction').textContent = 'Проверка...';
-
             try {
-                const response = await run(
-                    'curl -s --connect-timeout 10 ' +
-                    'https://api.github.com/repos/youtubediscord/magisk-zapret2/releases/latest 2>/dev/null'
-                );
-
-                if (!response) {
-                    throw new Error('Нет ответа от сервера');
-                }
-
+                const response = await run('curl -s --connect-timeout 10 https://api.github.com/repos/youtubediscord/magisk-zapret2/releases/latest 2>/dev/null');
+                if (!response) throw new Error('Нет ответа от сервера');
                 const tagMatch = response.match(/"tag_name"\s*:\s*"([^"]+)"/);
                 if (tagMatch) {
                     const latest = tagMatch[1];
                     const current = document.getElementById('val-version').textContent;
-
                     if (latest && latest !== current) {
                         logActivity('Доступно: ' + latest, 'ok');
                         toast('Доступно обновление: ' + latest, 'success');
@@ -863,22 +1475,17 @@ USE_CATEGORIES=1
                         toast('У вас последняя версия', 'success');
                         document.getElementById('val-lastaction').textContent = 'Актуально';
                     }
-                } else {
-                    throw new Error('Не удалось разобрать ответ');
-                }
+                } else throw new Error('Не удалось разобрать ответ');
             } catch (e) {
                 logActivity('Ошибка: ' + e.message, 'err');
                 toast('Не удалось проверить', 'error');
                 document.getElementById('val-lastaction').textContent = 'Ошибка';
             }
-
             setLoading('btn-update', false);
         }
 
-        // Logs functions
         async function loadLogs() {
             logActivity('Загрузка логов...', 'warn');
-
             try {
                 const logs = await run(`tail -200 ${LOGFILE} 2>/dev/null || echo "Логов нет"`);
                 renderLogs(logs);
@@ -890,15 +1497,10 @@ USE_CATEGORIES=1
         async function loadFullLogs() {
             logActivity('Загрузка полных логов...', 'warn');
             document.getElementById('logs-box').innerHTML = '<div class="log-line">Загрузка...</div>';
-
             try {
                 let logs = await run(`cat ${LOGFILE} 2>/dev/null || echo "Логов нет"`);
-
                 const errorLog = await run('cat /data/local/tmp/nfqws2-error.log 2>/dev/null');
-                if (errorLog && errorLog.trim()) {
-                    logs += '\n\n=== nfqws2-error.log ===\n' + errorLog;
-                }
-
+                if (errorLog && errorLog.trim()) logs += '\n\n=== nfqws2-error.log ===\n' + errorLog;
                 renderLogs(logs);
                 toast('Загружено ' + logs.split('\n').length + ' строк', 'success');
             } catch (e) {
@@ -908,15 +1510,10 @@ USE_CATEGORIES=1
 
         async function loadErrorLogs() {
             logActivity('Загрузка ошибок...', 'warn');
-
             try {
                 let logs = await run(`grep -i "error\\|fail\\|warn\\|cannot\\|not found" ${LOGFILE} 2>/dev/null || echo "Ошибок не найдено"`);
-
                 const errorLog = await run('cat /data/local/tmp/nfqws2-error.log 2>/dev/null');
-                if (errorLog && errorLog.trim()) {
-                    logs += '\n\n=== nfqws2-error.log ===\n' + errorLog;
-                }
-
+                if (errorLog && errorLog.trim()) logs += '\n\n=== nfqws2-error.log ===\n' + errorLog;
                 renderLogs(logs);
             } catch (e) {
                 logActivity('Ошибка загрузки', 'err');
@@ -927,24 +1524,17 @@ USE_CATEGORIES=1
             const box = document.getElementById('logs-box');
             const countEl = document.getElementById('logs-count');
             currentLogs = logs || '';
-
             if (logs && logs.trim()) {
                 const lines = logs.split('\n').filter(l => l.trim());
                 countEl.textContent = lines.length + ' строк';
-
                 box.innerHTML = lines.map(line => {
                     let cls = '';
                     const lower = line.toLowerCase();
-                    if (lower.includes('error') || lower.includes('fail') || lower.includes('cannot')) {
-                        cls = 'error';
-                    } else if (lower.includes('warn')) {
-                        cls = 'warn';
-                    } else if (line.includes('[INFO]') || line.includes('===') || lower.includes('success') || lower.includes('started')) {
-                        cls = 'info';
-                    }
+                    if (lower.includes('error') || lower.includes('fail') || lower.includes('cannot')) cls = 'error';
+                    else if (lower.includes('warn')) cls = 'warn';
+                    else if (line.includes('[INFO]') || line.includes('===') || lower.includes('success') || lower.includes('started')) cls = 'info';
                     return `<div class="log-line ${cls}">${escapeHtml(line)}</div>`;
                 }).join('');
-
                 box.scrollTop = box.scrollHeight;
             } else {
                 box.innerHTML = '<div class="log-line">Логи пусты</div>';
@@ -953,11 +1543,7 @@ USE_CATEGORIES=1
         }
 
         async function copyLogs() {
-            if (!currentLogs || !currentLogs.trim()) {
-                toast('Нечего копировать', 'error');
-                return;
-            }
-
+            if (!currentLogs || !currentLogs.trim()) { toast('Нечего копировать', 'error'); return; }
             try {
                 if (navigator.clipboard && navigator.clipboard.writeText) {
                     await navigator.clipboard.writeText(currentLogs);
@@ -978,21 +1564,16 @@ USE_CATEGORIES=1
             }
         }
 
-        // Init
         async function init() {
             logActivity('Инициализация...', 'warn');
             await checkStatus();
             await loadConfig();
             logActivity('Готово', 'ok');
-
             setInterval(checkStatus, 10000);
         }
 
-        if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', init);
-        } else {
-            init();
-        }
+        if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+        else init();
     </script>
 </body>
 </html>
