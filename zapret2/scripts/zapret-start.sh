@@ -280,7 +280,7 @@ build_options() {
         youtube)
             # YouTube strategy with syndata + multisplit
             OPTS="$OPTS \
---filter-tcp=443 --filter-l7=tls \
+--filter-tcp=443 \
 --lua-desync=syndata:blob=tls_google \
 --lua-desync=multisplit:pos=midsld"
             ;;
@@ -288,7 +288,7 @@ build_options() {
         discord)
             # Discord TLS + Voice UDP
             OPTS="$OPTS \
---filter-tcp=443 --filter-l7=tls \
+--filter-tcp=443 \
 --lua-desync=syndata:blob=tls_google \
 --lua-desync=multisplit:pos=midsld \
 --new \
@@ -300,16 +300,16 @@ build_options() {
         all)
             # Aggressive multi-protocol bypass
             OPTS="$OPTS \
---filter-tcp=80 --filter-l7=http \
+--filter-tcp=80 \
 --lua-desync=fake:blob=http_fake:badsum \
 --lua-desync=multisplit:pos=host+1 \
 --new \
---filter-tcp=443 --filter-l7=tls \
+--filter-tcp=443 \
 --lua-desync=syndata:blob=tls_google \
 --lua-desync=fake:blob=tls_google:repeats=6 \
 --lua-desync=multidisorder:pos=1,midsld \
 --new \
---filter-udp=443 --filter-l7=quic \
+--filter-udp=443 \
 --lua-desync=fake:blob=quic_google:repeats=6"
             ;;
 
@@ -363,13 +363,13 @@ build_category_options() {
     }
 
     # YouTube TCP
-    add_category "YouTube TCP" "$STRATEGY_YOUTUBE" "--filter-tcp=80,443 --filter-l7=tls" "youtube.txt"
+    add_category "YouTube TCP" "$STRATEGY_YOUTUBE" "--filter-tcp=80,443" "youtube.txt"
 
     # YouTube QUIC/UDP
-    add_category "YouTube QUIC" "$STRATEGY_YOUTUBE_UDP" "--filter-udp=443 --filter-l7=quic" "youtube.txt"
+    add_category "YouTube QUIC" "$STRATEGY_YOUTUBE_UDP" "--filter-udp=443" "youtube.txt"
 
     # Discord TCP
-    add_category "Discord TCP" "$STRATEGY_DISCORD" "--filter-tcp=80,443 --filter-l7=tls" "discord.txt"
+    add_category "Discord TCP" "$STRATEGY_DISCORD" "--filter-tcp=80,443" "discord.txt"
 
     # Discord Voice UDP
     if [ -n "$STRATEGY_DISCORD_VOICE_UDP" ] && [ "$STRATEGY_DISCORD_VOICE_UDP" != "none" ]; then
@@ -382,43 +382,43 @@ build_category_options() {
     fi
 
     # Telegram TCP
-    add_category "Telegram TCP" "$STRATEGY_TELEGRAM_TCP" "--filter-tcp=80,443 --filter-l7=tls" "telegram.txt"
+    add_category "Telegram TCP" "$STRATEGY_TELEGRAM_TCP" "--filter-tcp=80,443" "telegram.txt"
 
     # WhatsApp TCP
-    add_category "WhatsApp TCP" "$STRATEGY_WHATSAPP_TCP" "--filter-tcp=80,443 --filter-l7=tls" "whatsapp.txt"
+    add_category "WhatsApp TCP" "$STRATEGY_WHATSAPP_TCP" "--filter-tcp=80,443" "whatsapp.txt"
 
     # Facebook TCP
-    add_category "Facebook TCP" "$STRATEGY_FACEBOOK_TCP" "--filter-tcp=80,443 --filter-l7=tls" "facebook.txt"
+    add_category "Facebook TCP" "$STRATEGY_FACEBOOK_TCP" "--filter-tcp=80,443" "facebook.txt"
 
     # Instagram TCP
-    add_category "Instagram TCP" "$STRATEGY_INSTAGRAM_TCP" "--filter-tcp=80,443 --filter-l7=tls" "instagram.txt"
+    add_category "Instagram TCP" "$STRATEGY_INSTAGRAM_TCP" "--filter-tcp=80,443" "instagram.txt"
 
     # Twitter TCP
-    add_category "Twitter TCP" "$STRATEGY_TWITTER_TCP" "--filter-tcp=80,443 --filter-l7=tls" "twitter.txt"
+    add_category "Twitter TCP" "$STRATEGY_TWITTER_TCP" "--filter-tcp=80,443" "twitter.txt"
 
     # GitHub TCP
-    add_category "GitHub TCP" "$STRATEGY_GITHUB_TCP" "--filter-tcp=443 --filter-l7=tls" "github.txt"
+    add_category "GitHub TCP" "$STRATEGY_GITHUB_TCP" "--filter-tcp=443" "github.txt"
 
     # Steam TCP
-    add_category "Steam TCP" "$STRATEGY_STEAM_TCP" "--filter-tcp=80,443 --filter-l7=tls" "steam.txt"
+    add_category "Steam TCP" "$STRATEGY_STEAM_TCP" "--filter-tcp=80,443" "steam.txt"
 
     # Twitch TCP
-    add_category "Twitch TCP" "$STRATEGY_TWITCH_TCP" "--filter-tcp=443 --filter-l7=tls" "twitch.txt"
+    add_category "Twitch TCP" "$STRATEGY_TWITCH_TCP" "--filter-tcp=443" "twitch.txt"
 
     # SoundCloud TCP
-    add_category "SoundCloud TCP" "$STRATEGY_SOUNDCLOUD_TCP" "--filter-tcp=80,443 --filter-l7=tls" "soundcloud.txt"
+    add_category "SoundCloud TCP" "$STRATEGY_SOUNDCLOUD_TCP" "--filter-tcp=80,443" "soundcloud.txt"
 
     # Rutracker TCP
-    add_category "Rutracker TCP" "$STRATEGY_RUTRACKER_TCP" "--filter-tcp=80,443 --filter-l7=tls" "rutracker.txt"
+    add_category "Rutracker TCP" "$STRATEGY_RUTRACKER_TCP" "--filter-tcp=80,443" "rutracker.txt"
 
     # Other (Hostlist)
-    add_category "Other HTTPS" "$STRATEGY_OTHER" "--filter-tcp=443 --filter-l7=tls" "other.txt"
+    add_category "Other HTTPS" "$STRATEGY_OTHER" "--filter-tcp=443" "other.txt"
 
     # If nothing configured, use default
     if [ $first -eq 1 ]; then
         log_msg "No categories configured, using default YouTube strategy"
         OPTS="$OPTS \
---filter-tcp=443 --filter-l7=tls \
+--filter-tcp=443 \
 --payload=tls_client_hello \
 --lua-desync=send:repeats=2 \
 --lua-desync=syndata:blob=tls_google \

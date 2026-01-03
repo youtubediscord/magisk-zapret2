@@ -30,8 +30,7 @@ STRATEGY_PRESET="youtube"
 # Custom strategy (used when STRATEGY_PRESET=custom)
 # Format: nfqws2 options (without --qnum)
 CUSTOM_STRATEGY='
---filter-tcp=443 --filter-l7=tls
---out-range=-d10
+--filter-tcp=443
 --payload=tls_client_hello
 --lua-desync=send:repeats=2
 --lua-desync=syndata:blob=tls_google
