@@ -11,175 +11,110 @@ on:
         required: true
         default: '1.0.0'
 
-env:
-  NDK_VERSION: r26b
-  ZAPRET_REPO: bol-van/zapret2
-
 jobs:
   build-nfqws2:
-    name: Build nfqws2 for ${{ matrix.arch }}
+    name: Build nfqws2 for ${{ matrix.abi }}
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         include:
-          - arch: arm64-v8a
-            ndk_arch: aarch64-linux-android
-            api: 24
-          - arch: armeabi-v7a
-            ndk_arch: armv7a-linux-androideabi
-            api: 24
-          - arch: x86_64
-            ndk_arch: x86_64-linux-android
-            api: 24
-          - arch: x86
-            ndk_arch: i686-linux-android
-            api: 24
+          - abi: arm64-v8a
+            target: aarch64-linux-android
+          - abi: armeabi-v7a
+            target: armv7a-linux-androideabi
+          - abi: x86_64
+            target: x86_64-linux-android
+          - abi: x86
+            target: i686-linux-android
 
     steps:
       - name: Checkout module
         uses: actions/checkout@v4
 
-      - name: Checkout zapret source
+      - name: Checkout zapret2 source
         uses: actions/checkout@v4
         with:
-          repository: ${{ env.ZAPRET_REPO }}
-          path: zapret-src
+          repository: bol-van/zapret2
+          path: zapret2
 
-      - name: Setup Android NDK
-        uses: nttld/setup-ndk@v1
-        id: setup-ndk
-        with:
-          ndk-version: ${{ env.NDK_VERSION }}
-          add-to-path: true
-
-      - name: Install dependencies
+      - name: Set up build tools
         run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential wget autoconf automake libtool pkg-config
+          sudo dpkg --add-architecture i386
+          sudo apt update -qq
+          sudo apt install -y gcc-multilib
 
-      - name: Build libmnl for Android
+      - name: Build
         env:
-          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+          ABI: ${{ matrix.abi }}
+          API: 21
+          TARGET: ${{ matrix.target }}
+          GH_TOKEN: ${{ github.token }}
+          LUAJIT_VER: 2.1
+          LUAJIT_RELEASE: 2.1-20250117
+          LUAJIT_LUAVER: 5.1
         run: |
-          TOOLCHAIN=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64
-          export CC=$TOOLCHAIN/bin/${{ matrix.ndk_arch }}${{ matrix.api }}-clang
+          DEPS_DIR=$GITHUB_WORKSPACE/deps
+          export TOOLCHAIN=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64
+          export CC="$TOOLCHAIN/bin/clang --target=$TARGET$API"
           export AR=$TOOLCHAIN/bin/llvm-ar
+          export AS=$CC
+          export LD=$TOOLCHAIN/bin/ld
           export RANLIB=$TOOLCHAIN/bin/llvm-ranlib
-          export PREFIX=$GITHUB_WORKSPACE/android-libs
-
-          git clone --depth 1 https://git.netfilter.org/libmnl
-          cd libmnl
-          ./autogen.sh
-          ./configure --host=${{ matrix.ndk_arch }} --prefix=$PREFIX --enable-static --disable-shared
-          make -j$(nproc)
-          make install
-
-      - name: Build libnfnetlink for Android
-        env:
-          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
-        run: |
-          TOOLCHAIN=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64
-          export CC=$TOOLCHAIN/bin/${{ matrix.ndk_arch }}${{ matrix.api }}-clang
-          export AR=$TOOLCHAIN/bin/llvm-ar
-          export RANLIB=$TOOLCHAIN/bin/llvm-ranlib
-          export PREFIX=$GITHUB_WORKSPACE/android-libs
-          export PKG_CONFIG_PATH=$PREFIX/lib/pkgconfig
-
-          git clone --depth 1 https://git.netfilter.org/libnfnetlink
-          cd libnfnetlink
-          ./autogen.sh
-          ./configure --host=${{ matrix.ndk_arch }} --prefix=$PREFIX --enable-static --disable-shared
-          make -j$(nproc)
-          make install
-
-      - name: Build libnetfilter_queue for Android
-        env:
-          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
-        run: |
-          TOOLCHAIN=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64
-          export CC=$TOOLCHAIN/bin/${{ matrix.ndk_arch }}${{ matrix.api }}-clang
-          export AR=$TOOLCHAIN/bin/llvm-ar
-          export RANLIB=$TOOLCHAIN/bin/llvm-ranlib
-          export PREFIX=$GITHUB_WORKSPACE/android-libs
-          export PKG_CONFIG_PATH=$PREFIX/lib/pkgconfig
-          export CFLAGS="-I$PREFIX/include"
-          export LDFLAGS="-L$PREFIX/lib"
-
-          git clone --depth 1 https://git.netfilter.org/libnetfilter_queue
-          cd libnetfilter_queue
-          ./autogen.sh
-          ./configure --host=${{ matrix.ndk_arch }} --prefix=$PREFIX --enable-static --disable-shared
-          make -j$(nproc)
-          make install
-
-      - name: Build Lua 5.4 for Android
-        env:
-          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
-        run: |
-          # Download Lua 5.4
-          wget -q https://www.lua.org/ftp/lua-5.4.6.tar.gz
-          tar xzf lua-5.4.6.tar.gz
-          cd lua-5.4.6/src
-
-          # Set up cross-compiler
-          TOOLCHAIN=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64
-          CC=$TOOLCHAIN/bin/${{ matrix.ndk_arch }}${{ matrix.api }}-clang
-          AR=$TOOLCHAIN/bin/llvm-ar
-
-          # Build Lua objects
-          $CC -std=gnu99 -O2 -Wall -fPIC -DLUA_USE_LINUX -c *.c
-
-          # Create static library
-          $AR rcs liblua.a *.o
-
-          # Install to local prefix
-          mkdir -p $GITHUB_WORKSPACE/lua-android/lib
-          mkdir -p $GITHUB_WORKSPACE/lua-android/include
-          cp liblua.a $GITHUB_WORKSPACE/lua-android/lib/
-          cp lua.h luaconf.h lualib.h lauxlib.h $GITHUB_WORKSPACE/lua-android/include/
-
-      - name: Build nfqws2 for ${{ matrix.arch }}
-        env:
-          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
-        run: |
-          cd zapret-src/nfq2
-
-          # Set up cross-compiler
-          TOOLCHAIN=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64
-          export CC=$TOOLCHAIN/bin/${{ matrix.ndk_arch }}${{ matrix.api }}-clang
-          export AR=$TOOLCHAIN/bin/llvm-ar
           export STRIP=$TOOLCHAIN/bin/llvm-strip
+          export PKG_CONFIG_PATH=$DEPS_DIR/lib/pkgconfig
 
-          # Paths to our built libraries
-          PREFIX=$GITHUB_WORKSPACE/android-libs
-          LUA_PREFIX=$GITHUB_WORKSPACE/lua-android
+          # luajit
+          wget -qO- https://github.com/openresty/luajit2/archive/refs/tags/v${LUAJIT_RELEASE}.tar.gz | tar -xz
+          case "$ABI" in
+            *64*)
+              HOSTCC="cc"
+              ;;
+            *)
+              HOSTCC="cc -m32"
+          esac
+          (
+            cd luajit2-*
+            make BUILDMODE=static XCFLAGS=-DLUAJIT_DISABLE_FFI HOST_CC="$HOSTCC" CROSS= CC="$CC" TARGET_AR="$AR rcus" TARGET_STRIP=$STRIP CFLAGS="-Os -flto=auto $CFLAGS" -j$(nproc)
+            make install PREFIX= DESTDIR=$DEPS_DIR
+          )
+          LJIT=1
+          LCFLAGS="-I${DEPS_DIR}/include/luajit-${LUAJIT_VER}"
+          LLIB="-L${DEPS_DIR}/lib -lluajit-${LUAJIT_LUAVER}"
 
-          # Build with all dependencies
-          export CFLAGS="-I$PREFIX/include -I$LUA_PREFIX/include"
-          export LDFLAGS="-L$PREFIX/lib -L$LUA_PREFIX/lib"
-          export LUA_CFLAGS="-I$LUA_PREFIX/include"
-          export LUA_LIB="-L$LUA_PREFIX/lib -llua"
-          export LIBS_LINUX="-L$PREFIX/lib -lnetfilter_queue -lnfnetlink -lmnl -lz -lm"
+          # netfilter libs
+          wget -qO- https://www.netfilter.org/pub/libnfnetlink/libnfnetlink-1.0.2.tar.bz2 | tar -xj
+          wget -qO- https://www.netfilter.org/pub/libmnl/libmnl-1.0.5.tar.bz2 | tar -xj
+          wget -qO- https://www.netfilter.org/pub/libnetfilter_queue/libnetfilter_queue-1.0.5.tar.bz2 | tar -xj
+          patch -p1 -d libnetfilter_queue-* -i $GITHUB_WORKSPACE/zapret2/.github/workflows/libnetfilter_queue-android.patch
 
-          make android CC=$CC LUA_JIT=0 \
-            CFLAGS="$CFLAGS" \
-            LDFLAGS="$LDFLAGS" \
-            LUA_CFLAGS="$LUA_CFLAGS" \
-            LUA_LIB="$LUA_LIB" \
-            LIBS_LINUX="$LIBS_LINUX"
+          for i in libmnl libnfnetlink libnetfilter_queue ; do
+            (
+              cd $i-*
+              CFLAGS="-Os -flto=auto -Wno-implicit-function-declaration" \
+              ./configure --prefix= --host=$TARGET --enable-static --disable-shared --disable-dependency-tracking
+              make install -j$(nproc) DESTDIR=$DEPS_DIR
+            )
+            sed -i "s|^prefix=.*|prefix=$DEPS_DIR|g" $DEPS_DIR/lib/pkgconfig/$i.pc
+          done
 
-          # Strip binary
-          $STRIP nfqws2 || true
+          # zapret2
+          CFLAGS="-I$DEPS_DIR/include" \
+          LDFLAGS="-L$DEPS_DIR/lib" \
+          make -C zapret2 LUA_JIT=$LJIT LUA_CFLAGS="$LCFLAGS" LUA_LIB="$LLIB" -j$(nproc) android
+
+          # strip
+          $STRIP zapret2/binaries/my/nfqws2
 
           # Create output dir
-          mkdir -p $GITHUB_WORKSPACE/binaries/${{ matrix.arch }}
-          cp nfqws2 $GITHUB_WORKSPACE/binaries/${{ matrix.arch }}/
+          mkdir -p $GITHUB_WORKSPACE/binaries/$ABI
+          cp zapret2/binaries/my/nfqws2 $GITHUB_WORKSPACE/binaries/$ABI/
 
       - name: Upload binary
         uses: actions/upload-artifact@v4
         with:
-          name: nfqws2-${{ matrix.arch }}
-          path: binaries/${{ matrix.arch }}/nfqws2
+          name: nfqws2-${{ matrix.abi }}
+          path: binaries/${{ matrix.abi }}/nfqws2
 
   package-module:
     name: Package Magisk Module
@@ -252,62 +187,3 @@ jobs:
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  # Alternative: Download prebuilt from zapret releases
-  package-with-prebuilt:
-    name: Package with Prebuilt Binaries
-    runs-on: ubuntu-latest
-    if: ${{ always() }}
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Try download prebuilt binaries
-        continue-on-error: true
-        run: |
-          # Try to get latest release info
-          RELEASE_INFO=$(curl -s https://api.github.com/repos/bol-van/zapret/releases/latest)
-
-          # Check for android binaries in assets
-          echo "Checking for prebuilt Android binaries..."
-          echo "$RELEASE_INFO" | jq -r '.assets[].name' || echo "No assets found"
-
-          # If prebuilt available, download them
-          # This is a placeholder - adjust when binaries are available
-          mkdir -p zapret2/bin/arm64-v8a
-          mkdir -p zapret2/bin/armeabi-v7a
-
-      - name: Create placeholder module (no binaries)
-        run: |
-          VERSION="${{ github.event.inputs.version || '1.0.0' }}"
-
-          # Add note about missing binaries
-          echo "NOTE: nfqws2 binaries are not included." > zapret2/bin/README.txt
-          echo "Please compile from source or wait for prebuilt releases." >> zapret2/bin/README.txt
-          echo "" >> zapret2/bin/README.txt
-          echo "Build command:" >> zapret2/bin/README.txt
-          echo "  cd zapret/nfq2" >> zapret2/bin/README.txt
-          echo "  make android CC=<ndk-clang>" >> zapret2/bin/README.txt
-
-          chmod +x customize.sh service.sh uninstall.sh action.sh 2>/dev/null || true
-          chmod +x zapret2/scripts/*.sh 2>/dev/null || true
-
-          zip -r zapret2-magisk-v${VERSION}-nobinary.zip \
-            META-INF \
-            module.prop \
-            customize.sh \
-            service.sh \
-            uninstall.sh \
-            action.sh \
-            zapret2 \
-            README.md \
-            -x "*.git*" \
-            -x "CLAUDE.md" \
-            -x ".github/*"
-
-      - name: Upload no-binary module
-        uses: actions/upload-artifact@v4
-        with:
-          name: zapret2-magisk-nobinary
-          path: zapret2-magisk-*-nobinary.zip
