@@ -627,13 +627,14 @@ build_category_filter() {
 }
 
 # Build options for a single category from categories.txt
-# Arguments: $1=category, $2=filter_mode, $3=hostlist, $4=strategy
+# Arguments: $1=category, $2=filter_mode, $3=hostlist, $4=strategy, $5=strategy_name
 # Uses global: OPTS, first
 build_category_options_single() {
     local category="$1"
     local filter_mode="$2"
     local hostlist="$3"
     local strategy="$4"
+    local strategy_name="$5"
 
     # Skip if strategy is empty
     if [ -z "$strategy" ]; then
@@ -641,31 +642,56 @@ build_category_options_single() {
         return
     fi
 
-    # Determine protocol filter based on category name
+    # Determine protocol filter and strategy function based on category name
     local proto_filter=""
+    local strat_opts=""
     case "$category" in
+        *_stun|*_voice)
+            # STUN/Voice categories - use hardcoded strategy
+            proto_filter="--filter-l7=stun,discord"
+            local full_filter="--out-range=-d$PKT_OUT $proto_filter --payload=stun,discord_ip_discovery"
+
+            # Add hostlist/ipset if specified
+            local filter_opts=$(build_category_filter "$filter_mode" "$hostlist")
+            if [ -n "$filter_opts" ]; then
+                full_filter="$full_filter $filter_opts"
+            fi
+
+            # Hardcoded STUN strategy
+            strat_opts="$full_filter --lua-desync=fake:blob=fake_stun:repeats=6"
+            ;;
         *_udp|*_quic)
+            # UDP/QUIC categories - use get_udp_strategy_options
             proto_filter="--filter-udp=443"
+            local full_filter="--out-range=-d$PKT_OUT $proto_filter"
+
+            # Add hostlist/ipset if specified
+            local filter_opts=$(build_category_filter "$filter_mode" "$hostlist")
+            if [ -n "$filter_opts" ]; then
+                full_filter="$full_filter $filter_opts"
+            fi
+
+            # Get UDP strategy options using strategy_name
+            strat_opts=$(get_udp_strategy_options "$strategy_name" "$full_filter")
             ;;
         *)
+            # TCP categories - use get_tcp_strategy_options
             proto_filter="--filter-tcp=80,443"
+            local full_filter="--out-range=-d$PKT_OUT $proto_filter"
+
+            # Add hostlist/ipset if specified
+            local filter_opts=$(build_category_filter "$filter_mode" "$hostlist")
+            if [ -n "$filter_opts" ]; then
+                full_filter="$full_filter $filter_opts"
+            fi
+
+            # Get TCP strategy options using strategy_name
+            strat_opts=$(get_tcp_strategy_options "$strategy_name" "$full_filter")
             ;;
     esac
 
-    # Build full filter with --out-range (uses PKT_OUT from config.sh)
-    local full_filter="--out-range=-d$PKT_OUT $proto_filter"
-
-    # Add hostlist/ipset if specified
-    local filter_opts=$(build_category_filter "$filter_mode" "$hostlist")
-    if [ -n "$filter_opts" ]; then
-        full_filter="$full_filter $filter_opts"
-    fi
-
-    # Get strategy options from strategies.sh
-    local strat_opts=$(get_strategy_options "$strategy" "$full_filter")
-
     if [ -z "$strat_opts" ]; then
-        log_msg "WARNING: No options for category $category with strategy $strategy"
+        log_msg "WARNING: No options for category $category with strategy $strategy (name=$strategy_name)"
         return
     fi
 
@@ -676,11 +702,11 @@ build_category_options_single() {
 
     OPTS="$OPTS $strat_opts"
     first=0
-    log_msg "Added category: $category (strategy=$strategy, filter=$filter_mode)"
+    log_msg "Added category: $category (strategy=$strategy, name=$strategy_name, filter=$filter_mode)"
 }
 
 # Parse categories from categories.txt file
-# Format: CATEGORY|ENABLED|FILTER_MODE|HOSTLIST_FILE|STRATEGY
+# Format: CATEGORY|ENABLED|FILTER_MODE|HOSTLIST_FILE|STRATEGY|STRATEGY_NAME
 parse_categories() {
     local categories_file="$CATEGORIES_FILE"
 
@@ -692,7 +718,7 @@ parse_categories() {
     log_msg "Parsing categories from: $categories_file"
 
     # Read each line, skip comments and empty lines
-    while IFS='|' read -r category enabled filter_mode hostlist strategy; do
+    while IFS='|' read -r category enabled filter_mode hostlist strategy strategy_name; do
         # Skip comments and empty lines
         case "$category" in
             "#"*|"") continue ;;
@@ -704,6 +730,7 @@ parse_categories() {
         filter_mode=$(echo "$filter_mode" | tr -d ' \t\r')
         hostlist=$(echo "$hostlist" | tr -d ' \t\r')
         strategy=$(echo "$strategy" | tr -d ' \t\r')
+        strategy_name=$(echo "$strategy_name" | tr -d ' \t\r')
 
         # Skip disabled categories
         if [ "$enabled" != "1" ]; then
@@ -711,10 +738,10 @@ parse_categories() {
             continue
         fi
 
-        log_msg "Category: $category (filter=$filter_mode, hostlist=$hostlist, strategy=$strategy)"
+        log_msg "Category: $category (filter=$filter_mode, hostlist=$hostlist, strategy=$strategy, name=$strategy_name)"
 
         # Build options for this category
-        build_category_options_single "$category" "$filter_mode" "$hostlist" "$strategy"
+        build_category_options_single "$category" "$filter_mode" "$hostlist" "$strategy" "$strategy_name"
 
     done < "$categories_file"
 
