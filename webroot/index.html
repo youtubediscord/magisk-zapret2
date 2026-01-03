@@ -469,6 +469,31 @@
             </div>
         </div>
 
+        <div class="card">
+            <div class="card-title" style="color:#888">⚙️ Настройки</div>
+            <div class="strategy-row">
+                <span class="strategy-label">Пакетов</span>
+                <select class="strategy-select" id="pkt-count" onchange="saveStrategies()" style="width:80px">
+                    <option value="4">4</option>
+                    <option value="6">6</option>
+                    <option value="8">8</option>
+                    <option value="10">10</option>
+                    <option value="15">15</option>
+                    <option value="20">20</option>
+                </select>
+                <span style="color:#888;font-size:11px;margin-left:8px">--out-range</span>
+            </div>
+            <div class="strategy-row">
+                <span class="strategy-label">Debug</span>
+                <select class="strategy-select" id="debug-mode" onchange="saveStrategies()" style="width:100px">
+                    <option value="none">Выкл</option>
+                    <option value="file">Файл</option>
+                    <option value="android">Logcat</option>
+                </select>
+                <span style="color:#888;font-size:11px;margin-left:8px">логирование</span>
+            </div>
+        </div>
+
         <button class="btn btn-restart" style="width:100%" onclick="doRestart()">
             <span class="btn-icon">+</span><span>Применить (перезапуск)</span>
         </button>
@@ -645,6 +670,11 @@
 
                 // General
                 setValue('strat-other', 'STRATEGY_OTHER');
+
+                // Settings
+                setValue('pkt-count', 'PKT_COUNT');
+                setValue('debug-mode', 'LOG_MODE');
+
                 logActivity('Конфиг загружен', 'ok');
             } catch (e) {
                 logActivity('Ошибка загрузки конфига', 'err');
@@ -668,8 +698,9 @@
                 'PORTS_UDP="443"',
                 'PKT_OUT=20',
                 'PKT_IN=10',
-                'LOG_MODE="file"',
+                `LOG_MODE="${getValue('debug-mode') || 'none'}"`,
                 'USE_CATEGORIES=1',
+                `PKT_COUNT="${getValue('pkt-count') || '4'}"`,
                 '',
                 '# YouTube',
                 `STRATEGY_YOUTUBE="${getValue('strat-youtube')}"`,
@@ -917,13 +948,26 @@
         async function loadLogs() {
             logActivity('Загрузка логов...', 'warn');
             try {
-                // Load startup log
-                let logs = await run(`cat ${LOGFILE} 2>/dev/null || echo ""`);
+                // Combine all logs into one file, then read with base64 for reliable transfer
+                const combineCmd = `
+                    COMBINED=/data/local/tmp/zapret2-combined.log
+                    echo "=== Zapret2 Log ===" > $COMBINED
+                    cat ${LOGFILE} 2>/dev/null >> $COMBINED
+                    echo "" >> $COMBINED
+                    echo "=== nfqws2 debug ===" >> $COMBINED
+                    cat ${NFQWS_LOG} 2>/dev/null >> $COMBINED
+                    base64 $COMBINED 2>/dev/null
+                `;
+                const b64 = await run(combineCmd);
 
-                // Load nfqws2 debug log (main output) - ALL lines
-                const nfqwsLog = await run(`cat ${NFQWS_LOG} 2>/dev/null || echo ""`);
-                if (nfqwsLog && nfqwsLog.trim()) {
-                    logs += '\n\n=== nfqws2 debug ===\n' + nfqwsLog;
+                let logs = '';
+                if (b64 && b64.trim()) {
+                    try {
+                        logs = atob(b64.trim().replace(/\s/g, ''));
+                    } catch (decodeErr) {
+                        // Fallback to direct read if base64 fails
+                        logs = await run(`cat ${LOGFILE} 2>/dev/null; echo ""; cat ${NFQWS_LOG} 2>/dev/null`);
+                    }
                 }
 
                 if (!logs || !logs.trim()) {
@@ -931,6 +975,7 @@
                 }
 
                 renderLogs(logs);
+                logActivity('Логи загружены: ' + logs.split('\\n').length + ' строк', 'ok');
             } catch (e) {
                 logActivity('Ошибка загрузки логов', 'err');
             }
@@ -940,19 +985,35 @@
             logActivity('Загрузка полных логов...', 'warn');
             document.getElementById('logs-box').innerHTML = '<div class="log-line">Загрузка...</div>';
             try {
-                let logs = await run(`cat ${LOGFILE} 2>/dev/null || echo ""`);
+                // Combine all logs into one file, then read with base64
+                const combineCmd = `
+                    COMBINED=/data/local/tmp/zapret2-full.log
+                    echo "=== Zapret2 Main Log ===" > $COMBINED
+                    cat ${LOGFILE} 2>/dev/null >> $COMBINED
+                    echo "" >> $COMBINED
+                    echo "=== nfqws2 debug ===" >> $COMBINED
+                    cat ${NFQWS_LOG} 2>/dev/null >> $COMBINED
+                    echo "" >> $COMBINED
+                    echo "=== nfqws2 startup ===" >> $COMBINED
+                    cat /data/local/tmp/nfqws2-startup.log 2>/dev/null >> $COMBINED
+                    echo "" >> $COMBINED
+                    echo "=== nfqws2 errors ===" >> $COMBINED
+                    cat /data/local/tmp/nfqws2-error.log 2>/dev/null >> $COMBINED
+                    echo "" >> $COMBINED
+                    echo "=== Command Line ===" >> $COMBINED
+                    cat /data/local/tmp/nfqws2-cmdline.txt 2>/dev/null >> $COMBINED
+                    base64 $COMBINED 2>/dev/null
+                `;
+                const b64 = await run(combineCmd);
 
-                // nfqws2 debug log (main output from nfqws2)
-                const nfqwsLog = await run(`cat ${NFQWS_LOG} 2>/dev/null || echo ""`);
-                if (nfqwsLog && nfqwsLog.trim()) logs += '\n\n=== nfqws2 debug ===\n' + nfqwsLog;
-
-                // nfqws2 startup output
-                const startupLog = await run('cat /data/local/tmp/nfqws2-startup.log 2>/dev/null');
-                if (startupLog && startupLog.trim()) logs += '\n\n=== nfqws2 startup ===\n' + startupLog;
-
-                // nfqws2 errors
-                const errorLog = await run('cat /data/local/tmp/nfqws2-error.log 2>/dev/null');
-                if (errorLog && errorLog.trim()) logs += '\n\n=== nfqws2 errors ===\n' + errorLog;
+                let logs = '';
+                if (b64 && b64.trim()) {
+                    try {
+                        logs = atob(b64.trim().replace(/\s/g, ''));
+                    } catch (decodeErr) {
+                        logs = 'Ошибка декодирования логов';
+                    }
+                }
 
                 if (!logs || !logs.trim()) logs = 'Логов нет';
 
