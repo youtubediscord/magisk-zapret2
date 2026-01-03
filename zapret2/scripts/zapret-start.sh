@@ -164,18 +164,27 @@ fi
 ##########################################################################################
 
 build_options() {
-    # Base options
-    OPTS="--qnum=$QNUM --fwmark=$DESYNC_MARK"
+    # Base options with uid for privilege drop (1=system, 3003=inet)
+    OPTS="--qnum=$QNUM --fwmark=$DESYNC_MARK --uid=1:3003"
 
-    # Debug mode - only enable file debug for now (safest option)
+    # Debug mode
     case "$LOG_MODE" in
-        file)
-            OPTS="$OPTS --debug=/data/local/tmp/nfqws2-debug.log"
+        android)
+            OPTS="$OPTS --debug=android"
             ;;
-        # android and syslog may not be supported, skip for now
+        syslog)
+            OPTS="$OPTS --debug=syslog"
+            ;;
+        file)
+            OPTS="$OPTS --debug=@/data/local/tmp/nfqws2-debug.log"
+            ;;
+        *)
+            # Default to android for Magisk module
+            OPTS="$OPTS --debug=android"
+            ;;
     esac
 
-    # Lua init files
+    # Lua init files (order matters: lib first, then antidpi)
     if [ -f "$ZAPRET_DIR/lua/zapret-lib.lua" ]; then
         OPTS="$OPTS --lua-init=@$ZAPRET_DIR/lua/zapret-lib.lua"
     fi
@@ -184,6 +193,23 @@ build_options() {
     fi
     if [ -f "$ZAPRET_DIR/lua/zapret-auto.lua" ]; then
         OPTS="$OPTS --lua-init=@$ZAPRET_DIR/lua/zapret-auto.lua"
+    fi
+
+    # Load blobs from blobs.txt (with correct paths)
+    BLOBS_FILE="$ZAPRET_DIR/blobs.txt"
+    if [ -f "$BLOBS_FILE" ]; then
+        log_msg "Loading blobs from $BLOBS_FILE"
+        while IFS= read -r line || [ -n "$line" ]; do
+            # Skip empty lines and comments
+            case "$line" in
+                ""|\#*) continue ;;
+            esac
+            # Replace @bin/ with full path
+            blob_opt=$(echo "$line" | sed "s|@bin/|@$ZAPRET_DIR/bin/|g")
+            OPTS="$OPTS $blob_opt"
+        done < "$BLOBS_FILE"
+    else
+        log_msg "No blobs.txt found, using built-in blobs only"
     fi
 
     # Check if using category-based configuration
@@ -195,48 +221,43 @@ build_options() {
     # Strategy presets (legacy mode)
     case "$STRATEGY_PRESET" in
         youtube)
+            # YouTube strategy with syndata + multisplit
             OPTS="$OPTS \
---filter-tcp=80,443 --filter-l7=http,tls \
---out-range=-d10 \
---payload=tls_client_hello,http_req \
---lua-desync=send:repeats=2 \
+--filter-tcp=443 --filter-l7=tls \
+--payload=tls_client_hello \
 --lua-desync=syndata:blob=tls_google \
 --lua-desync=multisplit:pos=midsld"
             ;;
 
         discord)
+            # Discord TLS + Voice UDP
             OPTS="$OPTS \
---filter-tcp=80,443 --filter-l7=tls \
---out-range=-d10 \
+--filter-tcp=443 --filter-l7=tls \
 --payload=tls_client_hello \
---lua-desync=send:repeats=2 \
 --lua-desync=syndata:blob=tls_google \
 --lua-desync=multisplit:pos=midsld \
 --new \
 --filter-udp=19294-50100 \
 --payload=stun \
---lua-desync=fake:blob=fake_stun:repeats=6"
+--lua-desync=fake:blob=quic1:repeats=6"
             ;;
 
         all)
+            # Aggressive multi-protocol bypass
             OPTS="$OPTS \
 --filter-tcp=80 --filter-l7=http \
---out-range=-d10 \
 --payload=http_req \
---lua-desync=fake:blob=fake_default_http:tcp_md5 \
---lua-desync=multisplit:pos=method+2 \
+--lua-desync=fake:blob=http_fake:badsum \
+--lua-desync=multisplit:pos=host+1 \
 --new \
 --filter-tcp=443 --filter-l7=tls \
---out-range=-d10 \
 --payload=tls_client_hello \
---lua-desync=send:repeats=2 \
---lua-desync=syndata:blob=tls_google \
---lua-desync=fake:blob=tls_google:ip_autottl=-1,3-20:ip6_autottl=-1,3-20:repeats=6:tcp_ack=-66000 \
---lua-desync=multidisorder:pos=1,midsld:seqovl=680:seqovl_pattern=tls_google \
+--lua-desync=fake:blob=tls_google:repeats=6 \
+--lua-desync=multidisorder:pos=1,midsld \
 --new \
 --filter-udp=443 --filter-l7=quic \
 --payload=quic_initial \
---lua-desync=fake:blob=fake_default_quic:repeats=6"
+--lua-desync=fake:blob=quic_google:repeats=6"
             ;;
 
         custom)
