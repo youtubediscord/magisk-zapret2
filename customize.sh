@@ -53,13 +53,33 @@ fi
 
 # Set permissions
 ui_print "- Setting permissions..."
-set_perm_recursive "$MODPATH" 0 0 0755 0644
+
+# Set directory permissions (0755 = rwxr-xr-x)
+find "$MODPATH" -type d -exec chmod 0755 {} \;
+
+# Set file permissions (0644 = rw-r--r--)
+find "$MODPATH" -type f -exec chmod 0644 {} \;
+
+# Set executable permissions for scripts and binary
 set_perm "$MODPATH/zapret2/nfqws2" 0 0 0755
 set_perm "$MODPATH/zapret2/scripts/zapret-start.sh" 0 0 0755
 set_perm "$MODPATH/zapret2/scripts/zapret-stop.sh" 0 0 0755
 set_perm "$MODPATH/zapret2/scripts/zapret-status.sh" 0 0 0755
 set_perm "$MODPATH/service.sh" 0 0 0755
 set_perm "$MODPATH/uninstall.sh" 0 0 0755
+set_perm "$MODPATH/customize.sh" 0 0 0755
+
+# Make sure bin and lua directories are accessible
+chmod 0755 "$MODPATH/zapret2/bin"
+chmod 0755 "$MODPATH/zapret2/lua"
+chmod 0755 "$MODPATH/zapret2/lists"
+chmod 0755 "$MODPATH/zapret2/scripts"
+chmod 0755 "$MODPATH/zapret2"
+
+# Set read permissions on all data files
+chmod -R 0644 "$MODPATH/zapret2/bin/"*.bin 2>/dev/null || true
+chmod -R 0644 "$MODPATH/zapret2/lua/"*.lua 2>/dev/null || true
+chmod -R 0644 "$MODPATH/zapret2/lists/"*.txt 2>/dev/null || true
 
 # Check kernel requirements
 ui_print "- Checking kernel requirements..."
