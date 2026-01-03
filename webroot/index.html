@@ -370,12 +370,6 @@
                 </select>
             </div>
             <div class="strategy-row">
-                <span class="strategy-label">Voice</span>
-                <select class="strategy-select" id="strat-discord-voice-udp" onchange="saveStrategies()">
-                    <option value="none">Выключено</option>
-                </select>
-            </div>
-            <div class="strategy-row">
                 <span class="strategy-label">QUIC</span>
                 <select class="strategy-select" id="strat-udp-discord" onchange="saveStrategies()">
                     <option value="none">Выключено</option>
@@ -390,6 +384,18 @@
                 <select class="strategy-select" id="strat-telegram-tcp" onchange="saveStrategies()">
                     <option value="none">Выключено</option>
                 </select>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-title" style="color:#9B59B6">🎤 Голос (Discord + Telegram)</div>
+            <div class="strategy-row">
+                <span class="strategy-label">STUN/Voice</span>
+                <select class="strategy-select" id="strat-discord-voice-udp" onchange="saveStrategies()">
+                    <option value="none">Выключено</option>
+                    <option value="voice_fake_stun">Fake STUN (6 repeats)</option>
+                </select>
+                <span style="color:#888;font-size:10px;margin-left:4px">L7 detect</span>
             </div>
         </div>
 
