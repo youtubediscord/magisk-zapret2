@@ -1223,7 +1223,8 @@
         <div class="header"><h1>Логи</h1></div>
         <div class="logs-actions">
             <button class="btn btn-secondary btn-small" onclick="loadLogs()">🔄 Обновить</button>
-            <button class="btn btn-secondary btn-small" onclick="loadFullLogs()">📜 Все логи</button>
+            <button class="btn btn-secondary btn-small" onclick="loadFullLogs()">📜 Файл логов</button>
+            <button class="btn btn-secondary btn-small" onclick="loadLogcat()">📟 Logcat</button>
             <button class="btn btn-secondary btn-small" onclick="loadErrorLogs()">⚠️ Ошибки</button>
             <button class="btn btn-secondary btn-small" onclick="copyLogs()">📋 Копировать</button>
         </div>
@@ -1591,7 +1592,20 @@ USE_CATEGORIES=1
         async function loadLogs() {
             logActivity('Загрузка логов...', 'warn');
             try {
-                const logs = await run(`tail -200 ${LOGFILE} 2>/dev/null || echo "Логов нет"`);
+                // Load both file log and recent logcat
+                let logs = await run(`tail -100 ${LOGFILE} 2>/dev/null || echo ""`);
+
+                // Also get logcat with nfqws2 output
+                const logcat = await run('logcat -d 2>/dev/null | grep -i "nfqws\\|zapret\\|desync" | tail -100 || echo ""');
+
+                if (logcat && logcat.trim()) {
+                    logs += '\n\n=== Logcat (nfqws2) ===\n' + logcat;
+                }
+
+                if (!logs || !logs.trim()) {
+                    logs = 'Логов нет';
+                }
+
                 renderLogs(logs);
             } catch (e) {
                 logActivity('Ошибка загрузки логов', 'err');
@@ -1603,8 +1617,15 @@ USE_CATEGORIES=1
             document.getElementById('logs-box').innerHTML = '<div class="log-line">Загрузка...</div>';
             try {
                 let logs = await run(`cat ${LOGFILE} 2>/dev/null || echo "Логов нет"`);
+
+                // nfqws2 startup output
+                const startupLog = await run('cat /data/local/tmp/nfqws2-startup.log 2>/dev/null');
+                if (startupLog && startupLog.trim()) logs += '\n\n=== nfqws2 startup output ===\n' + startupLog;
+
+                // nfqws2 errors
                 const errorLog = await run('cat /data/local/tmp/nfqws2-error.log 2>/dev/null');
-                if (errorLog && errorLog.trim()) logs += '\n\n=== nfqws2-error.log ===\n' + errorLog;
+                if (errorLog && errorLog.trim()) logs += '\n\n=== nfqws2 errors ===\n' + errorLog;
+
                 renderLogs(logs);
                 toast('Загружено ' + logs.split('\n').length + ' строк', 'success');
             } catch (e) {
@@ -1616,11 +1637,35 @@ USE_CATEGORIES=1
             logActivity('Загрузка ошибок...', 'warn');
             try {
                 let logs = await run(`grep -i "error\\|fail\\|warn\\|cannot\\|not found" ${LOGFILE} 2>/dev/null || echo "Ошибок не найдено"`);
+
+                // nfqws2 startup - check for parsing errors
+                const startupLog = await run('cat /data/local/tmp/nfqws2-startup.log 2>/dev/null');
+                if (startupLog && startupLog.trim()) logs += '\n\n=== nfqws2 startup ===\n' + startupLog;
+
+                // nfqws2 error log
                 const errorLog = await run('cat /data/local/tmp/nfqws2-error.log 2>/dev/null');
-                if (errorLog && errorLog.trim()) logs += '\n\n=== nfqws2-error.log ===\n' + errorLog;
+                if (errorLog && errorLog.trim()) logs += '\n\n=== nfqws2 stderr ===\n' + errorLog;
+
                 renderLogs(logs);
             } catch (e) {
                 logActivity('Ошибка загрузки', 'err');
+            }
+        }
+
+        async function loadLogcat() {
+            logActivity('Загрузка logcat nfqws2...', 'warn');
+            document.getElementById('logs-box').innerHTML = '<div class="log-line">Загрузка logcat...</div>';
+            try {
+                // Get nfqws2 logs from logcat (last 500 lines with tag Zapret2 or nfqws2)
+                let logs = await run('logcat -d -s Zapret2:* nfqws2:* 2>/dev/null | tail -500 || echo "Logcat недоступен"');
+                if (!logs || logs.trim() === 'Logcat недоступен' || logs.trim().length < 10) {
+                    // Try alternative - all recent logs mentioning nfqws or zapret
+                    logs = await run('logcat -d 2>/dev/null | grep -i "nfqws\\|zapret\\|desync\\|lua" | tail -500 || echo "Logcat пуст"');
+                }
+                renderLogs(logs);
+                toast('Logcat: ' + logs.split('\n').length + ' строк', 'success');
+            } catch (e) {
+                logActivity('Ошибка загрузки logcat', 'err');
             }
         }
 
