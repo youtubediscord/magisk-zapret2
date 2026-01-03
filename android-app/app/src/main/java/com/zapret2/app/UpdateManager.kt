@@ -20,7 +20,7 @@ import java.net.URL
 class UpdateManager(private val context: Context) {
 
     companion object {
-        private const val GITHUB_API_URL = "https://api.github.com/repos/example/zapret2-magisk/releases/latest"
+        private const val GITHUB_API_URL = "https://api.github.com/repos/youtubediscord/magisk-zapret2/releases/latest"
         private const val CONNECT_TIMEOUT = 15000
         private const val READ_TIMEOUT = 30000
         private const val BUFFER_SIZE = 8192
