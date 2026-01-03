@@ -55,7 +55,31 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential
+          sudo apt-get install -y build-essential wget
+
+      - name: Build Lua 5.4 for Android
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+        run: |
+          # Download Lua 5.4
+          wget -q https://www.lua.org/ftp/lua-5.4.6.tar.gz
+          tar xzf lua-5.4.6.tar.gz
+          cd lua-5.4.6
+
+          # Set up cross-compiler
+          TOOLCHAIN=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64
+          export CC=$TOOLCHAIN/bin/${{ matrix.ndk_arch }}${{ matrix.api }}-clang
+          export AR=$TOOLCHAIN/bin/llvm-ar
+          export RANLIB=$TOOLCHAIN/bin/llvm-ranlib
+
+          # Build Lua as static library
+          make PLAT=linux CC="$CC" AR="$AR rcu" RANLIB="$RANLIB" MYCFLAGS="-fPIC" liblua.a
+
+          # Install to local prefix
+          mkdir -p $GITHUB_WORKSPACE/lua-android/lib
+          mkdir -p $GITHUB_WORKSPACE/lua-android/include
+          cp liblua.a $GITHUB_WORKSPACE/lua-android/lib/
+          cp src/*.h $GITHUB_WORKSPACE/lua-android/include/
 
       - name: Build nfqws2 for ${{ matrix.arch }}
         env:
@@ -69,9 +93,11 @@ jobs:
           export AR=$TOOLCHAIN/bin/llvm-ar
           export STRIP=$TOOLCHAIN/bin/llvm-strip
 
-          # Build with Lua support
-          # Note: May need to build Lua separately for Android
-          make android CC=$CC LUA_JIT=0 || make android CC=$CC LUA_LIB="" LUA_CFLAGS=""
+          # Build with our Lua
+          export LUA_CFLAGS="-I$GITHUB_WORKSPACE/lua-android/include"
+          export LUA_LIB="-L$GITHUB_WORKSPACE/lua-android/lib -llua -lm"
+
+          make android CC=$CC LUA_JIT=0 LUA_CFLAGS="$LUA_CFLAGS" LUA_LIB="$LUA_LIB"
 
           # Strip binary
           $STRIP nfqws2 || true
