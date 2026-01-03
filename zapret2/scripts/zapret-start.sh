@@ -211,7 +211,10 @@ build_options() {
     # Base options with uid for privilege drop (1=system, 3003=inet)
     OPTS="--qnum=$QNUM --fwmark=$DESYNC_MARK --uid=1:3003"
 
-    # Debug mode
+    # IP cache for better performance
+    OPTS="$OPTS --ipcache-lifetime=84600 --ipcache-hostname=1"
+
+    # Debug mode - default to full android logging
     case "$LOG_MODE" in
         android)
             OPTS="$OPTS --debug=android"
@@ -222,8 +225,11 @@ build_options() {
         file)
             OPTS="$OPTS --debug=@/data/local/tmp/nfqws2-debug.log"
             ;;
+        none)
+            # No debug output
+            ;;
         *)
-            # Default to android for Magisk module
+            # Default to android for Magisk module with full logging
             OPTS="$OPTS --debug=android"
             ;;
     esac
@@ -258,10 +264,12 @@ build_options() {
 
     # Check if using category-based configuration
     if [ "$USE_CATEGORIES" = "1" ]; then
+        log_msg "Using category-based configuration (USE_CATEGORIES=1)"
         build_category_options
         return
     fi
 
+    log_msg "Using preset-based configuration (STRATEGY_PRESET=$STRATEGY_PRESET)"
     # Strategy presets (legacy mode)
     case "$STRATEGY_PRESET" in
         youtube)
@@ -320,6 +328,14 @@ build_options() {
 build_category_options() {
     first=1
 
+    log_msg "Building category options..."
+    log_msg "  USE_CATEGORIES=$USE_CATEGORIES"
+    log_msg "  STRATEGY_YOUTUBE=$STRATEGY_YOUTUBE"
+    log_msg "  STRATEGY_DISCORD=$STRATEGY_DISCORD"
+    log_msg "  STRATEGY_TELEGRAM=$STRATEGY_TELEGRAM"
+    log_msg "  STRATEGY_OTHER=$STRATEGY_OTHER"
+    log_msg "  STRATEGY_UDP=$STRATEGY_UDP"
+
     # YouTube TLS
     if [ -n "$STRATEGY_YOUTUBE" ] && [ "$STRATEGY_YOUTUBE" != "none" ]; then
         filter="--filter-tcp=443 --filter-l7=tls"
@@ -327,6 +343,7 @@ build_category_options() {
             filter="$filter --hostlist=$LISTS_DIR/youtube.txt"
         fi
         strat_opts=$(get_strategy_options "$STRATEGY_YOUTUBE" "$filter")
+        log_msg "  YouTube strat_opts: $strat_opts"
         if [ -n "$strat_opts" ]; then
             if [ $first -eq 0 ]; then
                 OPTS="$OPTS --new"
@@ -334,7 +351,11 @@ build_category_options() {
             OPTS="$OPTS $strat_opts"
             first=0
             log_msg "Added YouTube strategy: $STRATEGY_YOUTUBE"
+        else
+            log_msg "WARNING: No options returned for YouTube strategy: $STRATEGY_YOUTUBE"
         fi
+    else
+        log_msg "  YouTube: skipped (empty or none)"
     fi
 
     # Discord TLS
@@ -344,6 +365,7 @@ build_category_options() {
             filter="$filter --hostlist=$LISTS_DIR/discord.txt"
         fi
         strat_opts=$(get_strategy_options "$STRATEGY_DISCORD" "$filter")
+        log_msg "  Discord strat_opts: $strat_opts"
         if [ -n "$strat_opts" ]; then
             if [ $first -eq 0 ]; then
                 OPTS="$OPTS --new"
@@ -351,6 +373,8 @@ build_category_options() {
             OPTS="$OPTS $strat_opts"
             first=0
             log_msg "Added Discord strategy: $STRATEGY_DISCORD"
+        else
+            log_msg "WARNING: No options returned for Discord strategy: $STRATEGY_DISCORD"
         fi
 
         # Discord Voice UDP
@@ -358,6 +382,8 @@ build_category_options() {
             OPTS="$OPTS --new --filter-udp=19294-50100 --payload=stun --lua-desync=fake:blob=fake_stun:repeats=6"
             log_msg "Added Discord Voice UDP"
         fi
+    else
+        log_msg "  Discord: skipped (empty or none)"
     fi
 
     # Telegram TLS
@@ -367,6 +393,7 @@ build_category_options() {
             filter="$filter --hostlist=$LISTS_DIR/telegram.txt"
         fi
         strat_opts=$(get_strategy_options "$STRATEGY_TELEGRAM" "$filter")
+        log_msg "  Telegram strat_opts: $strat_opts"
         if [ -n "$strat_opts" ]; then
             if [ $first -eq 0 ]; then
                 OPTS="$OPTS --new"
@@ -374,7 +401,11 @@ build_category_options() {
             OPTS="$OPTS $strat_opts"
             first=0
             log_msg "Added Telegram strategy: $STRATEGY_TELEGRAM"
+        else
+            log_msg "WARNING: No options returned for Telegram strategy: $STRATEGY_TELEGRAM"
         fi
+    else
+        log_msg "  Telegram: skipped (empty or none)"
     fi
 
     # Other sites TLS
@@ -384,6 +415,7 @@ build_category_options() {
             filter="$filter --hostlist=$LISTS_DIR/other.txt"
         fi
         strat_opts=$(get_strategy_options "$STRATEGY_OTHER" "$filter")
+        log_msg "  Other strat_opts: $strat_opts"
         if [ -n "$strat_opts" ]; then
             if [ $first -eq 0 ]; then
                 OPTS="$OPTS --new"
@@ -391,13 +423,18 @@ build_category_options() {
             OPTS="$OPTS $strat_opts"
             first=0
             log_msg "Added Other strategy: $STRATEGY_OTHER"
+        else
+            log_msg "WARNING: No options returned for Other strategy: $STRATEGY_OTHER"
         fi
+    else
+        log_msg "  Other: skipped (empty or none)"
     fi
 
     # UDP/QUIC
     if [ -n "$STRATEGY_UDP" ] && [ "$STRATEGY_UDP" != "none" ]; then
         filter="--filter-udp=443 --filter-l7=quic"
         strat_opts=$(get_strategy_options "$STRATEGY_UDP" "$filter")
+        log_msg "  UDP strat_opts: $strat_opts"
         if [ -n "$strat_opts" ]; then
             if [ $first -eq 0 ]; then
                 OPTS="$OPTS --new"
@@ -405,7 +442,11 @@ build_category_options() {
             OPTS="$OPTS $strat_opts"
             first=0
             log_msg "Added UDP strategy: $STRATEGY_UDP"
+        else
+            log_msg "WARNING: No options returned for UDP strategy: $STRATEGY_UDP"
         fi
+    else
+        log_msg "  UDP: skipped (empty or none)"
     fi
 
     # If nothing configured, use default
@@ -419,6 +460,12 @@ build_category_options() {
 --lua-desync=syndata:blob=tls_google \
 --lua-desync=multisplit:pos=midsld"
     fi
+
+    # Count strategies (count --new occurrences + 1)
+    new_count=$(echo "$OPTS" | grep -o '\--new' | wc -l)
+    strategy_count=$((new_count + 1))
+    log_msg "Total strategies configured: $strategy_count"
+    log_msg "Final OPTS length: $(echo "$OPTS" | wc -c) chars"
 
     echo "$OPTS"
 }
@@ -434,27 +481,72 @@ start_nfqws2() {
     log_msg "Options: $OPTS"
     log_msg "Full command: $NFQWS2 $OPTS"
 
-    # Try to run nfqws2 and capture any immediate errors
-    $NFQWS2 $OPTS 2>>/data/local/tmp/nfqws2-error.log &
+    # Output files for parsing
+    STARTUP_LOG="/data/local/tmp/nfqws2-startup.log"
+    ERROR_LOG="/data/local/tmp/nfqws2-error.log"
+
+    # Clear previous logs
+    > "$STARTUP_LOG"
+    > "$ERROR_LOG"
+
+    # Start nfqws2 and capture both stdout and stderr
+    $NFQWS2 $OPTS >"$STARTUP_LOG" 2>"$ERROR_LOG" &
     PID=$!
 
-    sleep 2
+    # Wait for startup and initial output
+    sleep 3
+
+    # Parse startup output
+    if [ -f "$STARTUP_LOG" ] && [ -s "$STARTUP_LOG" ]; then
+        log_msg "=== nfqws2 startup output ==="
+        while IFS= read -r line; do
+            log_msg "  $line"
+        done < "$STARTUP_LOG"
+        log_msg "=== end startup output ==="
+    fi
+
+    # Check for errors in stderr
+    if [ -f "$ERROR_LOG" ] && [ -s "$ERROR_LOG" ]; then
+        log_msg "=== nfqws2 errors ==="
+        while IFS= read -r line; do
+            # Check if it's a real error or just info
+            case "$line" in
+                *error*|*Error*|*ERROR*|*fail*|*Fail*|*FAIL*|*cannot*|*Cannot*)
+                    log_error "  $line"
+                    ;;
+                *)
+                    log_msg "  $line"
+                    ;;
+            esac
+        done < "$ERROR_LOG"
+        log_msg "=== end errors ==="
+    fi
 
     if [ -d "/proc/$PID" ]; then
         echo $PID > "$PIDFILE"
         log_msg "nfqws2 started successfully (PID: $PID)"
+
+        # Count strategies from options
+        new_count=$(echo "$OPTS" | grep -o '\--new' | wc -l)
+        strategy_count=$((new_count + 1))
+        log_msg "Active strategies: $strategy_count"
+
         echo "Zapret2 started (PID: $PID)"
-        echo "Strategy: $STRATEGY_PRESET"
+        echo "Strategies: $strategy_count"
     else
         log_error "nfqws2 failed to start (PID $PID exited)"
-        # Check for error output
-        if [ -f /data/local/tmp/nfqws2-error.log ]; then
-            ERRMSG=$(tail -5 /data/local/tmp/nfqws2-error.log)
-            log_error "Error output: $ERRMSG"
+
+        # Show error details
+        if [ -f "$ERROR_LOG" ] && [ -s "$ERROR_LOG" ]; then
+            log_error "Error details:"
+            tail -10 "$ERROR_LOG" | while IFS= read -r line; do
+                log_error "  $line"
+            done
         fi
+
         echo "ERROR: Failed to start nfqws2"
         echo "Check logs: $LOGFILE"
-        echo "Error log: /data/local/tmp/nfqws2-error.log"
+        echo "Error log: $ERROR_LOG"
         exit 1
     fi
 }
