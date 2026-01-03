@@ -738,17 +738,20 @@
             ];
 
             try {
-                // Write config using heredoc for reliable multiline output
+                // Write config using base64 to avoid shell escaping issues
                 const configContent = lines.join('\n');
-                const cmd = `cat > ${CONFIG} << 'CONFIGEOF'
-${configContent}
-CONFIGEOF`;
-                await run(cmd);
-                logActivity('Стратегии сохранены', 'ok');
-                document.getElementById('val-lastaction').textContent = 'Сохранено';
-                toast('Сохранено', 'success');
+                const b64 = btoa(unescape(encodeURIComponent(configContent)));
+                const result = await run(`echo "${b64}" | base64 -d > ${CONFIG} && echo "OK"`);
+                if (result && result.includes('OK')) {
+                    logActivity('Стратегии сохранены', 'ok');
+                    document.getElementById('val-lastaction').textContent = 'Сохранено';
+                    toast('Сохранено', 'success');
+                } else {
+                    throw new Error('Файл не записан');
+                }
             } catch (e) {
                 logActivity('Ошибка сохранения: ' + e.message, 'err');
+                toast('Ошибка сохранения', 'error');
             }
         }
 
@@ -821,8 +824,21 @@ CONFIGEOF`;
             document.getElementById('val-lastaction').textContent = 'Проверка...';
 
             try {
-                const response = await run('curl -s --connect-timeout 10 https://api.github.com/repos/youtubediscord/magisk-zapret2/releases/latest 2>/dev/null');
-                if (!response) throw new Error('Нет ответа от сервера');
+                // Save curl output to file, then read via base64 to avoid truncation
+                const tmpFile = '/data/local/tmp/zapret2-update-check.json';
+                await run(`curl -s --connect-timeout 10 https://api.github.com/repos/youtubediscord/magisk-zapret2/releases/latest -o ${tmpFile} 2>/dev/null`);
+                const b64 = await run(`base64 -w0 ${tmpFile} 2>/dev/null`);
+
+                let response = '';
+                if (b64 && b64.trim()) {
+                    try {
+                        response = atob(b64.trim());
+                    } catch (decErr) {
+                        throw new Error('Ошибка декодирования');
+                    }
+                }
+
+                if (!response || response.length < 10) throw new Error('Нет ответа от сервера');
 
                 // Try to parse JSON first
                 let latest = null;
