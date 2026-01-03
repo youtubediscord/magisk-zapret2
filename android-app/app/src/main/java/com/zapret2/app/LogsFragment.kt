@@ -27,7 +27,6 @@ class LogsFragment : Fragment() {
 
     // UI Elements
     private lateinit var tabLayoutLogs: TabLayout
-    private lateinit var cardCmdline: View
     private lateinit var layoutCmdlineHeader: LinearLayout
     private lateinit var layoutCmdlineContent: LinearLayout
     private lateinit var iconCmdlineExpand: ImageView
@@ -73,7 +72,6 @@ class LogsFragment : Fragment() {
 
     private fun initViews(view: View) {
         tabLayoutLogs = view.findViewById(R.id.tabLayoutLogs)
-        cardCmdline = view.findViewById(R.id.cardCmdline)
         layoutCmdlineHeader = view.findViewById(R.id.layoutCmdlineHeader)
         layoutCmdlineContent = view.findViewById(R.id.layoutCmdlineContent)
         iconCmdlineExpand = view.findViewById(R.id.iconCmdlineExpand)
