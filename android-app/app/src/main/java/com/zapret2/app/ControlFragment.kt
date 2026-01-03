@@ -235,18 +235,34 @@ class ControlFragment : Fragment() {
                 return@launch
             }
 
-            // Check NFQUEUE support
+            // Check NFQUEUE support - multiple methods
             val nfqueueSupported = withContext(Dispatchers.IO) {
-                Shell.cmd("[ -f /proc/net/netfilter/nf_queue ] && echo 1 || echo 0").exec()
+                // Method 1: Check /proc/net/netfilter/nf_queue (traditional)
+                val method1 = Shell.cmd("[ -f /proc/net/netfilter/nf_queue ] && echo 1 || echo 0").exec()
                     .out.firstOrNull() == "1"
+
+                // Method 2: Check /proc/net/netfilter/nfnetlink_queue
+                val method2 = Shell.cmd("[ -f /proc/net/netfilter/nfnetlink_queue ] && echo 1 || echo 0").exec()
+                    .out.firstOrNull() == "1"
+
+                // Method 3: Check if xt_NFQUEUE module exists or is built-in
+                val method3 = Shell.cmd("grep -q NFQUEUE /proc/net/ip_tables_targets 2>/dev/null && echo 1 || echo 0").exec()
+                    .out.firstOrNull() == "1"
+
+                // Method 4: Check kernel config (if available)
+                val method4 = Shell.cmd("zcat /proc/config.gz 2>/dev/null | grep -q CONFIG_NETFILTER_NETLINK_QUEUE=y && echo 1 || echo 0").exec()
+                    .out.firstOrNull() == "1"
+
+                method1 || method2 || method3 || method4
             }
 
             if (nfqueueSupported) {
                 textNfqueueStatus.text = "Supported"
                 textNfqueueStatus.setTextColor(ContextCompat.getColor(requireContext(), R.color.status_running))
             } else {
-                textNfqueueStatus.text = "Not supported"
-                textNfqueueStatus.setTextColor(ContextCompat.getColor(requireContext(), R.color.status_error))
+                // Even if detection fails, NFQUEUE might still work - show warning instead of error
+                textNfqueueStatus.text = "Unknown (may work)"
+                textNfqueueStatus.setTextColor(ContextCompat.getColor(requireContext(), R.color.text_secondary))
             }
 
             // Load module version
