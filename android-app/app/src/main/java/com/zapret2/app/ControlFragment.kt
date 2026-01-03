@@ -5,13 +5,14 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.button.MaterialButton
-import com.google.android.material.checkbox.MaterialCheckBox
+import com.google.android.material.materialswitch.MaterialSwitch
 import com.topjohnwu.superuser.Shell
 import kotlinx.coroutines.*
 
@@ -31,8 +32,12 @@ class ControlFragment : Fragment() {
     private lateinit var textUptime: TextView
     private lateinit var buttonToggle: MaterialButton
     private lateinit var textToggleHint: TextView
-    private lateinit var checkAutostart: MaterialCheckBox
-    private lateinit var checkWifiOnly: MaterialCheckBox
+    private lateinit var rowAutostart: LinearLayout
+    private lateinit var rowWifiOnly: LinearLayout
+    private lateinit var switchAutostart: MaterialSwitch
+    private lateinit var switchWifiOnly: MaterialSwitch
+    private lateinit var textAutostartValue: TextView
+    private lateinit var textWifiOnlyValue: TextView
     private lateinit var textModuleVersion: TextView
     private lateinit var textRootStatus: TextView
     private lateinit var textNfqueueStatus: TextView
@@ -130,8 +135,15 @@ class ControlFragment : Fragment() {
         textUptime = view.findViewById(R.id.textUptime)
         buttonToggle = view.findViewById(R.id.buttonToggle)
         textToggleHint = view.findViewById(R.id.textToggleHint)
-        checkAutostart = view.findViewById(R.id.checkAutostart)
-        checkWifiOnly = view.findViewById(R.id.checkWifiOnly)
+
+        // Settings rows
+        rowAutostart = view.findViewById(R.id.rowAutostart)
+        rowWifiOnly = view.findViewById(R.id.rowWifiOnly)
+        switchAutostart = view.findViewById(R.id.switchAutostart)
+        switchWifiOnly = view.findViewById(R.id.switchWifiOnly)
+        textAutostartValue = view.findViewById(R.id.textAutostartValue)
+        textWifiOnlyValue = view.findViewById(R.id.textWifiOnlyValue)
+
         textModuleVersion = view.findViewById(R.id.textModuleVersion)
         textRootStatus = view.findViewById(R.id.textRootStatus)
         textNfqueueStatus = view.findViewById(R.id.textNfqueueStatus)
@@ -147,11 +159,22 @@ class ControlFragment : Fragment() {
             }
         }
 
-        checkAutostart.setOnCheckedChangeListener { _, isChecked ->
+        // Row click toggles the switch
+        rowAutostart.setOnClickListener {
+            switchAutostart.toggle()
+        }
+
+        rowWifiOnly.setOnClickListener {
+            switchWifiOnly.toggle()
+        }
+
+        switchAutostart.setOnCheckedChangeListener { _, isChecked ->
+            textAutostartValue.text = if (isChecked) "On" else "Off"
             saveAutostart(isChecked)
         }
 
-        checkWifiOnly.setOnCheckedChangeListener { _, isChecked ->
+        switchWifiOnly.setOnCheckedChangeListener { _, isChecked ->
+            textWifiOnlyValue.text = if (isChecked) "On" else "Off"
             saveWifiOnly(isChecked)
         }
 
@@ -255,11 +278,15 @@ class ControlFragment : Fragment() {
 
             // Parse AUTOSTART
             val autostartValue = parseConfigValue(config, "AUTOSTART")
-            checkAutostart.isChecked = autostartValue == "1"
+            val isAutostartEnabled = autostartValue == "1"
+            switchAutostart.isChecked = isAutostartEnabled
+            textAutostartValue.text = if (isAutostartEnabled) "On" else "Off"
 
             // Parse WIFI_ONLY (if exists)
             val wifiOnlyValue = parseConfigValue(config, "WIFI_ONLY")
-            checkWifiOnly.isChecked = wifiOnlyValue == "1"
+            val isWifiOnlyEnabled = wifiOnlyValue == "1"
+            switchWifiOnly.isChecked = isWifiOnlyEnabled
+            textWifiOnlyValue.text = if (isWifiOnlyEnabled) "On" else "Off"
         }
     }
 
@@ -398,8 +425,10 @@ class ControlFragment : Fragment() {
 
     private fun disableControls() {
         buttonToggle.isEnabled = false
-        checkAutostart.isEnabled = false
-        checkWifiOnly.isEnabled = false
+        switchAutostart.isEnabled = false
+        switchWifiOnly.isEnabled = false
+        rowAutostart.isClickable = false
+        rowWifiOnly.isClickable = false
     }
 
     override fun onResume() {
@@ -431,7 +460,7 @@ class ControlFragment : Fragment() {
     private fun checkForUpdates() {
         val ctx = context ?: return
         buttonUpdateModule.isEnabled = false
-        buttonUpdateModule.text = "Проверка..."
+        buttonUpdateModule.text = "Checking..."
 
         viewLifecycleOwner.lifecycleScope.launch {
             val updateManager = UpdateManager(ctx)
@@ -453,14 +482,14 @@ class ControlFragment : Fragment() {
                 is UpdateManager.UpdateResult.UpToDate -> {
                     Toast.makeText(
                         ctx,
-                        "Установлена последняя версия",
+                        "Latest version installed",
                         Toast.LENGTH_SHORT
                     ).show()
                 }
                 is UpdateManager.UpdateResult.Error -> {
                     Toast.makeText(
                         ctx,
-                        "Ошибка проверки: ${result.message}",
+                        "Check failed: ${result.message}",
                         Toast.LENGTH_LONG
                     ).show()
                 }
