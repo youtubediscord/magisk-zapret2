@@ -1,7 +1,12 @@
 # Zapret2 Categories Configuration
-# Format: CATEGORY|ENABLED|FILTER_MODE|HOSTLIST_FILE|STRATEGY
+# Format: CATEGORY|ENABLED|PROTOCOL|FILTER_MODE|HOSTLIST_FILE|STRATEGY_NAME
 # FILTER_MODE: none, hostlist, ipset
-# STRATEGY: numeric ID from strategies.sh
+# STRATEGY_NAME: name of strategy from strategies.sh (e.g., syndata_multisplit, fake_quic, etc.)
+#
+# Default strategies:
+# - TCP categories: syndata_multisplit_tls_google_700 (most compatible)
+# - UDP categories: fake_6_google_quic
+# - STUN: no strategy name needed (leave empty)
 #
 # By default all categories are disabled (ENABLED=0) except youtube and youtube_udp
 # Each category requires corresponding hostlist or ipset file in lists/
@@ -9,106 +14,109 @@
 # ===============================
 # YouTube & Google Video
 # ===============================
-youtube|1|hostlist|youtube.txt|1
-youtube_udp|1|hostlist|youtube.txt|1
-googlevideo_tcp|0|ipset|ipset-googlevideo.txt|1
+youtube|1|tcp|hostlist|youtube.txt|syndata_multisplit_tls_google_700
+youtube_udp|1|udp|hostlist|youtube.txt|fake_6_google_quic
+googlevideo_tcp|0|tcp|ipset|ipset-googlevideo.txt|syndata_multisplit_tls_google_700
 
 # ===============================
 # Discord
 # ===============================
-discord|0|hostlist|discord.txt|1
-discord_voice_udp|0|none||1
-udp_discord|0|hostlist|discord.txt|1
-update_discord|0|none||1
+discord_tcp|0|tcp|hostlist|discord.txt|syndata_multisplit_tls_google_700
+discord_udp|0|udp|hostlist|discord.txt|fake_6_google_quic
+
+# ===============================
+# Voice (Discord + Telegram STUN)
+# ===============================
+voice_stun|0|stun|none||
 
 # ===============================
 # Telegram
 # ===============================
-telegram_tcp|0|hostlist|telegram.txt|1
+telegram_tcp|0|tcp|hostlist|telegram.txt|syndata_multisplit_tls_google_700
 
 # ===============================
 # Messengers
 # ===============================
-whatsapp_tcp|0|hostlist|whatsapp.txt|1
+whatsapp_tcp|0|tcp|hostlist|whatsapp.txt|syndata_multisplit_tls_google_700
 
 # ===============================
 # Social Networks
 # ===============================
-facebook_tcp|0|hostlist|facebook.txt|1
-instagram_tcp|0|hostlist|instagram.txt|1
-twitter_tcp|0|hostlist|twitter.txt|1
+facebook_tcp|0|tcp|hostlist|facebook.txt|syndata_multisplit_tls_google_700
+instagram_tcp|0|tcp|hostlist|instagram.txt|syndata_multisplit_tls_google_700
+twitter_tcp|0|tcp|hostlist|twitter.txt|syndata_multisplit_tls_google_700
 
 # ===============================
 # Music
 # ===============================
-soundcloud_tcp|0|hostlist|soundcloud.txt|1
+soundcloud_tcp|0|tcp|hostlist|soundcloud.txt|syndata_multisplit_tls_google_700
 
 # ===============================
 # Development
 # ===============================
-github_tcp|0|hostlist|github.txt|1
+github_tcp|0|tcp|hostlist|github.txt|syndata_multisplit_tls_google_700
 
 # ===============================
 # Remote Access
 # ===============================
-anydesk_tcp|0|ipset|ipset-anydesk.txt|1
-anydesk_udp|0|ipset|ipset-anydesk.txt|1
+anydesk_tcp|0|tcp|ipset|ipset-anydesk.txt|syndata_multisplit_tls_google_700
+anydesk_udp|0|udp|ipset|ipset-anydesk.txt|fake_6_google_quic
 
 # ===============================
 # Trackers
 # ===============================
-rutracker_tcp|0|hostlist|rutracker.txt|1
-rutor_tcp|0|hostlist|rutor.txt|1
-ntcparty_tcp|0|none||1
+rutracker_tcp|0|tcp|hostlist|rutracker.txt|syndata_multisplit_tls_google_700
+rutor_tcp|0|tcp|hostlist|rutor.txt|syndata_multisplit_tls_google_700
+ntcparty_tcp|0|tcp|none||syndata_multisplit_tls_google_700
 
 # ===============================
 # Streaming
 # ===============================
-twitch_tcp|0|hostlist|twitch.txt|1
+twitch_tcp|0|tcp|hostlist|twitch.txt|syndata_multisplit_tls_google_700
 
 # ===============================
 # Utilities
 # ===============================
-speedtest_tcp|0|hostlist|speedtest.txt|1
+speedtest_tcp|0|tcp|hostlist|speedtest.txt|syndata_multisplit_tls_google_700
 
 # ===============================
 # Gaming
 # ===============================
-steam_tcp|0|hostlist|steam.txt|1
-itch_tcp|0|hostlist|itch.txt|1
-roblox_tcp|0|hostlist|roblox.txt|1
-roblox_udp|0|hostlist|roblox.txt|1
-phasmophobia_udp|0|none||1
-battlefield_6_udp|0|none||1
+steam_tcp|0|tcp|hostlist|steam.txt|syndata_multisplit_tls_google_700
+itch_tcp|0|tcp|hostlist|itch.txt|syndata_multisplit_tls_google_700
+roblox_tcp|0|tcp|hostlist|roblox.txt|syndata_multisplit_tls_google_700
+roblox_udp|0|udp|hostlist|roblox.txt|fake_6_google_quic
+phasmophobia_udp|0|udp|none||fake_6_google_quic
+battlefield_6_udp|0|udp|none||fake_6_google_quic
 
 # ===============================
 # Cloud & VPN
 # ===============================
-google_tcp|0|hostlist|google.txt|1
-amazon_tcp|0|hostlist|amazon.txt|1
-amazon_udp|0|ipset|ipset-amazon.txt|1
-warp_tcp|0|ipset|ipset-warp.txt|1
+google_tcp|0|tcp|hostlist|google.txt|syndata_multisplit_tls_google_700
+amazon_tcp|0|tcp|hostlist|amazon.txt|syndata_multisplit_tls_google_700
+amazon_udp|0|udp|ipset|ipset-amazon.txt|fake_6_google_quic
+warp_tcp|0|tcp|ipset|ipset-warp.txt|syndata_multisplit_tls_google_700
 
 # ===============================
 # AI Services
 # ===============================
-claude_tcp|0|hostlist|claude.txt|1
+claude_tcp|0|tcp|hostlist|claude.txt|syndata_multisplit_tls_google_700
 
 # ===============================
 # Hostlists (General)
 # ===============================
-other|0|hostlist|other.txt|1
-porn_http|0|ipset|ipset-porn.txt|1
-tankix_http|0|ipset|ipset-tankix.txt|1
-hostlist_80port|0|ipset|ipset-all.txt|1
+other|0|tcp|hostlist|other.txt|syndata_multisplit_tls_google_700
+porn_http|0|tcp|ipset|ipset-porn.txt|syndata_multisplit_tls_google_700
+tankix_http|0|tcp|ipset|ipset-tankix.txt|syndata_multisplit_tls_google_700
+hostlist_80port|0|tcp|ipset|ipset-all.txt|syndata_multisplit_tls_google_700
 
 # ===============================
 # IPsets (Advanced)
 # ===============================
-ipset_tcp_cloudflare|0|ipset|cloudflare-ipset.txt|1
-ipset_zapretkvn|0|ipset|ipset-zapretkvn.txt|1
-ipset|0|ipset|ipset-all.txt|1
-ipset_all|0|none||1
-ovh_udp|0|ipset|ipset-ovh.txt|1
-ipset_udp|0|ipset|ipset-all.txt|1
-ipset_udp_all|0|none||1
+ipset_tcp_cloudflare|0|tcp|ipset|cloudflare-ipset.txt|syndata_multisplit_tls_google_700
+ipset_zapretkvn|0|tcp|ipset|ipset-zapretkvn.txt|syndata_multisplit_tls_google_700
+ipset|0|tcp|ipset|ipset-all.txt|syndata_multisplit_tls_google_700
+ipset_all|0|tcp|none||syndata_multisplit_tls_google_700
+ovh_udp|0|udp|ipset|ipset-ovh.txt|fake_6_google_quic
+ipset_udp|0|udp|ipset|ipset-all.txt|fake_6_google_quic
+ipset_udp_all|0|udp|none||fake_6_google_quic
