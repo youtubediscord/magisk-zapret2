@@ -224,7 +224,6 @@ build_options() {
             # YouTube strategy with syndata + multisplit
             OPTS="$OPTS \
 --filter-tcp=443 --filter-l7=tls \
---payload=tls_client_hello \
 --lua-desync=syndata:blob=tls_google \
 --lua-desync=multisplit:pos=midsld"
             ;;
@@ -233,7 +232,6 @@ build_options() {
             # Discord TLS + Voice UDP
             OPTS="$OPTS \
 --filter-tcp=443 --filter-l7=tls \
---payload=tls_client_hello \
 --lua-desync=syndata:blob=tls_google \
 --lua-desync=multisplit:pos=midsld \
 --new \
@@ -246,17 +244,15 @@ build_options() {
             # Aggressive multi-protocol bypass
             OPTS="$OPTS \
 --filter-tcp=80 --filter-l7=http \
---payload=http_req \
 --lua-desync=fake:blob=http_fake:badsum \
 --lua-desync=multisplit:pos=host+1 \
 --new \
 --filter-tcp=443 --filter-l7=tls \
---payload=tls_client_hello \
+--lua-desync=syndata:blob=tls_google \
 --lua-desync=fake:blob=tls_google:repeats=6 \
 --lua-desync=multidisorder:pos=1,midsld \
 --new \
 --filter-udp=443 --filter-l7=quic \
---payload=quic_initial \
 --lua-desync=fake:blob=quic_google:repeats=6"
             ;;
 
