@@ -13,7 +13,7 @@ on:
 
 env:
   NDK_VERSION: r26b
-  ZAPRET_REPO: bol-van/zapret
+  ZAPRET_REPO: bol-van/zapret2
 
 jobs:
   build-nfqws2:
