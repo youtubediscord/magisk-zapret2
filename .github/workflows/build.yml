@@ -11,6 +11,9 @@ on:
         required: true
         default: '1.0.0'
 
+permissions:
+  contents: write
+
 jobs:
   build-nfqws2:
     name: Build nfqws2 for ${{ matrix.abi }}
