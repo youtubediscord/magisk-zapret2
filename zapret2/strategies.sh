@@ -13,21 +13,18 @@ get_strategy_options() {
         # ==================== SYNDATA STRATEGIES ====================
         syndata_7_tls_google_multisplit_midsld)
             echo "$filter \
---payload=tls_client_hello \
 --lua-desync=syndata:blob=tls_google \
 --lua-desync=multisplit:pos=midsld"
             ;;
 
         syndata_7_tls_max_ru_multisplit_midsld)
             echo "$filter \
---payload=tls_client_hello \
 --lua-desync=syndata:blob=tls_max \
 --lua-desync=multisplit:pos=midsld"
             ;;
 
         syndata_multidisorder_legacy_midsld)
             echo "$filter \
---payload=tls_client_hello \
 --lua-desync=syndata:blob=tls_google \
 --lua-desync=multidisorder:pos=1,midsld"
             ;;
@@ -35,7 +32,6 @@ get_strategy_options() {
         # ==================== CENSORLIBER STRATEGIES ====================
         censorliber_google_syndata)
             echo "$filter \
---payload=tls_client_hello \
 --lua-desync=syndata:blob=tls_google \
 --lua-desync=fake:blob=tls_google:repeats=6 \
 --lua-desync=multidisorder:pos=1,midsld"
@@ -43,21 +39,18 @@ get_strategy_options() {
 
         censorliber_google_syndata_v2)
             echo "$filter \
---payload=tls_client_hello \
 --lua-desync=syndata:blob=tls_google \
 --lua-desync=multidisorder:pos=1,midsld"
             ;;
 
         censorliber_google_syndata_tcpack)
             echo "$filter \
---payload=tls_client_hello \
 --lua-desync=syndata:blob=tls_google \
 --lua-desync=multidisorder:pos=1,midsld"
             ;;
 
         censorliber_tls_google_syndata_tcpack_fake)
             echo "$filter \
---payload=tls_client_hello \
 --lua-desync=syndata:blob=tls_google \
 --lua-desync=fake:blob=tls_google:repeats=6"
             ;;
@@ -65,13 +58,11 @@ get_strategy_options() {
         # ==================== ALT STRATEGIES ====================
         alt9)
             echo "$filter \
---payload=tls_client_hello \
 --lua-desync=fake:blob=tls_google:badsum:repeats=4"
             ;;
 
         alt11_100_syndata)
             echo "$filter \
---payload=tls_client_hello \
 --lua-desync=syndata:blob=tls_google \
 --lua-desync=fake:blob=tls_google:repeats=6 \
 --lua-desync=multisplit:pos=midsld"
@@ -80,33 +71,28 @@ get_strategy_options() {
         # ==================== MULTISPLIT STRATEGIES ====================
         multisplit_split_pos_1)
             echo "$filter \
---payload=tls_client_hello \
 --lua-desync=multisplit:pos=1"
             ;;
 
         multisplit_midsld)
             echo "$filter \
---payload=tls_client_hello \
 --lua-desync=multisplit:pos=midsld"
             ;;
 
         multidisorder_midsld)
             echo "$filter \
---payload=tls_client_hello \
 --lua-desync=multidisorder:pos=1,midsld"
             ;;
 
         # ==================== SEQOVL STRATEGIES ====================
         other_seqovl)
             echo "$filter \
---payload=tls_client_hello \
 --lua-desync=fake:blob=tls_google:badsum:repeats=6 \
 --lua-desync=multisplit:pos=midsld"
             ;;
 
         disorder2_badseq_tls_google)
             echo "$filter \
---payload=tls_client_hello \
 --lua-desync=fake:blob=tls_google:repeats=6 \
 --lua-desync=multidisorder:pos=1,midsld"
             ;;
@@ -114,14 +100,12 @@ get_strategy_options() {
         # ==================== HTTP STRATEGIES ====================
         http_aggressive)
             echo "$filter \
---payload=http_req \
 --lua-desync=fake:blob=http_fake:badsum \
 --lua-desync=multisplit:pos=host+1"
             ;;
 
         http_simple)
             echo "$filter \
---payload=http_req \
 --lua-desync=multisplit:pos=host+1"
             ;;
 
