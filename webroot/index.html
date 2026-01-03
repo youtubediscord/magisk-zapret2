@@ -1455,32 +1455,136 @@ USE_CATEGORIES=1
             setTimeout(checkStatus, 500);
         }
 
+        let pendingUpdate = null;
+
         async function doUpdate() {
             setLoading('btn-update', true);
+
+            // Если уже есть ожидающее обновление - устанавливаем его
+            if (pendingUpdate) {
+                await installUpdate(pendingUpdate);
+                return;
+            }
+
             logActivity('Проверка обновлений...', 'warn');
             document.getElementById('val-lastaction').textContent = 'Проверка...';
+
             try {
                 const response = await run('curl -s --connect-timeout 10 https://api.github.com/repos/youtubediscord/magisk-zapret2/releases/latest 2>/dev/null');
                 if (!response) throw new Error('Нет ответа от сервера');
+
                 const tagMatch = response.match(/"tag_name"\s*:\s*"([^"]+)"/);
+                const urlMatch = response.match(/"browser_download_url"\s*:\s*"([^"]+\.zip)"/);
+
                 if (tagMatch) {
                     const latest = tagMatch[1];
                     const current = document.getElementById('val-version').textContent;
+
                     if (latest && latest !== current) {
+                        pendingUpdate = {
+                            version: latest,
+                            url: urlMatch ? urlMatch[1] : 'https://github.com/youtubediscord/magisk-zapret2/releases/download/' + latest + '/zapret2-magisk-' + latest + '.zip'
+                        };
                         logActivity('Доступно: ' + latest, 'ok');
-                        toast('Доступно обновление: ' + latest, 'success');
-                        document.getElementById('val-lastaction').textContent = 'Есть ' + latest;
+                        toast('Нажмите ещё раз для установки ' + latest, 'success');
+                        document.getElementById('val-lastaction').textContent = 'Нажмите для установки';
+                        document.getElementById('btn-update').querySelector('span:last-child').textContent = 'Установить ' + latest;
                     } else {
                         logActivity('Обновлений нет', 'ok');
                         toast('У вас последняя версия', 'success');
                         document.getElementById('val-lastaction').textContent = 'Актуально';
                     }
-                } else throw new Error('Не удалось разобрать ответ');
+                } else {
+                    throw new Error('Не удалось разобрать ответ');
+                }
             } catch (e) {
                 logActivity('Ошибка: ' + e.message, 'err');
                 toast('Не удалось проверить', 'error');
                 document.getElementById('val-lastaction').textContent = 'Ошибка';
             }
+
+            setLoading('btn-update', false);
+        }
+
+        async function installUpdate(update) {
+            const TMP_DIR = '/data/local/tmp';
+            const ZIP_FILE = TMP_DIR + '/zapret2-update.zip';
+
+            try {
+                // Останавливаем сервис
+                logActivity('Остановка сервиса...', 'warn');
+                document.getElementById('val-lastaction').textContent = 'Остановка...';
+                await run('sh ' + SCRIPTS + '/zapret-stop.sh 2>&1');
+
+                // Скачиваем обновление
+                logActivity('Скачивание ' + update.version + '...', 'warn');
+                document.getElementById('val-lastaction').textContent = 'Скачивание...';
+
+                const downloadResult = await run('curl -L -o ' + ZIP_FILE + ' --connect-timeout 30 --max-time 300 "' + update.url + '" 2>&1 && echo "DOWNLOAD_OK" || echo "DOWNLOAD_FAIL"');
+
+                if (!downloadResult.includes('DOWNLOAD_OK')) {
+                    throw new Error('Ошибка скачивания');
+                }
+
+                // Проверяем что файл скачался
+                const fileCheck = await run('ls -la ' + ZIP_FILE + ' 2>&1');
+                if (fileCheck.includes('No such file')) {
+                    throw new Error('Файл не скачался');
+                }
+                logActivity('Файл скачан', 'ok');
+
+                // Распаковываем в модуль
+                logActivity('Распаковка...', 'warn');
+                document.getElementById('val-lastaction').textContent = 'Распаковка...';
+
+                // Бэкап конфига
+                await run('cp ' + MODDIR + '/zapret2/config.sh ' + TMP_DIR + '/zapret2-config-backup.sh 2>/dev/null');
+
+                // Распаковка
+                const unzipResult = await run('unzip -o ' + ZIP_FILE + ' -d ' + MODDIR + ' 2>&1 && echo "UNZIP_OK"');
+
+                if (!unzipResult.includes('UNZIP_OK')) {
+                    throw new Error('Ошибка распаковки');
+                }
+                logActivity('Распаковано', 'ok');
+
+                // Восстанавливаем конфиг
+                await run('cp ' + TMP_DIR + '/zapret2-config-backup.sh ' + MODDIR + '/zapret2/config.sh 2>/dev/null');
+
+                // Устанавливаем права
+                logActivity('Установка прав...', 'warn');
+                await run('chmod 755 ' + MODDIR + '/zapret2/nfqws2 2>/dev/null');
+                await run('chmod 755 ' + MODDIR + '/zapret2/scripts/*.sh 2>/dev/null');
+                await run('chmod -R 755 ' + MODDIR + '/zapret2/bin ' + MODDIR + '/zapret2/lua ' + MODDIR + '/zapret2/lists 2>/dev/null');
+                await run('chcon -R u:object_r:system_file:s0 ' + MODDIR + ' 2>/dev/null');
+
+                // Удаляем временные файлы
+                await run('rm -f ' + ZIP_FILE + ' ' + TMP_DIR + '/zapret2-config-backup.sh 2>/dev/null');
+
+                // Запускаем сервис
+                logActivity('Запуск сервиса...', 'warn');
+                document.getElementById('val-lastaction').textContent = 'Запуск...';
+                await run('sh ' + SCRIPTS + '/zapret-start.sh 2>&1');
+
+                // Успех!
+                pendingUpdate = null;
+                document.getElementById('btn-update').querySelector('span:last-child').textContent = 'Обновить';
+                logActivity('Обновлено до ' + update.version, 'ok');
+                toast('Обновлено до ' + update.version + '!', 'success');
+                document.getElementById('val-lastaction').textContent = 'Обновлено!';
+
+                // Обновляем статус
+                setTimeout(checkStatus, 1000);
+
+            } catch (e) {
+                logActivity('Ошибка: ' + e.message, 'err');
+                toast('Ошибка: ' + e.message, 'error');
+                document.getElementById('val-lastaction').textContent = 'Ошибка';
+
+                // Пробуем запустить сервис обратно
+                await run('sh ' + SCRIPTS + '/zapret-start.sh 2>&1');
+            }
+
             setLoading('btn-update', false);
         }
 
