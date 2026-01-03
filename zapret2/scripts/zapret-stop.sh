@@ -14,9 +14,9 @@ LOGFILE="/data/local/tmp/zapret2.log"
 # Logging
 ##########################################################################################
 
-log() {
+log_msg() {
     echo "$(date '+%Y-%m-%d %H:%M:%S') [STOP] $1" >> "$LOGFILE"
-    log -t "Zapret2" "$1" 2>/dev/null
+    /system/bin/log -t "Zapret2" "$1" 2>/dev/null
 }
 
 ##########################################################################################
@@ -42,7 +42,7 @@ stop_daemon() {
     if [ -f "$PIDFILE" ]; then
         PID=$(cat "$PIDFILE")
         if [ -d "/proc/$PID" ]; then
-            log "Stopping nfqws2 (PID: $PID)..."
+            log_msg "Stopping nfqws2 (PID: $PID)..."
             kill $PID 2>/dev/null
             sleep 1
 
@@ -51,10 +51,10 @@ stop_daemon() {
                 kill -9 $PID 2>/dev/null
             fi
 
-            log "nfqws2 stopped"
+            log_msg "nfqws2 stopped"
             echo "Stopped nfqws2 (PID: $PID)"
         else
-            log "PID file exists but process not running"
+            log_msg "PID file exists but process not running"
         fi
         rm -f "$PIDFILE"
     else
@@ -63,7 +63,7 @@ stop_daemon() {
         if [ -n "$PIDS" ]; then
             for PID in $PIDS; do
                 kill $PID 2>/dev/null
-                log "Killed orphan nfqws2 process: $PID"
+                log_msg "Killed orphan nfqws2 process: $PID"
             done
         else
             echo "Zapret2 is not running"
@@ -76,7 +76,7 @@ stop_daemon() {
 ##########################################################################################
 
 remove_iptables() {
-    log "Removing iptables rules..."
+    log_msg "Removing iptables rules..."
 
     # Remove OUTPUT TCP rule
     iptables -t mangle -D OUTPUT \
@@ -104,19 +104,19 @@ remove_iptables() {
         -m connbytes --connbytes 1:$PKT_IN --connbytes-dir=reply --connbytes-mode=packets \
         -j NFQUEUE --queue-num $QNUM --queue-bypass 2>/dev/null
 
-    log "iptables rules removed"
+    log_msg "iptables rules removed"
 }
 
 ##########################################################################################
 # Main
 ##########################################################################################
 
-log "=========================================="
-log "Stopping Zapret2 DPI bypass"
-log "=========================================="
+log_msg "=========================================="
+log_msg "Stopping Zapret2 DPI bypass"
+log_msg "=========================================="
 
 stop_daemon
 remove_iptables
 
-log "Zapret2 stopped successfully"
+log_msg "Zapret2 stopped successfully"
 echo "Zapret2 stopped"

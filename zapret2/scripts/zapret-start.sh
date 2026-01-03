@@ -16,14 +16,14 @@ CONFIG="$ZAPRET_DIR/config.sh"
 # Logging
 ##########################################################################################
 
-log() {
-    echo "$(date '+%Y-%m-%d %H:%M:%S') [START] $1" >> "$LOGFILE"
-    log -t "Zapret2" "$1" 2>/dev/null
+log_msg() {
+    echo "$(date '+%Y-%m-%d %H:%M:%S') [INFO] $1" >> "$LOGFILE"
+    /system/bin/log -t "Zapret2" "$1" 2>/dev/null
 }
 
 log_error() {
     echo "$(date '+%Y-%m-%d %H:%M:%S') [ERROR] $1" >> "$LOGFILE"
-    log -t "Zapret2" "ERROR: $1" 2>/dev/null
+    /system/bin/log -t "Zapret2" "ERROR: $1" 2>/dev/null
 }
 
 ##########################################################################################
@@ -44,9 +44,9 @@ USE_IPSET=0
 
 if [ -f "$CONFIG" ]; then
     . "$CONFIG"
-    log "Loaded config from $CONFIG"
+    log_msg "Loaded config from $CONFIG"
 else
-    log "Using default configuration"
+    log_msg "Using default configuration"
 fi
 
 ##########################################################################################
@@ -56,7 +56,7 @@ fi
 if [ -f "$PIDFILE" ]; then
     PID=$(cat "$PIDFILE")
     if [ -d "/proc/$PID" ]; then
-        log "Already running with PID $PID"
+        log_msg "Already running with PID $PID"
         echo "Zapret2 is already running (PID: $PID)"
         exit 0
     else
@@ -85,7 +85,7 @@ fi
 ##########################################################################################
 
 apply_iptables() {
-    log "Applying iptables rules..."
+    log_msg "Applying iptables rules..."
 
     # Enable liberal TCP tracking (important for RST with wrong ACK)
     sysctl -w net.netfilter.nf_conntrack_tcp_be_liberal=1 2>/dev/null
@@ -98,7 +98,7 @@ apply_iptables() {
         -j NFQUEUE --queue-num $QNUM --queue-bypass 2>/dev/null
 
     if [ $? -eq 0 ]; then
-        log "  Added TCP OUTPUT rule"
+        log_msg "  Added TCP OUTPUT rule"
     else
         log_error "  Failed to add TCP OUTPUT rule"
     fi
@@ -111,7 +111,7 @@ apply_iptables() {
         -j NFQUEUE --queue-num $QNUM --queue-bypass 2>/dev/null
 
     if [ $? -eq 0 ]; then
-        log "  Added UDP OUTPUT rule"
+        log_msg "  Added UDP OUTPUT rule"
     else
         log_error "  Failed to add UDP OUTPUT rule (connbytes may not be supported)"
     fi
@@ -123,7 +123,7 @@ apply_iptables() {
         -j NFQUEUE --queue-num $QNUM --queue-bypass 2>/dev/null
 
     if [ $? -eq 0 ]; then
-        log "  Added TCP INPUT rule"
+        log_msg "  Added TCP INPUT rule"
     fi
 
     # INPUT chain - incoming UDP
@@ -133,10 +133,10 @@ apply_iptables() {
         -j NFQUEUE --queue-num $QNUM --queue-bypass 2>/dev/null
 
     if [ $? -eq 0 ]; then
-        log "  Added UDP INPUT rule"
+        log_msg "  Added UDP INPUT rule"
     fi
 
-    log "iptables rules applied"
+    log_msg "iptables rules applied"
 }
 
 ##########################################################################################
@@ -253,99 +253,99 @@ build_options() {
 ##########################################################################################
 
 build_category_options() {
-    local first=1
+    first=1
 
     # YouTube TLS
     if [ -n "$STRATEGY_YOUTUBE" ] && [ "$STRATEGY_YOUTUBE" != "none" ]; then
-        local filter="--filter-tcp=443 --filter-l7=tls"
+        filter="--filter-tcp=443 --filter-l7=tls"
         if [ -f "$LISTS_DIR/youtube.txt" ]; then
             filter="$filter --hostlist=$LISTS_DIR/youtube.txt"
         fi
-        local strat_opts=$(get_strategy_options "$STRATEGY_YOUTUBE" "$filter")
+        strat_opts=$(get_strategy_options "$STRATEGY_YOUTUBE" "$filter")
         if [ -n "$strat_opts" ]; then
             if [ $first -eq 0 ]; then
                 OPTS="$OPTS --new"
             fi
             OPTS="$OPTS $strat_opts"
             first=0
-            log "Added YouTube strategy: $STRATEGY_YOUTUBE"
+            log_msg "Added YouTube strategy: $STRATEGY_YOUTUBE"
         fi
     fi
 
     # Discord TLS
     if [ -n "$STRATEGY_DISCORD" ] && [ "$STRATEGY_DISCORD" != "none" ]; then
-        local filter="--filter-tcp=443 --filter-l7=tls"
+        filter="--filter-tcp=443 --filter-l7=tls"
         if [ -f "$LISTS_DIR/discord.txt" ]; then
             filter="$filter --hostlist=$LISTS_DIR/discord.txt"
         fi
-        local strat_opts=$(get_strategy_options "$STRATEGY_DISCORD" "$filter")
+        strat_opts=$(get_strategy_options "$STRATEGY_DISCORD" "$filter")
         if [ -n "$strat_opts" ]; then
             if [ $first -eq 0 ]; then
                 OPTS="$OPTS --new"
             fi
             OPTS="$OPTS $strat_opts"
             first=0
-            log "Added Discord strategy: $STRATEGY_DISCORD"
+            log_msg "Added Discord strategy: $STRATEGY_DISCORD"
         fi
 
         # Discord Voice UDP
         if [ "$STRATEGY_DISCORD" = "fake_x6_stun_discord" ] || [ -n "$STRATEGY_DISCORD_VOICE" ]; then
             OPTS="$OPTS --new --filter-udp=19294-50100 --payload=stun --lua-desync=fake:blob=fake_stun:repeats=6"
-            log "Added Discord Voice UDP"
+            log_msg "Added Discord Voice UDP"
         fi
     fi
 
     # Telegram TLS
     if [ -n "$STRATEGY_TELEGRAM" ] && [ "$STRATEGY_TELEGRAM" != "none" ]; then
-        local filter="--filter-tcp=443 --filter-l7=tls"
+        filter="--filter-tcp=443 --filter-l7=tls"
         if [ -f "$LISTS_DIR/telegram.txt" ]; then
             filter="$filter --hostlist=$LISTS_DIR/telegram.txt"
         fi
-        local strat_opts=$(get_strategy_options "$STRATEGY_TELEGRAM" "$filter")
+        strat_opts=$(get_strategy_options "$STRATEGY_TELEGRAM" "$filter")
         if [ -n "$strat_opts" ]; then
             if [ $first -eq 0 ]; then
                 OPTS="$OPTS --new"
             fi
             OPTS="$OPTS $strat_opts"
             first=0
-            log "Added Telegram strategy: $STRATEGY_TELEGRAM"
+            log_msg "Added Telegram strategy: $STRATEGY_TELEGRAM"
         fi
     fi
 
     # Other sites TLS
     if [ -n "$STRATEGY_OTHER" ] && [ "$STRATEGY_OTHER" != "none" ]; then
-        local filter="--filter-tcp=443 --filter-l7=tls"
+        filter="--filter-tcp=443 --filter-l7=tls"
         if [ -f "$LISTS_DIR/other.txt" ]; then
             filter="$filter --hostlist=$LISTS_DIR/other.txt"
         fi
-        local strat_opts=$(get_strategy_options "$STRATEGY_OTHER" "$filter")
+        strat_opts=$(get_strategy_options "$STRATEGY_OTHER" "$filter")
         if [ -n "$strat_opts" ]; then
             if [ $first -eq 0 ]; then
                 OPTS="$OPTS --new"
             fi
             OPTS="$OPTS $strat_opts"
             first=0
-            log "Added Other strategy: $STRATEGY_OTHER"
+            log_msg "Added Other strategy: $STRATEGY_OTHER"
         fi
     fi
 
     # UDP/QUIC
     if [ -n "$STRATEGY_UDP" ] && [ "$STRATEGY_UDP" != "none" ]; then
-        local filter="--filter-udp=443 --filter-l7=quic"
-        local strat_opts=$(get_strategy_options "$STRATEGY_UDP" "$filter")
+        filter="--filter-udp=443 --filter-l7=quic"
+        strat_opts=$(get_strategy_options "$STRATEGY_UDP" "$filter")
         if [ -n "$strat_opts" ]; then
             if [ $first -eq 0 ]; then
                 OPTS="$OPTS --new"
             fi
             OPTS="$OPTS $strat_opts"
             first=0
-            log "Added UDP strategy: $STRATEGY_UDP"
+            log_msg "Added UDP strategy: $STRATEGY_UDP"
         fi
     fi
 
     # If nothing configured, use default
     if [ $first -eq 1 ]; then
-        log "No categories configured, using default YouTube strategy"
+        log_msg "No categories configured, using default YouTube strategy"
         OPTS="$OPTS \
 --filter-tcp=443 --filter-l7=tls \
 --out-range=-d10 \
@@ -363,10 +363,10 @@ build_category_options() {
 ##########################################################################################
 
 start_nfqws2() {
-    log "Starting nfqws2..."
+    log_msg "Starting nfqws2..."
 
     OPTS=$(build_options)
-    log "Options: $OPTS"
+    log_msg "Options: $OPTS"
 
     # Start daemon
     $NFQWS2 $OPTS &
@@ -376,7 +376,7 @@ start_nfqws2() {
 
     if [ -d "/proc/$PID" ]; then
         echo $PID > "$PIDFILE"
-        log "nfqws2 started successfully (PID: $PID)"
+        log_msg "nfqws2 started successfully (PID: $PID)"
         echo "Zapret2 started (PID: $PID)"
         echo "Strategy: $STRATEGY_PRESET"
     else
@@ -392,12 +392,12 @@ start_nfqws2() {
 # Main
 ##########################################################################################
 
-log "=========================================="
-log "Starting Zapret2 DPI bypass"
-log "Strategy: $STRATEGY_PRESET"
-log "=========================================="
+log_msg "=========================================="
+log_msg "Starting Zapret2 DPI bypass"
+log_msg "Strategy: $STRATEGY_PRESET"
+log_msg "=========================================="
 
 apply_iptables
 start_nfqws2
 
-log "Zapret2 started successfully"
+log_msg "Zapret2 started successfully"
