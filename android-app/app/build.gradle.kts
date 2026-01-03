@@ -17,17 +17,16 @@ android {
 
     signingConfigs {
         create("release") {
-            // Use debug keystore for now (auto-generated)
-            storeFile = file("${System.getProperty("user.home")}/.android/debug.keystore")
-            storePassword = "android"
-            keyAlias = "androiddebugkey"
-            keyPassword = "android"
+            storeFile = file("../keystore.jks")
+            storePassword = System.getenv("KEYSTORE_PASSWORD") ?: "zapret2release"
+            keyAlias = System.getenv("KEY_ALIAS") ?: "zapret2"
+            keyPassword = System.getenv("KEY_PASSWORD") ?: "zapret2release"
         }
     }
 
     buildTypes {
         release {
-            isMinifyEnabled = false  // Disable for now to avoid proguard issues
+            isMinifyEnabled = false
             isShrinkResources = false
             signingConfig = signingConfigs.getByName("release")
             proguardFiles(
