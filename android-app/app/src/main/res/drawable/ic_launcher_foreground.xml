@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Zapret2 shield icon - centered in safe zone (18dp inset) -->
+    <!-- Main shield shape -->
+    <path
+        android:fillColor="#0078D4"
+        android:pathData="M54,22
+                         L78,32
+                         L78,52
+                         C78,68 68,80 54,86
+                         C40,80 30,68 30,52
+                         L30,32
+                         Z"/>
+    <!-- Inner shield highlight -->
+    <path
+        android:fillColor="#60CDFF"
+        android:pathData="M54,28
+                         L72,36
+                         L72,52
+                         C72,64 64,74 54,79
+                         C44,74 36,64 36,52
+                         L36,36
+                         Z"/>
+    <!-- Z letter in center -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M44,42
+                         L64,42
+                         L64,47
+                         L51,57
+                         L64,57
+                         L64,62
+                         L44,62
+                         L44,57
+                         L57,47
+                         L44,47
+                         Z"/>
+    <!-- Lock symbol at bottom -->
+    <path
+        android:fillColor="#202020"
+        android:pathData="M50,66
+                         L58,66
+                         L58,72
+                         L50,72
+                         Z"/>
+    <path
+        android:fillColor="#202020"
+        android:pathData="M51,64
+                         A3,3 0 0,1 57,64
+                         L57,66
+                         L51,66
+                         Z"/>
+</vector>
