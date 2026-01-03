@@ -286,6 +286,7 @@
         .activity-msg.err { color: var(--error); }
         .activity-msg.warn { color: var(--warning); }
     </style>
+    <script src="strategies.js"></script>
 </head>
 <body>
     <!-- Tab 1: Control -->
@@ -345,142 +346,131 @@
         <div class="header"><h1>Стратегии</h1></div>
 
         <div class="card">
-            <div class="card-title" style="color:#FF0000">🎬 YouTube</div>
+            <div class="card-title" style="color:#FF0000">YouTube</div>
             <div class="strategy-row">
                 <span class="strategy-label">TCP</span>
                 <select class="strategy-select" id="strat-youtube" onchange="saveStrategies()">
                     <option value="none">Выключено</option>
-                    <option value="syndata_7_tls_google_multisplit_midsld">syndata midsld ⭐</option>
-                    <option value="censorliber_google_syndata">Censorliber Google ⭐</option>
-                    <option value="alt9">alt v9 ⭐</option>
-                    <option value="alt11_100_syndata">alt v11 + syndata</option>
-                    <option value="multidisorder_seqovl_midsld">multidisorder seqovl ⭐</option>
-                    <option value="other_seqovl">YTDisBystro 3.4</option>
-                    <option value="dronatar_4_3">Dronatar 4.3 ⭐</option>
                 </select>
             </div>
             <div class="strategy-row">
                 <span class="strategy-label">QUIC</span>
                 <select class="strategy-select" id="strat-youtube-udp" onchange="saveStrategies()">
                     <option value="none">Выключено</option>
-                    <option value="quic_fake_x6">QUIC Fake x6 ⭐</option>
-                    <option value="quic_fake_x11">QUIC Fake x11</option>
-                    <option value="dronator_43">Dronator 4.3</option>
                 </select>
             </div>
         </div>
 
         <div class="card">
-            <div class="card-title" style="color:#7289DA">💬 Discord</div>
+            <div class="card-title" style="color:#7289DA">Discord</div>
             <div class="strategy-row">
                 <span class="strategy-label">TCP</span>
                 <select class="strategy-select" id="strat-discord" onchange="saveStrategies()">
                     <option value="none">Выключено</option>
-                    <option value="syndata_7_tls_google_multisplit_midsld">syndata midsld ⭐</option>
-                    <option value="censorliber_google_syndata">Censorliber Google ⭐</option>
-                    <option value="alt9">alt v9 ⭐</option>
-                    <option value="dronatar_4_3">Dronatar 4.3 ⭐</option>
                 </select>
             </div>
             <div class="strategy-row">
                 <span class="strategy-label">Voice</span>
                 <select class="strategy-select" id="strat-discord-voice-udp" onchange="saveStrategies()">
                     <option value="none">Выключено</option>
-                    <option value="fake_x6_stun_discord">Fake x6 STUN ⭐</option>
-                    <option value="quic_fake_x6">QUIC Fake x6</option>
+                </select>
+            </div>
+            <div class="strategy-row">
+                <span class="strategy-label">QUIC</span>
+                <select class="strategy-select" id="strat-udp-discord" onchange="saveStrategies()">
+                    <option value="none">Выключено</option>
                 </select>
             </div>
         </div>
 
         <div class="card">
-            <div class="card-title" style="color:#3CA7FF">✈️ Telegram</div>
+            <div class="card-title" style="color:#3CA7FF">Telegram</div>
             <div class="strategy-row">
                 <span class="strategy-label">TCP</span>
                 <select class="strategy-select" id="strat-telegram-tcp" onchange="saveStrategies()">
                     <option value="none">Выключено</option>
-                    <option value="syndata_7_tls_google_multisplit_midsld">syndata midsld ⭐</option>
-                    <option value="censorliber_google_syndata">Censorliber Google ⭐</option>
-                    <option value="alt9">alt v9 ⭐</option>
                 </select>
             </div>
         </div>
 
         <div class="card">
-            <div class="card-title" style="color:#25D366">📱 WhatsApp</div>
+            <div class="card-title" style="color:#25D366">WhatsApp</div>
             <div class="strategy-row">
                 <span class="strategy-label">TCP</span>
                 <select class="strategy-select" id="strat-whatsapp-tcp" onchange="saveStrategies()">
                     <option value="none">Выключено</option>
-                    <option value="syndata_7_tls_google_multisplit_midsld">syndata midsld ⭐</option>
-                    <option value="censorliber_google_syndata">Censorliber Google ⭐</option>
                 </select>
             </div>
         </div>
 
         <div class="card">
-            <div class="card-title" style="color:#1877F2">📘 Social</div>
+            <div class="card-title" style="color:#1877F2">Social</div>
             <div class="strategy-row">
                 <span class="strategy-label">Facebook</span>
                 <select class="strategy-select" id="strat-facebook-tcp" onchange="saveStrategies()">
                     <option value="none">Выключено</option>
-                    <option value="syndata_7_tls_google_multisplit_midsld">syndata midsld ⭐</option>
                 </select>
             </div>
             <div class="strategy-row">
                 <span class="strategy-label">Instagram</span>
                 <select class="strategy-select" id="strat-instagram-tcp" onchange="saveStrategies()">
                     <option value="none">Выключено</option>
-                    <option value="syndata_7_tls_google_multisplit_midsld">syndata midsld ⭐</option>
                 </select>
             </div>
             <div class="strategy-row">
                 <span class="strategy-label">Twitter/X</span>
                 <select class="strategy-select" id="strat-twitter-tcp" onchange="saveStrategies()">
                     <option value="none">Выключено</option>
-                    <option value="syndata_7_tls_google_multisplit_midsld">syndata midsld ⭐</option>
                 </select>
             </div>
         </div>
 
         <div class="card">
-            <div class="card-title" style="color:#808080">🛠 Services</div>
+            <div class="card-title" style="color:#808080">Services</div>
             <div class="strategy-row">
                 <span class="strategy-label">GitHub</span>
                 <select class="strategy-select" id="strat-github-tcp" onchange="saveStrategies()">
                     <option value="none">Выключено</option>
-                    <option value="syndata_7_tls_google_multisplit_midsld">syndata midsld ⭐</option>
                 </select>
             </div>
             <div class="strategy-row">
                 <span class="strategy-label">Steam</span>
                 <select class="strategy-select" id="strat-steam-tcp" onchange="saveStrategies()">
                     <option value="none">Выключено</option>
-                    <option value="syndata_7_tls_google_multisplit_midsld">syndata midsld ⭐</option>
                 </select>
             </div>
             <div class="strategy-row">
                 <span class="strategy-label">Twitch</span>
                 <select class="strategy-select" id="strat-twitch-tcp" onchange="saveStrategies()">
                     <option value="none">Выключено</option>
-                    <option value="syndata_7_tls_google_multisplit_midsld">syndata midsld ⭐</option>
+                </select>
+            </div>
+            <div class="strategy-row">
+                <span class="strategy-label">SoundCloud</span>
+                <select class="strategy-select" id="strat-soundcloud-tcp" onchange="saveStrategies()">
+                    <option value="none">Выключено</option>
+                </select>
+            </div>
+            <div class="strategy-row">
+                <span class="strategy-label">Rutracker</span>
+                <select class="strategy-select" id="strat-rutracker-tcp" onchange="saveStrategies()">
+                    <option value="none">Выключено</option>
                 </select>
             </div>
         </div>
 
         <div class="card">
-            <div class="card-title" style="color:#66ff66">🌐 Hostlist</div>
+            <div class="card-title" style="color:#66ff66">Hostlist</div>
             <div class="strategy-row">
                 <span class="strategy-label">HTTPS</span>
                 <select class="strategy-select" id="strat-other" onchange="saveStrategies()">
                     <option value="none">Выключено</option>
-                    <option value="syndata_7_tls_google_multisplit_midsld">syndata midsld ⭐</option>
-                    <option value="other_seqovl">YTDisBystro 3.4 ⭐</option>
                 </select>
             </div>
         </div>
 
         <button class="btn btn-restart" style="width:100%" onclick="doRestart()">
-            <span class="btn-icon">↻</span><span>Применить (перезапуск)</span>
+            <span class="btn-icon">+</span><span>Применить (перезапуск)</span>
         </button>
     </div>
 
@@ -489,7 +479,8 @@
         <div class="header"><h1>Логи</h1></div>
         <div class="logs-actions">
             <button class="btn btn-secondary btn-small" onclick="loadLogs()">🔄 Обновить</button>
-            <button class="btn btn-secondary btn-small" onclick="loadFullLogs()">📜 Файл логов</button>
+            <button class="btn btn-secondary btn-small" onclick="loadCmdLine()">🖥️ Команда</button>
+            <button class="btn btn-secondary btn-small" onclick="loadFullLogs()">📜 Логи</button>
             <button class="btn btn-secondary btn-small" onclick="loadLogcat()">📟 Logcat</button>
             <button class="btn btn-secondary btn-small" onclick="loadErrorLogs()">⚠️ Ошибки</button>
             <button class="btn btn-secondary btn-small" onclick="copyLogs()">📋 Копировать</button>
@@ -518,6 +509,7 @@
         const CONFIG = MODDIR + '/zapret2/config.sh';
         const SCRIPTS = MODDIR + '/zapret2/scripts';
         const LOGFILE = '/data/local/tmp/zapret2.log';
+        const NFQWS_LOG = '/data/local/tmp/nfqws2-debug.log';
         const PIDFILE = '/data/local/tmp/nfqws2.pid';
 
         let isRunning = false;
@@ -676,7 +668,7 @@
                 'PORTS_UDP="443"',
                 'PKT_OUT=20',
                 'PKT_IN=10',
-                'LOG_MODE="android"',
+                'LOG_MODE="file"',
                 'USE_CATEGORIES=1',
                 '',
                 '# YouTube',
@@ -792,17 +784,32 @@
                 const response = await run('curl -s --connect-timeout 10 https://api.github.com/repos/youtubediscord/magisk-zapret2/releases/latest 2>/dev/null');
                 if (!response) throw new Error('Нет ответа от сервера');
 
-                const tagMatch = response.match(/"tag_name"\s*:\s*"([^"]+)"/);
-                const urlMatch = response.match(/"browser_download_url"\s*:\s*"([^"]+\.zip)"/);
+                // Try to parse JSON first
+                let latest = null;
+                let downloadUrl = null;
 
-                if (tagMatch) {
-                    const latest = tagMatch[1];
+                try {
+                    const json = JSON.parse(response);
+                    latest = json.tag_name;
+                    if (json.assets && json.assets.length > 0) {
+                        const zipAsset = json.assets.find(a => a.name.endsWith('.zip'));
+                        if (zipAsset) downloadUrl = zipAsset.browser_download_url;
+                    }
+                } catch (jsonErr) {
+                    // Fallback to regex if JSON parse fails
+                    const tagMatch = response.match(/"tag_name"\s*:\s*"([^"]+)"/);
+                    const urlMatch = response.match(/"browser_download_url"\s*:\s*"([^"]+\.zip)"/);
+                    if (tagMatch) latest = tagMatch[1];
+                    if (urlMatch) downloadUrl = urlMatch[1];
+                }
+
+                if (latest) {
                     const current = document.getElementById('val-version').textContent;
 
-                    if (latest && latest !== current) {
+                    if (latest !== current) {
                         pendingUpdate = {
                             version: latest,
-                            url: urlMatch ? urlMatch[1] : 'https://github.com/youtubediscord/magisk-zapret2/releases/download/' + latest + '/zapret2-magisk-' + latest + '.zip'
+                            url: downloadUrl || 'https://github.com/youtubediscord/magisk-zapret2/releases/download/' + latest + '/zapret2-magisk-' + latest + '.zip'
                         };
                         logActivity('Доступно: ' + latest, 'ok');
                         toast('Нажмите ещё раз для установки ' + latest, 'success');
@@ -910,18 +917,17 @@
         async function loadLogs() {
             logActivity('Загрузка логов...', 'warn');
             try {
-                // Load both file log and recent logcat
-                let logs = await run(`tail -100 ${LOGFILE} 2>/dev/null || echo ""`);
+                // Load startup log
+                let logs = await run(`cat ${LOGFILE} 2>/dev/null || echo ""`);
 
-                // Also get logcat with nfqws2 output
-                const logcat = await run('logcat -d 2>/dev/null | grep -i "nfqws\\|zapret\\|desync" | tail -100 || echo ""');
-
-                if (logcat && logcat.trim()) {
-                    logs += '\n\n=== Logcat (nfqws2) ===\n' + logcat;
+                // Load nfqws2 debug log (main output) - ALL lines
+                const nfqwsLog = await run(`cat ${NFQWS_LOG} 2>/dev/null || echo ""`);
+                if (nfqwsLog && nfqwsLog.trim()) {
+                    logs += '\n\n=== nfqws2 debug ===\n' + nfqwsLog;
                 }
 
                 if (!logs || !logs.trim()) {
-                    logs = 'Логов нет';
+                    logs = 'Логов нет. Запустите сервис.';
                 }
 
                 renderLogs(logs);
@@ -934,15 +940,21 @@
             logActivity('Загрузка полных логов...', 'warn');
             document.getElementById('logs-box').innerHTML = '<div class="log-line">Загрузка...</div>';
             try {
-                let logs = await run(`cat ${LOGFILE} 2>/dev/null || echo "Логов нет"`);
+                let logs = await run(`cat ${LOGFILE} 2>/dev/null || echo ""`);
+
+                // nfqws2 debug log (main output from nfqws2)
+                const nfqwsLog = await run(`cat ${NFQWS_LOG} 2>/dev/null || echo ""`);
+                if (nfqwsLog && nfqwsLog.trim()) logs += '\n\n=== nfqws2 debug ===\n' + nfqwsLog;
 
                 // nfqws2 startup output
                 const startupLog = await run('cat /data/local/tmp/nfqws2-startup.log 2>/dev/null');
-                if (startupLog && startupLog.trim()) logs += '\n\n=== nfqws2 startup output ===\n' + startupLog;
+                if (startupLog && startupLog.trim()) logs += '\n\n=== nfqws2 startup ===\n' + startupLog;
 
                 // nfqws2 errors
                 const errorLog = await run('cat /data/local/tmp/nfqws2-error.log 2>/dev/null');
                 if (errorLog && errorLog.trim()) logs += '\n\n=== nfqws2 errors ===\n' + errorLog;
+
+                if (!logs || !logs.trim()) logs = 'Логов нет';
 
                 renderLogs(logs);
                 toast('Загружено ' + logs.split('\n').length + ' строк', 'success');
@@ -967,6 +979,39 @@
                 renderLogs(logs);
             } catch (e) {
                 logActivity('Ошибка загрузки', 'err');
+            }
+        }
+
+        async function loadCmdLine() {
+            logActivity('Загрузка командной строки...', 'warn');
+            try {
+                const cmdline = await run('cat /data/local/tmp/nfqws2-cmdline.txt 2>/dev/null || echo "Командная строка не найдена. Перезапустите Zapret2."');
+
+                // Format command line for better readability
+                let formatted = '=== ПОЛНАЯ КОМАНДНАЯ СТРОКА nfqws2 ===\n\n';
+                formatted += cmdline.trim();
+                formatted += '\n\n=== РАЗБОР ПАРАМЕТРОВ ===\n';
+
+                // Split into readable params
+                const params = cmdline.split(/\s+--/).filter(p => p.trim());
+                params.forEach((param, i) => {
+                    if (i === 0) {
+                        formatted += `\n[BINARY] ${param}\n`;
+                    } else {
+                        formatted += `--${param}\n`;
+                    }
+                });
+
+                // Count strategies
+                const newCount = (cmdline.match(/--new/g) || []).length;
+                formatted += `\n=== СТАТИСТИКА ===\n`;
+                formatted += `Стратегий: ${newCount + 1}\n`;
+                formatted += `Длина команды: ${cmdline.length} символов\n`;
+
+                renderLogs(formatted);
+                logActivity('Командная строка загружена', 'ok');
+            } catch (e) {
+                logActivity('Ошибка загрузки командной строки', 'err');
             }
         }
 
@@ -1033,6 +1078,11 @@
 
         async function init() {
             logActivity('Инициализация...', 'warn');
+            // Populate strategy selects from strategies.js
+            if (typeof populateStrategies === 'function') {
+                populateStrategies();
+                logActivity('Стратегии загружены', 'ok');
+            }
             await checkStatus();
             await loadConfig();
             logActivity('Готово', 'ok');
