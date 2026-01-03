@@ -9,7 +9,7 @@ data class Category(
     var enabled: Boolean,
     var filterMode: FilterMode,
     var hostlistFile: String,
-    var strategy: Int,
+    var strategy: String,
     val section: String = ""
 ) {
     enum class FilterMode(val value: String) {
@@ -69,7 +69,7 @@ data class Category(
                     enabled = parts[1] == "1",
                     filterMode = FilterMode.fromString(parts[2]),
                     hostlistFile = parts[3],
-                    strategy = parts[4].toIntOrNull() ?: 1,
+                    strategy = parts[4].ifEmpty { "disabled" },
                     section = section
                 )
             } catch (e: Exception) {

@@ -10,8 +10,10 @@ import android.widget.RadioButton
 import android.widget.RadioGroup
 import android.widget.TextView
 import androidx.appcompat.widget.SwitchCompat
+import androidx.lifecycle.lifecycleScope
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import com.google.android.material.button.MaterialButton
+import kotlinx.coroutines.launch
 
 /**
  * BottomSheet dialog for editing a category's properties
@@ -30,8 +32,14 @@ class CategoryEditBottomSheet : BottomSheetDialogFragment() {
     private lateinit var radioIpset: RadioButton
     private lateinit var layoutHostlistFile: LinearLayout
     private lateinit var editHostlistFile: EditText
-    private lateinit var editStrategy: EditText
+    private lateinit var layoutStrategyPicker: LinearLayout
+    private lateinit var textSelectedStrategy: TextView
     private lateinit var btnSave: MaterialButton
+
+    // Strategy selection state
+    private var selectedStrategyId: String = "disabled"
+    private var tcpStrategies: List<StrategyRepository.StrategyInfo> = emptyList()
+    private var udpStrategies: List<StrategyRepository.StrategyInfo> = emptyList()
 
     companion object {
         private const val ARG_NAME = "name"
@@ -48,7 +56,7 @@ class CategoryEditBottomSheet : BottomSheetDialogFragment() {
                     putBoolean(ARG_ENABLED, category.enabled)
                     putString(ARG_FILTER_MODE, category.filterMode.value)
                     putString(ARG_HOSTLIST_FILE, category.hostlistFile)
-                    putInt(ARG_STRATEGY, category.strategy)
+                    putString(ARG_STRATEGY, category.strategy)
                     putString(ARG_SECTION, category.section)
                 }
             }
@@ -63,12 +71,13 @@ class CategoryEditBottomSheet : BottomSheetDialogFragment() {
         super.onCreate(savedInstanceState)
 
         arguments?.let { args ->
+            selectedStrategyId = args.getString(ARG_STRATEGY, "disabled")
             category = Category(
                 name = args.getString(ARG_NAME, ""),
                 enabled = args.getBoolean(ARG_ENABLED, false),
                 filterMode = Category.FilterMode.fromString(args.getString(ARG_FILTER_MODE, "none")),
                 hostlistFile = args.getString(ARG_HOSTLIST_FILE, ""),
-                strategy = args.getInt(ARG_STRATEGY, 1),
+                strategy = selectedStrategyId,
                 section = args.getString(ARG_SECTION, "")
             )
         }
@@ -85,6 +94,7 @@ class CategoryEditBottomSheet : BottomSheetDialogFragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         initViews(view)
+        loadStrategies()
         populateViews()
         setupListeners()
     }
@@ -98,8 +108,17 @@ class CategoryEditBottomSheet : BottomSheetDialogFragment() {
         radioIpset = view.findViewById(R.id.radioIpset)
         layoutHostlistFile = view.findViewById(R.id.layoutHostlistFile)
         editHostlistFile = view.findViewById(R.id.editHostlistFile)
-        editStrategy = view.findViewById(R.id.editStrategy)
+        layoutStrategyPicker = view.findViewById(R.id.layoutStrategyPicker)
+        textSelectedStrategy = view.findViewById(R.id.textSelectedStrategy)
         btnSave = view.findViewById(R.id.btnSave)
+    }
+
+    private fun loadStrategies() {
+        lifecycleScope.launch {
+            tcpStrategies = StrategyRepository.getTcpStrategies()
+            udpStrategies = StrategyRepository.getUdpStrategies()
+            updateStrategyDisplay()
+        }
     }
 
     private fun populateViews() {
@@ -107,7 +126,7 @@ class CategoryEditBottomSheet : BottomSheetDialogFragment() {
             textCategoryName.text = cat.getDisplayName()
             switchEnabled.isChecked = cat.enabled
             editHostlistFile.setText(cat.hostlistFile)
-            editStrategy.setText(cat.strategy.toString())
+            updateStrategyDisplay()
 
             // Set filter mode radio
             when (cat.filterMode) {
@@ -121,6 +140,33 @@ class CategoryEditBottomSheet : BottomSheetDialogFragment() {
         }
     }
 
+    private fun updateStrategyDisplay() {
+        val strategies = getStrategiesForCurrentCategory()
+        val strategy = strategies.find { it.id == selectedStrategyId }
+        textSelectedStrategy.text = strategy?.displayName ?: selectedStrategyId.formatStrategyName()
+    }
+
+    private fun String.formatStrategyName(): String {
+        return this.split("_")
+            .joinToString(" ") { word ->
+                word.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
+            }
+    }
+
+    private fun getStrategiesForCurrentCategory(): List<StrategyRepository.StrategyInfo> {
+        val categoryName = category?.name?.lowercase() ?: ""
+        return if (categoryName.contains("udp") || categoryName.contains("quic")) {
+            udpStrategies
+        } else {
+            tcpStrategies
+        }
+    }
+
+    private fun isUdpCategory(): Boolean {
+        val categoryName = category?.name?.lowercase() ?: ""
+        return categoryName.contains("udp") || categoryName.contains("quic")
+    }
+
     private fun setupListeners() {
         radioGroupFilterMode.setOnCheckedChangeListener { _, checkedId ->
             val mode = when (checkedId) {
@@ -132,9 +178,44 @@ class CategoryEditBottomSheet : BottomSheetDialogFragment() {
             updateHostlistVisibility(mode)
         }
 
+        // Strategy picker click
+        layoutStrategyPicker.setOnClickListener {
+            showStrategyPicker()
+        }
+
         btnSave.setOnClickListener {
             saveAndDismiss()
         }
+    }
+
+    private fun showStrategyPicker() {
+        val strategies = getStrategiesForCurrentCategory()
+        val currentIndex = strategies.indexOfFirst { it.id == selectedStrategyId }.takeIf { it >= 0 } ?: 0
+
+        val strategyType = if (isUdpCategory()) {
+            StrategyPickerBottomSheet.TYPE_UDP
+        } else {
+            StrategyPickerBottomSheet.TYPE_TCP
+        }
+
+        val picker = StrategyPickerBottomSheet.newInstance(
+            categoryKey = category?.name ?: "",
+            categoryName = "Select Strategy",
+            protocol = if (isUdpCategory()) "UDP" else "TCP",
+            iconRes = R.drawable.ic_settings,
+            currentIndex = currentIndex,
+            strategyType = strategyType
+        )
+
+        picker.setOnStrategySelectedListener { selectedIndex ->
+            val newStrategy = strategies.getOrNull(selectedIndex)
+            if (newStrategy != null) {
+                selectedStrategyId = newStrategy.id
+                updateStrategyDisplay()
+            }
+        }
+
+        picker.show(parentFragmentManager, "strategy_picker")
     }
 
     private fun updateHostlistVisibility(mode: Category.FilterMode) {
@@ -156,7 +237,7 @@ class CategoryEditBottomSheet : BottomSheetDialogFragment() {
                     else -> Category.FilterMode.NONE
                 },
                 hostlistFile = editHostlistFile.text.toString().trim(),
-                strategy = editStrategy.text.toString().toIntOrNull() ?: 1
+                strategy = selectedStrategyId
             )
 
             onSaveListener?.invoke(updatedCategory)

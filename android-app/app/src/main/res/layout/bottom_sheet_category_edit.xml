@@ -147,32 +147,33 @@
         android:layout_marginBottom="8dp" />
 
     <LinearLayout
+        android:id="@+id/layoutStrategyPicker"
         android:layout_width="match_parent"
         android:layout_height="48dp"
         android:orientation="horizontal"
         android:gravity="center_vertical"
         android:background="@drawable/edit_text_background"
-        android:paddingHorizontal="12dp">
+        android:paddingHorizontal="12dp"
+        android:clickable="true"
+        android:focusable="true">
 
         <TextView
+            android:id="@+id/textSelectedStrategy"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="Strategy ID"
-            android:textColor="#808080"
-            android:textSize="14sp" />
-
-        <EditText
-            android:id="@+id/editStrategy"
-            android:layout_width="80dp"
-            android:layout_height="match_parent"
-            android:background="@null"
+            android:text="Select strategy..."
             android:textColor="#FFFFFF"
             android:textSize="14sp"
-            android:gravity="end|center_vertical"
-            android:inputType="number"
-            android:maxLength="3"
-            android:hint="1" />
+            android:ellipsize="end"
+            android:maxLines="1" />
+
+        <ImageView
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:src="@drawable/ic_chevron_right"
+            android:contentDescription="Select"
+            app:tint="#808080" />
 
     </LinearLayout>
 

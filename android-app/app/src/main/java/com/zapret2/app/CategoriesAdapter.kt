@@ -114,8 +114,8 @@ class CategoriesAdapter(
                 textHostlist.visibility = View.GONE
             }
 
-            // Strategy badge
-            textStrategy.text = "#${category.strategy}"
+            // Strategy badge - show formatted strategy name
+            textStrategy.text = formatStrategyName(category.strategy)
 
             // Edit button and row click
             btnEdit.setOnClickListener { onEdit(category) }
@@ -127,6 +127,19 @@ class CategoriesAdapter(
                 Category.FilterMode.NONE -> Color.parseColor("#505050")
                 Category.FilterMode.HOSTLIST -> Color.parseColor("#2D5A27")
                 Category.FilterMode.IPSET -> Color.parseColor("#4A3B5C")
+            }
+        }
+
+        private fun formatStrategyName(strategyId: String): String {
+            if (strategyId.isEmpty() || strategyId == "disabled") {
+                return "Off"
+            }
+            // Convert snake_case to Title Case, keeping it short
+            val words = strategyId.split("_")
+            // Take first 2-3 significant words for compact display
+            val significantWords = words.take(3)
+            return significantWords.joinToString(" ") { word ->
+                word.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
             }
         }
     }
