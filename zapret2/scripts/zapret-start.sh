@@ -286,15 +286,15 @@ build_options() {
             ;;
 
         discord)
-            # Discord TLS + Voice UDP
+            # Discord TLS + Voice (STUN/Discord protocol detection)
             OPTS="$OPTS \
 --filter-tcp=443 \
 --lua-desync=syndata:blob=tls_google \
 --lua-desync=multisplit:pos=midsld \
 --new \
---filter-udp=19294-50100 \
---payload=stun \
---lua-desync=fake:blob=quic1:repeats=6"
+--filter-l7=stun,discord \
+--payload=stun_binding_req,discord_ip_discovery \
+--lua-desync=fake:blob=fake_stun:repeats=6"
             ;;
 
         all)
@@ -371,14 +371,14 @@ build_category_options() {
     # Discord TCP
     add_category "Discord TCP" "$STRATEGY_DISCORD" "--filter-tcp=80,443" "discord.txt"
 
-    # Discord Voice UDP
+    # Voice (Discord + Telegram) - STUN/Discord protocol detection, no ports
     if [ -n "$STRATEGY_DISCORD_VOICE_UDP" ] && [ "$STRATEGY_DISCORD_VOICE_UDP" != "none" ]; then
         if [ $first -eq 0 ]; then
             OPTS="$OPTS --new"
         fi
-        OPTS="$OPTS --filter-udp=19294-50100 --lua-desync=fake:blob=fake_stun:repeats=6"
+        OPTS="$OPTS --out-range=-d$PKT_COUNT --filter-l7=stun,discord --payload=stun_binding_req,discord_ip_discovery --lua-desync=fake:blob=fake_stun:repeats=6"
         first=0
-        log_msg "Added Discord Voice UDP"
+        log_msg "Added Voice (STUN/Discord) (pkt=$PKT_COUNT)"
     fi
 
     # Telegram TCP
