@@ -297,26 +297,13 @@ class ControlFragment : Fragment() {
 
     private fun checkStatus() {
         viewLifecycleOwner.lifecycleScope.launch {
-            val statusResult = withContext(Dispatchers.IO) {
-                // First try using zapret-status.sh if it exists
-                val statusScript = Shell.cmd("[ -f $SCRIPTS/zapret-status.sh ] && sh $SCRIPTS/zapret-status.sh 2>/dev/null || echo 'no_script'").exec()
-                val scriptOutput = statusScript.out.firstOrNull() ?: ""
-
-                if (scriptOutput != "no_script" && scriptOutput.isNotEmpty()) {
-                    scriptOutput
-                } else {
-                    // Fallback to PID check
-                    val result = Shell.cmd(
-                        "if [ -f $PIDFILE ]; then " +
-                        "PID=\$(cat $PIDFILE 2>/dev/null); " +
-                        "if [ -n \"\$PID\" ] && [ -d /proc/\$PID ]; then echo 'running'; else echo 'stopped'; fi; " +
-                        "else echo 'stopped'; fi"
-                    ).exec()
-                    result.out.firstOrNull() ?: "stopped"
-                }
+            val isServiceRunning = withContext(Dispatchers.IO) {
+                // Simple pgrep check - most reliable
+                val result = Shell.cmd("pgrep -f nfqws2").exec()
+                result.isSuccess && result.out.isNotEmpty()
             }
 
-            isRunning = statusResult.contains("running", ignoreCase = true)
+            isRunning = isServiceRunning
             updateUI()
         }
     }
