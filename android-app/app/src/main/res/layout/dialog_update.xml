@@ -1,0 +1,161 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="@drawable/dialog_background"
+    android:padding="24dp">
+
+    <!-- Header -->
+    <TextView
+        android:id="@+id/textTitle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Доступно обновление"
+        android:textColor="#FFFFFF"
+        android:textSize="20sp"
+        android:textStyle="bold"
+        android:layout_marginBottom="16dp" />
+
+    <!-- Version info -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginBottom="16dp">
+
+        <TextView
+            android:id="@+id/textCurrentVersion"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="1.0.0"
+            android:textColor="#808080"
+            android:textSize="16sp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text=" → "
+            android:textColor="#60CDFF"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/textNewVersion"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="1.1.0"
+            android:textColor="#0078D4"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+    </LinearLayout>
+
+    <!-- Changelog ScrollView -->
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Что нового:"
+        android:textColor="#FFFFFF"
+        android:textSize="14sp"
+        android:textStyle="bold"
+        android:layout_marginBottom="8dp" />
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="120dp"
+        android:layout_marginBottom="16dp"
+        android:background="#252525"
+        android:padding="12dp">
+
+        <TextView
+            android:id="@+id/textChangelog"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Loading changelog..."
+            android:textColor="#B0B0B0"
+            android:textSize="13sp"
+            android:lineSpacingExtra="4dp" />
+
+    </ScrollView>
+
+    <!-- Checkboxes -->
+    <com.google.android.material.checkbox.MaterialCheckBox
+        android:id="@+id/checkUpdateApk"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Обновить APK"
+        android:textColor="#FFFFFF"
+        android:textSize="14sp"
+        android:checked="true"
+        app:buttonTint="#0078D4"
+        android:paddingStart="8dp" />
+
+    <com.google.android.material.checkbox.MaterialCheckBox
+        android:id="@+id/checkUpdateModule"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Обновить модуль Magisk"
+        android:textColor="#FFFFFF"
+        android:textSize="14sp"
+        android:checked="true"
+        app:buttonTint="#0078D4"
+        android:paddingStart="8dp"
+        android:layout_marginBottom="16dp" />
+
+    <!-- Progress section -->
+    <ProgressBar
+        android:id="@+id/progressBar"
+        style="@style/Widget.AppCompat.ProgressBar.Horizontal"
+        android:layout_width="match_parent"
+        android:layout_height="4dp"
+        android:max="100"
+        android:progress="0"
+        android:progressTint="#0078D4"
+        android:progressBackgroundTint="#383838"
+        android:visibility="invisible"
+        android:layout_marginBottom="8dp" />
+
+    <TextView
+        android:id="@+id/textProgress"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Скачивание... 0%"
+        android:textColor="#808080"
+        android:textSize="12sp"
+        android:visibility="invisible"
+        android:layout_marginBottom="16dp" />
+
+    <!-- Buttons -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="end">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/buttonLater"
+            android:layout_width="wrap_content"
+            android:layout_height="48dp"
+            android:text="Позже"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp"
+            style="@style/Widget.Material3.Button.TextButton"
+            app:rippleColor="#33FFFFFF"
+            android:layout_marginEnd="8dp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/buttonUpdate"
+            android:layout_width="wrap_content"
+            android:layout_height="48dp"
+            android:text="Обновить"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp"
+            app:backgroundTint="#0078D4"
+            app:cornerRadius="8dp" />
+
+    </LinearLayout>
+
+</LinearLayout>
