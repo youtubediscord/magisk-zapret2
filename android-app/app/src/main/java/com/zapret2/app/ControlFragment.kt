@@ -81,7 +81,7 @@ class ControlFragment : Fragment() {
     private var pktInValue: Int = PKT_IN_DEFAULT
 
     // Network stats manager
-    private lateinit var networkStatsManager: NetworkStatsManager
+    private var networkStatsManager: NetworkStatsManager? = null
 
     // Status tracking
     private var isRunning = false
@@ -120,7 +120,8 @@ class ControlFragment : Fragment() {
      * and enough time has passed since the last check.
      */
     private fun scheduleAutoUpdateCheck() {
-        val prefs = requireContext().getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val ctx = context ?: return
+        val prefs = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val autoCheckEnabled = prefs.getBoolean(KEY_AUTO_CHECK_UPDATES, true) // Enabled by default
         val lastCheckTime = prefs.getLong(KEY_LAST_UPDATE_CHECK, 0L)
         val currentTime = System.currentTimeMillis()
@@ -223,7 +224,7 @@ class ControlFragment : Fragment() {
         buttonPktInPlus = view.findViewById(R.id.buttonPktInPlus)
 
         // Initialize network stats manager
-        networkStatsManager = NetworkStatsManager(requireContext())
+        networkStatsManager = NetworkStatsManager(view.context)
     }
 
     private fun setupListeners() {
@@ -308,17 +309,19 @@ class ControlFragment : Fragment() {
                 }
             }
 
+            val ctx = context ?: return@launch
+
             if (!hasRoot) {
                 textStatusValue.text = "Root not available!"
                 textRootStatus.text = "Not granted"
-                textRootStatus.setTextColor(ContextCompat.getColor(requireContext(), R.color.status_error))
+                textRootStatus.setTextColor(ContextCompat.getColor(ctx, R.color.status_error))
                 setStatus(Status.ERROR)
                 disableControls()
                 return@launch
             }
 
             textRootStatus.text = "Granted"
-            textRootStatus.setTextColor(ContextCompat.getColor(requireContext(), R.color.status_running))
+            textRootStatus.setTextColor(ContextCompat.getColor(ctx, R.color.status_running))
 
             // Check module exists
             val moduleExists = withContext(Dispatchers.IO) {
@@ -368,11 +371,11 @@ class ControlFragment : Fragment() {
 
             if (nfqueueSupported) {
                 textNfqueueStatus.text = "Supported"
-                textNfqueueStatus.setTextColor(ContextCompat.getColor(requireContext(), R.color.status_running))
+                textNfqueueStatus.setTextColor(ContextCompat.getColor(ctx, R.color.status_running))
             } else {
                 // Even if detection fails, NFQUEUE might still work - show warning instead of error
                 textNfqueueStatus.text = "Unknown (may work)"
-                textNfqueueStatus.setTextColor(ContextCompat.getColor(requireContext(), R.color.text_secondary))
+                textNfqueueStatus.setTextColor(ContextCompat.getColor(ctx, R.color.text_secondary))
             }
 
             // Load module version
@@ -457,20 +460,22 @@ class ControlFragment : Fragment() {
                 }
             }
 
+            val ctx = context ?: return@launch
+
             // Update root status UI dynamically
             if (!hasRoot) {
                 textRootStatus.text = "Not granted"
-                textRootStatus.setTextColor(ContextCompat.getColor(requireContext(), R.color.status_error))
+                textRootStatus.setTextColor(ContextCompat.getColor(ctx, R.color.status_error))
                 setStatus(Status.ERROR)
                 textStatusValue.text = "Root lost!"
-                textStatusValue.setTextColor(ContextCompat.getColor(requireContext(), R.color.status_error))
+                textStatusValue.setTextColor(ContextCompat.getColor(ctx, R.color.status_error))
                 textUptime.visibility = View.GONE
                 hideProcessStats()
                 disableControls()
                 return@launch
             } else {
                 textRootStatus.text = "Granted"
-                textRootStatus.setTextColor(ContextCompat.getColor(requireContext(), R.color.status_running))
+                textRootStatus.setTextColor(ContextCompat.getColor(ctx, R.color.status_running))
                 enableControls()
             }
 
@@ -615,13 +620,15 @@ class ControlFragment : Fragment() {
     }
 
     private fun updateUI() {
+        val ctx = context ?: return
+
         if (isRunning) {
             setStatus(Status.RUNNING)
             textStatusValue.text = "Running"
-            textStatusValue.setTextColor(ContextCompat.getColor(requireContext(), R.color.status_running))
+            textStatusValue.setTextColor(ContextCompat.getColor(ctx, R.color.status_running))
             buttonToggle.text = "STOP"
             buttonToggle.setIconResource(R.drawable.ic_stop)
-            buttonToggle.setBackgroundColor(ContextCompat.getColor(requireContext(), R.color.status_error))
+            buttonToggle.setBackgroundColor(ContextCompat.getColor(ctx, R.color.status_error))
             textToggleHint.text = "Tap to stop DPI bypass"
 
             // Update uptime display
@@ -636,10 +643,10 @@ class ControlFragment : Fragment() {
         } else {
             setStatus(Status.STOPPED)
             textStatusValue.text = "Stopped"
-            textStatusValue.setTextColor(ContextCompat.getColor(requireContext(), R.color.text_secondary))
+            textStatusValue.setTextColor(ContextCompat.getColor(ctx, R.color.text_secondary))
             buttonToggle.text = "START"
             buttonToggle.setIconResource(R.drawable.ic_play)
-            buttonToggle.setBackgroundColor(ContextCompat.getColor(requireContext(), R.color.accent_blue))
+            buttonToggle.setBackgroundColor(ContextCompat.getColor(ctx, R.color.accent_blue))
             textToggleHint.text = "Tap to start DPI bypass"
 
             // Hide uptime when stopped
@@ -729,9 +736,11 @@ class ControlFragment : Fragment() {
 
     private fun startService() {
         viewLifecycleOwner.lifecycleScope.launch {
+            val ctx = context ?: return@launch
+
             buttonToggle.isEnabled = false
             textStatusValue.text = "Starting..."
-            textStatusValue.setTextColor(ContextCompat.getColor(requireContext(), R.color.text_secondary))
+            textStatusValue.setTextColor(ContextCompat.getColor(ctx, R.color.text_secondary))
             textUptime.visibility = View.GONE
 
             val result = withContext(Dispatchers.IO) {
@@ -748,20 +757,24 @@ class ControlFragment : Fragment() {
             checkStatus()
             buttonToggle.isEnabled = true
 
+            if (!isAdded) return@launch
+
             if (result.isSuccess) {
-                Toast.makeText(requireContext(), "Service started", Toast.LENGTH_SHORT).show()
+                Toast.makeText(ctx, "Service started", Toast.LENGTH_SHORT).show()
             } else {
                 serviceStartTime = 0L
-                Toast.makeText(requireContext(), "Start failed", Toast.LENGTH_SHORT).show()
+                Toast.makeText(ctx, "Start failed", Toast.LENGTH_SHORT).show()
             }
         }
     }
 
     private fun stopService() {
         viewLifecycleOwner.lifecycleScope.launch {
+            val ctx = context ?: return@launch
+
             buttonToggle.isEnabled = false
             textStatusValue.text = "Stopping..."
-            textStatusValue.setTextColor(ContextCompat.getColor(requireContext(), R.color.text_secondary))
+            textStatusValue.setTextColor(ContextCompat.getColor(ctx, R.color.text_secondary))
 
             val result = withContext(Dispatchers.IO) {
                 Shell.cmd("sh $SCRIPTS/zapret-stop.sh 2>&1").exec()
@@ -774,22 +787,26 @@ class ControlFragment : Fragment() {
             checkStatus()
             buttonToggle.isEnabled = true
 
+            if (!isAdded) return@launch
+
             if (result.isSuccess) {
-                Toast.makeText(requireContext(), "Service stopped", Toast.LENGTH_SHORT).show()
+                Toast.makeText(ctx, "Service stopped", Toast.LENGTH_SHORT).show()
             } else {
-                Toast.makeText(requireContext(), "Stop failed", Toast.LENGTH_SHORT).show()
+                Toast.makeText(ctx, "Stop failed", Toast.LENGTH_SHORT).show()
             }
         }
     }
 
     private fun saveAutostart(enabled: Boolean) {
         viewLifecycleOwner.lifecycleScope.launch {
+            val ctx = context ?: return@launch
             val value = if (enabled) "1" else "0"
             withContext(Dispatchers.IO) {
                 Shell.cmd("sed -i 's/^AUTOSTART=.*/AUTOSTART=$value/' $CONFIG").exec()
             }
+            if (!isAdded) return@launch
             Toast.makeText(
-                requireContext(),
+                ctx,
                 if (enabled) "Autostart enabled" else "Autostart disabled",
                 Toast.LENGTH_SHORT
             ).show()
@@ -798,6 +815,7 @@ class ControlFragment : Fragment() {
 
     private fun saveWifiOnly(enabled: Boolean) {
         viewLifecycleOwner.lifecycleScope.launch {
+            val ctx = context ?: return@launch
             val value = if (enabled) "1" else "0"
             withContext(Dispatchers.IO) {
                 // Check if WIFI_ONLY exists in config, if not add it
@@ -810,8 +828,9 @@ class ControlFragment : Fragment() {
                     Shell.cmd("echo 'WIFI_ONLY=$value' >> $CONFIG").exec()
                 }
             }
+            if (!isAdded) return@launch
             Toast.makeText(
-                requireContext(),
+                ctx,
                 if (enabled) "WiFi-only mode enabled" else "WiFi-only mode disabled",
                 Toast.LENGTH_SHORT
             ).show()
@@ -853,12 +872,13 @@ class ControlFragment : Fragment() {
     private enum class Status { RUNNING, STOPPED, ERROR }
 
     private fun setStatus(status: Status) {
+        val ctx = context ?: return
         val colorRes = when (status) {
             Status.RUNNING -> R.color.status_running
             Status.STOPPED -> R.color.status_stopped
             Status.ERROR -> R.color.status_error
         }
-        viewStatusIndicator.background?.setTint(ContextCompat.getColor(requireContext(), colorRes))
+        viewStatusIndicator.background?.setTint(ContextCompat.getColor(ctx, colorRes))
     }
 
     private fun disableControls() {
@@ -910,13 +930,14 @@ class ControlFragment : Fragment() {
      * Must be called from Main thread.
      */
     private fun updateNfqueueStatusUI(supported: Boolean) {
+        val ctx = context ?: return
         if (supported) {
             textNfqueueStatus.text = "Supported"
-            textNfqueueStatus.setTextColor(ContextCompat.getColor(requireContext(), R.color.status_running))
+            textNfqueueStatus.setTextColor(ContextCompat.getColor(ctx, R.color.status_running))
         } else {
             // Even if detection fails, NFQUEUE might still work - show warning instead of error
             textNfqueueStatus.text = "Unknown (may work)"
-            textNfqueueStatus.setTextColor(ContextCompat.getColor(requireContext(), R.color.text_secondary))
+            textNfqueueStatus.setTextColor(ContextCompat.getColor(ctx, R.color.text_secondary))
         }
     }
 
@@ -932,10 +953,10 @@ class ControlFragment : Fragment() {
         super.onResume()
         // Start status polling every 3 seconds
         startStatusPolling()
-        // Register network change listener
-        registerNetworkListener()
+        // Register network change listener (only if manager is initialized)
+        networkStatsManager?.let { registerNetworkListener() }
         // Initial network stats update
-        updateNetworkStats()
+        networkStatsManager?.let { updateNetworkStats() }
     }
 
     override fun onPause() {
@@ -943,7 +964,7 @@ class ControlFragment : Fragment() {
         // Stop status polling when fragment is not visible
         stopStatusPolling()
         // Unregister network change listener
-        unregisterNetworkListener()
+        networkStatsManager?.let { unregisterNetworkListener() }
     }
 
     private fun startStatusPolling() {
@@ -1006,7 +1027,7 @@ class ControlFragment : Fragment() {
      * Registers a listener for network connectivity changes
      */
     private fun registerNetworkListener() {
-        networkStatsManager.registerNetworkChangeListener(object : NetworkStatsManager.NetworkChangeListener {
+        networkStatsManager?.registerNetworkChangeListener(object : NetworkStatsManager.NetworkChangeListener {
             override fun onNetworkChanged(stats: NetworkStatsManager.NetworkStats) {
                 // Update network stats on network change
                 viewLifecycleOwner.lifecycleScope.launch {
@@ -1020,26 +1041,29 @@ class ControlFragment : Fragment() {
      * Unregisters the network change listener
      */
     private fun unregisterNetworkListener() {
-        networkStatsManager.unregisterNetworkChangeListener()
+        networkStatsManager?.unregisterNetworkChangeListener()
     }
 
     /**
      * Updates all network statistics in the UI
      */
     private fun updateNetworkStats() {
+        val manager = networkStatsManager ?: return
+
         viewLifecycleOwner.lifecycleScope.launch {
             val stats = withContext(Dispatchers.IO) {
-                networkStatsManager.getNetworkStats()
+                manager.getNetworkStats()
             }
 
+            val ctx = context ?: return@launch
             if (!isAdded) return@launch
 
             // Update network type
-            val networkTypeString = networkStatsManager.getNetworkTypeString(stats.networkType)
+            val networkTypeString = manager.getNetworkTypeString(stats.networkType)
             textNetworkType.text = networkTypeString
 
             // Update icon based on network type
-            val iconRes = networkStatsManager.getNetworkTypeIcon(stats.networkType)
+            val iconRes = manager.getNetworkTypeIcon(stats.networkType)
             iconNetworkType.setImageResource(iconRes)
 
             // Set color based on connection status
@@ -1048,7 +1072,7 @@ class ControlFragment : Fragment() {
                 NetworkStatsManager.NetworkType.VPN -> R.color.accent_light_blue
                 else -> R.color.status_running
             }
-            textNetworkType.setTextColor(ContextCompat.getColor(requireContext(), colorRes))
+            textNetworkType.setTextColor(ContextCompat.getColor(ctx, colorRes))
 
             // Update WiFi name (show/hide row based on connection type)
             if (stats.networkType == NetworkStatsManager.NetworkType.WIFI && stats.wifiSsid != null) {
@@ -1061,16 +1085,16 @@ class ControlFragment : Fragment() {
             // Update iptables status
             if (stats.iptablesActive) {
                 textIptablesStatus.text = "Active"
-                textIptablesStatus.setTextColor(ContextCompat.getColor(requireContext(), R.color.status_running))
+                textIptablesStatus.setTextColor(ContextCompat.getColor(ctx, R.color.status_running))
             } else {
                 textIptablesStatus.text = "Inactive"
-                textIptablesStatus.setTextColor(ContextCompat.getColor(requireContext(), R.color.text_secondary))
+                textIptablesStatus.setTextColor(ContextCompat.getColor(ctx, R.color.text_secondary))
             }
 
             // Update NFQUEUE rules count
             textNfqueueRulesCount.text = stats.nfqueueRulesCount.toString()
             val rulesColorRes = if (stats.nfqueueRulesCount > 0) R.color.status_running else R.color.text_secondary
-            textNfqueueRulesCount.setTextColor(ContextCompat.getColor(requireContext(), rulesColorRes))
+            textNfqueueRulesCount.setTextColor(ContextCompat.getColor(ctx, rulesColorRes))
         }
     }
 

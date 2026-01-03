@@ -23,14 +23,14 @@ import kotlinx.coroutines.withContext
  */
 class CategoriesFragment : Fragment() {
 
-    // Views
-    private lateinit var btnRefresh: ImageButton
-    private lateinit var progressLoading: ProgressBar
-    private lateinit var textError: TextView
-    private lateinit var recyclerCategories: RecyclerView
+    // Views - nullable to handle lifecycle properly
+    private var btnRefresh: ImageButton? = null
+    private var progressLoading: ProgressBar? = null
+    private var textError: TextView? = null
+    private var recyclerCategories: RecyclerView? = null
 
     // Adapter
-    private lateinit var adapter: CategoriesAdapter
+    private var adapter: CategoriesAdapter? = null
 
     // Data
     private val categories = mutableListOf<Category>()
@@ -58,6 +58,17 @@ class CategoriesFragment : Fragment() {
         loadCategories()
     }
 
+    override fun onDestroyView() {
+        super.onDestroyView()
+        // Clear references to avoid memory leaks and crashes
+        recyclerCategories?.adapter = null
+        btnRefresh = null
+        progressLoading = null
+        textError = null
+        recyclerCategories = null
+        adapter = null
+    }
+
     private fun initViews(view: View) {
         btnRefresh = view.findViewById(R.id.btnRefresh)
         progressLoading = view.findViewById(R.id.progressLoading)
@@ -66,7 +77,7 @@ class CategoriesFragment : Fragment() {
     }
 
     private fun setupRecyclerView() {
-        adapter = CategoriesAdapter(
+        val newAdapter = CategoriesAdapter(
             onToggle = { category, enabled ->
                 toggleCategory(category, enabled)
             },
@@ -74,13 +85,14 @@ class CategoriesFragment : Fragment() {
                 showEditDialog(category)
             }
         )
+        adapter = newAdapter
 
-        recyclerCategories.layoutManager = LinearLayoutManager(requireContext())
-        recyclerCategories.adapter = adapter
+        recyclerCategories?.layoutManager = LinearLayoutManager(requireContext())
+        recyclerCategories?.adapter = newAdapter
     }
 
     private fun setupListeners() {
-        btnRefresh.setOnClickListener {
+        btnRefresh?.setOnClickListener {
             loadCategories()
         }
     }
@@ -88,11 +100,14 @@ class CategoriesFragment : Fragment() {
     private fun loadCategories() {
         viewLifecycleOwner.lifecycleScope.launch {
             showLoading(true)
-            textError.visibility = View.GONE
+            textError?.visibility = View.GONE
 
             val result = withContext(Dispatchers.IO) {
                 Shell.cmd("cat $CATEGORIES_FILE 2>/dev/null").exec()
             }
+
+            // Check if view is still valid after IO operation
+            if (!isAdded || view == null) return@launch
 
             if (!result.isSuccess || result.out.isEmpty()) {
                 showError("Failed to load categories.txt\nMake sure Zapret2 module is installed")
@@ -108,7 +123,7 @@ class CategoriesFragment : Fragment() {
             if (categories.isEmpty()) {
                 showError("No categories found in categories.txt")
             } else {
-                adapter.submitCategories(categories)
+                adapter?.submitCategories(categories)
             }
         }
     }
@@ -143,18 +158,25 @@ class CategoriesFragment : Fragment() {
         val index = categories.indexOfFirst { it.name == category.name }
         if (index >= 0) {
             categories[index] = category.copy(enabled = enabled)
+            adapter?.submitCategories(categories.toList())
             saveAndRestart()
         }
     }
 
     private fun showEditDialog(category: Category) {
+        // Check if fragment is still attached before showing dialog
+        if (!isAdded) return
+
         val bottomSheet = CategoryEditBottomSheet.newInstance(category)
         bottomSheet.setOnSaveListener { updatedCategory ->
+            // Check if fragment is still attached when callback fires
+            if (!isAdded) return@setOnSaveListener
+
             // Update local data
             val index = categories.indexOfFirst { it.name == updatedCategory.name }
             if (index >= 0) {
                 categories[index] = updatedCategory
-                adapter.submitCategories(categories.toList())
+                adapter?.submitCategories(categories.toList())
                 saveAndRestart()
             }
         }
@@ -166,9 +188,12 @@ class CategoriesFragment : Fragment() {
             val newContent = buildCategoriesFile()
 
             val (saveSuccess, restartSuccess) = withContext(Dispatchers.IO) {
-                // Save the file
-                val escaped = newContent.replace("'", "'\\''")
-                val saveResult = Shell.cmd("echo '$escaped' > $CATEGORIES_FILE").exec()
+                // Save the file using base64 encoding to avoid shell escaping issues
+                val encoded = android.util.Base64.encodeToString(
+                    newContent.toByteArray(Charsets.UTF_8),
+                    android.util.Base64.NO_WRAP
+                )
+                val saveResult = Shell.cmd("echo '$encoded' | base64 -d > $CATEGORIES_FILE").exec()
 
                 if (!saveResult.isSuccess) {
                     return@withContext Pair(false, false)
@@ -181,12 +206,16 @@ class CategoriesFragment : Fragment() {
                 Pair(true, startResult.isSuccess)
             }
 
+            // Check if fragment is still attached before showing Toast
+            if (!isAdded) return@launch
+            val ctx = context ?: return@launch
+
             if (saveSuccess && restartSuccess) {
-                Toast.makeText(requireContext(), "Categories saved and applied", Toast.LENGTH_SHORT).show()
+                Toast.makeText(ctx, "Categories saved and applied", Toast.LENGTH_SHORT).show()
             } else if (saveSuccess) {
-                Toast.makeText(requireContext(), "Saved, but service restart failed", Toast.LENGTH_SHORT).show()
+                Toast.makeText(ctx, "Saved, but service restart failed", Toast.LENGTH_SHORT).show()
             } else {
-                Toast.makeText(requireContext(), "Failed to save categories", Toast.LENGTH_SHORT).show()
+                Toast.makeText(ctx, "Failed to save categories", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -231,14 +260,14 @@ class CategoriesFragment : Fragment() {
     }
 
     private fun showLoading(show: Boolean) {
-        progressLoading.visibility = if (show) View.VISIBLE else View.GONE
-        recyclerCategories.visibility = if (show) View.GONE else View.VISIBLE
-        btnRefresh.isEnabled = !show
+        progressLoading?.visibility = if (show) View.VISIBLE else View.GONE
+        recyclerCategories?.visibility = if (show) View.GONE else View.VISIBLE
+        btnRefresh?.isEnabled = !show
     }
 
     private fun showError(message: String) {
-        textError.text = message
-        textError.visibility = View.VISIBLE
-        recyclerCategories.visibility = View.GONE
+        textError?.text = message
+        textError?.visibility = View.VISIBLE
+        recyclerCategories?.visibility = View.GONE
     }
 }
