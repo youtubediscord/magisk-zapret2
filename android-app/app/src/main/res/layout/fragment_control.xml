@@ -12,279 +12,313 @@
         android:orientation="vertical"
         android:padding="16dp">
 
-        <!-- Status Card -->
-        <com.google.android.material.card.MaterialCardView
-            android:id="@+id/cardStatus"
-            android:layout_width="match_parent"
+        <!-- Status Section Header -->
+        <TextView
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp"
-            app:cardBackgroundColor="#2D2D2D"
-            app:cardCornerRadius="8dp"
-            app:cardElevation="2dp"
-            app:strokeWidth="0dp">
+            android:text="Status"
+            android:textColor="#888888"
+            android:textSize="12sp"
+            android:layout_marginBottom="12dp"
+            android:layout_marginStart="4dp" />
+
+        <!-- Status Row -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="64dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingHorizontal="16dp"
+            android:background="@drawable/setting_row_background">
+
+            <!-- Status Indicator -->
+            <View
+                android:id="@+id/viewStatusIndicator"
+                android:layout_width="12dp"
+                android:layout_height="12dp"
+                android:background="@drawable/status_indicator_red" />
 
             <LinearLayout
-                android:layout_width="match_parent"
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:padding="20dp"
-                android:gravity="center_vertical">
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:layout_marginStart="16dp">
 
-                <!-- Status Indicator -->
-                <View
-                    android:id="@+id/viewStatusIndicator"
-                    android:layout_width="16dp"
-                    android:layout_height="16dp"
-                    android:background="@drawable/status_indicator_red" />
-
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:layout_marginStart="16dp">
-
-                    <TextView
-                        android:id="@+id/textStatusTitle"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Service Status"
-                        android:textColor="#FFFFFF"
-                        android:textSize="18sp"
-                        android:textStyle="bold" />
-
-                    <TextView
-                        android:id="@+id/textStatusValue"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Stopped"
-                        android:textColor="#808080"
-                        android:textSize="14sp"
-                        android:layout_marginTop="4dp" />
-
-                </LinearLayout>
-
-                <!-- Uptime/Info -->
                 <TextView
-                    android:id="@+id/textUptime"
+                    android:id="@+id/textStatusTitle"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text=""
-                    android:textColor="#808080"
+                    android:text="DPI Bypass Service"
+                    android:textColor="#FFFFFF"
+                    android:textSize="14sp" />
+
+                <TextView
+                    android:id="@+id/textStatusValue"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Stopped"
+                    android:textColor="#888888"
                     android:textSize="12sp" />
 
             </LinearLayout>
 
-        </com.google.android.material.card.MaterialCardView>
-
-        <!-- Big START/STOP Button -->
-        <com.google.android.material.card.MaterialCardView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp"
-            app:cardBackgroundColor="#2D2D2D"
-            app:cardCornerRadius="8dp"
-            app:cardElevation="2dp"
-            app:strokeWidth="0dp">
-
-            <LinearLayout
-                android:layout_width="match_parent"
+            <TextView
+                android:id="@+id/textUptime"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="24dp"
-                android:gravity="center">
+                android:text=""
+                android:textColor="#888888"
+                android:textSize="12sp" />
 
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/buttonToggle"
-                    android:layout_width="200dp"
-                    android:layout_height="64dp"
-                    android:text="START"
-                    android:textSize="20sp"
-                    android:textStyle="bold"
-                    app:backgroundTint="#0078D4"
-                    app:cornerRadius="8dp"
-                    app:icon="@drawable/ic_play"
-                    app:iconGravity="textStart"
-                    app:iconPadding="8dp" />
+        </LinearLayout>
 
-                <TextView
-                    android:id="@+id/textToggleHint"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Tap to start DPI bypass"
-                    android:textColor="#808080"
-                    android:textSize="12sp"
-                    android:layout_marginTop="12dp" />
-
-            </LinearLayout>
-
-        </com.google.android.material.card.MaterialCardView>
-
-        <!-- Settings Card -->
-        <com.google.android.material.card.MaterialCardView
+        <!-- Big Toggle Button -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/buttonToggle"
             android:layout_width="match_parent"
+            android:layout_height="64dp"
+            android:layout_marginTop="16dp"
+            android:text="START"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            app:backgroundTint="#0078D4"
+            app:cornerRadius="8dp"
+            app:icon="@drawable/ic_play"
+            app:iconGravity="textStart"
+            app:iconPadding="12dp"
+            app:iconSize="24dp" />
+
+        <TextView
+            android:id="@+id/textToggleHint"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp"
-            app:cardBackgroundColor="#2D2D2D"
-            app:cardCornerRadius="8dp"
-            app:cardElevation="2dp"
-            app:strokeWidth="0dp">
+            android:layout_gravity="center_horizontal"
+            android:text="Tap to start DPI bypass"
+            android:textColor="#888888"
+            android:textSize="12sp"
+            android:layout_marginTop="8dp"
+            android:layout_marginBottom="24dp" />
 
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="16dp">
+        <!-- Settings Section Header -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Settings"
+            android:textColor="#888888"
+            android:textSize="12sp"
+            android:layout_marginBottom="12dp"
+            android:layout_marginStart="4dp" />
 
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Settings"
-                    android:textColor="#FFFFFF"
-                    android:textSize="16sp"
-                    android:textStyle="bold"
-                    android:layout_marginBottom="16dp" />
-
-                <!-- Autostart Checkbox -->
-                <com.google.android.material.checkbox.MaterialCheckBox
-                    android:id="@+id/checkAutostart"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="Start on boot"
-                    android:textColor="#FFFFFF"
-                    android:textSize="14sp"
-                    app:buttonTint="#0078D4"
-                    android:padding="8dp" />
-
-                <View
-                    android:layout_width="match_parent"
-                    android:layout_height="1dp"
-                    android:background="#404040"
-                    android:layout_marginVertical="8dp" />
-
-                <!-- Start on WiFi only -->
-                <com.google.android.material.checkbox.MaterialCheckBox
-                    android:id="@+id/checkWifiOnly"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="WiFi only mode"
-                    android:textColor="#FFFFFF"
-                    android:textSize="14sp"
-                    app:buttonTint="#0078D4"
-                    android:padding="8dp" />
-
-            </LinearLayout>
-
-        </com.google.android.material.card.MaterialCardView>
-
-        <!-- Module Info Card -->
-        <com.google.android.material.card.MaterialCardView
+        <!-- Autostart Row -->
+        <LinearLayout
+            android:id="@+id/rowAutostart"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp"
-            app:cardBackgroundColor="#2D2D2D"
-            app:cardCornerRadius="8dp"
-            app:cardElevation="2dp"
-            app:strokeWidth="0dp">
+            android:layout_height="56dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingHorizontal="16dp"
+            android:background="@drawable/setting_row_background"
+            android:clickable="true"
+            android:focusable="true">
 
-            <LinearLayout
-                android:layout_width="match_parent"
+            <ImageView
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:src="@drawable/ic_power"
+                app:tint="#FFFFFF" />
+
+            <TextView
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="16dp">
+                android:layout_weight="1"
+                android:layout_marginStart="16dp"
+                android:text="Start on boot"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp" />
 
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Module Info"
-                    android:textColor="#FFFFFF"
-                    android:textSize="16sp"
-                    android:textStyle="bold"
-                    android:layout_marginBottom="12dp" />
+            <TextView
+                android:id="@+id/textAutostartValue"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Off"
+                android:textColor="#888888"
+                android:textSize="14sp"
+                android:layout_marginEnd="12dp" />
 
-                <!-- Module Version Row -->
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:layout_marginBottom="8dp">
+            <com.google.android.material.materialswitch.MaterialSwitch
+                android:id="@+id/switchAutostart"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                app:trackTint="@color/switch_track_color"
+                app:thumbTint="@color/switch_thumb_color" />
 
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="Module version"
-                        android:textColor="#808080"
-                        android:textSize="14sp" />
+        </LinearLayout>
 
-                    <TextView
-                        android:id="@+id/textModuleVersion"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="v1.0.0"
-                        android:textColor="#FFFFFF"
-                        android:textSize="14sp" />
+        <!-- WiFi Only Row -->
+        <LinearLayout
+            android:id="@+id/rowWifiOnly"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingHorizontal="16dp"
+            android:background="@drawable/setting_row_background"
+            android:clickable="true"
+            android:focusable="true">
 
-                </LinearLayout>
+            <ImageView
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:src="@drawable/ic_wifi"
+                app:tint="#FFFFFF" />
 
-                <!-- Root Status Row -->
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:layout_marginBottom="8dp">
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="16dp"
+                android:text="WiFi only mode"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp" />
 
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="Root status"
-                        android:textColor="#808080"
-                        android:textSize="14sp" />
+            <TextView
+                android:id="@+id/textWifiOnlyValue"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Off"
+                android:textColor="#888888"
+                android:textSize="14sp"
+                android:layout_marginEnd="12dp" />
 
-                    <TextView
-                        android:id="@+id/textRootStatus"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Checking..."
-                        android:textColor="#FFFFFF"
-                        android:textSize="14sp" />
+            <com.google.android.material.materialswitch.MaterialSwitch
+                android:id="@+id/switchWifiOnly"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                app:trackTint="@color/switch_track_color"
+                app:thumbTint="@color/switch_thumb_color" />
 
-                </LinearLayout>
+        </LinearLayout>
 
-                <!-- NFQueue Status Row -->
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal">
+        <!-- Module Info Section Header -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Module Info"
+            android:textColor="#888888"
+            android:textSize="12sp"
+            android:layout_marginTop="24dp"
+            android:layout_marginBottom="12dp"
+            android:layout_marginStart="4dp" />
 
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="NFQueue support"
-                        android:textColor="#808080"
-                        android:textSize="14sp" />
+        <!-- Module Version Row -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingHorizontal="16dp"
+            android:background="@drawable/setting_row_background">
 
-                    <TextView
-                        android:id="@+id/textNfqueueStatus"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Checking..."
-                        android:textColor="#FFFFFF"
-                        android:textSize="14sp" />
+            <ImageView
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:src="@drawable/ic_info"
+                app:tint="#FFFFFF" />
 
-                </LinearLayout>
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="16dp"
+                android:text="Module version"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp" />
 
-            </LinearLayout>
+            <TextView
+                android:id="@+id/textModuleVersion"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="v1.0.0"
+                android:textColor="#888888"
+                android:textSize="14sp" />
 
-        </com.google.android.material.card.MaterialCardView>
+        </LinearLayout>
 
-        <!-- Update Module Button -->
+        <!-- Root Status Row -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingHorizontal="16dp"
+            android:background="@drawable/setting_row_background">
+
+            <ImageView
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:src="@drawable/ic_control"
+                app:tint="#FFFFFF" />
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="16dp"
+                android:text="Root status"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp" />
+
+            <TextView
+                android:id="@+id/textRootStatus"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Checking..."
+                android:textColor="#888888"
+                android:textSize="14sp" />
+
+        </LinearLayout>
+
+        <!-- NFQueue Status Row -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingHorizontal="16dp"
+            android:background="@drawable/setting_row_background">
+
+            <ImageView
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:src="@drawable/ic_apps"
+                app:tint="#FFFFFF" />
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="16dp"
+                android:text="NFQueue support"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp" />
+
+            <TextView
+                android:id="@+id/textNfqueueStatus"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Checking..."
+                android:textColor="#888888"
+                android:textSize="14sp" />
+
+        </LinearLayout>
+
+        <!-- Update Button -->
         <com.google.android.material.button.MaterialButton
             android:id="@+id/buttonUpdateModule"
             android:layout_width="match_parent"
             android:layout_height="56dp"
+            android:layout_marginTop="24dp"
             android:text="Check for Updates"
             android:textSize="14sp"
             style="@style/Widget.Material3.Button.OutlinedButton"

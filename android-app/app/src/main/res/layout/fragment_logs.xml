@@ -11,14 +11,14 @@
         android:id="@+id/tabLayoutLogs"
         android:layout_width="match_parent"
         android:layout_height="48dp"
-        android:background="#2D2D2D"
+        android:background="#202020"
         app:tabIndicatorColor="#0078D4"
-        app:tabIndicatorHeight="3dp"
+        app:tabIndicatorHeight="2dp"
         app:tabSelectedTextColor="#FFFFFF"
-        app:tabTextColor="#808080"
+        app:tabTextColor="#888888"
         app:tabMode="fixed"
         app:tabGravity="fill"
-        app:tabRippleColor="#400078D4">
+        app:tabRippleColor="#1A0078D4">
 
         <com.google.android.material.tabs.TabItem
             android:layout_width="wrap_content"
@@ -37,264 +37,235 @@
 
     </com.google.android.material.tabs.TabLayout>
 
-    <!-- Cmdline Card (Collapsible) -->
-    <com.google.android.material.card.MaterialCardView
-        android:id="@+id/cardCmdline"
+    <!-- Divider -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="#404040" />
+
+    <!-- Cmdline Section (Collapsible) -->
+    <LinearLayout
+        android:id="@+id/layoutCmdlineHeader"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingHorizontal="16dp"
+        android:background="@drawable/setting_row_background"
+        android:clickable="true"
+        android:focusable="true">
+
+        <ImageView
+            android:id="@+id/iconCmdlineExpand"
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:src="@drawable/ic_chevron_down"
+            app:tint="#888888"
+            android:rotation="0" />
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="12dp"
+            android:text="Current Command Line"
+            android:textColor="#FFFFFF"
+            android:textSize="13sp" />
+
+        <ImageView
+            android:id="@+id/iconCopyCmdline"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:src="@drawable/ic_copy"
+            app:tint="#888888"
+            android:padding="4dp"
+            android:background="?android:attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Copy command line" />
+
+    </LinearLayout>
+
+    <!-- Expandable Cmdline Content -->
+    <LinearLayout
+        android:id="@+id/layoutCmdlineContent"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_margin="12dp"
-        app:cardBackgroundColor="#2D2D2D"
-        app:cardCornerRadius="8dp"
-        app:cardElevation="2dp"
-        app:strokeWidth="0dp">
+        android:orientation="vertical"
+        android:visibility="gone"
+        android:paddingHorizontal="16dp"
+        android:paddingBottom="12dp"
+        android:background="#202020">
 
-        <LinearLayout
+        <HorizontalScrollView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="vertical">
+            android:scrollbars="horizontal">
 
-            <!-- Header (Clickable to Expand/Collapse) -->
-            <LinearLayout
-                android:id="@+id/layoutCmdlineHeader"
-                android:layout_width="match_parent"
+            <TextView
+                android:id="@+id/textCmdline"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical"
+                android:text="nfqws --qnum=200 --dpi-desync=fake,split2 ..."
+                android:textColor="#4EC9B0"
+                android:textSize="11sp"
+                android:fontFamily="monospace"
+                android:background="#1A1A1A"
                 android:padding="12dp"
-                android:background="?android:attr/selectableItemBackground">
+                android:singleLine="true" />
 
-                <ImageView
-                    android:id="@+id/iconCmdlineExpand"
-                    android:layout_width="24dp"
-                    android:layout_height="24dp"
-                    android:src="@drawable/ic_expand_more"
-                    app:tint="#808080"
-                    android:layout_marginEnd="8dp" />
+        </HorizontalScrollView>
 
-                <TextView
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="Current Command Line"
-                    android:textColor="#FFFFFF"
-                    android:textSize="14sp"
-                    android:textStyle="bold" />
+    </LinearLayout>
 
-                <ImageView
-                    android:id="@+id/iconCopyCmdline"
-                    android:layout_width="32dp"
-                    android:layout_height="32dp"
-                    android:src="@drawable/ic_copy"
-                    app:tint="#808080"
-                    android:padding="4dp"
-                    android:background="?android:attr/selectableItemBackgroundBorderless"
-                    android:contentDescription="Copy command line" />
+    <!-- Divider -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="#404040" />
 
-            </LinearLayout>
+    <!-- Log Filter Bar -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingHorizontal="16dp"
+        android:background="#202020">
 
-            <!-- Expandable Content -->
-            <LinearLayout
-                android:id="@+id/layoutCmdlineContent"
+        <com.google.android.material.textfield.TextInputLayout
+            android:layout_width="0dp"
+            android:layout_height="36dp"
+            android:layout_weight="1"
+            style="@style/Widget.Material3.TextInputLayout.OutlinedBox.Dense"
+            app:boxStrokeColor="#404040"
+            app:boxStrokeWidth="1dp"
+            app:boxCornerRadiusTopStart="4dp"
+            app:boxCornerRadiusTopEnd="4dp"
+            app:boxCornerRadiusBottomStart="4dp"
+            app:boxCornerRadiusBottomEnd="4dp"
+            app:hintEnabled="false">
+
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/editLogFilter"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:visibility="gone"
+                android:layout_height="match_parent"
+                android:hint="Filter logs..."
+                android:textColor="#FFFFFF"
+                android:textColorHint="#888888"
+                android:textSize="13sp"
+                android:inputType="text"
                 android:paddingStart="12dp"
-                android:paddingEnd="12dp"
-                android:paddingBottom="12dp">
+                android:paddingEnd="12dp" />
 
-                <HorizontalScrollView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:scrollbars="horizontal">
+        </com.google.android.material.textfield.TextInputLayout>
 
-                    <TextView
-                        android:id="@+id/textCmdline"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="nfqws --qnum=200 --dpi-desync=fake,split2 ..."
-                        android:textColor="#4EC9B0"
-                        android:textSize="12sp"
-                        android:fontFamily="monospace"
-                        android:background="#1E1E1E"
-                        android:padding="8dp"
-                        android:singleLine="true" />
+        <com.google.android.material.checkbox.MaterialCheckBox
+            android:id="@+id/checkAutoScroll"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Auto"
+            android:textColor="#888888"
+            android:textSize="12sp"
+            android:checked="true"
+            app:buttonTint="#0078D4"
+            android:layout_marginStart="12dp" />
 
-                </HorizontalScrollView>
-
-            </LinearLayout>
-
-        </LinearLayout>
-
-    </com.google.android.material.card.MaterialCardView>
+    </LinearLayout>
 
     <!-- Log Content Area -->
-    <com.google.android.material.card.MaterialCardView
+    <ScrollView
+        android:id="@+id/scrollLogs"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:layout_marginStart="12dp"
-        android:layout_marginEnd="12dp"
-        android:layout_marginBottom="12dp"
-        app:cardBackgroundColor="#1E1E1E"
-        app:cardCornerRadius="8dp"
-        app:cardElevation="2dp"
-        app:strokeWidth="0dp">
+        android:fillViewport="true"
+        android:scrollbars="vertical"
+        android:background="#1A1A1A"
+        android:layout_margin="16dp">
 
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:orientation="vertical">
-
-            <!-- Log Filter Bar -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical"
-                android:background="#252525"
-                android:padding="8dp">
-
-                <com.google.android.material.textfield.TextInputLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    style="@style/Widget.Material3.TextInputLayout.OutlinedBox.Dense"
-                    app:boxStrokeColor="#0078D4"
-                    app:hintTextColor="#808080"
-                    app:startIconDrawable="@drawable/ic_search"
-                    app:startIconTint="#808080">
-
-                    <com.google.android.material.textfield.TextInputEditText
-                        android:id="@+id/editLogFilter"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:hint="Filter logs..."
-                        android:textColor="#FFFFFF"
-                        android:textColorHint="#808080"
-                        android:textSize="14sp"
-                        android:background="@android:color/transparent"
-                        android:inputType="text" />
-
-                </com.google.android.material.textfield.TextInputLayout>
-
-                <com.google.android.material.checkbox.MaterialCheckBox
-                    android:id="@+id/checkAutoScroll"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Auto-scroll"
-                    android:textColor="#808080"
-                    android:textSize="12sp"
-                    android:checked="true"
-                    app:buttonTint="#0078D4"
-                    android:layout_marginStart="8dp" />
-
-            </LinearLayout>
-
-            <View
-                android:layout_width="match_parent"
-                android:layout_height="1dp"
-                android:background="#404040" />
-
-            <!-- Log ScrollView -->
-            <ScrollView
-                android:id="@+id/scrollLogs"
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:fillViewport="true"
-                android:scrollbars="vertical">
-
-                <TextView
-                    android:id="@+id/textLogs"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="Waiting for logs...\n\nStart the service to see log output here."
-                    android:textColor="#D4D4D4"
-                    android:textSize="12sp"
-                    android:fontFamily="monospace"
-                    android:lineSpacingExtra="2dp"
-                    android:padding="12dp"
-                    android:textIsSelectable="true" />
-
-            </ScrollView>
-
-        </LinearLayout>
-
-    </com.google.android.material.card.MaterialCardView>
-
-    <!-- Bottom Action Buttons -->
-    <com.google.android.material.card.MaterialCardView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        app:cardBackgroundColor="#2D2D2D"
-        app:cardCornerRadius="0dp"
-        app:cardElevation="8dp"
-        app:strokeWidth="0dp">
-
-        <LinearLayout
+        <TextView
+            android:id="@+id/textLogs"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
+            android:text="Waiting for logs...\n\nStart the service to see log output here."
+            android:textColor="#D4D4D4"
+            android:textSize="11sp"
+            android:fontFamily="monospace"
+            android:lineSpacingExtra="2dp"
             android:padding="12dp"
-            android:gravity="center">
+            android:textIsSelectable="true" />
 
-            <!-- Refresh Button -->
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/buttonRefresh"
-                android:layout_width="0dp"
-                android:layout_height="48dp"
-                android:layout_weight="1"
-                android:layout_marginEnd="6dp"
-                android:text="Refresh"
-                android:textSize="14sp"
-                style="@style/Widget.Material3.Button.OutlinedButton"
-                app:cornerRadius="8dp"
-                app:strokeColor="#0078D4"
-                android:textColor="#0078D4"
-                app:icon="@drawable/ic_refresh"
-                app:iconGravity="textStart"
-                app:iconTint="#0078D4"
-                app:iconPadding="4dp" />
+    </ScrollView>
 
-            <!-- Copy Button -->
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/buttonCopyLogs"
-                android:layout_width="0dp"
-                android:layout_height="48dp"
-                android:layout_weight="1"
-                android:layout_marginStart="6dp"
-                android:layout_marginEnd="6dp"
-                android:text="Copy"
-                android:textSize="14sp"
-                style="@style/Widget.Material3.Button.OutlinedButton"
-                app:cornerRadius="8dp"
-                app:strokeColor="#0078D4"
-                android:textColor="#0078D4"
-                app:icon="@drawable/ic_copy"
-                app:iconGravity="textStart"
-                app:iconTint="#0078D4"
-                app:iconPadding="4dp" />
+    <!-- Bottom Action Buttons -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:padding="16dp"
+        android:paddingTop="8dp"
+        android:gravity="center"
+        android:background="#202020">
 
-            <!-- Clear Button -->
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/buttonClearLogs"
-                android:layout_width="0dp"
-                android:layout_height="48dp"
-                android:layout_weight="1"
-                android:layout_marginStart="6dp"
-                android:text="Clear"
-                android:textSize="14sp"
-                style="@style/Widget.Material3.Button.OutlinedButton"
-                app:cornerRadius="8dp"
-                app:strokeColor="#FF5252"
-                android:textColor="#FF5252"
-                app:icon="@drawable/ic_delete"
-                app:iconGravity="textStart"
-                app:iconTint="#FF5252"
-                app:iconPadding="4dp" />
+        <!-- Refresh Button -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/buttonRefresh"
+            android:layout_width="0dp"
+            android:layout_height="44dp"
+            android:layout_weight="1"
+            android:layout_marginEnd="8dp"
+            android:text="Refresh"
+            android:textSize="13sp"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            app:cornerRadius="8dp"
+            app:strokeColor="#404040"
+            app:strokeWidth="1dp"
+            android:textColor="#FFFFFF"
+            app:icon="@drawable/ic_refresh"
+            app:iconGravity="textStart"
+            app:iconTint="#FFFFFF"
+            app:iconPadding="4dp"
+            app:iconSize="18dp" />
 
-        </LinearLayout>
+        <!-- Copy Button -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/buttonCopyLogs"
+            android:layout_width="0dp"
+            android:layout_height="44dp"
+            android:layout_weight="1"
+            android:layout_marginHorizontal="4dp"
+            android:text="Copy"
+            android:textSize="13sp"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            app:cornerRadius="8dp"
+            app:strokeColor="#404040"
+            app:strokeWidth="1dp"
+            android:textColor="#FFFFFF"
+            app:icon="@drawable/ic_copy"
+            app:iconGravity="textStart"
+            app:iconTint="#FFFFFF"
+            app:iconPadding="4dp"
+            app:iconSize="18dp" />
 
-    </com.google.android.material.card.MaterialCardView>
+        <!-- Clear Button -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/buttonClearLogs"
+            android:layout_width="0dp"
+            android:layout_height="44dp"
+            android:layout_weight="1"
+            android:layout_marginStart="8dp"
+            android:text="Clear"
+            android:textSize="13sp"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            app:cornerRadius="8dp"
+            app:strokeColor="#D13438"
+            app:strokeWidth="1dp"
+            android:textColor="#D13438"
+            app:icon="@drawable/ic_delete"
+            app:iconGravity="textStart"
+            app:iconTint="#D13438"
+            app:iconPadding="4dp"
+            app:iconSize="18dp" />
+
+    </LinearLayout>
 
 </LinearLayout>
