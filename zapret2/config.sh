@@ -1,20 +1,18 @@
 #!/system/bin/sh
-# Zapret2 Configuration
+# Zapret2 Settings
 
-# Autostart
+# Start on boot (1=yes, 0=no)
 AUTOSTART=1
 
-# Network
-QNUM=200
-DESYNC_MARK=0x40000000
-PORTS_TCP="80,443"
-PORTS_UDP="443"
-PKT_OUT=20
-PKT_IN=10
+# Only work on WiFi (1=yes, 0=no)
+WIFI_ONLY=0
 
-# Logging
-LOG_MODE="android"
+# Debug logging (1=yes, 0=no)
 DEBUG=0
 
-# WiFi only
-WIFI_ONLY=0
+# Packets to intercept per connection
+# --out-range uses this value (e.g. -d20 = first 20 packets)
+# Higher value = more packets processed, better bypass but more CPU
+# Lower value = fewer packets, less CPU but may miss some connections
+PKT_OUT=20
+PKT_IN=10
