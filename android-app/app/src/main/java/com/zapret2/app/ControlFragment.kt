@@ -352,14 +352,19 @@ class ControlFragment : Fragment() {
             buttonToggle.isEnabled = false
             textStatusValue.text = "Stopping..."
 
-            withContext(Dispatchers.IO) {
+            val result = withContext(Dispatchers.IO) {
                 Shell.cmd("sh $SCRIPTS/zapret-stop.sh 2>&1").exec()
             }
 
             delay(500)
             checkStatus()
             buttonToggle.isEnabled = true
-            Toast.makeText(requireContext(), "Service stopped", Toast.LENGTH_SHORT).show()
+
+            if (result.isSuccess) {
+                Toast.makeText(requireContext(), "Service stopped", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(requireContext(), "Stop failed", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 

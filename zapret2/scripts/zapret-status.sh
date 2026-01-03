@@ -89,3 +89,19 @@ fi
 
 echo ""
 echo "=========================================="
+
+# Exit with appropriate code for programmatic use
+# 0 = running, 1 = stopped
+if [ -f "$PIDFILE" ]; then
+    PID=$(cat "$PIDFILE" 2>/dev/null)
+    if [ -n "$PID" ] && [ -d "/proc/$PID" ]; then
+        exit 0
+    fi
+fi
+
+# Check for orphan process
+if pgrep -f nfqws2 > /dev/null 2>&1; then
+    exit 0
+fi
+
+exit 1
