@@ -33,12 +33,14 @@ jobs:
         uses: gradle/actions/setup-gradle@v3
 
       - name: Create keystore
+        id: keystore
         run: |
           # Decode keystore from secret or generate new one
           if [ -n "${{ secrets.KEYSTORE_BASE64 }}" ]; then
             echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > keystore.jks
+            echo "generated=false" >> $GITHUB_OUTPUT
           else
-            # Generate a consistent keystore using repository info
+            # Generate new keystore
             keytool -genkeypair -v \
               -keystore keystore.jks \
               -alias zapret2 \
@@ -48,8 +50,22 @@ jobs:
               -storepass zapret2release \
               -keypass zapret2release \
               -dname "CN=Zapret2, OU=Mobile, O=Zapret2, L=Unknown, ST=Unknown, C=RU"
+            echo "generated=true" >> $GITHUB_OUTPUT
+            # Output base64 for saving to secrets
+            echo "::notice::Keystore generated! Download artifact and add KEYSTORE_BASE64 to secrets"
+            echo "KEYSTORE_BASE64 value:"
+            base64 -w0 keystore.jks
+            echo ""
           fi
         working-directory: android-app
+
+      - name: Upload keystore (if generated)
+        if: steps.keystore.outputs.generated == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: keystore-save-to-secrets
+          path: android-app/keystore.jks
+          retention-days: 1
 
       - name: Build Release APK
         env:
