@@ -65,6 +65,9 @@ dependencies {
     implementation("androidx.fragment:fragment-ktx:1.6.2")
     implementation("androidx.viewpager2:viewpager2:1.0.0")
 
+    // SwipeRefreshLayout for pull-to-refresh
+    implementation("androidx.swiperefreshlayout:swiperefreshlayout:1.1.0")
+
     // Lifecycle for coroutines in fragments
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
 
