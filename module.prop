@@ -1,0 +1,7 @@
+id=zapret2
+name=Zapret2 DPI Bypass
+version=v1.0.0
+versionCode=100
+author=bol-van, Censorliber
+description=DPI bypass using nfqws2 with Lua strategies for Android
+updateJson=https://raw.githubusercontent.com/censorliber/zapret2-magisk/main/update.json
