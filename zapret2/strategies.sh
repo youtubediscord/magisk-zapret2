@@ -6,8 +6,8 @@
 
 # Get strategy options by ID
 get_strategy_options() {
-    local strategy_id=$1
-    local filter=$2  # e.g., "--filter-tcp=443 --filter-l7=tls"
+    strategy_id="$1"
+    filter="$2"  # e.g., "--filter-tcp=443 --filter-l7=tls"
 
     case "$strategy_id" in
         # ==================== SYNDATA STRATEGIES ====================
@@ -183,7 +183,7 @@ get_strategy_options() {
 
 # Get HTTP filter for category
 get_http_filter() {
-    local category=$1
+    category="$1"
 
     case "$category" in
         youtube)
@@ -206,7 +206,7 @@ get_http_filter() {
 
 # Get TLS filter for category
 get_tls_filter() {
-    local category=$1
+    category="$1"
 
     case "$category" in
         youtube)
@@ -229,7 +229,7 @@ get_tls_filter() {
 
 # Get UDP filter for category
 get_udp_filter() {
-    local category=$1
+    category="$1"
 
     case "$category" in
         youtube)

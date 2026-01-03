@@ -80,6 +80,15 @@ if [ ! -x "$NFQWS2" ]; then
     chmod 755 "$NFQWS2"
 fi
 
+# Verify binary works
+log_msg "Testing nfqws2 binary..."
+HELP_OUT=$($NFQWS2 --help 2>&1 | head -1)
+if [ -z "$HELP_OUT" ]; then
+    log_error "nfqws2 binary does not respond to --help"
+else
+    log_msg "nfqws2 responds: $HELP_OUT"
+fi
+
 ##########################################################################################
 # Apply iptables rules
 ##########################################################################################
@@ -158,17 +167,12 @@ build_options() {
     # Base options
     OPTS="--qnum=$QNUM --fwmark=$DESYNC_MARK"
 
-    # Debug mode
+    # Debug mode - only enable file debug for now (safest option)
     case "$LOG_MODE" in
-        android)
-            OPTS="$OPTS --debug=android"
-            ;;
-        syslog)
-            OPTS="$OPTS --debug=syslog"
-            ;;
         file)
             OPTS="$OPTS --debug=/data/local/tmp/nfqws2-debug.log"
             ;;
+        # android and syslog may not be supported, skip for now
     esac
 
     # Lua init files
@@ -367,12 +371,13 @@ start_nfqws2() {
 
     OPTS=$(build_options)
     log_msg "Options: $OPTS"
+    log_msg "Full command: $NFQWS2 $OPTS"
 
-    # Start daemon
-    $NFQWS2 $OPTS &
+    # Try to run nfqws2 and capture any immediate errors
+    $NFQWS2 $OPTS 2>>/data/local/tmp/nfqws2-error.log &
     PID=$!
 
-    sleep 1
+    sleep 2
 
     if [ -d "/proc/$PID" ]; then
         echo $PID > "$PIDFILE"
@@ -380,10 +385,15 @@ start_nfqws2() {
         echo "Zapret2 started (PID: $PID)"
         echo "Strategy: $STRATEGY_PRESET"
     else
-        log_error "nfqws2 failed to start"
+        log_error "nfqws2 failed to start (PID $PID exited)"
+        # Check for error output
+        if [ -f /data/local/tmp/nfqws2-error.log ]; then
+            ERRMSG=$(tail -5 /data/local/tmp/nfqws2-error.log)
+            log_error "Error output: $ERRMSG"
+        fi
         echo "ERROR: Failed to start nfqws2"
         echo "Check logs: $LOGFILE"
-        echo "Or: logcat -s Zapret2"
+        echo "Error log: /data/local/tmp/nfqws2-error.log"
         exit 1
     fi
 }
