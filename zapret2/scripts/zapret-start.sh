@@ -17,13 +17,11 @@ CONFIG="$ZAPRET_DIR/config.sh"
 ##########################################################################################
 
 log_msg() {
-    echo "$(date '+%Y-%m-%d %H:%M:%S') [INFO] $1" >> "$LOGFILE"
-    /system/bin/log -t "Zapret2" "$1" 2>/dev/null
+    echo "[INFO] $1" >> "$LOGFILE"
 }
 
 log_error() {
-    echo "$(date '+%Y-%m-%d %H:%M:%S') [ERROR] $1" >> "$LOGFILE"
-    /system/bin/log -t "Zapret2" "ERROR: $1" 2>/dev/null
+    echo "[ERROR] $1" >> "$LOGFILE"
 }
 
 ##########################################################################################

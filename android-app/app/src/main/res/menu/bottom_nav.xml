@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:id="@+id/nav_control"
+        android:icon="@drawable/ic_control"
+        android:title="Управление" />
+    <item
+        android:id="@+id/nav_strategies"
+        android:icon="@drawable/ic_strategies"
+        android:title="Стратегии" />
+    <item
+        android:id="@+id/nav_logs"
+        android:icon="@drawable/ic_logs"
+        android:title="Логи" />
+</menu>
