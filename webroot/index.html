@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zapret2 DPI Bypass</title>
+    <style>
+        :root {
+            --bg-primary: #0f0f0f;
+            --bg-secondary: #1a1a1a;
+            --bg-card: #242424;
+            --accent: #6366f1;
+            --accent-hover: #818cf8;
+            --success: #22c55e;
+            --danger: #ef4444;
+            --warning: #f59e0b;
+            --text-primary: #ffffff;
+            --text-secondary: #a1a1aa;
+            --border: #333333;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            padding: 16px;
+        }
+
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        .header {
+            text-align: center;
+            padding: 24px 0;
+        }
+
+        .header h1 {
+            font-size: 24px;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .status-badge.running {
+            background: rgba(34, 197, 94, 0.2);
+            color: var(--success);
+        }
+
+        .status-badge.stopped {
+            background: rgba(239, 68, 68, 0.2);
+            color: var(--danger);
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        .status-badge.running .status-dot {
+            background: var(--success);
+        }
+
+        .status-badge.stopped .status-dot {
+            background: var(--danger);
+            animation: none;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .card {
+            background: var(--bg-card);
+            border-radius: 16px;
+            padding: 20px;
+            margin-bottom: 16px;
+        }
+
+        .card-title {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 16px;
+            color: var(--text-secondary);
+        }
+
+        .control-buttons {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+        }
+
+        .btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 14px 20px;
+            border: none;
+            border-radius: 12px;
+            font-size: 15px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn:active {
+            transform: scale(0.98);
+        }
+
+        .btn-primary {
+            background: var(--accent);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: var(--accent-hover);
+        }
+
+        .btn-success {
+            background: var(--success);
+            color: white;
+        }
+
+        .btn-danger {
+            background: var(--danger);
+            color: white;
+        }
+
+        .btn-warning {
+            background: var(--warning);
+            color: black;
+        }
+
+        .btn-secondary {
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            border: 1px solid var(--border);
+        }
+
+        .btn-full {
+            grid-column: span 2;
+        }
+
+        .strategy-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 14px 0;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .strategy-item:last-child {
+            border-bottom: none;
+        }
+
+        .strategy-label {
+            font-size: 15px;
+            font-weight: 500;
+        }
+
+        .strategy-select {
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 8px 12px;
+            font-size: 13px;
+            min-width: 180px;
+            cursor: pointer;
+        }
+
+        .strategy-select:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        .logs-container {
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            padding: 12px;
+            max-height: 200px;
+            overflow-y: auto;
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .log-line {
+            padding: 2px 0;
+        }
+
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--bg-card);
+            color: var(--text-primary);
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 14px;
+            opacity: 0;
+            transition: opacity 0.3s;
+            z-index: 1000;
+        }
+
+        .toast.show {
+            opacity: 1;
+        }
+
+        .loading {
+            pointer-events: none;
+            opacity: 0.7;
+        }
+
+        .spinner {
+            width: 16px;
+            height: 16px;
+            border: 2px solid transparent;
+            border-top-color: currentColor;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            font-size: 14px;
+        }
+
+        .info-label {
+            color: var(--text-secondary);
+        }
+
+        .info-value {
+            font-weight: 500;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Zapret2 DPI Bypass</h1>
+            <div id="status-badge" class="status-badge stopped">
+                <span class="status-dot"></span>
+                <span id="status-text">Проверка...</span>
+            </div>
+        </div>
+
+        <!-- Control Buttons -->
+        <div class="card">
+            <div class="card-title">Управление</div>
+            <div class="control-buttons">
+                <button class="btn btn-success" onclick="startService()">
+                    <span>▶</span> Запустить
+                </button>
+                <button class="btn btn-danger" onclick="stopService()">
+                    <span>■</span> Остановить
+                </button>
+                <button class="btn btn-warning" onclick="restartService()">
+                    <span>↻</span> Перезапустить
+                </button>
+                <button class="btn btn-primary" onclick="updateModule()">
+                    <span>↓</span> Обновить
+                </button>
+            </div>
+        </div>
+
+        <!-- Strategy Configuration -->
+        <div class="card">
+            <div class="card-title">Стратегии</div>
+
+            <div class="strategy-item">
+                <span class="strategy-label">YouTube</span>
+                <select class="strategy-select" id="strategy-youtube" onchange="saveConfig()">
+                    <option value="syndata_7_tls_google_multisplit_midsld">Syndata + Multisplit (Default)</option>
+                    <option value="censorliber_google_syndata">Censorliber Syndata</option>
+                    <option value="censorliber_google_syndata_v2">Censorliber v2</option>
+                    <option value="censorliber_google_syndata_tcpack">Censorliber + TCP ACK</option>
+                    <option value="alt9">Alt v9</option>
+                    <option value="alt11_100_syndata">Alt v11</option>
+                    <option value="none">Отключено</option>
+                </select>
+            </div>
+
+            <div class="strategy-item">
+                <span class="strategy-label">Discord</span>
+                <select class="strategy-select" id="strategy-discord" onchange="saveConfig()">
+                    <option value="syndata_7_tls_google_multisplit_midsld">Syndata + Multisplit (Default)</option>
+                    <option value="censorliber_google_syndata">Censorliber Syndata</option>
+                    <option value="fake_x6_stun_discord">Voice UDP (STUN)</option>
+                    <option value="none">Отключено</option>
+                </select>
+            </div>
+
+            <div class="strategy-item">
+                <span class="strategy-label">Telegram</span>
+                <select class="strategy-select" id="strategy-telegram" onchange="saveConfig()">
+                    <option value="syndata_7_tls_google_multisplit_midsld">Syndata + Multisplit</option>
+                    <option value="censorliber_google_syndata">Censorliber Syndata</option>
+                    <option value="none">Отключено</option>
+                </select>
+            </div>
+
+            <div class="strategy-item">
+                <span class="strategy-label">Другие сайты</span>
+                <select class="strategy-select" id="strategy-other" onchange="saveConfig()">
+                    <option value="syndata_7_tls_google_multisplit_midsld">Syndata + Multisplit</option>
+                    <option value="censorliber_google_syndata">Censorliber Syndata</option>
+                    <option value="multisplit_split_pos_1">Multisplit Only</option>
+                    <option value="other_seqovl">SeqOVL</option>
+                    <option value="none">Отключено</option>
+                </select>
+            </div>
+
+            <div class="strategy-item">
+                <span class="strategy-label">UDP/QUIC</span>
+                <select class="strategy-select" id="strategy-udp" onchange="saveConfig()">
+                    <option value="fake_x6_quic">QUIC Fake x6</option>
+                    <option value="fake_x11_quic">QUIC Fake x11</option>
+                    <option value="none">Отключено</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- Info -->
+        <div class="card">
+            <div class="card-title">Информация</div>
+            <div class="info-row">
+                <span class="info-label">Версия модуля</span>
+                <span class="info-value" id="module-version">-</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">PID процесса</span>
+                <span class="info-value" id="process-pid">-</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">iptables правила</span>
+                <span class="info-value" id="iptables-rules">-</span>
+            </div>
+        </div>
+
+        <!-- Logs -->
+        <div class="card">
+            <div class="card-title">Логи</div>
+            <div class="logs-container" id="logs">
+                <div class="log-line">Загрузка логов...</div>
+            </div>
+            <button class="btn btn-secondary btn-full" style="margin-top: 12px" onclick="refreshLogs()">
+                Обновить логи
+            </button>
+        </div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <script>
+        const MODDIR = '/data/adb/modules/zapret2';
+        const CONFIG_PATH = MODDIR + '/zapret2/config.sh';
+
+        // KSU WebUI API
+        function exec(cmd) {
+            return new Promise((resolve, reject) => {
+                try {
+                    const result = ksu.exec(cmd);
+                    resolve(result);
+                } catch (e) {
+                    reject(e);
+                }
+            });
+        }
+
+        function toast(message) {
+            const el = document.getElementById('toast');
+            el.textContent = message;
+            el.classList.add('show');
+            setTimeout(() => el.classList.remove('show'), 3000);
+        }
+
+        async function checkStatus() {
+            try {
+                const result = await exec('cat /data/local/tmp/nfqws2.pid 2>/dev/null && test -d /proc/$(cat /data/local/tmp/nfqws2.pid 2>/dev/null) && echo "running" || echo "stopped"');
+                const isRunning = result.trim().includes('running');
+
+                const badge = document.getElementById('status-badge');
+                const text = document.getElementById('status-text');
+
+                if (isRunning) {
+                    badge.className = 'status-badge running';
+                    text.textContent = 'Работает';
+
+                    const pid = await exec('cat /data/local/tmp/nfqws2.pid 2>/dev/null');
+                    document.getElementById('process-pid').textContent = pid.trim() || '-';
+                } else {
+                    badge.className = 'status-badge stopped';
+                    text.textContent = 'Остановлен';
+                    document.getElementById('process-pid').textContent = '-';
+                }
+
+                // iptables rules count
+                const rules = await exec('iptables -t mangle -L OUTPUT -n 2>/dev/null | grep -c NFQUEUE || echo 0');
+                document.getElementById('iptables-rules').textContent = rules.trim();
+
+                // Module version
+                const version = await exec('grep "^version=" ' + MODDIR + '/module.prop | cut -d= -f2');
+                document.getElementById('module-version').textContent = version.trim() || '-';
+
+            } catch (e) {
+                console.error('Status check failed:', e);
+            }
+        }
+
+        async function loadConfig() {
+            try {
+                const config = await exec('cat ' + CONFIG_PATH + ' 2>/dev/null');
+
+                const youtube = config.match(/STRATEGY_YOUTUBE="([^"]+)"/);
+                const discord = config.match(/STRATEGY_DISCORD="([^"]+)"/);
+                const telegram = config.match(/STRATEGY_TELEGRAM="([^"]+)"/);
+                const other = config.match(/STRATEGY_OTHER="([^"]+)"/);
+                const udp = config.match(/STRATEGY_UDP="([^"]+)"/);
+
+                if (youtube) document.getElementById('strategy-youtube').value = youtube[1];
+                if (discord) document.getElementById('strategy-discord').value = discord[1];
+                if (telegram) document.getElementById('strategy-telegram').value = telegram[1];
+                if (other) document.getElementById('strategy-other').value = other[1];
+                if (udp) document.getElementById('strategy-udp').value = udp[1];
+
+            } catch (e) {
+                console.error('Load config failed:', e);
+            }
+        }
+
+        async function saveConfig() {
+            const youtube = document.getElementById('strategy-youtube').value;
+            const discord = document.getElementById('strategy-discord').value;
+            const telegram = document.getElementById('strategy-telegram').value;
+            const other = document.getElementById('strategy-other').value;
+            const udp = document.getElementById('strategy-udp').value;
+
+            const config = `#!/system/bin/sh
+# Zapret2 Configuration - Generated by WebUI
+
+AUTOSTART=1
+QNUM=200
+DESYNC_MARK=0x40000000
+PORTS_TCP="80,443"
+PORTS_UDP="443"
+PKT_OUT=20
+PKT_IN=10
+LOG_MODE="android"
+
+STRATEGY_YOUTUBE="${youtube}"
+STRATEGY_DISCORD="${discord}"
+STRATEGY_TELEGRAM="${telegram}"
+STRATEGY_OTHER="${other}"
+STRATEGY_UDP="${udp}"
+
+USE_CATEGORIES=1
+`;
+
+            try {
+                await exec('cat > ' + CONFIG_PATH + ' << \'EOFCONFIG\'\n' + config + 'EOFCONFIG');
+                toast('Настройки сохранены');
+            } catch (e) {
+                toast('Ошибка сохранения');
+                console.error(e);
+            }
+        }
+
+        async function startService() {
+            toast('Запуск...');
+            try {
+                await exec('sh ' + MODDIR + '/zapret2/scripts/zapret-start.sh');
+                toast('Zapret2 запущен');
+                setTimeout(checkStatus, 1000);
+            } catch (e) {
+                toast('Ошибка запуска');
+            }
+        }
+
+        async function stopService() {
+            toast('Остановка...');
+            try {
+                await exec('sh ' + MODDIR + '/zapret2/scripts/zapret-stop.sh');
+                toast('Zapret2 остановлен');
+                setTimeout(checkStatus, 1000);
+            } catch (e) {
+                toast('Ошибка остановки');
+            }
+        }
+
+        async function restartService() {
+            toast('Перезапуск...');
+            try {
+                await exec('sh ' + MODDIR + '/zapret2/scripts/zapret-stop.sh');
+                await new Promise(r => setTimeout(r, 1000));
+                await exec('sh ' + MODDIR + '/zapret2/scripts/zapret-start.sh');
+                toast('Zapret2 перезапущен');
+                setTimeout(checkStatus, 1000);
+            } catch (e) {
+                toast('Ошибка перезапуска');
+            }
+        }
+
+        async function updateModule() {
+            toast('Проверка обновлений...');
+            try {
+                // Check GitHub for latest release
+                const result = await exec('curl -s https://api.github.com/repos/youtubediscord/magisk-zapret2/releases/latest | grep "tag_name" | head -1');
+                const match = result.match(/"tag_name":\s*"([^"]+)"/);
+
+                if (match) {
+                    const latestVersion = match[1];
+                    const currentVersion = document.getElementById('module-version').textContent;
+
+                    if (latestVersion !== currentVersion) {
+                        toast('Доступно обновление: ' + latestVersion);
+                        // Could add download logic here
+                    } else {
+                        toast('У вас последняя версия');
+                    }
+                } else {
+                    toast('Не удалось проверить обновления');
+                }
+            } catch (e) {
+                toast('Ошибка проверки обновлений');
+            }
+        }
+
+        async function refreshLogs() {
+            try {
+                const logs = await exec('tail -20 /data/local/tmp/zapret2.log 2>/dev/null || echo "Логи пусты"');
+                const container = document.getElementById('logs');
+                container.innerHTML = logs.split('\n').map(line =>
+                    '<div class="log-line">' + escapeHtml(line) + '</div>'
+                ).join('');
+                container.scrollTop = container.scrollHeight;
+            } catch (e) {
+                console.error('Logs failed:', e);
+            }
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            checkStatus();
+            loadConfig();
+            refreshLogs();
+
+            // Auto-refresh status every 5 seconds
+            setInterval(checkStatus, 5000);
+        });
+    </script>
+</body>
+</html>

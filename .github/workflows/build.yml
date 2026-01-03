@@ -164,6 +164,11 @@ jobs:
           VERSION="${{ github.event.inputs.version || github.ref_name }}"
           VERSION="${VERSION#v}"
 
+          # Update update.json with current version
+          sed -i "s/\"version\": \"v[^\"]*\"/\"version\": \"v${VERSION}\"/" update.json
+          sed -i "s/\"versionCode\": [0-9]*/\"versionCode\": $(echo $VERSION | tr -d '.')/" update.json
+          sed -i "s/zapret2-magisk-v[^\"]*\.zip/zapret2-magisk-v${VERSION}.zip/" update.json
+
           zip -r zapret2-magisk-v${VERSION}.zip \
             META-INF \
             module.prop \
@@ -171,6 +176,7 @@ jobs:
             service.sh \
             uninstall.sh \
             action.sh \
+            webroot \
             zapret2 \
             -x "*.git*" \
             -x "CLAUDE.md" \
