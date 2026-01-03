@@ -1,0 +1,182 @@
+
+    # YouTube TCP
+    if [ -n "$STRATEGY_YOUTUBE" ] && [ "$STRATEGY_YOUTUBE" != "none" ]; then
+        filter="--filter-tcp=80,443 --hostlist=youtube.txt"
+        strat_opts=$(get_strategy_options "$STRATEGY_YOUTUBE" "$filter")
+        if [ -n "$strat_opts" ]; then
+            if [ $first -eq 0 ]; then
+                OPTS="$OPTS --new"
+            fi
+            OPTS="$OPTS $strat_opts"
+            first=0
+            log_msg "Added YouTube TCP: $STRATEGY_YOUTUBE"
+        fi
+    fi
+
+    # YouTube QUIC
+    if [ -n "$STRATEGY_YOUTUBE_UDP" ] && [ "$STRATEGY_YOUTUBE_UDP" != "none" ]; then
+        filter="--filter-udp=443 --hostlist=youtube.txt"
+        strat_opts=$(get_strategy_options "$STRATEGY_YOUTUBE_UDP" "$filter")
+        if [ -n "$strat_opts" ]; then
+            if [ $first -eq 0 ]; then
+                OPTS="$OPTS --new"
+            fi
+            OPTS="$OPTS $strat_opts"
+            first=0
+            log_msg "Added YouTube QUIC: $STRATEGY_YOUTUBE_UDP"
+        fi
+    fi
+
+    # Discord TCP
+    if [ -n "$STRATEGY_DISCORD" ] && [ "$STRATEGY_DISCORD" != "none" ]; then
+        filter="--filter-tcp=80,443,1080,2053,2083,2087,2096,8443 --hostlist=discord.txt"
+        strat_opts=$(get_strategy_options "$STRATEGY_DISCORD" "$filter")
+        if [ -n "$strat_opts" ]; then
+            if [ $first -eq 0 ]; then
+                OPTS="$OPTS --new"
+            fi
+            OPTS="$OPTS $strat_opts"
+            first=0
+            log_msg "Added Discord TCP: $STRATEGY_DISCORD"
+        fi
+    fi
+
+    # Голосовые звонки/чаты
+    if [ -n "$STRATEGY_DISCORD_VOICE_UDP" ] && [ "$STRATEGY_DISCORD_VOICE_UDP" != "none" ]; then
+        filter="--filter-udp=19294-50100"
+        strat_opts=$(get_strategy_options "$STRATEGY_DISCORD_VOICE_UDP" "$filter")
+        if [ -n "$strat_opts" ]; then
+            if [ $first -eq 0 ]; then
+                OPTS="$OPTS --new"
+            fi
+            OPTS="$OPTS $strat_opts"
+            first=0
+            log_msg "Added Голосовые звонки/чаты: $STRATEGY_DISCORD_VOICE_UDP"
+        fi
+    fi
+
+    # Telegram (TCP)
+    if [ -n "$STRATEGY_TELEGRAM_TCP" ] && [ "$STRATEGY_TELEGRAM_TCP" != "none" ]; then
+        filter="--filter-tcp=80,443 --hostlist=telegram.txt"
+        strat_opts=$(get_strategy_options "$STRATEGY_TELEGRAM_TCP" "$filter")
+        if [ -n "$strat_opts" ]; then
+            if [ $first -eq 0 ]; then
+                OPTS="$OPTS --new"
+            fi
+            OPTS="$OPTS $strat_opts"
+            first=0
+            log_msg "Added Telegram (TCP): $STRATEGY_TELEGRAM_TCP"
+        fi
+    fi
+
+    # WhatsApp
+    if [ -n "$STRATEGY_WHATSAPP_TCP" ] && [ "$STRATEGY_WHATSAPP_TCP" != "none" ]; then
+        filter="--filter-tcp=80,443 --hostlist=whatsapp.txt"
+        strat_opts=$(get_strategy_options "$STRATEGY_WHATSAPP_TCP" "$filter")
+        if [ -n "$strat_opts" ]; then
+            if [ $first -eq 0 ]; then
+                OPTS="$OPTS --new"
+            fi
+            OPTS="$OPTS $strat_opts"
+            first=0
+            log_msg "Added WhatsApp: $STRATEGY_WHATSAPP_TCP"
+        fi
+    fi
+
+    # Facebook
+    if [ -n "$STRATEGY_FACEBOOK_TCP" ] && [ "$STRATEGY_FACEBOOK_TCP" != "none" ]; then
+        filter="--filter-tcp=80,443 --hostlist=facebook.txt"
+        strat_opts=$(get_strategy_options "$STRATEGY_FACEBOOK_TCP" "$filter")
+        if [ -n "$strat_opts" ]; then
+            if [ $first -eq 0 ]; then
+                OPTS="$OPTS --new"
+            fi
+            OPTS="$OPTS $strat_opts"
+            first=0
+            log_msg "Added Facebook: $STRATEGY_FACEBOOK_TCP"
+        fi
+    fi
+
+    # Instagram
+    if [ -n "$STRATEGY_INSTAGRAM_TCP" ] && [ "$STRATEGY_INSTAGRAM_TCP" != "none" ]; then
+        filter="--filter-tcp=80,443 --hostlist=instagram.txt"
+        strat_opts=$(get_strategy_options "$STRATEGY_INSTAGRAM_TCP" "$filter")
+        if [ -n "$strat_opts" ]; then
+            if [ $first -eq 0 ]; then
+                OPTS="$OPTS --new"
+            fi
+            OPTS="$OPTS $strat_opts"
+            first=0
+            log_msg "Added Instagram: $STRATEGY_INSTAGRAM_TCP"
+        fi
+    fi
+
+    # Twitter/X
+    if [ -n "$STRATEGY_TWITTER_TCP" ] && [ "$STRATEGY_TWITTER_TCP" != "none" ]; then
+        filter="--filter-tcp=80,443 --hostlist=twitter.txt"
+        strat_opts=$(get_strategy_options "$STRATEGY_TWITTER_TCP" "$filter")
+        if [ -n "$strat_opts" ]; then
+            if [ $first -eq 0 ]; then
+                OPTS="$OPTS --new"
+            fi
+            OPTS="$OPTS $strat_opts"
+            first=0
+            log_msg "Added Twitter/X: $STRATEGY_TWITTER_TCP"
+        fi
+    fi
+
+    # GitHub
+    if [ -n "$STRATEGY_GITHUB_TCP" ] && [ "$STRATEGY_GITHUB_TCP" != "none" ]; then
+        filter="--filter-tcp=443 --hostlist=github.txt"
+        strat_opts=$(get_strategy_options "$STRATEGY_GITHUB_TCP" "$filter")
+        if [ -n "$strat_opts" ]; then
+            if [ $first -eq 0 ]; then
+                OPTS="$OPTS --new"
+            fi
+            OPTS="$OPTS $strat_opts"
+            first=0
+            log_msg "Added GitHub: $STRATEGY_GITHUB_TCP"
+        fi
+    fi
+
+    # Twitch
+    if [ -n "$STRATEGY_TWITCH_TCP" ] && [ "$STRATEGY_TWITCH_TCP" != "none" ]; then
+        filter="--filter-tcp=443 --hostlist=twitch.txt"
+        strat_opts=$(get_strategy_options "$STRATEGY_TWITCH_TCP" "$filter")
+        if [ -n "$strat_opts" ]; then
+            if [ $first -eq 0 ]; then
+                OPTS="$OPTS --new"
+            fi
+            OPTS="$OPTS $strat_opts"
+            first=0
+            log_msg "Added Twitch: $STRATEGY_TWITCH_TCP"
+        fi
+    fi
+
+    # Steam
+    if [ -n "$STRATEGY_STEAM_TCP" ] && [ "$STRATEGY_STEAM_TCP" != "none" ]; then
+        filter="--filter-tcp=80,443 --hostlist=steam.txt"
+        strat_opts=$(get_strategy_options "$STRATEGY_STEAM_TCP" "$filter")
+        if [ -n "$strat_opts" ]; then
+            if [ $first -eq 0 ]; then
+                OPTS="$OPTS --new"
+            fi
+            OPTS="$OPTS $strat_opts"
+            first=0
+            log_msg "Added Steam: $STRATEGY_STEAM_TCP"
+        fi
+    fi
+
+    # Hostlist (HTTPS)
+    if [ -n "$STRATEGY_OTHER" ] && [ "$STRATEGY_OTHER" != "none" ]; then
+        filter="--filter-tcp=443 --hostlist-exclude=netrogat.txt --hostlist=other.txt --hostlist=other2.txt --hostlist=russia-blacklist.txt"
+        strat_opts=$(get_strategy_options "$STRATEGY_OTHER" "$filter")
+        if [ -n "$strat_opts" ]; then
+            if [ $first -eq 0 ]; then
+                OPTS="$OPTS --new"
+            fi
+            OPTS="$OPTS $strat_opts"
+            first=0
+            log_msg "Added Hostlist (HTTPS): $STRATEGY_OTHER"
+        fi
+    fi
