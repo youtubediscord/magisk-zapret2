@@ -32,17 +32,40 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
 
-      - name: Build Debug APK
+      - name: Create keystore
+        run: |
+          # Decode keystore from secret or generate new one
+          if [ -n "${{ secrets.KEYSTORE_BASE64 }}" ]; then
+            echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > keystore.jks
+          else
+            # Generate a consistent keystore using repository info
+            keytool -genkeypair -v \
+              -keystore keystore.jks \
+              -alias zapret2 \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -storepass zapret2release \
+              -keypass zapret2release \
+              -dname "CN=Zapret2, OU=Mobile, O=Zapret2, L=Unknown, ST=Unknown, C=RU"
+          fi
+        working-directory: android-app
+
+      - name: Build Release APK
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD || 'zapret2release' }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS || 'zapret2' }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD || 'zapret2release' }}
         run: |
           chmod +x gradlew
-          ./gradlew assembleDebug
+          ./gradlew assembleRelease
         working-directory: android-app
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: zapret2-apk
-          path: android-app/app/build/outputs/apk/debug/app-debug.apk
+          path: android-app/app/build/outputs/apk/release/app-release.apk
 
   build-nfqws2:
     name: Build nfqws2 for ${{ matrix.abi }}
@@ -209,7 +232,7 @@ jobs:
             -x ".github/*"
 
           # Rename APK with version
-          cp apk-artifact/app-debug.apk zapret2-control-v${VERSION}.apk
+          cp apk-artifact/app-release.apk zapret2-control-v${VERSION}.apk
 
       - name: Upload module
         uses: actions/upload-artifact@v4
