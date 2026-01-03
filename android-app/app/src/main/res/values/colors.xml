@@ -2,27 +2,36 @@
 <resources>
     <!-- Windows 11 Fluent Design colors -->
 
-    <!-- Status colors -->
-    <color name="status_running">#107C10</color>
-    <color name="status_stopped">#888888</color>
-    <color name="status_error">#D13438</color>
-
-    <!-- Accent colors -->
-    <color name="accent_blue">#0078D4</color>
-    <color name="accent_light_blue">#60CDFF</color>
-
     <!-- Background colors -->
     <color name="background_dark">#202020</color>
     <color name="surface">#2D2D2D</color>
     <color name="surface_variant">#383838</color>
 
+    <!-- Item backgrounds (semi-transparent white) -->
+    <color name="item_background">#08FFFFFF</color>
+    <color name="item_background_pressed">#0FFFFFFF</color>
+    <color name="item_background_selected">#1A60CDFF</color>
+
     <!-- Border colors -->
     <color name="border">#3D3D3D</color>
     <color name="border_light">#505050</color>
+    <color name="divider">#404040</color>
+
+    <!-- Accent colors -->
+    <color name="accent_blue">#0078D4</color>
+    <color name="accent_light_blue">#60CDFF</color>
+
+    <!-- Status colors -->
+    <color name="status_active">#6CCB5F</color>
+    <color name="status_inactive">#888888</color>
+    <color name="status_running">#107C10</color>
+    <color name="status_stopped">#888888</color>
+    <color name="status_error">#D13438</color>
 
     <!-- Text colors -->
     <color name="text_primary">#FFFFFF</color>
-    <color name="text_secondary">#888888</color>
+    <color name="text_secondary">#80FFFFFF</color>
+    <color name="text_hint">#808080</color>
 
     <!-- Button colors -->
     <color name="btn_success">#107C10</color>
@@ -33,4 +42,12 @@
     <color name="youtube_red">#FF0000</color>
     <color name="discord_blue">#5865F2</color>
     <color name="voice_purple">#9B59B6</color>
+    <color name="telegram_blue">#0088CC</color>
+    <color name="whatsapp_green">#25D366</color>
+    <color name="facebook_blue">#1877F2</color>
+    <color name="instagram_pink">#E4405F</color>
+    <color name="twitter_blue">#1DA1F2</color>
+    <color name="github_white">#FFFFFF</color>
+    <color name="steam_blue">#1B2838</color>
+    <color name="soundcloud_orange">#FF5500</color>
 </resources>
