@@ -31,19 +31,66 @@
             background: var(--bg);
             color: var(--text);
             min-height: 100vh;
+            padding-bottom: 70px;
+        }
+
+        /* Tab Navigation */
+        .tab-bar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: var(--surface);
+            display: flex;
+            border-top: 1px solid var(--surface2);
+            z-index: 100;
+        }
+
+        .tab-btn {
+            flex: 1;
+            padding: 12px 8px;
+            background: none;
+            border: none;
+            color: var(--text3);
+            font-size: 12px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .tab-btn.active {
+            color: var(--primary);
+        }
+
+        .tab-btn:active {
+            background: var(--surface2);
+        }
+
+        .tab-icon {
+            font-size: 20px;
+        }
+
+        /* Tab Content */
+        .tab-content {
+            display: none;
             padding: 16px;
-            padding-bottom: 32px;
+        }
+
+        .tab-content.active {
+            display: block;
         }
 
         .header {
             text-align: center;
-            padding: 20px 0;
+            padding: 16px 0;
         }
 
         .header h1 {
-            font-size: 22px;
+            font-size: 20px;
             font-weight: 500;
-            margin-bottom: 12px;
         }
 
         .status-card {
@@ -91,18 +138,9 @@
             animation: pulse 2s ease-in-out infinite;
         }
 
-        .status-indicator.loading .status-dot {
-            animation: blink 0.5s ease-in-out infinite;
-        }
-
         @keyframes pulse {
             0%, 100% { opacity: 1; transform: scale(1); }
             50% { opacity: 0.6; transform: scale(0.9); }
-        }
-
-        @keyframes blink {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.3; }
         }
 
         .status-details {
@@ -207,6 +245,7 @@
             to { transform: rotate(360deg); }
         }
 
+        /* Strategy styles */
         .strategy-row {
             display: flex;
             justify-content: space-between;
@@ -238,15 +277,42 @@
             outline: 2px solid var(--primary);
         }
 
+        /* Logs styles */
+        .logs-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .logs-actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-bottom: 12px;
+        }
+
+        .btn-small {
+            padding: 10px 14px;
+            font-size: 13px;
+        }
+
+        .logs-count {
+            font-size: 12px;
+            color: var(--text3);
+            margin-bottom: 8px;
+        }
+
         .logs-box {
             background: var(--bg);
             border-radius: 10px;
             padding: 12px;
-            max-height: 180px;
+            height: calc(100vh - 280px);
+            min-height: 300px;
             overflow-y: auto;
             font-family: 'JetBrains Mono', 'Fira Code', monospace;
             font-size: 11px;
-            line-height: 1.5;
+            line-height: 1.6;
             color: var(--text2);
         }
 
@@ -263,9 +329,14 @@
             color: var(--secondary);
         }
 
+        .log-line.warn {
+            color: var(--warning);
+        }
+
+        /* Toast */
         .toast {
             position: fixed;
-            bottom: 24px;
+            bottom: 80px;
             left: 50%;
             transform: translateX(-50%) translateY(100px);
             background: var(--surface);
@@ -292,6 +363,7 @@
             border-left: 4px solid var(--success);
         }
 
+        /* Activity log */
         .activity-log {
             margin-top: 12px;
             padding: 12px;
@@ -299,7 +371,7 @@
             border-radius: 10px;
             font-size: 12px;
             color: var(--text2);
-            max-height: 100px;
+            max-height: 120px;
             overflow-y: auto;
         }
 
@@ -324,120 +396,181 @@
     </style>
 </head>
 <body>
-    <div class="header">
-        <h1>Zapret2 DPI Bypass</h1>
-    </div>
-
-    <!-- Status Card -->
-    <div class="status-card">
-        <div id="status-indicator" class="status-indicator loading">
-            <span class="status-dot"></span>
-            <span id="status-text">Проверка...</span>
+    <!-- Tab 1: Control -->
+    <div id="tab-control" class="tab-content active">
+        <div class="header">
+            <h1>Zapret2 DPI Bypass</h1>
         </div>
 
-        <div class="status-details">
-            <div class="status-item">
-                <div class="status-item-label">Версия</div>
-                <div class="status-item-value" id="val-version">—</div>
+        <div class="status-card">
+            <div id="status-indicator" class="status-indicator loading">
+                <span class="status-dot"></span>
+                <span id="status-text">Проверка...</span>
             </div>
-            <div class="status-item">
-                <div class="status-item-label">PID</div>
-                <div class="status-item-value" id="val-pid">—</div>
-            </div>
-            <div class="status-item">
-                <div class="status-item-label">iptables</div>
-                <div class="status-item-value" id="val-iptables">—</div>
-            </div>
-            <div class="status-item">
-                <div class="status-item-label">Последнее действие</div>
-                <div class="status-item-value" id="val-lastaction">—</div>
-            </div>
-        </div>
-    </div>
 
-    <!-- Controls -->
-    <div class="card">
-        <div class="card-title">Управление</div>
-        <div class="btn-grid">
-            <button class="btn btn-start" id="btn-start" onclick="doStart()">
-                <span class="btn-icon">▶</span>
-                <span>Запустить</span>
-            </button>
-            <button class="btn btn-stop" id="btn-stop" onclick="doStop()">
-                <span class="btn-icon">■</span>
-                <span>Остановить</span>
-            </button>
-            <button class="btn btn-restart" id="btn-restart" onclick="doRestart()">
-                <span class="btn-icon">↻</span>
-                <span>Перезапуск</span>
-            </button>
-            <button class="btn btn-update" id="btn-update" onclick="doUpdate()">
-                <span class="btn-icon">↓</span>
-                <span>Обновить</span>
-            </button>
-        </div>
-
-        <div class="activity-log" id="activity-log">
-            <div class="activity-item">
-                <span class="activity-time">--:--</span>
-                <span class="activity-msg">Ожидание...</span>
+            <div class="status-details">
+                <div class="status-item">
+                    <div class="status-item-label">Версия</div>
+                    <div class="status-item-value" id="val-version">-</div>
+                </div>
+                <div class="status-item">
+                    <div class="status-item-label">PID</div>
+                    <div class="status-item-value" id="val-pid">-</div>
+                </div>
+                <div class="status-item">
+                    <div class="status-item-label">iptables</div>
+                    <div class="status-item-value" id="val-iptables">-</div>
+                </div>
+                <div class="status-item">
+                    <div class="status-item-label">Действие</div>
+                    <div class="status-item-value" id="val-lastaction">-</div>
+                </div>
             </div>
         </div>
-    </div>
 
-    <!-- Strategies -->
-    <div class="card">
-        <div class="card-title">Стратегии</div>
+        <div class="card">
+            <div class="card-title">Управление</div>
+            <div class="btn-grid">
+                <button class="btn btn-start" id="btn-start" onclick="doStart()">
+                    <span class="btn-icon">▶</span>
+                    <span>Запустить</span>
+                </button>
+                <button class="btn btn-stop" id="btn-stop" onclick="doStop()">
+                    <span class="btn-icon">■</span>
+                    <span>Остановить</span>
+                </button>
+                <button class="btn btn-restart" id="btn-restart" onclick="doRestart()">
+                    <span class="btn-icon">↻</span>
+                    <span>Перезапуск</span>
+                </button>
+                <button class="btn btn-update" id="btn-update" onclick="doUpdate()">
+                    <span class="btn-icon">↓</span>
+                    <span>Обновить</span>
+                </button>
+            </div>
 
-        <div class="strategy-row">
-            <span class="strategy-label">YouTube</span>
-            <select class="strategy-select" id="strat-youtube" onchange="saveStrategies()">
-                <option value="syndata_7_tls_google_multisplit_midsld">Syndata+Multisplit</option>
-                <option value="censorliber_google_syndata">Censorliber</option>
-                <option value="censorliber_google_syndata_v2">Censorliber v2</option>
-                <option value="alt9">Alt v9</option>
-                <option value="alt11_100_syndata">Alt v11</option>
-                <option value="none">Выключено</option>
-            </select>
-        </div>
-
-        <div class="strategy-row">
-            <span class="strategy-label">Discord</span>
-            <select class="strategy-select" id="strat-discord" onchange="saveStrategies()">
-                <option value="syndata_7_tls_google_multisplit_midsld">Syndata+Multisplit</option>
-                <option value="censorliber_google_syndata">Censorliber</option>
-                <option value="fake_x6_stun_discord">Voice UDP</option>
-                <option value="none">Выключено</option>
-            </select>
-        </div>
-
-        <div class="strategy-row">
-            <span class="strategy-label">Telegram</span>
-            <select class="strategy-select" id="strat-telegram" onchange="saveStrategies()">
-                <option value="syndata_7_tls_google_multisplit_midsld">Syndata+Multisplit</option>
-                <option value="censorliber_google_syndata">Censorliber</option>
-                <option value="none">Выключено</option>
-            </select>
-        </div>
-
-        <div class="strategy-row">
-            <span class="strategy-label">UDP/QUIC</span>
-            <select class="strategy-select" id="strat-udp" onchange="saveStrategies()">
-                <option value="fake_x6_quic">Fake x6</option>
-                <option value="fake_x11_quic">Fake x11</option>
-                <option value="none">Выключено</option>
-            </select>
+            <div class="activity-log" id="activity-log">
+                <div class="activity-item">
+                    <span class="activity-time">--:--</span>
+                    <span class="activity-msg">Ожидание...</span>
+                </div>
+            </div>
         </div>
     </div>
 
-    <!-- Logs -->
-    <div class="card">
-        <div class="card-title">Логи</div>
+    <!-- Tab 2: Strategies -->
+    <div id="tab-strategies" class="tab-content">
+        <div class="header">
+            <h1>Стратегии</h1>
+        </div>
+
+        <div class="card">
+            <div class="card-title">YouTube</div>
+            <div class="strategy-row">
+                <span class="strategy-label">TLS (TCP 443)</span>
+                <select class="strategy-select" id="strat-youtube" onchange="saveStrategies()">
+                    <option value="syndata_7_tls_google_multisplit_midsld">Syndata+Multisplit</option>
+                    <option value="censorliber_google_syndata">Censorliber</option>
+                    <option value="censorliber_google_syndata_v2">Censorliber v2</option>
+                    <option value="alt9">Alt v9 (fake)</option>
+                    <option value="alt11_100_syndata">Alt v11</option>
+                    <option value="multisplit_midsld">Multisplit</option>
+                    <option value="multidisorder_midsld">Multidisorder</option>
+                    <option value="none">Выключено</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-title">Discord</div>
+            <div class="strategy-row">
+                <span class="strategy-label">TLS (TCP 443)</span>
+                <select class="strategy-select" id="strat-discord" onchange="saveStrategies()">
+                    <option value="syndata_7_tls_google_multisplit_midsld">Syndata+Multisplit</option>
+                    <option value="censorliber_google_syndata">Censorliber</option>
+                    <option value="none">Выключено</option>
+                </select>
+            </div>
+            <div class="strategy-row">
+                <span class="strategy-label">Voice (UDP)</span>
+                <select class="strategy-select" id="strat-discord-voice" onchange="saveStrategies()">
+                    <option value="fake_x6_stun_discord">Fake STUN x6</option>
+                    <option value="none">Выключено</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-title">Telegram</div>
+            <div class="strategy-row">
+                <span class="strategy-label">TLS (TCP 443)</span>
+                <select class="strategy-select" id="strat-telegram" onchange="saveStrategies()">
+                    <option value="syndata_7_tls_google_multisplit_midsld">Syndata+Multisplit</option>
+                    <option value="censorliber_google_syndata">Censorliber</option>
+                    <option value="none">Выключено</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-title">QUIC/UDP</div>
+            <div class="strategy-row">
+                <span class="strategy-label">UDP 443</span>
+                <select class="strategy-select" id="strat-udp" onchange="saveStrategies()">
+                    <option value="fake_x6_quic">Fake QUIC x6</option>
+                    <option value="fake_x11_quic">Fake QUIC x11</option>
+                    <option value="none">Выключено</option>
+                </select>
+            </div>
+        </div>
+
+        <button class="btn btn-restart" style="width:100%" onclick="doRestart()">
+            <span class="btn-icon">↻</span>
+            <span>Применить (перезапуск)</span>
+        </button>
+    </div>
+
+    <!-- Tab 3: Logs -->
+    <div id="tab-logs" class="tab-content">
+        <div class="header">
+            <h1>Логи</h1>
+        </div>
+
+        <div class="logs-actions">
+            <button class="btn btn-secondary btn-small" onclick="loadLogs()">
+                🔄 Обновить
+            </button>
+            <button class="btn btn-secondary btn-small" onclick="loadFullLogs()">
+                📜 Все логи
+            </button>
+            <button class="btn btn-secondary btn-small" onclick="loadErrorLogs()">
+                ⚠️ Ошибки
+            </button>
+            <button class="btn btn-secondary btn-small" onclick="copyLogs()">
+                📋 Копировать
+            </button>
+        </div>
+
+        <div class="logs-count" id="logs-count">- строк</div>
+
         <div class="logs-box" id="logs-box">
             <div class="log-line">Загрузка...</div>
         </div>
-        <button class="btn btn-secondary" style="width:100%;margin-top:12px" id="btn-logs" onclick="loadLogs()">
-            <span>Обновить логи</span>
+    </div>
+
+    <!-- Tab Bar -->
+    <div class="tab-bar">
+        <button class="tab-btn active" onclick="switchTab('control')">
+            <span class="tab-icon">🎛️</span>
+            <span>Управление</span>
+        </button>
+        <button class="tab-btn" onclick="switchTab('strategies')">
+            <span class="tab-icon">⚡</span>
+            <span>Стратегии</span>
+        </button>
+        <button class="tab-btn" onclick="switchTab('logs')">
+            <span class="tab-icon">📋</span>
+            <span>Логи</span>
         </button>
     </div>
 
@@ -452,6 +585,23 @@
 
         let isRunning = false;
         let activityLog = [];
+        let currentLogs = '';
+
+        // Tab switching
+        function switchTab(tabName) {
+            document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+
+            document.getElementById('tab-' + tabName).classList.add('active');
+            document.querySelectorAll('.tab-btn')[
+                tabName === 'control' ? 0 : tabName === 'strategies' ? 1 : 2
+            ].classList.add('active');
+
+            // Load logs when switching to logs tab
+            if (tabName === 'logs') {
+                loadLogs();
+            }
+        }
 
         // Safe exec wrapper
         async function run(cmd) {
@@ -500,6 +650,7 @@
 
         function setLoading(btnId, loading) {
             const btn = document.getElementById(btnId);
+            if (!btn) return;
             if (loading) {
                 btn.classList.add('btn-loading');
                 btn.disabled = true;
@@ -511,7 +662,8 @@
 
         function setAllButtons(disabled) {
             ['btn-start', 'btn-stop', 'btn-restart', 'btn-update'].forEach(id => {
-                document.getElementById(id).disabled = disabled;
+                const btn = document.getElementById(id);
+                if (btn) btn.disabled = disabled;
             });
         }
 
@@ -520,7 +672,6 @@
             const statusText = document.getElementById('status-text');
 
             try {
-                // Check PID file and process
                 const pidCheck = await run(
                     `if [ -f ${PIDFILE} ]; then ` +
                     `PID=$(cat ${PIDFILE}); ` +
@@ -540,21 +691,18 @@
                     isRunning = false;
                     indicator.className = 'status-indicator stopped';
                     statusText.textContent = 'Остановлен';
-                    document.getElementById('val-pid').textContent = '—';
+                    document.getElementById('val-pid').textContent = '-';
                 }
 
-                // iptables count
                 const iptables = await run('iptables -t mangle -L OUTPUT -n 2>/dev/null | grep -c NFQUEUE || echo 0');
                 document.getElementById('val-iptables').textContent = iptables.trim() + ' правил';
 
-                // Version
                 const version = await run(`grep "^version=" ${MODDIR}/module.prop 2>/dev/null | cut -d= -f2`);
-                document.getElementById('val-version').textContent = version.trim() || '—';
+                document.getElementById('val-version').textContent = version.trim() || '-';
 
             } catch (e) {
                 indicator.className = 'status-indicator stopped';
                 statusText.textContent = 'Ошибка';
-                logActivity('Ошибка проверки статуса', 'err');
             }
         }
 
@@ -570,11 +718,13 @@
 
                 const youtube = match('STRATEGY_YOUTUBE');
                 const discord = match('STRATEGY_DISCORD');
+                const discordVoice = match('STRATEGY_DISCORD_VOICE');
                 const telegram = match('STRATEGY_TELEGRAM');
                 const udp = match('STRATEGY_UDP');
 
                 if (youtube) document.getElementById('strat-youtube').value = youtube;
                 if (discord) document.getElementById('strat-discord').value = discord;
+                if (discordVoice) document.getElementById('strat-discord-voice').value = discordVoice;
                 if (telegram) document.getElementById('strat-telegram').value = telegram;
                 if (udp) document.getElementById('strat-udp').value = udp;
 
@@ -587,6 +737,7 @@
         async function saveStrategies() {
             const youtube = document.getElementById('strat-youtube').value;
             const discord = document.getElementById('strat-discord').value;
+            const discordVoice = document.getElementById('strat-discord-voice').value;
             const telegram = document.getElementById('strat-telegram').value;
             const udp = document.getElementById('strat-udp').value;
 
@@ -601,6 +752,7 @@ PKT_IN=10
 LOG_MODE="android"
 STRATEGY_YOUTUBE="${youtube}"
 STRATEGY_DISCORD="${discord}"
+STRATEGY_DISCORD_VOICE="${discordVoice}"
 STRATEGY_TELEGRAM="${telegram}"
 STRATEGY_OTHER="none"
 STRATEGY_UDP="${udp}"
@@ -610,6 +762,7 @@ USE_CATEGORIES=1
                 await run(`cat > ${CONFIG} << 'ENDCFG'\n${config}ENDCFG`);
                 logActivity('Стратегии сохранены', 'ok');
                 document.getElementById('val-lastaction').textContent = 'Сохранено';
+                toast('Сохранено', 'success');
             } catch (e) {
                 logActivity('Ошибка сохранения', 'err');
             }
@@ -622,7 +775,7 @@ USE_CATEGORIES=1
             document.getElementById('val-lastaction').textContent = 'Запуск...';
 
             try {
-                const result = await run(`sh ${SCRIPTS}/zapret-start.sh 2>&1`);
+                await run(`sh ${SCRIPTS}/zapret-start.sh 2>&1`);
                 logActivity('Запущен', 'ok');
                 toast('Zapret2 запущен', 'success');
                 document.getElementById('val-lastaction').textContent = 'Запущен';
@@ -722,31 +875,107 @@ USE_CATEGORIES=1
             setLoading('btn-update', false);
         }
 
+        // Logs functions
         async function loadLogs() {
-            setLoading('btn-logs', true);
             logActivity('Загрузка логов...', 'warn');
 
             try {
-                const logs = await run(`tail -30 ${LOGFILE} 2>/dev/null || echo "Логов нет"`);
-                const box = document.getElementById('logs-box');
-
-                if (logs && logs.trim()) {
-                    box.innerHTML = logs.split('\n').map(line => {
-                        let cls = '';
-                        if (line.includes('[ERROR]')) cls = 'error';
-                        else if (line.includes('[INFO]')) cls = 'info';
-                        return `<div class="log-line ${cls}">${escapeHtml(line)}</div>`;
-                    }).join('');
-                    box.scrollTop = box.scrollHeight;
-                    logActivity('Логи загружены', 'ok');
-                } else {
-                    box.innerHTML = '<div class="log-line">Логи пусты</div>';
-                }
+                const logs = await run(`tail -200 ${LOGFILE} 2>/dev/null || echo "Логов нет"`);
+                renderLogs(logs);
             } catch (e) {
                 logActivity('Ошибка загрузки логов', 'err');
             }
+        }
 
-            setLoading('btn-logs', false);
+        async function loadFullLogs() {
+            logActivity('Загрузка полных логов...', 'warn');
+            document.getElementById('logs-box').innerHTML = '<div class="log-line">Загрузка...</div>';
+
+            try {
+                let logs = await run(`cat ${LOGFILE} 2>/dev/null || echo "Логов нет"`);
+
+                const errorLog = await run('cat /data/local/tmp/nfqws2-error.log 2>/dev/null');
+                if (errorLog && errorLog.trim()) {
+                    logs += '\n\n=== nfqws2-error.log ===\n' + errorLog;
+                }
+
+                renderLogs(logs);
+                toast('Загружено ' + logs.split('\n').length + ' строк', 'success');
+            } catch (e) {
+                logActivity('Ошибка загрузки', 'err');
+            }
+        }
+
+        async function loadErrorLogs() {
+            logActivity('Загрузка ошибок...', 'warn');
+
+            try {
+                let logs = await run(`grep -i "error\\|fail\\|warn\\|cannot\\|not found" ${LOGFILE} 2>/dev/null || echo "Ошибок не найдено"`);
+
+                const errorLog = await run('cat /data/local/tmp/nfqws2-error.log 2>/dev/null');
+                if (errorLog && errorLog.trim()) {
+                    logs += '\n\n=== nfqws2-error.log ===\n' + errorLog;
+                }
+
+                renderLogs(logs);
+            } catch (e) {
+                logActivity('Ошибка загрузки', 'err');
+            }
+        }
+
+        function renderLogs(logs) {
+            const box = document.getElementById('logs-box');
+            const countEl = document.getElementById('logs-count');
+            currentLogs = logs || '';
+
+            if (logs && logs.trim()) {
+                const lines = logs.split('\n').filter(l => l.trim());
+                countEl.textContent = lines.length + ' строк';
+
+                box.innerHTML = lines.map(line => {
+                    let cls = '';
+                    const lower = line.toLowerCase();
+                    if (lower.includes('error') || lower.includes('fail') || lower.includes('cannot')) {
+                        cls = 'error';
+                    } else if (lower.includes('warn')) {
+                        cls = 'warn';
+                    } else if (line.includes('[INFO]') || line.includes('===') || lower.includes('success') || lower.includes('started')) {
+                        cls = 'info';
+                    }
+                    return `<div class="log-line ${cls}">${escapeHtml(line)}</div>`;
+                }).join('');
+
+                box.scrollTop = box.scrollHeight;
+            } else {
+                box.innerHTML = '<div class="log-line">Логи пусты</div>';
+                countEl.textContent = '0 строк';
+            }
+        }
+
+        async function copyLogs() {
+            if (!currentLogs || !currentLogs.trim()) {
+                toast('Нечего копировать', 'error');
+                return;
+            }
+
+            try {
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    await navigator.clipboard.writeText(currentLogs);
+                } else {
+                    const textArea = document.createElement('textarea');
+                    textArea.value = currentLogs;
+                    textArea.style.position = 'fixed';
+                    textArea.style.left = '-9999px';
+                    document.body.appendChild(textArea);
+                    textArea.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(textArea);
+                }
+                toast('Скопировано ' + currentLogs.split('\n').length + ' строк', 'success');
+                logActivity('Логи скопированы', 'ok');
+            } catch (e) {
+                toast('Ошибка копирования', 'error');
+            }
         }
 
         // Init
@@ -754,14 +983,11 @@ USE_CATEGORIES=1
             logActivity('Инициализация...', 'warn');
             await checkStatus();
             await loadConfig();
-            await loadLogs();
             logActivity('Готово', 'ok');
 
-            // Auto refresh status every 10 sec
             setInterval(checkStatus, 10000);
         }
 
-        // Start when DOM ready
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', init);
         } else {

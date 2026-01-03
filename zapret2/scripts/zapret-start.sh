@@ -90,6 +90,35 @@ else
 fi
 
 ##########################################################################################
+# Fix permissions for dropped privileges
+# nfqws2 drops to uid 1:3003 after start, needs +x on all directories
+##########################################################################################
+
+fix_permissions() {
+    log_msg "Fixing permissions for non-root access..."
+
+    # All directories in path need +x for traversal
+    chmod 755 "$MODDIR" 2>/dev/null
+    chmod 755 "$ZAPRET_DIR" 2>/dev/null
+    chmod 755 "$ZAPRET_DIR/lua" 2>/dev/null
+    chmod 755 "$ZAPRET_DIR/bin" 2>/dev/null
+    chmod 755 "$ZAPRET_DIR/lists" 2>/dev/null
+    chmod 755 "$ZAPRET_DIR/scripts" 2>/dev/null
+
+    # Files need read permission
+    chmod 644 "$ZAPRET_DIR/lua/"*.lua 2>/dev/null
+    chmod 644 "$ZAPRET_DIR/bin/"*.bin 2>/dev/null
+    chmod 644 "$ZAPRET_DIR/lists/"*.txt 2>/dev/null
+
+    # Binary needs execute
+    chmod 755 "$NFQWS2" 2>/dev/null
+
+    log_msg "Permissions fixed"
+}
+
+fix_permissions
+
+##########################################################################################
 # Apply iptables rules
 ##########################################################################################
 
