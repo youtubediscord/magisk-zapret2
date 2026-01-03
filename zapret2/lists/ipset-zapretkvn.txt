@@ -1,0 +1,2 @@
+# ZapretKVN ipset
+# Add IP addresses or CIDR ranges

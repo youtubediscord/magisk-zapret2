@@ -2,4 +2,14 @@ speedtest.net
 ooklaserver.net
 ziffstatic.com
 cdnst.net
-appleid.cdn-apple.com
+ookla.com
+speedtest.org
+fast.com
+speedof.me
+testmy.net
+dslreports.com
+speedcheck.org
+speedsmart.net
+meter.net
+openspeedtest.com
+librespeed.org

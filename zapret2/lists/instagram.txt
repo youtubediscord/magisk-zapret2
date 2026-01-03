@@ -1,2 +1,12 @@
 instagram.com
 cdninstagram.com
+ig.me
+igcdn.com
+instagram-engineering.com
+scontent-*.cdninstagram.com
+graph.instagram.com
+api.instagram.com
+i.instagram.com
+static.cdninstagram.com
+instagram-press.com
+instagramstatic-a.akamaihd.net

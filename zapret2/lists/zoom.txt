@@ -1,0 +1,15 @@
+zoom.us
+zoom.com
+zoomgov.com
+zoominfo.com
+zoomus.cn
+zoomvideo.cn
+zoommtg.com
+zoomcdn.com
+cloudflare.com
+zpns.zoom.us
+us02web.zoom.us
+us04web.zoom.us
+us05web.zoom.us
+us06web.zoom.us
+log.zoom.us

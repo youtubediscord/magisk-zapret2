@@ -1,0 +1,13 @@
+signal.org
+signal.me
+signal.group
+signal.link
+signal.tube
+signal.art
+signalcaptchas.org
+updates.signal.org
+updates2.signal.org
+sfu.voip.signal.org
+storage.signal.org
+cdn.signal.org
+cdn2.signal.org

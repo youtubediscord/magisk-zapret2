@@ -1,0 +1,114 @@
+# Zapret2 Categories Configuration
+# Format: CATEGORY|ENABLED|FILTER_MODE|HOSTLIST_FILE|STRATEGY
+# FILTER_MODE: none, hostlist, ipset
+# STRATEGY: 1-222 for TCP, 1-51 for UDP
+#
+# By default all categories are disabled (ENABLED=0) except youtube
+# Each category requires corresponding hostlist or ipset file in lists/
+
+# ===============================
+# YouTube & Google Video
+# ===============================
+youtube|1|hostlist|youtube.txt|1
+youtube_udp|0|hostlist|youtube.txt|1
+googlevideo_tcp|0|ipset|ipset-googlevideo.txt|1
+
+# ===============================
+# Discord
+# ===============================
+discord|0|hostlist|discord.txt|1
+discord_voice_udp|0|none||1
+udp_discord|0|hostlist|discord.txt|1
+update_discord|0|none||1
+
+# ===============================
+# Telegram
+# ===============================
+telegram_tcp|0|hostlist|telegram.txt|1
+
+# ===============================
+# Messengers
+# ===============================
+whatsapp_tcp|0|hostlist|whatsapp.txt|1
+
+# ===============================
+# Social Networks
+# ===============================
+facebook_tcp|0|hostlist|facebook.txt|1
+instagram_tcp|0|hostlist|instagram.txt|1
+twitter_tcp|0|hostlist|twitter.txt|1
+
+# ===============================
+# Music
+# ===============================
+soundcloud_tcp|0|hostlist|soundcloud.txt|1
+
+# ===============================
+# Development
+# ===============================
+github_tcp|0|hostlist|github.txt|1
+
+# ===============================
+# Remote Access
+# ===============================
+anydesk_tcp|0|ipset|ipset-anydesk.txt|1
+anydesk_udp|0|ipset|ipset-anydesk.txt|1
+
+# ===============================
+# Trackers
+# ===============================
+rutracker_tcp|0|hostlist|rutracker.txt|1
+rutor_tcp|0|hostlist|rutor.txt|1
+ntcparty_tcp|0|none||1
+
+# ===============================
+# Streaming
+# ===============================
+twitch_tcp|0|hostlist|twitch.txt|1
+
+# ===============================
+# Utilities
+# ===============================
+speedtest_tcp|0|hostlist|speedtest.txt|1
+
+# ===============================
+# Gaming
+# ===============================
+steam_tcp|0|hostlist|steam.txt|1
+itch_tcp|0|hostlist|itch.txt|1
+roblox_tcp|0|hostlist|roblox.txt|1
+roblox_udp|0|hostlist|roblox.txt|1
+phasmophobia_udp|0|none||1
+battlefield_6_udp|0|none||1
+
+# ===============================
+# Cloud & VPN
+# ===============================
+google_tcp|0|hostlist|google.txt|1
+amazon_tcp|0|hostlist|amazon.txt|1
+amazon_udp|0|ipset|ipset-amazon.txt|1
+warp_tcp|0|ipset|ipset-warp.txt|1
+
+# ===============================
+# AI Services
+# ===============================
+claude_tcp|0|hostlist|claude.txt|1
+
+# ===============================
+# Hostlists (General)
+# ===============================
+other|0|hostlist|other.txt|1
+porn_http|0|ipset|ipset-porn.txt|1
+tankix_http|0|ipset|ipset-tankix.txt|1
+hostlist_80port|0|ipset|ipset-all.txt|1
+
+# ===============================
+# IPsets (Advanced)
+# ===============================
+ipset_tcp_cloudflare|0|ipset|cloudflare-ipset.txt|1
+ipset_zapretkvn|0|ipset|ipset-zapretkvn.txt|1
+ipset|0|ipset|ipset-all.txt|1
+ipset_all|0|none||1
+ovh_udp|0|ipset|ipset-ovh.txt|1
+ipset_udp|0|ipset|ipset-all.txt|1
+ipset_udp_all|0|none||1
