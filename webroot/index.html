@@ -2,109 +2,152 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Zapret2 DPI Bypass</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Zapret2</title>
     <style>
         :root {
-            --bg-primary: #0f0f0f;
-            --bg-secondary: #1a1a1a;
-            --bg-card: #242424;
-            --accent: #6366f1;
-            --accent-hover: #818cf8;
-            --success: #22c55e;
-            --danger: #ef4444;
-            --warning: #f59e0b;
-            --text-primary: #ffffff;
-            --text-secondary: #a1a1aa;
-            --border: #333333;
+            --bg: #121212;
+            --surface: #1e1e1e;
+            --surface2: #2a2a2a;
+            --primary: #bb86fc;
+            --secondary: #03dac6;
+            --error: #cf6679;
+            --success: #4caf50;
+            --warning: #ff9800;
+            --text: #ffffff;
+            --text2: #b3b3b3;
+            --text3: #666666;
         }
 
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
         }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: var(--bg-primary);
-            color: var(--text-primary);
+            font-family: 'Roboto', -apple-system, sans-serif;
+            background: var(--bg);
+            color: var(--text);
             min-height: 100vh;
             padding: 16px;
-        }
-
-        .container {
-            max-width: 600px;
-            margin: 0 auto;
+            padding-bottom: 32px;
         }
 
         .header {
             text-align: center;
-            padding: 24px 0;
+            padding: 20px 0;
         }
 
         .header h1 {
-            font-size: 24px;
-            font-weight: 600;
-            margin-bottom: 8px;
+            font-size: 22px;
+            font-weight: 500;
+            margin-bottom: 12px;
         }
 
-        .status-badge {
+        .status-card {
+            background: var(--surface);
+            border-radius: 16px;
+            padding: 20px;
+            margin-bottom: 16px;
+            text-align: center;
+        }
+
+        .status-indicator {
             display: inline-flex;
             align-items: center;
-            gap: 8px;
-            padding: 8px 16px;
-            border-radius: 20px;
-            font-size: 14px;
+            gap: 10px;
+            padding: 10px 20px;
+            border-radius: 24px;
+            font-size: 16px;
             font-weight: 500;
+            margin-bottom: 16px;
         }
 
-        .status-badge.running {
-            background: rgba(34, 197, 94, 0.2);
+        .status-indicator.running {
+            background: rgba(76, 175, 80, 0.15);
             color: var(--success);
         }
 
-        .status-badge.stopped {
-            background: rgba(239, 68, 68, 0.2);
-            color: var(--danger);
+        .status-indicator.stopped {
+            background: rgba(207, 102, 121, 0.15);
+            color: var(--error);
+        }
+
+        .status-indicator.loading {
+            background: rgba(255, 152, 0, 0.15);
+            color: var(--warning);
         }
 
         .status-dot {
-            width: 8px;
-            height: 8px;
+            width: 10px;
+            height: 10px;
             border-radius: 50%;
-            animation: pulse 2s infinite;
+            background: currentColor;
         }
 
-        .status-badge.running .status-dot {
-            background: var(--success);
+        .status-indicator.running .status-dot {
+            animation: pulse 2s ease-in-out infinite;
         }
 
-        .status-badge.stopped .status-dot {
-            background: var(--danger);
-            animation: none;
+        .status-indicator.loading .status-dot {
+            animation: blink 0.5s ease-in-out infinite;
         }
 
         @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.6; transform: scale(0.9); }
+        }
+
+        @keyframes blink {
             0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
+            50% { opacity: 0.3; }
+        }
+
+        .status-details {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+            text-align: left;
+        }
+
+        .status-item {
+            background: var(--surface2);
+            padding: 12px;
+            border-radius: 10px;
+        }
+
+        .status-item-label {
+            font-size: 11px;
+            color: var(--text3);
+            text-transform: uppercase;
+            margin-bottom: 4px;
+        }
+
+        .status-item-value {
+            font-size: 14px;
+            color: var(--text);
+            font-weight: 500;
         }
 
         .card {
-            background: var(--bg-card);
+            background: var(--surface);
             border-radius: 16px;
             padding: 20px;
             margin-bottom: 16px;
         }
 
         .card-title {
-            font-size: 16px;
-            font-weight: 600;
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--text2);
             margin-bottom: 16px;
-            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
         }
 
-        .control-buttons {
+        .btn-grid {
             display: grid;
             grid-template-columns: repeat(2, 1fr);
             gap: 12px;
@@ -115,358 +158,439 @@
             align-items: center;
             justify-content: center;
             gap: 8px;
-            padding: 14px 20px;
+            padding: 16px;
             border: none;
             border-radius: 12px;
-            font-size: 15px;
+            font-size: 14px;
             font-weight: 500;
             cursor: pointer;
             transition: all 0.2s;
+            position: relative;
+            overflow: hidden;
         }
 
-        .btn:active {
-            transform: scale(0.98);
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
         }
 
-        .btn-primary {
-            background: var(--accent);
-            color: white;
+        .btn:active:not(:disabled) {
+            transform: scale(0.97);
         }
 
-        .btn-primary:hover {
-            background: var(--accent-hover);
+        .btn-start { background: var(--success); color: #000; }
+        .btn-stop { background: var(--error); color: #fff; }
+        .btn-restart { background: var(--warning); color: #000; }
+        .btn-update { background: var(--primary); color: #000; }
+        .btn-secondary { background: var(--surface2); color: var(--text); }
+
+        .btn-icon {
+            font-size: 18px;
         }
 
-        .btn-success {
-            background: var(--success);
-            color: white;
-        }
-
-        .btn-danger {
-            background: var(--danger);
-            color: white;
-        }
-
-        .btn-warning {
-            background: var(--warning);
-            color: black;
-        }
-
-        .btn-secondary {
-            background: var(--bg-secondary);
-            color: var(--text-primary);
-            border: 1px solid var(--border);
-        }
-
-        .btn-full {
-            grid-column: span 2;
-        }
-
-        .strategy-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 14px 0;
-            border-bottom: 1px solid var(--border);
-        }
-
-        .strategy-item:last-child {
-            border-bottom: none;
-        }
-
-        .strategy-label {
-            font-size: 15px;
-            font-weight: 500;
-        }
-
-        .strategy-select {
-            background: var(--bg-secondary);
-            color: var(--text-primary);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            padding: 8px 12px;
-            font-size: 13px;
-            min-width: 180px;
-            cursor: pointer;
-        }
-
-        .strategy-select:focus {
-            outline: none;
-            border-color: var(--accent);
-        }
-
-        .logs-container {
-            background: var(--bg-secondary);
-            border-radius: 8px;
-            padding: 12px;
-            max-height: 200px;
-            overflow-y: auto;
-            font-family: 'Monaco', 'Menlo', monospace;
-            font-size: 12px;
-            color: var(--text-secondary);
-        }
-
-        .log-line {
-            padding: 2px 0;
-        }
-
-        .toast {
-            position: fixed;
-            bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: var(--bg-card);
-            color: var(--text-primary);
-            padding: 12px 24px;
-            border-radius: 8px;
-            font-size: 14px;
-            opacity: 0;
-            transition: opacity 0.3s;
-            z-index: 1000;
-        }
-
-        .toast.show {
-            opacity: 1;
-        }
-
-        .loading {
-            pointer-events: none;
-            opacity: 0.7;
-        }
-
-        .spinner {
-            width: 16px;
-            height: 16px;
+        .btn-loading::after {
+            content: '';
+            position: absolute;
+            width: 20px;
+            height: 20px;
             border: 2px solid transparent;
             border-top-color: currentColor;
             border-radius: 50%;
-            animation: spin 1s linear infinite;
+            animation: spin 0.8s linear infinite;
+        }
+
+        .btn-loading span {
+            visibility: hidden;
         }
 
         @keyframes spin {
             to { transform: rotate(360deg); }
         }
 
-        .info-row {
+        .strategy-row {
             display: flex;
             justify-content: space-between;
-            padding: 8px 0;
+            align-items: center;
+            padding: 14px 0;
+            border-bottom: 1px solid var(--surface2);
+        }
+
+        .strategy-row:last-child {
+            border-bottom: none;
+        }
+
+        .strategy-label {
+            font-size: 15px;
+        }
+
+        .strategy-select {
+            background: var(--surface2);
+            color: var(--text);
+            border: none;
+            border-radius: 8px;
+            padding: 10px 12px;
+            font-size: 13px;
+            max-width: 180px;
+            cursor: pointer;
+        }
+
+        .strategy-select:focus {
+            outline: 2px solid var(--primary);
+        }
+
+        .logs-box {
+            background: var(--bg);
+            border-radius: 10px;
+            padding: 12px;
+            max-height: 180px;
+            overflow-y: auto;
+            font-family: 'JetBrains Mono', 'Fira Code', monospace;
+            font-size: 11px;
+            line-height: 1.5;
+            color: var(--text2);
+        }
+
+        .log-line {
+            padding: 2px 0;
+            word-break: break-all;
+        }
+
+        .log-line.error {
+            color: var(--error);
+        }
+
+        .log-line.info {
+            color: var(--secondary);
+        }
+
+        .toast {
+            position: fixed;
+            bottom: 24px;
+            left: 50%;
+            transform: translateX(-50%) translateY(100px);
+            background: var(--surface);
+            color: var(--text);
+            padding: 14px 24px;
+            border-radius: 12px;
             font-size: 14px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+            transition: transform 0.3s ease;
+            z-index: 1000;
+            max-width: 90%;
+            text-align: center;
         }
 
-        .info-label {
-            color: var(--text-secondary);
+        .toast.show {
+            transform: translateX(-50%) translateY(0);
         }
 
-        .info-value {
-            font-weight: 500;
+        .toast.error {
+            border-left: 4px solid var(--error);
         }
+
+        .toast.success {
+            border-left: 4px solid var(--success);
+        }
+
+        .activity-log {
+            margin-top: 12px;
+            padding: 12px;
+            background: var(--bg);
+            border-radius: 10px;
+            font-size: 12px;
+            color: var(--text2);
+            max-height: 100px;
+            overflow-y: auto;
+        }
+
+        .activity-item {
+            padding: 4px 0;
+            display: flex;
+            gap: 8px;
+        }
+
+        .activity-time {
+            color: var(--text3);
+            flex-shrink: 0;
+        }
+
+        .activity-msg {
+            color: var(--text2);
+        }
+
+        .activity-msg.ok { color: var(--success); }
+        .activity-msg.err { color: var(--error); }
+        .activity-msg.warn { color: var(--warning); }
     </style>
 </head>
 <body>
-    <div class="container">
-        <div class="header">
-            <h1>Zapret2 DPI Bypass</h1>
-            <div id="status-badge" class="status-badge stopped">
-                <span class="status-dot"></span>
-                <span id="status-text">Проверка...</span>
-            </div>
+    <div class="header">
+        <h1>Zapret2 DPI Bypass</h1>
+    </div>
+
+    <!-- Status Card -->
+    <div class="status-card">
+        <div id="status-indicator" class="status-indicator loading">
+            <span class="status-dot"></span>
+            <span id="status-text">Проверка...</span>
         </div>
 
-        <!-- Control Buttons -->
-        <div class="card">
-            <div class="card-title">Управление</div>
-            <div class="control-buttons">
-                <button class="btn btn-success" onclick="startService()">
-                    <span>▶</span> Запустить
-                </button>
-                <button class="btn btn-danger" onclick="stopService()">
-                    <span>■</span> Остановить
-                </button>
-                <button class="btn btn-warning" onclick="restartService()">
-                    <span>↻</span> Перезапустить
-                </button>
-                <button class="btn btn-primary" onclick="updateModule()">
-                    <span>↓</span> Обновить
-                </button>
+        <div class="status-details">
+            <div class="status-item">
+                <div class="status-item-label">Версия</div>
+                <div class="status-item-value" id="val-version">—</div>
+            </div>
+            <div class="status-item">
+                <div class="status-item-label">PID</div>
+                <div class="status-item-value" id="val-pid">—</div>
+            </div>
+            <div class="status-item">
+                <div class="status-item-label">iptables</div>
+                <div class="status-item-value" id="val-iptables">—</div>
+            </div>
+            <div class="status-item">
+                <div class="status-item-label">Последнее действие</div>
+                <div class="status-item-value" id="val-lastaction">—</div>
             </div>
         </div>
+    </div>
 
-        <!-- Strategy Configuration -->
-        <div class="card">
-            <div class="card-title">Стратегии</div>
-
-            <div class="strategy-item">
-                <span class="strategy-label">YouTube</span>
-                <select class="strategy-select" id="strategy-youtube" onchange="saveConfig()">
-                    <option value="syndata_7_tls_google_multisplit_midsld">Syndata + Multisplit (Default)</option>
-                    <option value="censorliber_google_syndata">Censorliber Syndata</option>
-                    <option value="censorliber_google_syndata_v2">Censorliber v2</option>
-                    <option value="censorliber_google_syndata_tcpack">Censorliber + TCP ACK</option>
-                    <option value="alt9">Alt v9</option>
-                    <option value="alt11_100_syndata">Alt v11</option>
-                    <option value="none">Отключено</option>
-                </select>
-            </div>
-
-            <div class="strategy-item">
-                <span class="strategy-label">Discord</span>
-                <select class="strategy-select" id="strategy-discord" onchange="saveConfig()">
-                    <option value="syndata_7_tls_google_multisplit_midsld">Syndata + Multisplit (Default)</option>
-                    <option value="censorliber_google_syndata">Censorliber Syndata</option>
-                    <option value="fake_x6_stun_discord">Voice UDP (STUN)</option>
-                    <option value="none">Отключено</option>
-                </select>
-            </div>
-
-            <div class="strategy-item">
-                <span class="strategy-label">Telegram</span>
-                <select class="strategy-select" id="strategy-telegram" onchange="saveConfig()">
-                    <option value="syndata_7_tls_google_multisplit_midsld">Syndata + Multisplit</option>
-                    <option value="censorliber_google_syndata">Censorliber Syndata</option>
-                    <option value="none">Отключено</option>
-                </select>
-            </div>
-
-            <div class="strategy-item">
-                <span class="strategy-label">Другие сайты</span>
-                <select class="strategy-select" id="strategy-other" onchange="saveConfig()">
-                    <option value="syndata_7_tls_google_multisplit_midsld">Syndata + Multisplit</option>
-                    <option value="censorliber_google_syndata">Censorliber Syndata</option>
-                    <option value="multisplit_split_pos_1">Multisplit Only</option>
-                    <option value="other_seqovl">SeqOVL</option>
-                    <option value="none">Отключено</option>
-                </select>
-            </div>
-
-            <div class="strategy-item">
-                <span class="strategy-label">UDP/QUIC</span>
-                <select class="strategy-select" id="strategy-udp" onchange="saveConfig()">
-                    <option value="fake_x6_quic">QUIC Fake x6</option>
-                    <option value="fake_x11_quic">QUIC Fake x11</option>
-                    <option value="none">Отключено</option>
-                </select>
-            </div>
-        </div>
-
-        <!-- Info -->
-        <div class="card">
-            <div class="card-title">Информация</div>
-            <div class="info-row">
-                <span class="info-label">Версия модуля</span>
-                <span class="info-value" id="module-version">-</span>
-            </div>
-            <div class="info-row">
-                <span class="info-label">PID процесса</span>
-                <span class="info-value" id="process-pid">-</span>
-            </div>
-            <div class="info-row">
-                <span class="info-label">iptables правила</span>
-                <span class="info-value" id="iptables-rules">-</span>
-            </div>
-        </div>
-
-        <!-- Logs -->
-        <div class="card">
-            <div class="card-title">Логи</div>
-            <div class="logs-container" id="logs">
-                <div class="log-line">Загрузка логов...</div>
-            </div>
-            <button class="btn btn-secondary btn-full" style="margin-top: 12px" onclick="refreshLogs()">
-                Обновить логи
+    <!-- Controls -->
+    <div class="card">
+        <div class="card-title">Управление</div>
+        <div class="btn-grid">
+            <button class="btn btn-start" id="btn-start" onclick="doStart()">
+                <span class="btn-icon">▶</span>
+                <span>Запустить</span>
+            </button>
+            <button class="btn btn-stop" id="btn-stop" onclick="doStop()">
+                <span class="btn-icon">■</span>
+                <span>Остановить</span>
+            </button>
+            <button class="btn btn-restart" id="btn-restart" onclick="doRestart()">
+                <span class="btn-icon">↻</span>
+                <span>Перезапуск</span>
+            </button>
+            <button class="btn btn-update" id="btn-update" onclick="doUpdate()">
+                <span class="btn-icon">↓</span>
+                <span>Обновить</span>
             </button>
         </div>
+
+        <div class="activity-log" id="activity-log">
+            <div class="activity-item">
+                <span class="activity-time">--:--</span>
+                <span class="activity-msg">Ожидание...</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Strategies -->
+    <div class="card">
+        <div class="card-title">Стратегии</div>
+
+        <div class="strategy-row">
+            <span class="strategy-label">YouTube</span>
+            <select class="strategy-select" id="strat-youtube" onchange="saveStrategies()">
+                <option value="syndata_7_tls_google_multisplit_midsld">Syndata+Multisplit</option>
+                <option value="censorliber_google_syndata">Censorliber</option>
+                <option value="censorliber_google_syndata_v2">Censorliber v2</option>
+                <option value="alt9">Alt v9</option>
+                <option value="alt11_100_syndata">Alt v11</option>
+                <option value="none">Выключено</option>
+            </select>
+        </div>
+
+        <div class="strategy-row">
+            <span class="strategy-label">Discord</span>
+            <select class="strategy-select" id="strat-discord" onchange="saveStrategies()">
+                <option value="syndata_7_tls_google_multisplit_midsld">Syndata+Multisplit</option>
+                <option value="censorliber_google_syndata">Censorliber</option>
+                <option value="fake_x6_stun_discord">Voice UDP</option>
+                <option value="none">Выключено</option>
+            </select>
+        </div>
+
+        <div class="strategy-row">
+            <span class="strategy-label">Telegram</span>
+            <select class="strategy-select" id="strat-telegram" onchange="saveStrategies()">
+                <option value="syndata_7_tls_google_multisplit_midsld">Syndata+Multisplit</option>
+                <option value="censorliber_google_syndata">Censorliber</option>
+                <option value="none">Выключено</option>
+            </select>
+        </div>
+
+        <div class="strategy-row">
+            <span class="strategy-label">UDP/QUIC</span>
+            <select class="strategy-select" id="strat-udp" onchange="saveStrategies()">
+                <option value="fake_x6_quic">Fake x6</option>
+                <option value="fake_x11_quic">Fake x11</option>
+                <option value="none">Выключено</option>
+            </select>
+        </div>
+    </div>
+
+    <!-- Logs -->
+    <div class="card">
+        <div class="card-title">Логи</div>
+        <div class="logs-box" id="logs-box">
+            <div class="log-line">Загрузка...</div>
+        </div>
+        <button class="btn btn-secondary" style="width:100%;margin-top:12px" id="btn-logs" onclick="loadLogs()">
+            <span>Обновить логи</span>
+        </button>
     </div>
 
     <div class="toast" id="toast"></div>
 
     <script>
         const MODDIR = '/data/adb/modules/zapret2';
-        const CONFIG_PATH = MODDIR + '/zapret2/config.sh';
+        const CONFIG = MODDIR + '/zapret2/config.sh';
+        const SCRIPTS = MODDIR + '/zapret2/scripts';
+        const LOGFILE = '/data/local/tmp/zapret2.log';
+        const PIDFILE = '/data/local/tmp/nfqws2.pid';
 
-        // KSU WebUI API
-        function exec(cmd) {
-            return new Promise((resolve, reject) => {
-                try {
-                    const result = ksu.exec(cmd);
-                    resolve(result);
-                } catch (e) {
-                    reject(e);
+        let isRunning = false;
+        let activityLog = [];
+
+        // Safe exec wrapper
+        async function run(cmd) {
+            try {
+                if (typeof ksu !== 'undefined' && ksu.exec) {
+                    return await ksu.exec(cmd);
+                } else {
+                    throw new Error('KSU API not available');
                 }
-            });
+            } catch (e) {
+                logActivity('Ошибка: ' + e.message, 'err');
+                return '';
+            }
         }
 
-        function toast(message) {
+        function logActivity(msg, type = '') {
+            const now = new Date();
+            const time = now.toTimeString().slice(0, 5);
+            activityLog.unshift({ time, msg, type });
+            if (activityLog.length > 20) activityLog.pop();
+            renderActivity();
+        }
+
+        function renderActivity() {
+            const el = document.getElementById('activity-log');
+            el.innerHTML = activityLog.map(a =>
+                `<div class="activity-item">
+                    <span class="activity-time">${a.time}</span>
+                    <span class="activity-msg ${a.type}">${escapeHtml(a.msg)}</span>
+                </div>`
+            ).join('');
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text || '';
+            return div.innerHTML;
+        }
+
+        function toast(msg, type = '') {
             const el = document.getElementById('toast');
-            el.textContent = message;
-            el.classList.add('show');
+            el.textContent = msg;
+            el.className = 'toast show ' + type;
             setTimeout(() => el.classList.remove('show'), 3000);
         }
 
+        function setLoading(btnId, loading) {
+            const btn = document.getElementById(btnId);
+            if (loading) {
+                btn.classList.add('btn-loading');
+                btn.disabled = true;
+            } else {
+                btn.classList.remove('btn-loading');
+                btn.disabled = false;
+            }
+        }
+
+        function setAllButtons(disabled) {
+            ['btn-start', 'btn-stop', 'btn-restart', 'btn-update'].forEach(id => {
+                document.getElementById(id).disabled = disabled;
+            });
+        }
+
         async function checkStatus() {
+            const indicator = document.getElementById('status-indicator');
+            const statusText = document.getElementById('status-text');
+
             try {
-                const result = await exec('cat /data/local/tmp/nfqws2.pid 2>/dev/null && test -d /proc/$(cat /data/local/tmp/nfqws2.pid 2>/dev/null) && echo "running" || echo "stopped"');
-                const isRunning = result.trim().includes('running');
+                // Check PID file and process
+                const pidCheck = await run(
+                    `if [ -f ${PIDFILE} ]; then ` +
+                    `PID=$(cat ${PIDFILE}); ` +
+                    `if [ -d /proc/$PID ]; then echo "running:$PID"; else echo "dead"; fi; ` +
+                    `else echo "stopped"; fi`
+                );
 
-                const badge = document.getElementById('status-badge');
-                const text = document.getElementById('status-text');
+                const result = pidCheck.trim();
 
-                if (isRunning) {
-                    badge.className = 'status-badge running';
-                    text.textContent = 'Работает';
-
-                    const pid = await exec('cat /data/local/tmp/nfqws2.pid 2>/dev/null');
-                    document.getElementById('process-pid').textContent = pid.trim() || '-';
+                if (result.startsWith('running:')) {
+                    isRunning = true;
+                    const pid = result.split(':')[1];
+                    indicator.className = 'status-indicator running';
+                    statusText.textContent = 'Работает';
+                    document.getElementById('val-pid').textContent = pid;
                 } else {
-                    badge.className = 'status-badge stopped';
-                    text.textContent = 'Остановлен';
-                    document.getElementById('process-pid').textContent = '-';
+                    isRunning = false;
+                    indicator.className = 'status-indicator stopped';
+                    statusText.textContent = 'Остановлен';
+                    document.getElementById('val-pid').textContent = '—';
                 }
 
-                // iptables rules count
-                const rules = await exec('iptables -t mangle -L OUTPUT -n 2>/dev/null | grep -c NFQUEUE || echo 0');
-                document.getElementById('iptables-rules').textContent = rules.trim();
+                // iptables count
+                const iptables = await run('iptables -t mangle -L OUTPUT -n 2>/dev/null | grep -c NFQUEUE || echo 0');
+                document.getElementById('val-iptables').textContent = iptables.trim() + ' правил';
 
-                // Module version
-                const version = await exec('grep "^version=" ' + MODDIR + '/module.prop | cut -d= -f2');
-                document.getElementById('module-version').textContent = version.trim() || '-';
+                // Version
+                const version = await run(`grep "^version=" ${MODDIR}/module.prop 2>/dev/null | cut -d= -f2`);
+                document.getElementById('val-version').textContent = version.trim() || '—';
 
             } catch (e) {
-                console.error('Status check failed:', e);
+                indicator.className = 'status-indicator stopped';
+                statusText.textContent = 'Ошибка';
+                logActivity('Ошибка проверки статуса', 'err');
             }
         }
 
         async function loadConfig() {
             try {
-                const config = await exec('cat ' + CONFIG_PATH + ' 2>/dev/null');
+                const cfg = await run(`cat ${CONFIG} 2>/dev/null`);
+                if (!cfg) return;
 
-                const youtube = config.match(/STRATEGY_YOUTUBE="([^"]+)"/);
-                const discord = config.match(/STRATEGY_DISCORD="([^"]+)"/);
-                const telegram = config.match(/STRATEGY_TELEGRAM="([^"]+)"/);
-                const other = config.match(/STRATEGY_OTHER="([^"]+)"/);
-                const udp = config.match(/STRATEGY_UDP="([^"]+)"/);
+                const match = (name) => {
+                    const m = cfg.match(new RegExp(name + '="([^"]*)"'));
+                    return m ? m[1] : null;
+                };
 
-                if (youtube) document.getElementById('strategy-youtube').value = youtube[1];
-                if (discord) document.getElementById('strategy-discord').value = discord[1];
-                if (telegram) document.getElementById('strategy-telegram').value = telegram[1];
-                if (other) document.getElementById('strategy-other').value = other[1];
-                if (udp) document.getElementById('strategy-udp').value = udp[1];
+                const youtube = match('STRATEGY_YOUTUBE');
+                const discord = match('STRATEGY_DISCORD');
+                const telegram = match('STRATEGY_TELEGRAM');
+                const udp = match('STRATEGY_UDP');
 
+                if (youtube) document.getElementById('strat-youtube').value = youtube;
+                if (discord) document.getElementById('strat-discord').value = discord;
+                if (telegram) document.getElementById('strat-telegram').value = telegram;
+                if (udp) document.getElementById('strat-udp').value = udp;
+
+                logActivity('Конфиг загружен', 'ok');
             } catch (e) {
-                console.error('Load config failed:', e);
+                logActivity('Ошибка загрузки конфига', 'err');
             }
         }
 
-        async function saveConfig() {
-            const youtube = document.getElementById('strategy-youtube').value;
-            const discord = document.getElementById('strategy-discord').value;
-            const telegram = document.getElementById('strategy-telegram').value;
-            const other = document.getElementById('strategy-other').value;
-            const udp = document.getElementById('strategy-udp').value;
+        async function saveStrategies() {
+            const youtube = document.getElementById('strat-youtube').value;
+            const discord = document.getElementById('strat-discord').value;
+            const telegram = document.getElementById('strat-telegram').value;
+            const udp = document.getElementById('strat-udp').value;
 
             const config = `#!/system/bin/sh
-# Zapret2 Configuration - Generated by WebUI
-
 AUTOSTART=1
 QNUM=200
 DESYNC_MARK=0x40000000
@@ -475,113 +599,174 @@ PORTS_UDP="443"
 PKT_OUT=20
 PKT_IN=10
 LOG_MODE="android"
-
 STRATEGY_YOUTUBE="${youtube}"
 STRATEGY_DISCORD="${discord}"
 STRATEGY_TELEGRAM="${telegram}"
-STRATEGY_OTHER="${other}"
+STRATEGY_OTHER="none"
 STRATEGY_UDP="${udp}"
-
 USE_CATEGORIES=1
 `;
-
             try {
-                await exec('cat > ' + CONFIG_PATH + ' << \'EOFCONFIG\'\n' + config + 'EOFCONFIG');
-                toast('Настройки сохранены');
+                await run(`cat > ${CONFIG} << 'ENDCFG'\n${config}ENDCFG`);
+                logActivity('Стратегии сохранены', 'ok');
+                document.getElementById('val-lastaction').textContent = 'Сохранено';
             } catch (e) {
-                toast('Ошибка сохранения');
-                console.error(e);
+                logActivity('Ошибка сохранения', 'err');
             }
         }
 
-        async function startService() {
-            toast('Запуск...');
+        async function doStart() {
+            setLoading('btn-start', true);
+            setAllButtons(true);
+            logActivity('Запуск Zapret2...', 'warn');
+            document.getElementById('val-lastaction').textContent = 'Запуск...';
+
             try {
-                await exec('sh ' + MODDIR + '/zapret2/scripts/zapret-start.sh');
-                toast('Zapret2 запущен');
-                setTimeout(checkStatus, 1000);
+                const result = await run(`sh ${SCRIPTS}/zapret-start.sh 2>&1`);
+                logActivity('Запущен', 'ok');
+                toast('Zapret2 запущен', 'success');
+                document.getElementById('val-lastaction').textContent = 'Запущен';
             } catch (e) {
-                toast('Ошибка запуска');
+                logActivity('Ошибка запуска: ' + e.message, 'err');
+                toast('Ошибка запуска', 'error');
             }
+
+            setLoading('btn-start', false);
+            setAllButtons(false);
+            setTimeout(checkStatus, 500);
         }
 
-        async function stopService() {
-            toast('Остановка...');
+        async function doStop() {
+            setLoading('btn-stop', true);
+            setAllButtons(true);
+            logActivity('Остановка Zapret2...', 'warn');
+            document.getElementById('val-lastaction').textContent = 'Остановка...';
+
             try {
-                await exec('sh ' + MODDIR + '/zapret2/scripts/zapret-stop.sh');
-                toast('Zapret2 остановлен');
-                setTimeout(checkStatus, 1000);
+                await run(`sh ${SCRIPTS}/zapret-stop.sh 2>&1`);
+                logActivity('Остановлен', 'ok');
+                toast('Zapret2 остановлен', 'success');
+                document.getElementById('val-lastaction').textContent = 'Остановлен';
             } catch (e) {
-                toast('Ошибка остановки');
+                logActivity('Ошибка остановки', 'err');
+                toast('Ошибка остановки', 'error');
             }
+
+            setLoading('btn-stop', false);
+            setAllButtons(false);
+            setTimeout(checkStatus, 500);
         }
 
-        async function restartService() {
-            toast('Перезапуск...');
+        async function doRestart() {
+            setLoading('btn-restart', true);
+            setAllButtons(true);
+            logActivity('Перезапуск...', 'warn');
+            document.getElementById('val-lastaction').textContent = 'Перезапуск...';
+
             try {
-                await exec('sh ' + MODDIR + '/zapret2/scripts/zapret-stop.sh');
+                await run(`sh ${SCRIPTS}/zapret-stop.sh 2>&1`);
+                logActivity('Остановлен', 'ok');
                 await new Promise(r => setTimeout(r, 1000));
-                await exec('sh ' + MODDIR + '/zapret2/scripts/zapret-start.sh');
-                toast('Zapret2 перезапущен');
-                setTimeout(checkStatus, 1000);
+                await run(`sh ${SCRIPTS}/zapret-start.sh 2>&1`);
+                logActivity('Запущен', 'ok');
+                toast('Перезапущен', 'success');
+                document.getElementById('val-lastaction').textContent = 'Перезапущен';
             } catch (e) {
-                toast('Ошибка перезапуска');
+                logActivity('Ошибка перезапуска', 'err');
+                toast('Ошибка', 'error');
             }
+
+            setLoading('btn-restart', false);
+            setAllButtons(false);
+            setTimeout(checkStatus, 500);
         }
 
-        async function updateModule() {
-            toast('Проверка обновлений...');
+        async function doUpdate() {
+            setLoading('btn-update', true);
+            logActivity('Проверка обновлений...', 'warn');
+            document.getElementById('val-lastaction').textContent = 'Проверка...';
+
             try {
-                // Check GitHub for latest release
-                const result = await exec('curl -s https://api.github.com/repos/youtubediscord/magisk-zapret2/releases/latest | grep "tag_name" | head -1');
-                const match = result.match(/"tag_name":\s*"([^"]+)"/);
+                const response = await run(
+                    'curl -s --connect-timeout 10 ' +
+                    'https://api.github.com/repos/youtubediscord/magisk-zapret2/releases/latest 2>/dev/null'
+                );
 
-                if (match) {
-                    const latestVersion = match[1];
-                    const currentVersion = document.getElementById('module-version').textContent;
+                if (!response) {
+                    throw new Error('Нет ответа от сервера');
+                }
 
-                    if (latestVersion !== currentVersion) {
-                        toast('Доступно обновление: ' + latestVersion);
-                        // Could add download logic here
+                const tagMatch = response.match(/"tag_name"\s*:\s*"([^"]+)"/);
+                if (tagMatch) {
+                    const latest = tagMatch[1];
+                    const current = document.getElementById('val-version').textContent;
+
+                    if (latest && latest !== current) {
+                        logActivity('Доступно: ' + latest, 'ok');
+                        toast('Доступно обновление: ' + latest, 'success');
+                        document.getElementById('val-lastaction').textContent = 'Есть ' + latest;
                     } else {
-                        toast('У вас последняя версия');
+                        logActivity('Обновлений нет', 'ok');
+                        toast('У вас последняя версия', 'success');
+                        document.getElementById('val-lastaction').textContent = 'Актуально';
                     }
                 } else {
-                    toast('Не удалось проверить обновления');
+                    throw new Error('Не удалось разобрать ответ');
                 }
             } catch (e) {
-                toast('Ошибка проверки обновлений');
+                logActivity('Ошибка: ' + e.message, 'err');
+                toast('Не удалось проверить', 'error');
+                document.getElementById('val-lastaction').textContent = 'Ошибка';
             }
+
+            setLoading('btn-update', false);
         }
 
-        async function refreshLogs() {
+        async function loadLogs() {
+            setLoading('btn-logs', true);
+            logActivity('Загрузка логов...', 'warn');
+
             try {
-                const logs = await exec('tail -20 /data/local/tmp/zapret2.log 2>/dev/null || echo "Логи пусты"');
-                const container = document.getElementById('logs');
-                container.innerHTML = logs.split('\n').map(line =>
-                    '<div class="log-line">' + escapeHtml(line) + '</div>'
-                ).join('');
-                container.scrollTop = container.scrollHeight;
+                const logs = await run(`tail -30 ${LOGFILE} 2>/dev/null || echo "Логов нет"`);
+                const box = document.getElementById('logs-box');
+
+                if (logs && logs.trim()) {
+                    box.innerHTML = logs.split('\n').map(line => {
+                        let cls = '';
+                        if (line.includes('[ERROR]')) cls = 'error';
+                        else if (line.includes('[INFO]')) cls = 'info';
+                        return `<div class="log-line ${cls}">${escapeHtml(line)}</div>`;
+                    }).join('');
+                    box.scrollTop = box.scrollHeight;
+                    logActivity('Логи загружены', 'ok');
+                } else {
+                    box.innerHTML = '<div class="log-line">Логи пусты</div>';
+                }
             } catch (e) {
-                console.error('Logs failed:', e);
+                logActivity('Ошибка загрузки логов', 'err');
             }
+
+            setLoading('btn-logs', false);
         }
 
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
+        // Init
+        async function init() {
+            logActivity('Инициализация...', 'warn');
+            await checkStatus();
+            await loadConfig();
+            await loadLogs();
+            logActivity('Готово', 'ok');
+
+            // Auto refresh status every 10 sec
+            setInterval(checkStatus, 10000);
         }
 
-        // Initialize
-        document.addEventListener('DOMContentLoaded', () => {
-            checkStatus();
-            loadConfig();
-            refreshLogs();
-
-            // Auto-refresh status every 5 seconds
-            setInterval(checkStatus, 5000);
-        });
+        // Start when DOM ready
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', init);
+        } else {
+            init();
+        }
     </script>
 </body>
 </html>
