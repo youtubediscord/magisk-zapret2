@@ -55,10 +55,6 @@ jobs:
             target: aarch64-linux-android
           - abi: armeabi-v7a
             target: armv7a-linux-androideabi
-          - abi: x86_64
-            target: x86_64-linux-android
-          - abi: x86
-            target: i686-linux-android
 
     steps:
       - name: Checkout module
@@ -170,17 +166,13 @@ jobs:
 
       - name: Prepare module
         run: |
-          # Create bin directories
+          # Create bin directories (ARM only, no x86 emulator support)
           mkdir -p zapret2/bin/arm64-v8a
           mkdir -p zapret2/bin/armeabi-v7a
-          mkdir -p zapret2/bin/x86_64
-          mkdir -p zapret2/bin/x86
 
           # Copy binaries
           cp binaries/nfqws2-arm64-v8a/nfqws2 zapret2/bin/arm64-v8a/ || true
           cp binaries/nfqws2-armeabi-v7a/nfqws2 zapret2/bin/armeabi-v7a/ || true
-          cp binaries/nfqws2-x86_64/nfqws2 zapret2/bin/x86_64/ || true
-          cp binaries/nfqws2-x86/nfqws2 zapret2/bin/x86/ || true
 
           # Set version
           VERSION="${{ github.event.inputs.version || github.ref_name }}"
