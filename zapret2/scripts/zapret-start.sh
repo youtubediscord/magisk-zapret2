@@ -293,7 +293,7 @@ build_options() {
 --lua-desync=multisplit:pos=midsld \
 --new \
 --filter-l7=stun,discord \
---payload=stun_binding_req,discord_ip_discovery \
+--payload=stun,discord_ip_discovery \
 --lua-desync=fake:blob=fake_stun:repeats=6"
             ;;
 
@@ -376,7 +376,7 @@ build_category_options() {
         if [ $first -eq 0 ]; then
             OPTS="$OPTS --new"
         fi
-        OPTS="$OPTS --out-range=-d$PKT_COUNT --filter-l7=stun,discord --payload=stun_binding_req,discord_ip_discovery --lua-desync=fake:blob=fake_stun:repeats=6"
+        OPTS="$OPTS --out-range=-d$PKT_COUNT --filter-l7=stun,discord --payload=stun,discord_ip_discovery --lua-desync=fake:blob=fake_stun:repeats=6"
         first=0
         log_msg "Added Voice (STUN/Discord) (pkt=$PKT_COUNT)"
     fi
