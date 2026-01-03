@@ -64,22 +64,24 @@ jobs:
           # Download Lua 5.4
           wget -q https://www.lua.org/ftp/lua-5.4.6.tar.gz
           tar xzf lua-5.4.6.tar.gz
-          cd lua-5.4.6
+          cd lua-5.4.6/src
 
           # Set up cross-compiler
           TOOLCHAIN=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64
-          export CC=$TOOLCHAIN/bin/${{ matrix.ndk_arch }}${{ matrix.api }}-clang
-          export AR=$TOOLCHAIN/bin/llvm-ar
-          export RANLIB=$TOOLCHAIN/bin/llvm-ranlib
+          CC=$TOOLCHAIN/bin/${{ matrix.ndk_arch }}${{ matrix.api }}-clang
+          AR=$TOOLCHAIN/bin/llvm-ar
 
-          # Build Lua as static library
-          make PLAT=linux CC="$CC" AR="$AR rcu" RANLIB="$RANLIB" MYCFLAGS="-fPIC" liblua.a
+          # Build Lua objects
+          $CC -std=gnu99 -O2 -Wall -fPIC -DLUA_USE_LINUX -c *.c
+
+          # Create static library
+          $AR rcs liblua.a *.o
 
           # Install to local prefix
           mkdir -p $GITHUB_WORKSPACE/lua-android/lib
           mkdir -p $GITHUB_WORKSPACE/lua-android/include
           cp liblua.a $GITHUB_WORKSPACE/lua-android/lib/
-          cp src/*.h $GITHUB_WORKSPACE/lua-android/include/
+          cp lua.h luaconf.h lualib.h lauxlib.h $GITHUB_WORKSPACE/lua-android/include/
 
       - name: Build nfqws2 for ${{ matrix.arch }}
         env:
