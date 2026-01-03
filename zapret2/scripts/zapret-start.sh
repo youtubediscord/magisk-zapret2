@@ -97,7 +97,10 @@ fi
 fix_permissions() {
     log_msg "Fixing permissions for non-root access..."
 
-    # All directories in path need +x for traversal
+    # ALL parent directories in path need +x for traversal by uid 1
+    chmod 755 /data 2>/dev/null
+    chmod 755 /data/adb 2>/dev/null
+    chmod 755 /data/adb/modules 2>/dev/null
     chmod 755 "$MODDIR" 2>/dev/null
     chmod 755 "$ZAPRET_DIR" 2>/dev/null
     chmod 755 "$ZAPRET_DIR/lua" 2>/dev/null
@@ -105,15 +108,27 @@ fix_permissions() {
     chmod 755 "$ZAPRET_DIR/lists" 2>/dev/null
     chmod 755 "$ZAPRET_DIR/scripts" 2>/dev/null
 
-    # Files need read permission
+    # Lua files - READ for all (fopen "rb")
     chmod 644 "$ZAPRET_DIR/lua/"*.lua 2>/dev/null
+    chmod 644 "$ZAPRET_DIR/lua/"*.lua.gz 2>/dev/null
+
+    # Blob files - READ for all
     chmod 644 "$ZAPRET_DIR/bin/"*.bin 2>/dev/null
+
+    # Hostlist files - READ for all
     chmod 644 "$ZAPRET_DIR/lists/"*.txt 2>/dev/null
+
+    # Auto-hostlist - WRITE permission (if used)
+    touch "$ZAPRET_DIR/lists/autohostlist.txt" 2>/dev/null
+    chmod 666 "$ZAPRET_DIR/lists/autohostlist.txt" 2>/dev/null
 
     # Binary needs execute
     chmod 755 "$NFQWS2" 2>/dev/null
 
-    log_msg "Permissions fixed"
+    # Fix SELinux context (critical for Android!)
+    chcon -R u:object_r:system_file:s0 "$MODDIR" 2>/dev/null
+
+    log_msg "Permissions and SELinux context fixed"
 }
 
 fix_permissions
