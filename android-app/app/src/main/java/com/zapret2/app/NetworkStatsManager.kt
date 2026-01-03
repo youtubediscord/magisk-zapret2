@@ -1,18 +1,18 @@
 package com.zapret2.app
 
-import android.content.BroadcastReceiver
 import android.content.Context
-import android.content.Intent
-import android.content.IntentFilter
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.net.wifi.WifiManager
-import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import android.util.Log
 import com.topjohnwu.superuser.Shell
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.lang.ref.WeakReference
 
 /**
  * Manages network statistics and monitoring for the Zapret2 app.
@@ -22,10 +22,26 @@ import kotlinx.coroutines.withContext
  * - iptables rules status
  * - NFQUEUE rules count
  */
-class NetworkStatsManager(private val context: Context) {
+class NetworkStatsManager(context: Context) {
 
-    private val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-    private val wifiManager = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+    companion object {
+        private const val TAG = "NetworkStatsManager"
+    }
+
+    // Use WeakReference to avoid memory leaks
+    private val contextRef = WeakReference(context.applicationContext)
+
+    // Lazy initialization with null safety
+    private val connectivityManager: ConnectivityManager? by lazy {
+        contextRef.get()?.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+    }
+
+    private val wifiManager: WifiManager? by lazy {
+        contextRef.get()?.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+    }
+
+    // Handler for posting callbacks to main thread
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var networkChangeListener: NetworkChangeListener? = null
@@ -62,42 +78,62 @@ class NetworkStatsManager(private val context: Context) {
      * Gets the current network type
      */
     fun getNetworkType(): NetworkType {
-        val activeNetwork = connectivityManager.activeNetwork ?: return NetworkType.NONE
-        val capabilities = connectivityManager.getNetworkCapabilities(activeNetwork) ?: return NetworkType.NONE
+        val cm = connectivityManager ?: return NetworkType.NONE
 
-        return when {
-            capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN) -> NetworkType.VPN
-            capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> NetworkType.WIFI
-            capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> NetworkType.MOBILE
-            capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> NetworkType.ETHERNET
-            else -> NetworkType.NONE
+        return try {
+            val activeNetwork = cm.activeNetwork ?: return NetworkType.NONE
+            val capabilities = cm.getNetworkCapabilities(activeNetwork) ?: return NetworkType.NONE
+
+            when {
+                capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN) -> NetworkType.VPN
+                capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> NetworkType.WIFI
+                capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> NetworkType.MOBILE
+                capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> NetworkType.ETHERNET
+                else -> NetworkType.NONE
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error getting network type", e)
+            NetworkType.NONE
         }
     }
 
     /**
      * Gets the current WiFi SSID (if connected to WiFi)
      * Returns null if not connected to WiFi or SSID is not available
+     *
+     * Note: On Android 8.1+ requires ACCESS_FINE_LOCATION permission.
+     * On Android 12+ also requires ACCESS_WIFI_STATE permission.
      */
     @Suppress("DEPRECATION")
     fun getWifiSsid(): String? {
-        val networkType = getNetworkType()
-        if (networkType != NetworkType.WIFI) return null
+        return try {
+            val networkType = getNetworkType()
+            if (networkType != NetworkType.WIFI) return null
 
-        // Try to get SSID from WifiManager
-        val wifiInfo = wifiManager.connectionInfo
-        var ssid = wifiInfo?.ssid
+            val wm = wifiManager ?: return null
 
-        // SSID comes wrapped in quotes, remove them
-        if (ssid != null && ssid.startsWith("\"") && ssid.endsWith("\"")) {
-            ssid = ssid.substring(1, ssid.length - 1)
+            // Try to get SSID from WifiManager
+            val wifiInfo = wm.connectionInfo ?: return null
+            var ssid = wifiInfo.ssid
+
+            // SSID comes wrapped in quotes, remove them
+            if (ssid != null && ssid.startsWith("\"") && ssid.endsWith("\"")) {
+                ssid = ssid.substring(1, ssid.length - 1)
+            }
+
+            // On Android 8.1+, SSID may be <unknown ssid> without location permission
+            if (ssid.isNullOrEmpty() || ssid == "<unknown ssid>" || ssid == "0x" || ssid == WifiManager.UNKNOWN_SSID) {
+                return null
+            }
+
+            ssid
+        } catch (e: SecurityException) {
+            Log.w(TAG, "Permission denied when getting WiFi SSID", e)
+            null
+        } catch (e: Exception) {
+            Log.e(TAG, "Error getting WiFi SSID", e)
+            null
         }
-
-        // On Android 8.1+, SSID may be <unknown ssid> without location permission
-        if (ssid == "<unknown ssid>" || ssid == "0x") {
-            return null
-        }
-
-        return ssid
     }
 
     /**
@@ -162,8 +198,18 @@ class NetworkStatsManager(private val context: Context) {
 
     /**
      * Registers a listener for network changes
+     * @return true if registration succeeded, false otherwise
      */
-    fun registerNetworkChangeListener(listener: NetworkChangeListener) {
+    fun registerNetworkChangeListener(listener: NetworkChangeListener): Boolean {
+        val cm = connectivityManager
+        if (cm == null) {
+            Log.e(TAG, "Cannot register network listener: ConnectivityManager is null")
+            return false
+        }
+
+        // Unregister existing callback first to avoid duplicates
+        unregisterNetworkChangeListener()
+
         networkChangeListener = listener
 
         val networkRequest = NetworkRequest.Builder()
@@ -187,41 +233,68 @@ class NetworkStatsManager(private val context: Context) {
             }
         }
 
-        try {
-            connectivityManager.registerNetworkCallback(networkRequest, networkCallback!!)
+        return try {
+            cm.registerNetworkCallback(networkRequest, networkCallback!!)
+            true
+        } catch (e: SecurityException) {
+            Log.e(TAG, "Permission denied when registering network callback", e)
+            networkCallback = null
+            networkChangeListener = null
+            false
         } catch (e: Exception) {
-            // Ignore if already registered
+            Log.e(TAG, "Failed to register network callback", e)
+            networkCallback = null
+            networkChangeListener = null
+            false
         }
     }
 
     /**
      * Unregisters the network change listener
+     * Safe to call multiple times
      */
     fun unregisterNetworkChangeListener() {
-        networkCallback?.let {
+        val callback = networkCallback
+        if (callback != null) {
             try {
-                connectivityManager.unregisterNetworkCallback(it)
+                connectivityManager?.unregisterNetworkCallback(callback)
+            } catch (e: IllegalArgumentException) {
+                // Callback was not registered - ignore
+                Log.d(TAG, "Network callback was not registered")
             } catch (e: Exception) {
-                // Ignore if not registered
+                Log.e(TAG, "Error unregistering network callback", e)
             }
         }
         networkCallback = null
         networkChangeListener = null
+
+        // Remove any pending callbacks from the handler
+        mainHandler.removeCallbacksAndMessages(null)
     }
 
     private fun notifyNetworkChange() {
-        // Notify listener on main thread
-        // Note: The actual stats fetching should be done in a coroutine by the caller
-        networkChangeListener?.let { listener ->
-            // We need to fetch stats async, so we create a simple stats object
-            // with just network type info for immediate notification
-            val quickStats = NetworkStats(
-                networkType = getNetworkType(),
-                wifiSsid = getWifiSsid(),
-                iptablesActive = false, // Will be updated by caller
-                nfqueueRulesCount = 0   // Will be updated by caller
-            )
-            listener.onNetworkChanged(quickStats)
+        // Capture listener reference to avoid race conditions
+        val listener = networkChangeListener ?: return
+
+        // NetworkCallback methods are called on a background thread,
+        // so we must post to main thread for safe UI updates
+        mainHandler.post {
+            try {
+                // Check if listener is still valid (may have been unregistered)
+                if (networkChangeListener == null) return@post
+
+                // We need to fetch stats async, so we create a simple stats object
+                // with just network type info for immediate notification
+                val quickStats = NetworkStats(
+                    networkType = getNetworkType(),
+                    wifiSsid = getWifiSsid(),
+                    iptablesActive = false, // Will be updated by caller
+                    nfqueueRulesCount = 0   // Will be updated by caller
+                )
+                listener.onNetworkChanged(quickStats)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error notifying network change", e)
+            }
         }
     }
 

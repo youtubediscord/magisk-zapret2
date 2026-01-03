@@ -22,17 +22,20 @@ import kotlinx.coroutines.withContext
 
 class HostlistsFragment : Fragment() {
 
-    private lateinit var recyclerView: RecyclerView
-    private lateinit var swipeRefresh: SwipeRefreshLayout
-    private lateinit var progressBar: ProgressBar
-    private lateinit var emptyView: LinearLayout
-    private lateinit var textTotalDomains: TextView
-    private lateinit var textTotalFiles: TextView
+    private var recyclerView: RecyclerView? = null
+    private var swipeRefresh: SwipeRefreshLayout? = null
+    private var progressBar: ProgressBar? = null
+    private var emptyView: LinearLayout? = null
+    private var textTotalDomains: TextView? = null
+    private var textTotalFiles: TextView? = null
 
     private val hostlistFiles = mutableListOf<HostlistFile>()
-    private lateinit var adapter: HostlistAdapter
+    private var adapter: HostlistAdapter? = null
 
     private var fileObserver: FileObserver? = null
+
+    // Flag to track if view is active
+    private var isViewActive = false
 
     // Path to hostlist files
     private val LISTS_DIR = "/data/adb/modules/zapret2/zapret2/lists"
@@ -54,6 +57,7 @@ class HostlistsFragment : Fragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        isViewActive = true
         initViews(view)
         setupRecyclerView()
         setupSwipeRefresh()
@@ -62,9 +66,19 @@ class HostlistsFragment : Fragment() {
     }
 
     override fun onDestroyView() {
-        super.onDestroyView()
+        isViewActive = false
         fileObserver?.stopWatching()
         fileObserver = null
+        // Clear view references to prevent memory leaks
+        recyclerView?.adapter = null
+        recyclerView = null
+        swipeRefresh = null
+        progressBar = null
+        emptyView = null
+        textTotalDomains = null
+        textTotalFiles = null
+        adapter = null
+        super.onDestroyView()
     }
 
     private fun initViews(view: View) {
@@ -80,19 +94,19 @@ class HostlistsFragment : Fragment() {
         adapter = HostlistAdapter(hostlistFiles) { file ->
             openHostlistContent(file)
         }
-        recyclerView.layoutManager = LinearLayoutManager(requireContext())
-        recyclerView.adapter = adapter
+        recyclerView?.layoutManager = LinearLayoutManager(requireContext())
+        recyclerView?.adapter = adapter
     }
 
     private fun setupSwipeRefresh() {
-        swipeRefresh.setColorSchemeColors(
+        swipeRefresh?.setColorSchemeColors(
             resources.getColor(R.color.accent_blue, null),
             resources.getColor(R.color.accent_light_blue, null)
         )
-        swipeRefresh.setProgressBackgroundColorSchemeColor(
+        swipeRefresh?.setProgressBackgroundColorSchemeColor(
             resources.getColor(R.color.surface, null)
         )
-        swipeRefresh.setOnRefreshListener {
+        swipeRefresh?.setOnRefreshListener {
             loadHostlists()
         }
     }
@@ -100,55 +114,81 @@ class HostlistsFragment : Fragment() {
     private fun setupFileObserver() {
         viewLifecycleOwner.lifecycleScope.launch {
             val dirExists = withContext(Dispatchers.IO) {
-                Shell.cmd("[ -d \"$LISTS_DIR\" ] && echo 'exists'").exec().out.firstOrNull() == "exists"
+                try {
+                    Shell.cmd("[ -d \"$LISTS_DIR\" ] && echo 'exists'").exec().out.firstOrNull() == "exists"
+                } catch (e: Exception) {
+                    false
+                }
             }
 
-            if (dirExists) {
-                fileObserver = object : FileObserver(LISTS_DIR, CREATE or DELETE or MODIFY or MOVED_FROM or MOVED_TO) {
-                    override fun onEvent(event: Int, path: String?) {
-                        if (path?.endsWith(".txt") == true) {
-                            activity?.runOnUiThread {
-                                loadHostlists()
+            if (dirExists && isViewActive) {
+                try {
+                    @Suppress("DEPRECATION")
+                    fileObserver = object : FileObserver(LISTS_DIR, CREATE or DELETE or MODIFY or MOVED_FROM or MOVED_TO) {
+                        override fun onEvent(event: Int, path: String?) {
+                            if (path?.endsWith(".txt") == true && isViewActive) {
+                                // Use view?.post for safer UI updates
+                                view?.post {
+                                    if (isViewActive && isAdded && !isDetached) {
+                                        loadHostlists()
+                                    }
+                                }
                             }
                         }
                     }
+                    fileObserver?.startWatching()
+                } catch (e: Exception) {
+                    // FileObserver may fail on certain paths or Android versions
+                    // Silently fail - manual refresh is still available
                 }
-                fileObserver?.startWatching()
             }
         }
     }
 
     private fun loadHostlists() {
+        // Safety check - don't proceed if view is not active
+        if (!isViewActive || !isAdded) return
+
         viewLifecycleOwner.lifecycleScope.launch {
-            if (!swipeRefresh.isRefreshing) {
-                progressBar.visibility = View.VISIBLE
+            // Double-check after potential suspension
+            if (!isViewActive) return@launch
+
+            if (swipeRefresh?.isRefreshing != true) {
+                progressBar?.visibility = View.VISIBLE
             }
-            emptyView.visibility = View.GONE
+            emptyView?.visibility = View.GONE
 
             val files = withContext(Dispatchers.IO) {
-                loadHostlistFiles()
+                try {
+                    loadHostlistFiles()
+                } catch (e: Exception) {
+                    emptyList()
+                }
             }
+
+            // Check again after IO operation
+            if (!isViewActive) return@launch
 
             hostlistFiles.clear()
             hostlistFiles.addAll(files)
-            adapter.notifyDataSetChanged()
+            adapter?.notifyDataSetChanged()
 
             // Update statistics
             val totalDomains = hostlistFiles.sumOf { it.domainCount }
             val totalFiles = hostlistFiles.size
 
-            textTotalDomains.text = formatNumber(totalDomains)
-            textTotalFiles.text = totalFiles.toString()
+            textTotalDomains?.text = formatNumber(totalDomains)
+            textTotalFiles?.text = totalFiles.toString()
 
-            progressBar.visibility = View.GONE
-            swipeRefresh.isRefreshing = false
+            progressBar?.visibility = View.GONE
+            swipeRefresh?.isRefreshing = false
 
             if (hostlistFiles.isEmpty()) {
-                emptyView.visibility = View.VISIBLE
-                recyclerView.visibility = View.GONE
+                emptyView?.visibility = View.VISIBLE
+                recyclerView?.visibility = View.GONE
             } else {
-                emptyView.visibility = View.GONE
-                recyclerView.visibility = View.VISIBLE
+                emptyView?.visibility = View.GONE
+                recyclerView?.visibility = View.VISIBLE
             }
         }
     }
@@ -193,7 +233,11 @@ class HostlistsFragment : Fragment() {
     }
 
     private fun openHostlistContent(file: HostlistFile) {
-        val intent = Intent(requireContext(), HostlistContentActivity::class.java).apply {
+        // Safety check to avoid crash when fragment is detached
+        val ctx = context ?: return
+        if (!isAdded || isDetached) return
+
+        val intent = Intent(ctx, HostlistContentActivity::class.java).apply {
             putExtra(HostlistContentActivity.EXTRA_FILE_PATH, file.path)
             putExtra(HostlistContentActivity.EXTRA_FILE_NAME, file.name)
             putExtra(HostlistContentActivity.EXTRA_DOMAIN_COUNT, file.domainCount)

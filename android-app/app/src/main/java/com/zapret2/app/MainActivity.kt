@@ -10,73 +10,108 @@ import com.topjohnwu.superuser.Shell
 
 class MainActivity : AppCompatActivity() {
 
-    private lateinit var viewPager: ViewPager2
-    private lateinit var bottomNav: BottomNavigationView
+    private var viewPager: ViewPager2? = null
+    private var bottomNav: BottomNavigationView? = null
     private var backPressedTime: Long = 0
 
     companion object {
-        init {
-            // Initialize Shell with root settings
-            Shell.setDefaultBuilder(
-                Shell.Builder.create()
-                    .setFlags(Shell.FLAG_MOUNT_MASTER)
-                    .setTimeout(30)
-            )
+        private var shellInitialized = false
+
+        fun initShell() {
+            if (!shellInitialized) {
+                try {
+                    Shell.setDefaultBuilder(
+                        Shell.Builder.create()
+                            .setFlags(Shell.FLAG_MOUNT_MASTER)
+                            .setTimeout(30)
+                    )
+                    shellInitialized = true
+                } catch (e: Exception) {
+                    // Shell initialization failed - will be handled in fragments
+                    e.printStackTrace()
+                }
+            }
         }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Initialize Shell safely before UI setup
+        initShell()
+
         setContentView(R.layout.activity_main)
 
-        initViews()
+        if (!initViews()) {
+            // Critical views not found - show error and finish
+            Toast.makeText(this, "Failed to initialize UI", Toast.LENGTH_LONG).show()
+            finish()
+            return
+        }
+
         setupViewPager()
         setupBottomNavigation()
         setupBackPressHandler()
     }
 
-    private fun initViews() {
+    /**
+     * Initialize views with null safety.
+     * @return true if all required views were found, false otherwise
+     */
+    private fun initViews(): Boolean {
         viewPager = findViewById(R.id.viewPager)
         bottomNav = findViewById(R.id.bottomNav)
+
+        return viewPager != null && bottomNav != null
     }
 
     private fun setupViewPager() {
+        val pager = viewPager ?: return
+        val nav = bottomNav ?: return
+
         val adapter = ViewPagerAdapter(this)
-        viewPager.adapter = adapter
+        pager.adapter = adapter
 
         // Disable swipe between pages (optional - can be enabled)
-        viewPager.isUserInputEnabled = true
+        pager.isUserInputEnabled = true
 
         // Listen for page changes to sync with bottom navigation
-        viewPager.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
+        pager.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
             override fun onPageSelected(position: Int) {
                 super.onPageSelected(position)
-                bottomNav.menu.getItem(position).isChecked = true
+                // Safe access to menu item with bounds check
+                val menuItemCount = nav.menu.size()
+                if (position in 0 until menuItemCount) {
+                    nav.menu.getItem(position)?.isChecked = true
+                }
             }
         })
     }
 
     private fun setupBottomNavigation() {
-        bottomNav.setOnItemSelectedListener { item ->
+        val pager = viewPager ?: return
+        val nav = bottomNav ?: return
+
+        nav.setOnItemSelectedListener { item ->
             when (item.itemId) {
                 R.id.nav_control -> {
-                    viewPager.setCurrentItem(0, true)
+                    pager.setCurrentItem(0, true)
                     true
                 }
                 R.id.nav_strategies -> {
-                    viewPager.setCurrentItem(1, true)
+                    pager.setCurrentItem(1, true)
                     true
                 }
                 R.id.nav_categories -> {
-                    viewPager.setCurrentItem(2, true)
+                    pager.setCurrentItem(2, true)
                     true
                 }
                 R.id.nav_hostlists -> {
-                    viewPager.setCurrentItem(3, true)
+                    pager.setCurrentItem(3, true)
                     true
                 }
                 R.id.nav_logs -> {
-                    viewPager.setCurrentItem(4, true)
+                    pager.setCurrentItem(4, true)
                     true
                 }
                 else -> false
@@ -87,9 +122,11 @@ class MainActivity : AppCompatActivity() {
     private fun setupBackPressHandler() {
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
+                val pager = viewPager
+
                 // If not on first page, go back to first page
-                if (viewPager.currentItem != 0) {
-                    viewPager.setCurrentItem(0, true)
+                if (pager != null && pager.currentItem != 0) {
+                    pager.setCurrentItem(0, true)
                     return
                 }
 
