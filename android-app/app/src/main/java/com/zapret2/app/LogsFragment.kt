@@ -157,7 +157,9 @@ class LogsFragment : Fragment() {
             if (currentLogs.isNotBlank()) {
                 copyToClipboard(currentLogs, "Logs")
             } else {
-                Toast.makeText(requireContext(), "No logs to copy", Toast.LENGTH_SHORT).show()
+                context?.let { ctx ->
+                    Toast.makeText(ctx, "No logs to copy", Toast.LENGTH_SHORT).show()
+                }
             }
         }
 
@@ -180,18 +182,22 @@ class LogsFragment : Fragment() {
             val cmdline = withContext(Dispatchers.IO) {
                 fetchCmdline()
             }
-            textCmdline.text = cmdline.ifBlank { "No command line available" }
+            if (isAdded && view != null) {
+                textCmdline.text = cmdline.ifBlank { "No command line available" }
+            }
         }
     }
 
     private fun loadLogs() {
         viewLifecycleOwner.lifecycleScope.launch {
+            if (!isAdded || view == null) return@launch
             buttonRefresh.isEnabled = false
 
             val logs = withContext(Dispatchers.IO) {
                 fetchLogs()
             }
 
+            if (!isAdded || view == null) return@launch
             currentLogs = logs
             displayLogs(logs)
             buttonRefresh.isEnabled = true
@@ -214,9 +220,10 @@ class LogsFragment : Fragment() {
             }
 
             val result = Shell.cmd(command).exec()
+            val output = result.out
 
-            if (result.isSuccess && result.out.isNotEmpty()) {
-                result.out
+            if (result.isSuccess && !output.isNullOrEmpty()) {
+                output
                     .filter { line ->
                         // Filter out garbage lines
                         line.isNotBlank() &&
@@ -250,6 +257,9 @@ class LogsFragment : Fragment() {
     }
 
     private fun displayLogs(logs: String) {
+        // Safety check - ensure fragment is attached and views are available
+        if (!isAdded || view == null) return
+
         val filterText = editLogFilter.text?.toString()?.trim() ?: ""
 
         val displayText = if (filterText.isNotEmpty()) {
@@ -288,6 +298,7 @@ class LogsFragment : Fragment() {
 
     private fun clearLogs() {
         viewLifecycleOwner.lifecycleScope.launch {
+            if (!isAdded || view == null) return@launch
             buttonClearLogs.isEnabled = false
 
             val success = withContext(Dispatchers.IO) {
@@ -303,12 +314,16 @@ class LogsFragment : Fragment() {
                 }
             }
 
-            if (success) {
-                Toast.makeText(requireContext(), "Logs cleared", Toast.LENGTH_SHORT).show()
-                currentLogs = ""
-                displayLogs("")
-            } else {
-                Toast.makeText(requireContext(), "Failed to clear logs", Toast.LENGTH_SHORT).show()
+            if (!isAdded || view == null) return@launch
+
+            context?.let { ctx ->
+                if (success) {
+                    Toast.makeText(ctx, "Logs cleared", Toast.LENGTH_SHORT).show()
+                    currentLogs = ""
+                    displayLogs("")
+                } else {
+                    Toast.makeText(ctx, "Failed to clear logs", Toast.LENGTH_SHORT).show()
+                }
             }
 
             buttonClearLogs.isEnabled = true
@@ -356,8 +371,9 @@ class LogsFragment : Fragment() {
     private fun fetchCmdline(): String {
         return try {
             val result = Shell.cmd("cat $CMDLINE_FILE").exec()
-            if (result.isSuccess && result.out.isNotEmpty()) {
-                result.out
+            val output = result.out
+            if (result.isSuccess && !output.isNullOrEmpty()) {
+                output
                     .filter { it.isNotBlank() }
                     .joinToString(" ")
                     .trim()
@@ -370,13 +386,14 @@ class LogsFragment : Fragment() {
     }
 
     private fun copyToClipboard(text: String, label: String) {
+        val ctx = context ?: return
         try {
-            val clipboard = requireContext().getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            val clipboard = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
             val clip = ClipData.newPlainText(label, text)
             clipboard.setPrimaryClip(clip)
-            Toast.makeText(requireContext(), "$label copied to clipboard", Toast.LENGTH_SHORT).show()
+            Toast.makeText(ctx, "$label copied to clipboard", Toast.LENGTH_SHORT).show()
         } catch (e: Exception) {
-            Toast.makeText(requireContext(), "Failed to copy", Toast.LENGTH_SHORT).show()
+            Toast.makeText(ctx, "Failed to copy", Toast.LENGTH_SHORT).show()
         }
     }
 
