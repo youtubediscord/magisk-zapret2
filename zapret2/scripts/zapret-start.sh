@@ -329,125 +329,84 @@ build_category_options() {
     first=1
 
     log_msg "Building category options..."
-    log_msg "  USE_CATEGORIES=$USE_CATEGORIES"
-    log_msg "  STRATEGY_YOUTUBE=$STRATEGY_YOUTUBE"
-    log_msg "  STRATEGY_DISCORD=$STRATEGY_DISCORD"
-    log_msg "  STRATEGY_TELEGRAM=$STRATEGY_TELEGRAM"
-    log_msg "  STRATEGY_OTHER=$STRATEGY_OTHER"
-    log_msg "  STRATEGY_UDP=$STRATEGY_UDP"
 
-    # YouTube TLS
-    if [ -n "$STRATEGY_YOUTUBE" ] && [ "$STRATEGY_YOUTUBE" != "none" ]; then
-        filter="--filter-tcp=443 --filter-l7=tls"
-        if [ -f "$LISTS_DIR/youtube.txt" ]; then
-            filter="$filter --hostlist=$LISTS_DIR/youtube.txt"
-        fi
-        strat_opts=$(get_strategy_options "$STRATEGY_YOUTUBE" "$filter")
-        log_msg "  YouTube strat_opts: $strat_opts"
-        if [ -n "$strat_opts" ]; then
-            if [ $first -eq 0 ]; then
-                OPTS="$OPTS --new"
+    # Helper function to add a category
+    add_category() {
+        local name="$1"
+        local strategy="$2"
+        local filter="$3"
+        local hostlist="$4"
+
+        if [ -n "$strategy" ] && [ "$strategy" != "none" ]; then
+            local full_filter="$filter"
+            if [ -n "$hostlist" ] && [ -f "$LISTS_DIR/$hostlist" ]; then
+                full_filter="$full_filter --hostlist=$LISTS_DIR/$hostlist"
             fi
-            OPTS="$OPTS $strat_opts"
-            first=0
-            log_msg "Added YouTube strategy: $STRATEGY_YOUTUBE"
-        else
-            log_msg "WARNING: No options returned for YouTube strategy: $STRATEGY_YOUTUBE"
+            local strat_opts=$(get_strategy_options "$strategy" "$full_filter")
+            if [ -n "$strat_opts" ]; then
+                if [ $first -eq 0 ]; then
+                    OPTS="$OPTS --new"
+                fi
+                OPTS="$OPTS $strat_opts"
+                first=0
+                log_msg "Added $name: $strategy"
+            else
+                log_msg "WARNING: No options for $name: $strategy"
+            fi
         fi
-    else
-        log_msg "  YouTube: skipped (empty or none)"
+    }
+
+    # YouTube TCP
+    add_category "YouTube TCP" "$STRATEGY_YOUTUBE" "--filter-tcp=80,443 --filter-l7=tls" "youtube.txt"
+
+    # YouTube QUIC/UDP
+    add_category "YouTube QUIC" "$STRATEGY_YOUTUBE_UDP" "--filter-udp=443 --filter-l7=quic" "youtube.txt"
+
+    # Discord TCP
+    add_category "Discord TCP" "$STRATEGY_DISCORD" "--filter-tcp=80,443 --filter-l7=tls" "discord.txt"
+
+    # Discord Voice UDP
+    if [ -n "$STRATEGY_DISCORD_VOICE_UDP" ] && [ "$STRATEGY_DISCORD_VOICE_UDP" != "none" ]; then
+        if [ $first -eq 0 ]; then
+            OPTS="$OPTS --new"
+        fi
+        OPTS="$OPTS --filter-udp=19294-50100 --lua-desync=fake:blob=fake_stun:repeats=6"
+        first=0
+        log_msg "Added Discord Voice UDP"
     fi
 
-    # Discord TLS
-    if [ -n "$STRATEGY_DISCORD" ] && [ "$STRATEGY_DISCORD" != "none" ]; then
-        filter="--filter-tcp=443 --filter-l7=tls"
-        if [ -f "$LISTS_DIR/discord.txt" ]; then
-            filter="$filter --hostlist=$LISTS_DIR/discord.txt"
-        fi
-        strat_opts=$(get_strategy_options "$STRATEGY_DISCORD" "$filter")
-        log_msg "  Discord strat_opts: $strat_opts"
-        if [ -n "$strat_opts" ]; then
-            if [ $first -eq 0 ]; then
-                OPTS="$OPTS --new"
-            fi
-            OPTS="$OPTS $strat_opts"
-            first=0
-            log_msg "Added Discord strategy: $STRATEGY_DISCORD"
-        else
-            log_msg "WARNING: No options returned for Discord strategy: $STRATEGY_DISCORD"
-        fi
+    # Telegram TCP
+    add_category "Telegram TCP" "$STRATEGY_TELEGRAM_TCP" "--filter-tcp=80,443 --filter-l7=tls" "telegram.txt"
 
-        # Discord Voice UDP
-        if [ "$STRATEGY_DISCORD" = "fake_x6_stun_discord" ] || [ -n "$STRATEGY_DISCORD_VOICE" ]; then
-            OPTS="$OPTS --new --filter-udp=19294-50100 --payload=stun --lua-desync=fake:blob=fake_stun:repeats=6"
-            log_msg "Added Discord Voice UDP"
-        fi
-    else
-        log_msg "  Discord: skipped (empty or none)"
-    fi
+    # WhatsApp TCP
+    add_category "WhatsApp TCP" "$STRATEGY_WHATSAPP_TCP" "--filter-tcp=80,443 --filter-l7=tls" "whatsapp.txt"
 
-    # Telegram TLS
-    if [ -n "$STRATEGY_TELEGRAM" ] && [ "$STRATEGY_TELEGRAM" != "none" ]; then
-        filter="--filter-tcp=443 --filter-l7=tls"
-        if [ -f "$LISTS_DIR/telegram.txt" ]; then
-            filter="$filter --hostlist=$LISTS_DIR/telegram.txt"
-        fi
-        strat_opts=$(get_strategy_options "$STRATEGY_TELEGRAM" "$filter")
-        log_msg "  Telegram strat_opts: $strat_opts"
-        if [ -n "$strat_opts" ]; then
-            if [ $first -eq 0 ]; then
-                OPTS="$OPTS --new"
-            fi
-            OPTS="$OPTS $strat_opts"
-            first=0
-            log_msg "Added Telegram strategy: $STRATEGY_TELEGRAM"
-        else
-            log_msg "WARNING: No options returned for Telegram strategy: $STRATEGY_TELEGRAM"
-        fi
-    else
-        log_msg "  Telegram: skipped (empty or none)"
-    fi
+    # Facebook TCP
+    add_category "Facebook TCP" "$STRATEGY_FACEBOOK_TCP" "--filter-tcp=80,443 --filter-l7=tls" "facebook.txt"
 
-    # Other sites TLS
-    if [ -n "$STRATEGY_OTHER" ] && [ "$STRATEGY_OTHER" != "none" ]; then
-        filter="--filter-tcp=443 --filter-l7=tls"
-        if [ -f "$LISTS_DIR/other.txt" ]; then
-            filter="$filter --hostlist=$LISTS_DIR/other.txt"
-        fi
-        strat_opts=$(get_strategy_options "$STRATEGY_OTHER" "$filter")
-        log_msg "  Other strat_opts: $strat_opts"
-        if [ -n "$strat_opts" ]; then
-            if [ $first -eq 0 ]; then
-                OPTS="$OPTS --new"
-            fi
-            OPTS="$OPTS $strat_opts"
-            first=0
-            log_msg "Added Other strategy: $STRATEGY_OTHER"
-        else
-            log_msg "WARNING: No options returned for Other strategy: $STRATEGY_OTHER"
-        fi
-    else
-        log_msg "  Other: skipped (empty or none)"
-    fi
+    # Instagram TCP
+    add_category "Instagram TCP" "$STRATEGY_INSTAGRAM_TCP" "--filter-tcp=80,443 --filter-l7=tls" "instagram.txt"
 
-    # UDP/QUIC
-    if [ -n "$STRATEGY_UDP" ] && [ "$STRATEGY_UDP" != "none" ]; then
-        filter="--filter-udp=443 --filter-l7=quic"
-        strat_opts=$(get_strategy_options "$STRATEGY_UDP" "$filter")
-        log_msg "  UDP strat_opts: $strat_opts"
-        if [ -n "$strat_opts" ]; then
-            if [ $first -eq 0 ]; then
-                OPTS="$OPTS --new"
-            fi
-            OPTS="$OPTS $strat_opts"
-            first=0
-            log_msg "Added UDP strategy: $STRATEGY_UDP"
-        else
-            log_msg "WARNING: No options returned for UDP strategy: $STRATEGY_UDP"
-        fi
-    else
-        log_msg "  UDP: skipped (empty or none)"
-    fi
+    # Twitter TCP
+    add_category "Twitter TCP" "$STRATEGY_TWITTER_TCP" "--filter-tcp=80,443 --filter-l7=tls" "twitter.txt"
+
+    # GitHub TCP
+    add_category "GitHub TCP" "$STRATEGY_GITHUB_TCP" "--filter-tcp=443 --filter-l7=tls" "github.txt"
+
+    # Steam TCP
+    add_category "Steam TCP" "$STRATEGY_STEAM_TCP" "--filter-tcp=80,443 --filter-l7=tls" "steam.txt"
+
+    # Twitch TCP
+    add_category "Twitch TCP" "$STRATEGY_TWITCH_TCP" "--filter-tcp=443 --filter-l7=tls" "twitch.txt"
+
+    # SoundCloud TCP
+    add_category "SoundCloud TCP" "$STRATEGY_SOUNDCLOUD_TCP" "--filter-tcp=80,443 --filter-l7=tls" "soundcloud.txt"
+
+    # Rutracker TCP
+    add_category "Rutracker TCP" "$STRATEGY_RUTRACKER_TCP" "--filter-tcp=80,443 --filter-l7=tls" "rutracker.txt"
+
+    # Other (Hostlist)
+    add_category "Other HTTPS" "$STRATEGY_OTHER" "--filter-tcp=443 --filter-l7=tls" "other.txt"
 
     # If nothing configured, use default
     if [ $first -eq 1 ]; then
