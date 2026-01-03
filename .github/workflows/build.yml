@@ -69,6 +69,22 @@ jobs:
           path: android-app/keystore.jks
           retention-days: 1
 
+      - name: Set version from tag
+        run: |
+          VERSION="${{ github.event.inputs.version || github.ref_name }}"
+          VERSION="${VERSION#v}"
+          VERSION_CODE=$(echo $VERSION | tr -d '.' | head -c 6)
+
+          echo "Setting version to $VERSION (code: $VERSION_CODE)"
+
+          # Update build.gradle.kts with version from tag
+          sed -i "s/versionCode = [0-9]*/versionCode = ${VERSION_CODE}/" app/build.gradle.kts
+          sed -i "s/versionName = \"[^\"]*\"/versionName = \"${VERSION}\"/" app/build.gradle.kts
+
+          # Verify changes
+          grep -E "versionCode|versionName" app/build.gradle.kts
+        working-directory: android-app
+
       - name: Build Release APK
         env:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD || 'zapret2release' }}
