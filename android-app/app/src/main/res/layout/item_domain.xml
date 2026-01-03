@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:paddingHorizontal="16dp"
+    android:paddingVertical="12dp"
+    android:background="@drawable/list_item_background">
+
+    <!-- Index number -->
+    <TextView
+        android:id="@+id/textIndex"
+        android:layout_width="48dp"
+        android:layout_height="wrap_content"
+        android:text="1"
+        android:textColor="#505050"
+        android:textSize="12sp"
+        android:gravity="end"
+        android:layout_marginEnd="16dp" />
+
+    <!-- Domain name -->
+    <TextView
+        android:id="@+id/textDomain"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:text="example.com"
+        android:textColor="#FFFFFF"
+        android:textSize="14sp"
+        android:fontFamily="monospace"
+        android:maxLines="1"
+        android:ellipsize="end" />
+
+</LinearLayout>

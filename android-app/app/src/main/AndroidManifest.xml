@@ -23,6 +23,11 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".HostlistContentActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Zapret2" />
+
         <!-- Boot receiver for autostart -->
         <receiver
             android:name=".BootReceiver"

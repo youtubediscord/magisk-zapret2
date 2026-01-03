@@ -1,0 +1,192 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="@drawable/bottom_sheet_background"
+    android:padding="24dp">
+
+    <!-- Handle bar -->
+    <View
+        android:layout_width="40dp"
+        android:layout_height="4dp"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginBottom="16dp"
+        android:background="@drawable/bottom_sheet_handle" />
+
+    <!-- Category name -->
+    <TextView
+        android:id="@+id/textCategoryName"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textColor="#FFFFFF"
+        android:textSize="18sp"
+        android:textStyle="bold"
+        android:layout_marginBottom="24dp" />
+
+    <!-- Enabled switch -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingVertical="12dp">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Enabled"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp" />
+
+        <androidx.appcompat.widget.SwitchCompat
+            android:id="@+id/switchEnabled"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            app:thumbTint="@color/switch_thumb_color"
+            app:trackTint="@color/switch_track_color" />
+
+    </LinearLayout>
+
+    <!-- Divider -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="#404040" />
+
+    <!-- Filter mode section -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Filter Mode"
+        android:textColor="#808080"
+        android:textSize="12sp"
+        android:layout_marginTop="16dp"
+        android:layout_marginBottom="8dp" />
+
+    <RadioGroup
+        android:id="@+id/radioGroupFilterMode"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <RadioButton
+            android:id="@+id/radioNone"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:text="None (no filtering)"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp"
+            android:buttonTint="#0078D4"
+            android:paddingStart="8dp" />
+
+        <RadioButton
+            android:id="@+id/radioHostlist"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:text="Hostlist (domain-based)"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp"
+            android:buttonTint="#0078D4"
+            android:paddingStart="8dp" />
+
+        <RadioButton
+            android:id="@+id/radioIpset"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:text="IPset (IP-based)"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp"
+            android:buttonTint="#0078D4"
+            android:paddingStart="8dp" />
+
+    </RadioGroup>
+
+    <!-- Hostlist file (shown when hostlist/ipset selected) -->
+    <LinearLayout
+        android:id="@+id/layoutHostlistFile"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:layout_marginTop="16dp"
+        android:visibility="gone">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="List File"
+            android:textColor="#808080"
+            android:textSize="12sp"
+            android:layout_marginBottom="8dp" />
+
+        <EditText
+            android:id="@+id/editHostlistFile"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:background="@drawable/edit_text_background"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp"
+            android:hint="e.g. youtube.txt"
+            android:textColorHint="#606060"
+            android:paddingHorizontal="12dp"
+            android:inputType="text"
+            android:singleLine="true" />
+
+    </LinearLayout>
+
+    <!-- Strategy section -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Strategy"
+        android:textColor="#808080"
+        android:textSize="12sp"
+        android:layout_marginTop="16dp"
+        android:layout_marginBottom="8dp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="@drawable/edit_text_background"
+        android:paddingHorizontal="12dp">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Strategy ID"
+            android:textColor="#808080"
+            android:textSize="14sp" />
+
+        <EditText
+            android:id="@+id/editStrategy"
+            android:layout_width="80dp"
+            android:layout_height="match_parent"
+            android:background="@null"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp"
+            android:gravity="end|center_vertical"
+            android:inputType="number"
+            android:maxLength="3"
+            android:hint="1" />
+
+    </LinearLayout>
+
+    <!-- Save button -->
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btnSave"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:layout_marginTop="24dp"
+        android:text="Save"
+        android:textColor="#FFFFFF"
+        android:textSize="14sp"
+        android:textAllCaps="false"
+        app:cornerRadius="8dp"
+        app:backgroundTint="#0078D4" />
+
+</LinearLayout>
