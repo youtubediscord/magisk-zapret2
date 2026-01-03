@@ -87,7 +87,7 @@ set_default_config() {
 
     # Strategy configuration
     STRATEGY_PRESET="youtube"
-    USE_CATEGORIES=0
+    USE_CATEGORIES=1
 
     # Logging
     LOG_MODE="android"
@@ -732,15 +732,9 @@ build_category_options() {
         log_msg "Using categories.txt configuration"
         parse_categories
 
-        # If nothing configured from categories.txt, use default
+        # If no categories enabled, nfqws2 starts with base options only (no strategies)
         if [ $first -eq 1 ]; then
-            log_msg "No enabled categories found, using default YouTube strategy"
-            OPTS="$OPTS \
---filter-tcp=443 \
---payload=tls_client_hello \
---lua-desync=send:repeats=2 \
---lua-desync=syndata:blob=tls_google \
---lua-desync=multisplit:pos=midsld"
+            log_msg "No enabled categories found, starting with base options only"
         fi
         return
     fi
@@ -800,15 +794,9 @@ build_category_options() {
     # Other (Hostlist)
     add_category "Other HTTPS" "$STRATEGY_OTHER" "--filter-tcp=443" "other.txt"
 
-    # If nothing configured, use default YouTube strategy
+    # If no categories configured, nfqws2 starts with base options only (no strategies)
     if [ $first -eq 1 ]; then
-        log_msg "No categories configured, using default YouTube strategy"
-        OPTS="$OPTS \
---filter-tcp=443 \
---payload=tls_client_hello \
---lua-desync=send:repeats=2 \
---lua-desync=syndata:blob=tls_google \
---lua-desync=multisplit:pos=midsld"
+        log_msg "No categories configured, starting with base options only"
     fi
 }
 
@@ -842,6 +830,11 @@ build_options() {
     local blob_opts=$(build_blob_opts)
     if [ -n "$blob_opts" ]; then
         OPTS="$OPTS$blob_opts"
+    fi
+
+    # Auto-detect categories mode if categories.txt exists
+    if [ -f "$CATEGORIES_FILE" ]; then
+        USE_CATEGORIES=1
     fi
 
     # Build strategy options based on mode
