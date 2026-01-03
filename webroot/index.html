@@ -732,9 +732,12 @@
             ];
 
             try {
-                // Write config using printf (more reliable than heredoc)
-                const configContent = lines.join('\\n');
-                await run(`printf '%b\\n' "${configContent}" > ${CONFIG}`);
+                // Write config using heredoc for reliable multiline output
+                const configContent = lines.join('\n');
+                const cmd = `cat > ${CONFIG} << 'CONFIGEOF'
+${configContent}
+CONFIGEOF`;
+                await run(cmd);
                 logActivity('Стратегии сохранены', 'ok');
                 document.getElementById('val-lastaction').textContent = 'Сохранено';
                 toast('Сохранено', 'success');
@@ -948,25 +951,15 @@
         async function loadLogs() {
             logActivity('Загрузка логов...', 'warn');
             try {
-                // Combine all logs into one file, then read with base64 for reliable transfer
-                const combineCmd = `
-                    COMBINED=/data/local/tmp/zapret2-combined.log
-                    echo "=== Zapret2 Log ===" > $COMBINED
-                    cat ${LOGFILE} 2>/dev/null >> $COMBINED
-                    echo "" >> $COMBINED
-                    echo "=== nfqws2 debug ===" >> $COMBINED
-                    cat ${NFQWS_LOG} 2>/dev/null >> $COMBINED
-                    base64 $COMBINED 2>/dev/null
-                `;
-                const b64 = await run(combineCmd);
+                // Use simple single-line command with base64 encoding
+                const b64 = await run(`(echo "=== Zapret2 Log ==="; cat ${LOGFILE} 2>/dev/null; echo ""; echo "=== nfqws2 debug ==="; cat ${NFQWS_LOG} 2>/dev/null) | base64 -w0`);
 
                 let logs = '';
                 if (b64 && b64.trim()) {
                     try {
-                        logs = atob(b64.trim().replace(/\s/g, ''));
+                        logs = atob(b64.trim());
                     } catch (decodeErr) {
-                        // Fallback to direct read if base64 fails
-                        logs = await run(`cat ${LOGFILE} 2>/dev/null; echo ""; cat ${NFQWS_LOG} 2>/dev/null`);
+                        logs = 'Ошибка декодирования base64: ' + decodeErr.message;
                     }
                 }
 
@@ -975,9 +968,9 @@
                 }
 
                 renderLogs(logs);
-                logActivity('Логи загружены: ' + logs.split('\\n').length + ' строк', 'ok');
+                logActivity('Логи загружены: ' + logs.split('\n').length + ' строк', 'ok');
             } catch (e) {
-                logActivity('Ошибка загрузки логов', 'err');
+                logActivity('Ошибка загрузки логов: ' + e.message, 'err');
             }
         }
 
@@ -985,33 +978,15 @@
             logActivity('Загрузка полных логов...', 'warn');
             document.getElementById('logs-box').innerHTML = '<div class="log-line">Загрузка...</div>';
             try {
-                // Combine all logs into one file, then read with base64
-                const combineCmd = `
-                    COMBINED=/data/local/tmp/zapret2-full.log
-                    echo "=== Zapret2 Main Log ===" > $COMBINED
-                    cat ${LOGFILE} 2>/dev/null >> $COMBINED
-                    echo "" >> $COMBINED
-                    echo "=== nfqws2 debug ===" >> $COMBINED
-                    cat ${NFQWS_LOG} 2>/dev/null >> $COMBINED
-                    echo "" >> $COMBINED
-                    echo "=== nfqws2 startup ===" >> $COMBINED
-                    cat /data/local/tmp/nfqws2-startup.log 2>/dev/null >> $COMBINED
-                    echo "" >> $COMBINED
-                    echo "=== nfqws2 errors ===" >> $COMBINED
-                    cat /data/local/tmp/nfqws2-error.log 2>/dev/null >> $COMBINED
-                    echo "" >> $COMBINED
-                    echo "=== Command Line ===" >> $COMBINED
-                    cat /data/local/tmp/nfqws2-cmdline.txt 2>/dev/null >> $COMBINED
-                    base64 $COMBINED 2>/dev/null
-                `;
-                const b64 = await run(combineCmd);
+                // Simple single-line command
+                const b64 = await run(`(echo "=== Zapret2 Main Log ==="; cat ${LOGFILE} 2>/dev/null; echo ""; echo "=== nfqws2 debug ==="; cat ${NFQWS_LOG} 2>/dev/null; echo ""; echo "=== nfqws2 startup ==="; cat /data/local/tmp/nfqws2-startup.log 2>/dev/null; echo ""; echo "=== nfqws2 errors ==="; cat /data/local/tmp/nfqws2-error.log 2>/dev/null; echo ""; echo "=== Command Line ==="; cat /data/local/tmp/nfqws2-cmdline.txt 2>/dev/null) | base64 -w0`);
 
                 let logs = '';
                 if (b64 && b64.trim()) {
                     try {
-                        logs = atob(b64.trim().replace(/\s/g, ''));
+                        logs = atob(b64.trim());
                     } catch (decodeErr) {
-                        logs = 'Ошибка декодирования логов';
+                        logs = 'Ошибка декодирования: ' + decodeErr.message;
                     }
                 }
 
@@ -1020,7 +995,7 @@
                 renderLogs(logs);
                 toast('Загружено ' + logs.split('\n').length + ' строк', 'success');
             } catch (e) {
-                logActivity('Ошибка загрузки', 'err');
+                logActivity('Ошибка загрузки: ' + e.message, 'err');
             }
         }
 
