@@ -1,0 +1,17 @@
+snapchat.com
+snap.com
+snapkit.com
+snapads.com
+snapchat.cn
+sc-cdn.net
+snap-dev.net
+snapjax.com
+bitmoji.com
+impala-media-production.s3.amazonaws.com
+cf-st.sc-cdn.net
+bolt.sc-cdn.net
+gcp.api.snapchat.com
+aws.api.snapchat.com
+app.snapchat.com
+story.snapchat.com
+web.snapchat.com

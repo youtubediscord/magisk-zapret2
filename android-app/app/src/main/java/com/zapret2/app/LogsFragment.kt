@@ -60,7 +60,7 @@ class LogsFragment : Fragment() {
     companion object {
         private const val LOG_FILE = "/data/local/tmp/zapret2.log"
         private const val ERROR_FILE = "/data/local/tmp/zapret2_error.log"
-        private const val CMDLINE_FILE = "/data/local/tmp/nfqws2.cmdline"
+        private const val CMDLINE_FILE = "/data/local/tmp/nfqws2-cmdline.txt"
         private const val POLL_INTERVAL_MS = 3000L
         private const val MAX_LINES = 500
     }

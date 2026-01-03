@@ -1,0 +1,2 @@
+# Additional blocked sites hostlist
+# Add domains one per line
