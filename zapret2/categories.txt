@@ -1,16 +1,16 @@
 # Zapret2 Categories Configuration
 # Format: CATEGORY|ENABLED|FILTER_MODE|HOSTLIST_FILE|STRATEGY
 # FILTER_MODE: none, hostlist, ipset
-# STRATEGY: 1-222 for TCP, 1-51 for UDP
+# STRATEGY: numeric ID from strategies.sh
 #
-# By default all categories are disabled (ENABLED=0) except youtube
+# By default all categories are disabled (ENABLED=0) except youtube and youtube_udp
 # Each category requires corresponding hostlist or ipset file in lists/
 
 # ===============================
 # YouTube & Google Video
 # ===============================
 youtube|1|hostlist|youtube.txt|1
-youtube_udp|0|hostlist|youtube.txt|1
+youtube_udp|1|hostlist|youtube.txt|1
 googlevideo_tcp|0|ipset|ipset-googlevideo.txt|1
 
 # ===============================

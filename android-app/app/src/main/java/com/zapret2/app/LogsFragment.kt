@@ -10,7 +10,6 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageView
-import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
@@ -25,7 +24,6 @@ import com.google.android.material.textfield.TextInputEditText
 import com.topjohnwu.superuser.Shell
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -33,28 +31,31 @@ import kotlinx.coroutines.withContext
 
 class LogsFragment : Fragment() {
 
-    // Log tab enum
-    private enum class LogTab { LOGCAT, OUTPUT, ERRORS }
+    // Main tab enum (Command vs Logs)
+    private enum class MainTab { COMMAND, LOGS }
 
-    // UI Elements
-    private lateinit var tabLayoutLogs: TabLayout
-    private lateinit var layoutCmdlineHeader: LinearLayout
-    private lateinit var layoutCmdlineContent: LinearLayout
-    private lateinit var iconCmdlineExpand: ImageView
-    private lateinit var iconCopyCmdline: ImageView
-    private lateinit var textCmdline: TextView
-    private lateinit var editLogFilter: TextInputEditText
-    private lateinit var checkAutoScroll: MaterialCheckBox
-    private lateinit var scrollLogs: ScrollView
-    private lateinit var textLogs: TextView
-    private lateinit var buttonRefresh: MaterialButton
-    private lateinit var buttonCopyLogs: MaterialButton
-    private lateinit var buttonClearLogs: MaterialButton
+    // Log source enum (for logs tab)
+    private enum class LogSource { LOGCAT, OUTPUT, ERRORS }
+
+    // UI Elements (nullable for safe access)
+    private var tabLayoutLogs: TabLayout? = null
+    private var cmdlineContainer: View? = null
+    private var logsContainer: View? = null
+    private var iconCopyCmdline: ImageView? = null
+    private var textCmdline: TextView? = null
+    private var editLogFilter: TextInputEditText? = null
+    private var checkAutoScroll: MaterialCheckBox? = null
+    private var scrollLogs: ScrollView? = null
+    private var textLogs: TextView? = null
+    private var buttonRefresh: MaterialButton? = null
+    private var buttonCopyLogs: MaterialButton? = null
+    private var buttonClearLogs: MaterialButton? = null
 
     // State
-    private var currentTab = LogTab.LOGCAT
-    private var isCmdlineExpanded = false
+    private var currentMainTab = MainTab.COMMAND
+    private var currentLogSource = LogSource.LOGCAT
     private var currentLogs = ""
+    private var rawCmdline = ""  // Raw cmdline for clipboard (single line)
     private var pollingJob: Job? = null
 
     // File paths
@@ -81,16 +82,16 @@ class LogsFragment : Fragment() {
         setupCmdlineSection()
         setupFilterInput()
         setupButtons()
+
+        // Default to Command tab (position 0)
+        showCommandTab()
         loadCmdline()
-        loadLogs()
-        startPolling()
     }
 
     private fun initViews(view: View) {
         tabLayoutLogs = view.findViewById(R.id.tabLayoutLogs)
-        layoutCmdlineHeader = view.findViewById(R.id.layoutCmdlineHeader)
-        layoutCmdlineContent = view.findViewById(R.id.layoutCmdlineContent)
-        iconCmdlineExpand = view.findViewById(R.id.iconCmdlineExpand)
+        cmdlineContainer = view.findViewById(R.id.cmdlineContainer)
+        logsContainer = view.findViewById(R.id.logsContainer)
         iconCopyCmdline = view.findViewById(R.id.iconCopyCmdline)
         textCmdline = view.findViewById(R.id.textCmdline)
         editLogFilter = view.findViewById(R.id.editLogFilter)
@@ -103,42 +104,72 @@ class LogsFragment : Fragment() {
     }
 
     private fun setupTabListener() {
-        tabLayoutLogs.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
+        tabLayoutLogs?.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
             override fun onTabSelected(tab: TabLayout.Tab?) {
-                currentTab = when (tab?.position) {
-                    0 -> LogTab.LOGCAT
-                    1 -> LogTab.OUTPUT
-                    2 -> LogTab.ERRORS
-                    else -> LogTab.LOGCAT
+                when (tab?.position) {
+                    0 -> {
+                        // Command tab selected
+                        currentMainTab = MainTab.COMMAND
+                        showCommandTab()
+                        loadCmdline()
+                    }
+                    1 -> {
+                        // Logs tab selected
+                        currentMainTab = MainTab.LOGS
+                        showLogsTab()
+                        // Clear current logs to prevent showing stale data
+                        currentLogs = ""
+                        textLogs?.text = "Loading..."
+                        loadLogs()
+                        startPolling()
+                    }
                 }
-                // Clear current logs to prevent showing stale data from other tab
-                currentLogs = ""
-                textLogs.text = "Loading..."
-                loadLogs()
             }
 
-            override fun onTabUnselected(tab: TabLayout.Tab?) {}
+            override fun onTabUnselected(tab: TabLayout.Tab?) {
+                // Stop polling when leaving Logs tab
+                if (tab?.position == 1) {
+                    pollingJob?.cancel()
+                    pollingJob = null
+                }
+            }
+
             override fun onTabReselected(tab: TabLayout.Tab?) {
-                loadLogs()
+                when (tab?.position) {
+                    0 -> loadCmdline()
+                    1 -> loadLogs()
+                }
             }
         })
     }
 
-    private fun setupCmdlineSection() {
-        layoutCmdlineHeader.setOnClickListener {
-            toggleCmdlineExpand()
-        }
+    /**
+     * Show Command tab content, hide Logs tab content
+     */
+    private fun showCommandTab() {
+        cmdlineContainer?.visibility = View.VISIBLE
+        logsContainer?.visibility = View.GONE
+    }
 
-        iconCopyCmdline.setOnClickListener {
-            val cmdline = textCmdline.text.toString()
-            if (cmdline.isNotBlank() && cmdline != "No command line available") {
-                copyToClipboard(cmdline, "Command line")
+    /**
+     * Show Logs tab content, hide Command tab content
+     */
+    private fun showLogsTab() {
+        cmdlineContainer?.visibility = View.GONE
+        logsContainer?.visibility = View.VISIBLE
+    }
+
+    private fun setupCmdlineSection() {
+        iconCopyCmdline?.setOnClickListener {
+            // Copy the raw (single-line) cmdline for pasting into terminal
+            if (rawCmdline.isNotBlank()) {
+                copyToClipboard(rawCmdline, "Command line")
             }
         }
     }
 
     private fun setupFilterInput() {
-        editLogFilter.addTextChangedListener(object : TextWatcher {
+        editLogFilter?.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
             override fun afterTextChanged(s: Editable?) {
@@ -148,42 +179,52 @@ class LogsFragment : Fragment() {
     }
 
     private fun setupButtons() {
-        buttonRefresh.setOnClickListener {
-            loadCmdline()
-            loadLogs()
-        }
-
-        buttonCopyLogs.setOnClickListener {
-            if (currentLogs.isNotBlank()) {
-                copyToClipboard(currentLogs, "Logs")
-            } else {
-                context?.let { ctx ->
-                    Toast.makeText(ctx, "No logs to copy", Toast.LENGTH_SHORT).show()
+        buttonRefresh?.setOnClickListener {
+            when (currentMainTab) {
+                MainTab.COMMAND -> loadCmdline()
+                MainTab.LOGS -> {
+                    loadCmdline()
+                    loadLogs()
                 }
             }
         }
 
-        buttonClearLogs.setOnClickListener {
+        buttonCopyLogs?.setOnClickListener {
+            when (currentMainTab) {
+                MainTab.COMMAND -> {
+                    if (rawCmdline.isNotBlank()) {
+                        copyToClipboard(rawCmdline, "Command line")
+                    } else {
+                        context?.let { ctx ->
+                            Toast.makeText(ctx, "No command to copy", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+                MainTab.LOGS -> {
+                    if (currentLogs.isNotBlank()) {
+                        copyToClipboard(currentLogs, "Logs")
+                    } else {
+                        context?.let { ctx ->
+                            Toast.makeText(ctx, "No logs to copy", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+            }
+        }
+
+        buttonClearLogs?.setOnClickListener {
             clearLogs()
         }
     }
 
-    private fun toggleCmdlineExpand() {
-        isCmdlineExpanded = !isCmdlineExpanded
-        layoutCmdlineContent.visibility = if (isCmdlineExpanded) View.VISIBLE else View.GONE
-        iconCmdlineExpand.animate()
-            .rotation(if (isCmdlineExpanded) 180f else 0f)
-            .setDuration(200)
-            .start()
-    }
-
     private fun loadCmdline() {
         viewLifecycleOwner.lifecycleScope.launch {
-            val cmdline = withContext(Dispatchers.IO) {
+            val (raw, formatted) = withContext(Dispatchers.IO) {
                 fetchCmdline()
             }
             if (isAdded && view != null) {
-                textCmdline.text = cmdline.ifBlank { "No command line available" }
+                rawCmdline = raw
+                textCmdline?.text = formatted.ifBlank { "No command line available" }
             }
         }
     }
@@ -191,7 +232,7 @@ class LogsFragment : Fragment() {
     private fun loadLogs() {
         viewLifecycleOwner.lifecycleScope.launch {
             if (!isAdded || view == null) return@launch
-            buttonRefresh.isEnabled = false
+            buttonRefresh?.isEnabled = false
 
             val logs = withContext(Dispatchers.IO) {
                 fetchLogs()
@@ -200,21 +241,21 @@ class LogsFragment : Fragment() {
             if (!isAdded || view == null) return@launch
             currentLogs = logs
             displayLogs(logs)
-            buttonRefresh.isEnabled = true
+            buttonRefresh?.isEnabled = true
         }
     }
 
     private fun fetchLogs(): String {
         return try {
-            val command = when (currentTab) {
-                LogTab.LOGCAT -> {
+            val command = when (currentLogSource) {
+                LogSource.LOGCAT -> {
                     // Get logcat entries tagged with Zapret2 or nfqws2
                     "logcat -d -s Zapret2:* nfqws2:* *:S | tail -n $MAX_LINES"
                 }
-                LogTab.OUTPUT -> {
+                LogSource.OUTPUT -> {
                     "tail -n $MAX_LINES $LOG_FILE"
                 }
-                LogTab.ERRORS -> {
+                LogSource.ERRORS -> {
                     "tail -n $MAX_LINES $ERROR_FILE"
                 }
             }
@@ -260,7 +301,7 @@ class LogsFragment : Fragment() {
         // Safety check - ensure fragment is attached and views are available
         if (!isAdded || view == null) return
 
-        val filterText = editLogFilter.text?.toString()?.trim() ?: ""
+        val filterText = editLogFilter?.text?.toString()?.trim() ?: ""
 
         val displayText = if (filterText.isNotEmpty()) {
             logs.lines()
@@ -276,37 +317,37 @@ class LogsFragment : Fragment() {
             displayText
         }
 
-        textLogs.text = finalText
+        textLogs?.text = finalText
 
         // Auto-scroll to bottom if enabled (check view is attached)
-        if (checkAutoScroll.isChecked && displayText.isNotBlank()) {
-            scrollLogs.post {
+        if (checkAutoScroll?.isChecked == true && displayText.isNotBlank()) {
+            scrollLogs?.post {
                 if (isAdded && view != null) {
-                    scrollLogs.fullScroll(View.FOCUS_DOWN)
+                    scrollLogs?.fullScroll(View.FOCUS_DOWN)
                 }
             }
         }
     }
 
     private fun getEmptyStateMessage(): String {
-        return when (currentTab) {
-            LogTab.LOGCAT -> "No logcat entries found.\n\nStart the Zapret2 service to see logs here."
-            LogTab.OUTPUT -> "No output logs found.\n\nOutput will appear here when the service runs."
-            LogTab.ERRORS -> "No error logs found.\n\nThis is good - no errors have occurred."
+        return when (currentLogSource) {
+            LogSource.LOGCAT -> "No logcat entries found.\n\nStart the Zapret2 service to see logs here."
+            LogSource.OUTPUT -> "No output logs found.\n\nOutput will appear here when the service runs."
+            LogSource.ERRORS -> "No error logs found.\n\nThis is good - no errors have occurred."
         }
     }
 
     private fun clearLogs() {
         viewLifecycleOwner.lifecycleScope.launch {
             if (!isAdded || view == null) return@launch
-            buttonClearLogs.isEnabled = false
+            buttonClearLogs?.isEnabled = false
 
             val success = withContext(Dispatchers.IO) {
                 try {
-                    val command = when (currentTab) {
-                        LogTab.LOGCAT -> "logcat -c"
-                        LogTab.OUTPUT -> "> $LOG_FILE"
-                        LogTab.ERRORS -> "> $ERROR_FILE"
+                    val command = when (currentLogSource) {
+                        LogSource.LOGCAT -> "logcat -c"
+                        LogSource.OUTPUT -> "> $LOG_FILE"
+                        LogSource.ERRORS -> "> $ERROR_FILE"
                     }
                     Shell.cmd(command).exec().isSuccess
                 } catch (e: Exception) {
@@ -326,37 +367,29 @@ class LogsFragment : Fragment() {
                 }
             }
 
-            buttonClearLogs.isEnabled = true
+            buttonClearLogs?.isEnabled = true
         }
     }
 
     private fun startPolling() {
+        // Only poll when on Logs tab
+        if (currentMainTab != MainTab.LOGS) return
+
         pollingJob?.cancel()
         pollingJob = viewLifecycleOwner.lifecycleScope.launch {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) {
-                while (isActive) {
+                while (isActive && currentMainTab == MainTab.LOGS) {
                     delay(POLL_INTERVAL_MS)
-                    if (isActive) {
-                        // Fetch logs and cmdline in parallel using async
-                        val logsDeferred = async(Dispatchers.IO) { fetchLogs() }
-                        val cmdlineDeferred = async(Dispatchers.IO) { fetchCmdline() }
+                    if (isActive && currentMainTab == MainTab.LOGS) {
+                        // Fetch logs only (cmdline is on a different tab now)
+                        val newLogs = withContext(Dispatchers.IO) { fetchLogs() }
 
-                        val newLogs = logsDeferred.await()
-                        val newCmdline = cmdlineDeferred.await()
-
-                        // Only update UI if still active
-                        if (isActive && isAdded && view != null) {
+                        // Only update UI if still active and on Logs tab
+                        if (isActive && isAdded && view != null && currentMainTab == MainTab.LOGS) {
                             // Only update if logs changed
                             if (newLogs != currentLogs) {
                                 currentLogs = newLogs
                                 displayLogs(newLogs)
-                            }
-
-                            // Update cmdline if changed
-                            val currentCmdlineText = textCmdline.text?.toString() ?: ""
-                            val cmdlineText = newCmdline.ifBlank { "No command line available" }
-                            if (cmdlineText != currentCmdlineText) {
-                                textCmdline.text = cmdlineText
                             }
                         }
                     }
@@ -367,21 +400,59 @@ class LogsFragment : Fragment() {
 
     /**
      * Fetch cmdline from file (runs on IO dispatcher)
+     * @return Pair of (raw cmdline for clipboard, formatted cmdline for display)
      */
-    private fun fetchCmdline(): String {
+    private fun fetchCmdline(): Pair<String, String> {
         return try {
             val result = Shell.cmd("cat $CMDLINE_FILE").exec()
             val output = result.out
             if (result.isSuccess && !output.isNullOrEmpty()) {
-                output
+                val raw = output
                     .filter { it.isNotBlank() }
                     .joinToString(" ")
                     .trim()
+                val formatted = formatCmdline(raw)
+                Pair(raw, formatted)
             } else {
-                ""
+                Pair("", "")
             }
         } catch (e: Exception) {
-            ""
+            Pair("", "")
+        }
+    }
+
+    /**
+     * Format command line for nice display.
+     * Splits by " --" and displays each argument on a new line with indentation.
+     *
+     * Example output:
+     * /data/adb/modules/zapret2/zapret2/nfqws2
+     *   --qnum=200
+     *   --fwmark=0x40000000
+     *   --filter-tcp=443
+     *   ...
+     */
+    private fun formatCmdline(cmdline: String): String {
+        if (cmdline.isBlank()) return ""
+
+        // Split by " --" to get individual arguments
+        val parts = cmdline.split(" --")
+
+        if (parts.isEmpty()) return cmdline
+
+        // First part is the executable path
+        val executable = parts[0].trim()
+
+        // Remaining parts are arguments (need to add "--" prefix back)
+        val arguments = parts.drop(1)
+            .filter { it.isNotBlank() }
+            .map { "  --${it.trim()}" }
+
+        // Combine: executable on first line, then each argument indented on new lines
+        return if (arguments.isEmpty()) {
+            executable
+        } else {
+            executable + "\n" + arguments.joinToString("\n")
         }
     }
 
@@ -399,8 +470,14 @@ class LogsFragment : Fragment() {
 
     override fun onResume() {
         super.onResume()
-        loadCmdline()
-        loadLogs()
+        // Refresh content based on current tab
+        when (currentMainTab) {
+            MainTab.COMMAND -> loadCmdline()
+            MainTab.LOGS -> {
+                loadLogs()
+                startPolling()
+            }
+        }
     }
 
     override fun onDestroyView() {

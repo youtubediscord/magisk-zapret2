@@ -16,3 +16,6 @@ DEBUG=0
 # Lower value = fewer packets, less CPU but may miss some connections
 PKT_OUT=20
 PKT_IN=10
+
+# Use categories.txt for per-category strategies (1=yes, 0=no)
+USE_CATEGORIES=1

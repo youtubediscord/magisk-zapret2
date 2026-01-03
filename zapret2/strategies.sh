@@ -13,6 +13,92 @@ get_strategy_options() {
     filter="$2"
 
     case "$strategy_id" in
+        # ==================== NUMERIC ID MAPPING ====================
+        # These numeric IDs are used in categories.txt for easier configuration
+        # Strategy 1: Basic YouTube bypass (syndata + multisplit) - most compatible
+        1)
+            strategy_id="syndata_multisplit_tls_google_700"
+            ;;
+        # Strategy 2: More aggressive with disorder
+        2)
+            strategy_id="syndata_multidisorder_tls_google_700"
+            ;;
+        # Strategy 3: Simple syndata with TLS 7
+        3)
+            strategy_id="syndata_2_tls_7"
+            ;;
+        # Strategy 4: Syndata with Google TLS pattern
+        4)
+            strategy_id="syndata_3_tls_google"
+            ;;
+        # Strategy 5: Censorliber - advanced for stubborn DPI
+        5)
+            strategy_id="censorliber_google_syndata"
+            ;;
+        # Strategy 6: Censorliber v2 with TLS modifications
+        6)
+            strategy_id="censorliber_google_syndata_v2"
+            ;;
+        # Strategy 7: Alt11 with syndata - highly effective
+        7)
+            strategy_id="alt11_100_syndata"
+            ;;
+        # Strategy 8: Multidisorder legacy - older DPI systems
+        8)
+            strategy_id="multidisorder_legacy_midsld"
+            ;;
+        # Strategy 9: Simple fake with TTL tricks
+        9)
+            strategy_id="tls_fake_simple"
+            ;;
+        # Strategy 10: Multisplit with seqovl 652
+        10)
+            strategy_id="seqovl_652_tls5"
+            ;;
+        # Strategy 11: Discord-optimized window collapse
+        11)
+            strategy_id="discord_window_collapse"
+            ;;
+        # Strategy 12: Discord router alert bypass
+        12)
+            strategy_id="discord_router_alert"
+            ;;
+        # Strategy 13: Discord ECN exploit
+        13)
+            strategy_id="discord_ecn_exploit"
+            ;;
+        # Strategy 14: Discord ultimate combo
+        14)
+            strategy_id="discord_ultimate_combo"
+            ;;
+        # Strategy 15: TLS aggressive - for hard DPI
+        15)
+            strategy_id="tls_aggressive"
+            ;;
+        # Strategy 16: TLS aggressive max - maximum evasion
+        16)
+            strategy_id="tls_aggressive_max"
+            ;;
+        # Strategy 17: Syndata only - minimal modification
+        17)
+            strategy_id="syndata"
+            ;;
+        # Strategy 18: Multidisorder midsld - balanced
+        18)
+            strategy_id="multidisorder_midsld"
+            ;;
+        # Strategy 19: Googlevideo split - for video streaming
+        19)
+            strategy_id="googlevideo_split"
+            ;;
+        # Strategy 20: Googlevideo fakedsplit - alternative video
+        20)
+            strategy_id="googlevideo_fakedsplit"
+            ;;
+    esac
+
+    # Now process the actual strategy
+    case "$strategy_id" in
         # ==================== TCP STRATEGIES ====================
         syndata_2_tls_7)
             echo "$filter \
