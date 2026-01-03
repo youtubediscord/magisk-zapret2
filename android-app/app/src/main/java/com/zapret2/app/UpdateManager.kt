@@ -61,7 +61,14 @@ class UpdateManager(private val context: Context) {
      */
     suspend fun checkForUpdates(): UpdateResult = withContext(Dispatchers.IO) {
         try {
-            val release = fetchLatestRelease() ?: return@withContext UpdateResult.Error("Failed to parse release data")
+            val result = fetchLatestRelease()
+
+            if (result.isFailure) {
+                return@withContext UpdateResult.Error(result.exceptionOrNull()?.message ?: "Unknown error")
+            }
+
+            val release = result.getOrNull()
+                ?: return@withContext UpdateResult.Error("Empty response from server")
 
             val currentVersion = BuildConfig.VERSION_NAME
 
@@ -78,9 +85,9 @@ class UpdateManager(private val context: Context) {
     /**
      * Fetches the latest release information from GitHub API.
      *
-     * @return Release object or null if parsing failed
+     * @return Result with Release object or error details
      */
-    private suspend fun fetchLatestRelease(): Release? = withContext(Dispatchers.IO) {
+    private suspend fun fetchLatestRelease(): Result<Release> = withContext(Dispatchers.IO) {
         var connection: HttpURLConnection? = null
         try {
             val url = URL(GITHUB_API_URL)
@@ -93,14 +100,32 @@ class UpdateManager(private val context: Context) {
                 setRequestProperty("User-Agent", "Zapret2-Android/${BuildConfig.VERSION_NAME}")
             }
 
-            if (connection.responseCode != HttpURLConnection.HTTP_OK) {
-                return@withContext null
+            val responseCode = connection.responseCode
+            if (responseCode != HttpURLConnection.HTTP_OK) {
+                val errorBody = try {
+                    connection.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
+                } catch (e: Exception) { "" }
+                return@withContext Result.failure(Exception("HTTP $responseCode: $errorBody"))
             }
 
             val response = connection.inputStream.bufferedReader().use { it.readText() }
-            parseReleaseJson(response)
+
+            if (response.isBlank()) {
+                return@withContext Result.failure(Exception("Empty response"))
+            }
+
+            val release = parseReleaseJson(response)
+            Result.success(release)
+        } catch (e: java.net.UnknownHostException) {
+            Result.failure(Exception("No internet connection"))
+        } catch (e: java.net.SocketTimeoutException) {
+            Result.failure(Exception("Connection timeout"))
+        } catch (e: javax.net.ssl.SSLException) {
+            Result.failure(Exception("SSL error: ${e.message}"))
+        } catch (e: org.json.JSONException) {
+            Result.failure(Exception("Invalid JSON: ${e.message}"))
         } catch (e: Exception) {
-            null
+            Result.failure(Exception("Network error: ${e.message}"))
         } finally {
             connection?.disconnect()
         }
