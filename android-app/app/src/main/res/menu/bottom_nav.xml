@@ -3,13 +3,21 @@
     <item
         android:id="@+id/nav_control"
         android:icon="@drawable/ic_control"
-        android:title="Управление" />
+        android:title="Control" />
     <item
         android:id="@+id/nav_strategies"
         android:icon="@drawable/ic_strategies"
-        android:title="Стратегии" />
+        android:title="Strategies" />
+    <item
+        android:id="@+id/nav_categories"
+        android:icon="@drawable/ic_categories"
+        android:title="Categories" />
+    <item
+        android:id="@+id/nav_hostlists"
+        android:icon="@drawable/ic_hostlist"
+        android:title="Hostlists" />
     <item
         android:id="@+id/nav_logs"
         android:icon="@drawable/ic_logs"
-        android:title="Логи" />
+        android:title="Logs" />
 </menu>

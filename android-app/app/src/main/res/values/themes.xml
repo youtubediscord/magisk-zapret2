@@ -86,4 +86,13 @@
         <item name="backgroundTint">#D13438</item>
         <item name="android:textColor">#FFFFFF</item>
     </style>
+
+    <!-- BottomSheet Dialog Theme for fragments -->
+    <style name="BottomSheetDialogTheme" parent="Theme.Material3.Dark.BottomSheetDialog">
+        <item name="android:colorBackground">#2D2D2D</item>
+        <item name="colorSurface">#2D2D2D</item>
+        <item name="bottomSheetStyle">@style/Widget.Zapret2.BottomSheet</item>
+        <item name="android:navigationBarColor">#2D2D2D</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+    </style>
 </resources>

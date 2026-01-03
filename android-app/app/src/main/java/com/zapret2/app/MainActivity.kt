@@ -67,8 +67,16 @@ class MainActivity : AppCompatActivity() {
                     viewPager.setCurrentItem(1, true)
                     true
                 }
-                R.id.nav_logs -> {
+                R.id.nav_categories -> {
                     viewPager.setCurrentItem(2, true)
+                    true
+                }
+                R.id.nav_hostlists -> {
+                    viewPager.setCurrentItem(3, true)
+                    true
+                }
+                R.id.nav_logs -> {
+                    viewPager.setCurrentItem(4, true)
                     true
                 }
                 else -> false

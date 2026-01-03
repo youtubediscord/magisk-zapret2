@@ -25,6 +25,7 @@ import com.google.android.material.textfield.TextInputEditText
 import com.topjohnwu.superuser.Shell
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -110,6 +111,9 @@ class LogsFragment : Fragment() {
                     2 -> LogTab.ERRORS
                     else -> LogTab.LOGCAT
                 }
+                // Clear current logs to prevent showing stale data from other tab
+                currentLogs = ""
+                textLogs.text = "Loading..."
                 loadLogs()
             }
 
@@ -174,22 +178,8 @@ class LogsFragment : Fragment() {
     private fun loadCmdline() {
         viewLifecycleOwner.lifecycleScope.launch {
             val cmdline = withContext(Dispatchers.IO) {
-                try {
-                    val result = Shell.cmd("cat $CMDLINE_FILE").exec()
-                    if (result.isSuccess && result.out.isNotEmpty()) {
-                        // Join all lines and clean up the output
-                        result.out
-                            .filter { it.isNotBlank() }
-                            .joinToString(" ")
-                            .trim()
-                    } else {
-                        ""
-                    }
-                } catch (e: Exception) {
-                    ""
-                }
+                fetchCmdline()
             }
-
             textCmdline.text = cmdline.ifBlank { "No command line available" }
         }
     }
@@ -278,10 +268,12 @@ class LogsFragment : Fragment() {
 
         textLogs.text = finalText
 
-        // Auto-scroll to bottom if enabled
+        // Auto-scroll to bottom if enabled (check view is attached)
         if (checkAutoScroll.isChecked && displayText.isNotBlank()) {
             scrollLogs.post {
-                scrollLogs.fullScroll(View.FOCUS_DOWN)
+                if (isAdded && view != null) {
+                    scrollLogs.fullScroll(View.FOCUS_DOWN)
+                }
             }
         }
     }
@@ -330,17 +322,50 @@ class LogsFragment : Fragment() {
                 while (isActive) {
                     delay(POLL_INTERVAL_MS)
                     if (isActive) {
-                        val logs = withContext(Dispatchers.IO) {
-                            fetchLogs()
-                        }
-                        // Only update if logs changed
-                        if (logs != currentLogs) {
-                            currentLogs = logs
-                            displayLogs(logs)
+                        // Fetch logs and cmdline in parallel using async
+                        val logsDeferred = async(Dispatchers.IO) { fetchLogs() }
+                        val cmdlineDeferred = async(Dispatchers.IO) { fetchCmdline() }
+
+                        val newLogs = logsDeferred.await()
+                        val newCmdline = cmdlineDeferred.await()
+
+                        // Only update UI if still active
+                        if (isActive && isAdded && view != null) {
+                            // Only update if logs changed
+                            if (newLogs != currentLogs) {
+                                currentLogs = newLogs
+                                displayLogs(newLogs)
+                            }
+
+                            // Update cmdline if changed
+                            val currentCmdlineText = textCmdline.text?.toString() ?: ""
+                            val cmdlineText = newCmdline.ifBlank { "No command line available" }
+                            if (cmdlineText != currentCmdlineText) {
+                                textCmdline.text = cmdlineText
+                            }
                         }
                     }
                 }
             }
+        }
+    }
+
+    /**
+     * Fetch cmdline from file (runs on IO dispatcher)
+     */
+    private fun fetchCmdline(): String {
+        return try {
+            val result = Shell.cmd("cat $CMDLINE_FILE").exec()
+            if (result.isSuccess && result.out.isNotEmpty()) {
+                result.out
+                    .filter { it.isNotBlank() }
+                    .joinToString(" ")
+                    .trim()
+            } else {
+                ""
+            }
+        } catch (e: Exception) {
+            ""
         }
     }
 

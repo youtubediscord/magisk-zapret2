@@ -65,57 +65,44 @@ class StrategiesFragment : Fragment() {
     private val START_SCRIPT = "$MODDIR/zapret2/scripts/zapret-start.sh"
     private val STOP_SCRIPT = "$MODDIR/zapret2/scripts/zapret-stop.sh"
 
-    // Strategy arrays
-    private val tcpStrategies = arrayOf(
-        "Disabled",
-        "Strategy 1 - syndata+multisplit",
-        "Strategy 2 - censorliber v2",
-        "Strategy 3 - multidisorder",
-        "Strategy 4 - multisplit",
-        "Strategy 5 - fake+split",
-        "Strategy 6 - fake autottl",
-        "Strategy 7 - fake+multisplit",
-        "Strategy 8 - fake autottl+split",
-        "Strategy 9 - fake md5sig",
-        "Strategy 10 - syndata+fake",
-        "Strategy 11 - TLS aggressive",
-        "Strategy 12 - syndata only"
+    // Category key to categories.txt mapping
+    private val categoryKeyMap = mapOf(
+        "youtube_tcp" to "youtube",
+        "youtube_quic" to "youtube_udp",
+        "twitch" to "twitch_tcp",
+        "discord_tcp" to "discord",
+        "discord_quic" to "udp_discord",
+        "voice" to "discord_voice_udp",
+        "telegram" to "telegram_tcp",
+        "whatsapp" to "whatsapp_tcp",
+        "facebook" to "facebook_tcp",
+        "instagram" to "instagram_tcp",
+        "twitter" to "twitter_tcp",
+        "github" to "github_tcp",
+        "steam" to "steam_tcp",
+        "soundcloud" to "soundcloud_tcp",
+        "rutracker" to "rutracker_tcp",
+        "other" to "other"
     )
 
-    private val tcpStrategyValues = arrayOf(
-        "none",
-        "syndata_7_tls_google_multisplit_midsld",
-        "censorliber_google_syndata_v2",
-        "multidisorder_midsld",
-        "multisplit_1_midsld",
-        "tls_fake_split",
-        "fake_autottl_repeats_6_badseq",
-        "dis5",
-        "dis7",
-        "bolvan_md5sig",
-        "general_alt11_191_syndata",
-        "tls_aggressive",
-        "syndata"
-    )
-
-    private val udpStrategies = arrayOf(
-        "Disabled",
-        "Strategy 1 - fake QUIC x6",
-        "Strategy 2 - fake QUIC x4",
-        "Strategy 3 - fake QUIC x11",
-        "Strategy 4 - fake+udplen",
-        "Strategy 5 - fake+ipfrag",
-        "Strategy 6 - fake autottl x12"
-    )
-
-    private val udpStrategyValues = arrayOf(
-        "none",
-        "fake_6_google_quic",
-        "fake_4_google_quic",
-        "fake_11_quic_bin",
-        "fake_udplen_25_10",
-        "fake_ipfrag2_quic5",
-        "ipset_fake_12_n3"
+    // Is category TCP or UDP
+    private val isTcpCategory = mapOf(
+        "youtube_tcp" to true,
+        "youtube_quic" to false,
+        "twitch" to true,
+        "discord_tcp" to true,
+        "discord_quic" to false,
+        "voice" to false,
+        "telegram" to true,
+        "whatsapp" to true,
+        "facebook" to true,
+        "instagram" to true,
+        "twitter" to true,
+        "github" to true,
+        "steam" to true,
+        "soundcloud" to true,
+        "rutracker" to true,
+        "other" to true
     )
 
     private val voiceStrategies = arrayOf(
@@ -123,13 +110,6 @@ class StrategiesFragment : Fragment() {
         "Strategy 1 - fake STUN x6",
         "Strategy 2 - fake STUN x4",
         "Strategy 3 - fake+udplen"
-    )
-
-    private val voiceStrategyValues = arrayOf(
-        "none",
-        "fake_6_stun",
-        "fake_4_stun",
-        "fake_udplen_stun"
     )
 
     private val debugModes = arrayOf("None", "Android (logcat)", "File", "Syslog")
@@ -298,20 +278,32 @@ class StrategiesFragment : Fragment() {
     }
 
     private fun updateValueText(key: String, index: Int, type: String) {
-        val displayName = when (type) {
-            StrategyPickerBottomSheet.TYPE_TCP -> tcpStrategies.getOrNull(index) ?: "Disabled"
-            StrategyPickerBottomSheet.TYPE_UDP -> udpStrategies.getOrNull(index) ?: "Disabled"
-            StrategyPickerBottomSheet.TYPE_VOICE -> voiceStrategies.getOrNull(index) ?: "Disabled"
-            StrategyPickerBottomSheet.TYPE_DEBUG -> debugModes.getOrNull(index) ?: "None"
-            StrategyPickerBottomSheet.TYPE_PKT_COUNT -> pktCountOptions.getOrNull(index) ?: "5"
-            else -> "Disabled"
+        // For TCP/UDP, get strategy name from repository asynchronously
+        if (type == StrategyPickerBottomSheet.TYPE_TCP || type == StrategyPickerBottomSheet.TYPE_UDP) {
+            viewLifecycleOwner.lifecycleScope.launch {
+                val isTcp = type == StrategyPickerBottomSheet.TYPE_TCP
+                val strategyInfo = StrategyRepository.getStrategyByIndex(isTcp, index)
+                val displayName = strategyInfo?.displayName ?: "Disabled"
+                updateTextView(key, displayName)
+            }
+        } else {
+            val displayName = when (type) {
+                StrategyPickerBottomSheet.TYPE_VOICE -> voiceStrategies.getOrNull(index) ?: "Disabled"
+                StrategyPickerBottomSheet.TYPE_DEBUG -> debugModes.getOrNull(index) ?: "None"
+                StrategyPickerBottomSheet.TYPE_PKT_COUNT -> pktCountOptions.getOrNull(index) ?: "5"
+                else -> "Disabled"
+            }
+            updateTextView(key, displayName)
         }
+    }
 
-        // Shorten display for rows
+    private fun updateTextView(key: String, displayName: String) {
+        // Shorten display for rows if needed
         val shortName = when {
             displayName == "Disabled" -> "Disabled"
             displayName == "None" -> "None"
             displayName.startsWith("Strategy") -> displayName.substringBefore(" -").trim()
+            displayName.length > 25 -> displayName.take(22) + "..."
             else -> displayName
         }
 
@@ -339,30 +331,32 @@ class StrategiesFragment : Fragment() {
 
     private fun loadConfig() {
         viewLifecycleOwner.lifecycleScope.launch {
+            // Load from categories.txt using StrategyRepository
+            val categories = StrategyRepository.readCategories()
+
+            // Load each category's strategy index
+            categoryKeyMap.forEach { (uiKey, categoryKey) ->
+                val config = categories[categoryKey]
+                if (config != null) {
+                    val strategyIndex = config.strategyIndex
+                    // If category is disabled, show 0 (Disabled), otherwise show actual strategy index
+                    val index = if (config.enabled == 1) strategyIndex else 0
+                    selections[uiKey] = index
+
+                    val type = when {
+                        uiKey == "voice" -> StrategyPickerBottomSheet.TYPE_VOICE
+                        isTcpCategory[uiKey] == true -> StrategyPickerBottomSheet.TYPE_TCP
+                        else -> StrategyPickerBottomSheet.TYPE_UDP
+                    }
+                    updateValueText(uiKey, index, type)
+                }
+            }
+
+            // Load PKT_COUNT and LOG_MODE from config.sh (they're not in categories.txt)
             val config = withContext(Dispatchers.IO) {
                 Shell.cmd("cat $CONFIG 2>/dev/null").exec().out.joinToString("\n")
             }
 
-            // Parse and set values
-            parseAndSetValue(config, "STRATEGY_YOUTUBE", "youtube_tcp", tcpStrategyValues)
-            parseAndSetValue(config, "STRATEGY_YOUTUBE_UDP", "youtube_quic", udpStrategyValues)
-            parseAndSetValue(config, "STRATEGY_TWITCH_TCP", "twitch", tcpStrategyValues)
-            parseAndSetValue(config, "STRATEGY_DISCORD", "discord_tcp", tcpStrategyValues)
-            parseAndSetValue(config, "STRATEGY_DISCORD_QUIC", "discord_quic", udpStrategyValues)
-            parseAndSetValue(config, "STRATEGY_DISCORD_VOICE_UDP", "voice", voiceStrategyValues)
-            parseAndSetValue(config, "STRATEGY_TELEGRAM_TCP", "telegram", tcpStrategyValues)
-            parseAndSetValue(config, "STRATEGY_WHATSAPP_TCP", "whatsapp", tcpStrategyValues)
-            parseAndSetValue(config, "STRATEGY_FACEBOOK_TCP", "facebook", tcpStrategyValues)
-            parseAndSetValue(config, "STRATEGY_INSTAGRAM_TCP", "instagram", tcpStrategyValues)
-            parseAndSetValue(config, "STRATEGY_TWITTER_TCP", "twitter", tcpStrategyValues)
-            parseAndSetValue(config, "STRATEGY_GITHUB_TCP", "github", tcpStrategyValues)
-            parseAndSetValue(config, "STRATEGY_STEAM_TCP", "steam", tcpStrategyValues)
-            parseAndSetValue(config, "STRATEGY_SOUNDCLOUD_TCP", "soundcloud", tcpStrategyValues)
-            parseAndSetValue(config, "STRATEGY_RUTRACKER_TCP", "rutracker", tcpStrategyValues)
-            parseAndSetValue(config, "STRATEGY_OTHER", "other", tcpStrategyValues)
-            parseAndSetValue(config, "LOG_MODE", "debug", debugModeValues)
-
-            // PKT_COUNT
             parseConfigValue(config, "PKT_COUNT")?.let { value ->
                 val idx = pktCountOptions.indexOf(value)
                 if (idx >= 0) {
@@ -370,22 +364,13 @@ class StrategiesFragment : Fragment() {
                     updateValueText("pkt_count", idx, StrategyPickerBottomSheet.TYPE_PKT_COUNT)
                 }
             }
-        }
-    }
 
-    private fun parseAndSetValue(config: String, configKey: String, selectionKey: String, values: Array<String>) {
-        parseConfigValue(config, configKey)?.let { value ->
-            val idx = values.indexOf(value)
-            if (idx >= 0) {
-                selections[selectionKey] = idx
-                val type = when (values) {
-                    tcpStrategyValues -> StrategyPickerBottomSheet.TYPE_TCP
-                    udpStrategyValues -> StrategyPickerBottomSheet.TYPE_UDP
-                    voiceStrategyValues -> StrategyPickerBottomSheet.TYPE_VOICE
-                    debugModeValues -> StrategyPickerBottomSheet.TYPE_DEBUG
-                    else -> StrategyPickerBottomSheet.TYPE_TCP
+            parseConfigValue(config, "LOG_MODE")?.let { value ->
+                val idx = debugModeValues.indexOf(value)
+                if (idx >= 0) {
+                    selections["debug"] = idx
+                    updateValueText("debug", idx, StrategyPickerBottomSheet.TYPE_DEBUG)
                 }
-                updateValueText(selectionKey, idx, type)
             }
         }
     }
@@ -395,80 +380,39 @@ class StrategiesFragment : Fragment() {
         return regex.find(config)?.groupValues?.get(1)?.trim()
     }
 
-    private fun getStrategyValue(key: String, type: String): String {
-        val index = selections[key] ?: 0
-        return when (type) {
-            StrategyPickerBottomSheet.TYPE_TCP -> tcpStrategyValues.getOrNull(index) ?: "none"
-            StrategyPickerBottomSheet.TYPE_UDP -> udpStrategyValues.getOrNull(index) ?: "none"
-            StrategyPickerBottomSheet.TYPE_VOICE -> voiceStrategyValues.getOrNull(index) ?: "none"
-            StrategyPickerBottomSheet.TYPE_DEBUG -> debugModeValues.getOrNull(index) ?: "none"
-            StrategyPickerBottomSheet.TYPE_PKT_COUNT -> pktCountOptions.getOrNull(index) ?: "5"
-            else -> "none"
-        }
-    }
-
     private fun saveConfigAndRestart() {
         viewLifecycleOwner.lifecycleScope.launch {
-            val ytTcp = getStrategyValue("youtube_tcp", StrategyPickerBottomSheet.TYPE_TCP)
-            val ytQuic = getStrategyValue("youtube_quic", StrategyPickerBottomSheet.TYPE_UDP)
-            val twitch = getStrategyValue("twitch", StrategyPickerBottomSheet.TYPE_TCP)
-            val dcTcp = getStrategyValue("discord_tcp", StrategyPickerBottomSheet.TYPE_TCP)
-            val dcQuic = getStrategyValue("discord_quic", StrategyPickerBottomSheet.TYPE_UDP)
-            val voice = getStrategyValue("voice", StrategyPickerBottomSheet.TYPE_VOICE)
-            val telegram = getStrategyValue("telegram", StrategyPickerBottomSheet.TYPE_TCP)
-            val whatsapp = getStrategyValue("whatsapp", StrategyPickerBottomSheet.TYPE_TCP)
-            val facebook = getStrategyValue("facebook", StrategyPickerBottomSheet.TYPE_TCP)
-            val instagram = getStrategyValue("instagram", StrategyPickerBottomSheet.TYPE_TCP)
-            val twitter = getStrategyValue("twitter", StrategyPickerBottomSheet.TYPE_TCP)
-            val github = getStrategyValue("github", StrategyPickerBottomSheet.TYPE_TCP)
-            val steam = getStrategyValue("steam", StrategyPickerBottomSheet.TYPE_TCP)
-            val soundcloud = getStrategyValue("soundcloud", StrategyPickerBottomSheet.TYPE_TCP)
-            val rutracker = getStrategyValue("rutracker", StrategyPickerBottomSheet.TYPE_TCP)
-            val other = getStrategyValue("other", StrategyPickerBottomSheet.TYPE_TCP)
-            val pktCount = getStrategyValue("pkt_count", StrategyPickerBottomSheet.TYPE_PKT_COUNT)
-            val debugMode = getStrategyValue("debug", StrategyPickerBottomSheet.TYPE_DEBUG)
+            var allSuccess = true
 
-            val config = """
-#!/system/bin/sh
-# Zapret2 Configuration - Generated by Zapret2 App
-AUTOSTART=1
-QNUM=200
-DESYNC_MARK=0x40000000
-PORTS_TCP="80,443"
-PORTS_UDP="443"
-PKT_OUT=20
-PKT_IN=10
-LOG_MODE="$debugMode"
-USE_CATEGORIES=1
-PKT_COUNT="$pktCount"
+            // Save each category to categories.txt
+            categoryKeyMap.forEach { (uiKey, categoryKey) ->
+                val strategyIndex = selections[uiKey] ?: 0
+                val success = StrategyRepository.updateCategoryStrategy(categoryKey, strategyIndex)
+                if (!success) allSuccess = false
+            }
 
-# Video Services
-STRATEGY_YOUTUBE="$ytTcp"
-STRATEGY_YOUTUBE_UDP="$ytQuic"
-STRATEGY_TWITCH_TCP="$twitch"
+            // Save PKT_COUNT and LOG_MODE to config.sh
+            val pktCount = pktCountOptions.getOrNull(selections["pkt_count"] ?: 2) ?: "5"
+            val debugMode = debugModeValues.getOrNull(selections["debug"] ?: 0) ?: "none"
 
-# Messaging
-STRATEGY_DISCORD="$dcTcp"
-STRATEGY_DISCORD_QUIC="$dcQuic"
-STRATEGY_DISCORD_VOICE_UDP="$voice"
-STRATEGY_TELEGRAM_TCP="$telegram"
-STRATEGY_WHATSAPP_TCP="$whatsapp"
+            val (configSuccess, restartSuccess) = withContext(Dispatchers.IO) {
+                // Read current config
+                val currentConfig = Shell.cmd("cat $CONFIG 2>/dev/null").exec().out.joinToString("\n")
 
-# Social Media
-STRATEGY_FACEBOOK_TCP="$facebook"
-STRATEGY_INSTAGRAM_TCP="$instagram"
-STRATEGY_TWITTER_TCP="$twitter"
+                // Update PKT_COUNT and LOG_MODE in config
+                var newConfig = currentConfig
+                    .replace(Regex("""PKT_COUNT=["']?\d+["']?"""), "PKT_COUNT=\"$pktCount\"")
+                    .replace(Regex("""LOG_MODE=["']?\w+["']?"""), "LOG_MODE=\"$debugMode\"")
 
-# Other Services
-STRATEGY_GITHUB_TCP="$github"
-STRATEGY_STEAM_TCP="$steam"
-STRATEGY_SOUNDCLOUD_TCP="$soundcloud"
-STRATEGY_RUTRACKER_TCP="$rutracker"
-STRATEGY_OTHER="$other"
-            """.trimIndent()
+                // If values don't exist, add them
+                if (!newConfig.contains("PKT_COUNT=")) {
+                    newConfig += "\nPKT_COUNT=\"$pktCount\""
+                }
+                if (!newConfig.contains("LOG_MODE=")) {
+                    newConfig += "\nLOG_MODE=\"$debugMode\""
+                }
 
-            val (saveSuccess, restartSuccess) = withContext(Dispatchers.IO) {
-                val escaped = config.replace("'", "'\\''")
+                val escaped = newConfig.replace("'", "'\\''")
                 val saveResult = Shell.cmd("echo '$escaped' > $CONFIG").exec()
 
                 if (!saveResult.isSuccess) {
@@ -480,9 +424,9 @@ STRATEGY_OTHER="$other"
                 Pair(true, startResult.isSuccess)
             }
 
-            if (saveSuccess && restartSuccess) {
+            if (allSuccess && configSuccess && restartSuccess) {
                 Toast.makeText(requireContext(), "Applied successfully", Toast.LENGTH_SHORT).show()
-            } else if (saveSuccess) {
+            } else if (allSuccess && configSuccess) {
                 Toast.makeText(requireContext(), "Saved, restart failed", Toast.LENGTH_SHORT).show()
             } else {
                 Toast.makeText(requireContext(), "Save failed", Toast.LENGTH_SHORT).show()
