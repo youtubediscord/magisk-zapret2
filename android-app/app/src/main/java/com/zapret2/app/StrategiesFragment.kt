@@ -4,6 +4,7 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.Spinner
 import android.widget.Toast
@@ -50,6 +51,11 @@ class StrategiesFragment : Fragment() {
     // Paths
     private val MODDIR = "/data/adb/modules/zapret2"
     private val CONFIG = "$MODDIR/zapret2/config.sh"
+    private val START_SCRIPT = "$MODDIR/zapret2/scripts/zapret-start.sh"
+    private val STOP_SCRIPT = "$MODDIR/zapret2/scripts/zapret-stop.sh"
+
+    // Flag to prevent auto-save during initial load
+    private var isInitialized = false
 
     // Strategy options arrays
     private val tcpStrategies = arrayOf(
@@ -252,7 +258,37 @@ class StrategiesFragment : Fragment() {
 
     private fun setupListeners() {
         buttonSave.setOnClickListener {
-            saveConfig()
+            saveConfigAndRestart()
+        }
+
+        // Setup auto-save on all spinners
+        setupSpinnerAutoSave(spinnerYoutubeTcp)
+        setupSpinnerAutoSave(spinnerYoutubeQuic)
+        setupSpinnerAutoSave(spinnerTwitch)
+        setupSpinnerAutoSave(spinnerDiscordTcp)
+        setupSpinnerAutoSave(spinnerDiscordQuic)
+        setupSpinnerAutoSave(spinnerVoice)
+        setupSpinnerAutoSave(spinnerTelegram)
+        setupSpinnerAutoSave(spinnerWhatsapp)
+        setupSpinnerAutoSave(spinnerFacebook)
+        setupSpinnerAutoSave(spinnerInstagram)
+        setupSpinnerAutoSave(spinnerTwitter)
+        setupSpinnerAutoSave(spinnerGithub)
+        setupSpinnerAutoSave(spinnerSteam)
+        setupSpinnerAutoSave(spinnerSoundcloud)
+        setupSpinnerAutoSave(spinnerRutracker)
+        setupSpinnerAutoSave(spinnerOther)
+        setupSpinnerAutoSave(spinnerDebug)
+    }
+
+    private fun setupSpinnerAutoSave(spinner: Spinner) {
+        spinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                if (isInitialized) {
+                    saveConfigAndRestart()
+                }
+            }
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
     }
 
@@ -325,6 +361,9 @@ class StrategiesFragment : Fragment() {
             parseConfigValue(config, "LOG_MODE")?.let {
                 setSpinnerByValue(spinnerDebug, it, debugModeValues)
             }
+
+            // Mark as initialized to enable auto-save
+            isInitialized = true
         }
     }
 
@@ -349,10 +388,10 @@ class StrategiesFragment : Fragment() {
         }
     }
 
-    private fun saveConfig() {
+    private fun saveConfigAndRestart() {
         viewLifecycleOwner.lifecycleScope.launch {
             buttonSave.isEnabled = false
-            buttonSave.text = "Saving..."
+            buttonSave.text = "Applying..."
 
             val ytTcp = getSpinnerValue(spinnerYoutubeTcp, tcpStrategyValues)
             val ytQuic = getSpinnerValue(spinnerYoutubeQuic, udpStrategyValues)
@@ -412,20 +451,52 @@ STRATEGY_RUTRACKER_TCP="$rutracker"
 STRATEGY_OTHER="$other"
             """.trimIndent()
 
-            val success = withContext(Dispatchers.IO) {
+            val (saveSuccess, restartSuccess) = withContext(Dispatchers.IO) {
+                // Save config
                 val escaped = config.replace("'", "'\\''")
-                val result = Shell.cmd("echo '$escaped' > $CONFIG").exec()
-                result.isSuccess
+                val saveResult = Shell.cmd("echo '$escaped' > $CONFIG").exec()
+
+                if (!saveResult.isSuccess) {
+                    return@withContext Pair(false, false)
+                }
+
+                // Restart service
+                Shell.cmd("$STOP_SCRIPT").exec()
+                val startResult = Shell.cmd("$START_SCRIPT").exec()
+                Pair(true, startResult.isSuccess)
             }
 
             buttonSave.isEnabled = true
             buttonSave.text = "SAVE CONFIGURATION"
 
-            if (success) {
-                Toast.makeText(requireContext(), "Configuration saved", Toast.LENGTH_SHORT).show()
+            if (saveSuccess && restartSuccess) {
+                // Build summary of applied strategies
+                val appliedStrategies = buildAppliedSummary(ytTcp, dcTcp, telegram)
+                Toast.makeText(requireContext(), "Applied: $appliedStrategies", Toast.LENGTH_SHORT).show()
+            } else if (saveSuccess) {
+                Toast.makeText(requireContext(), "Saved, but restart failed", Toast.LENGTH_SHORT).show()
             } else {
                 Toast.makeText(requireContext(), "Save failed", Toast.LENGTH_SHORT).show()
             }
         }
+    }
+
+    private fun buildAppliedSummary(youtube: String, discord: String, telegram: String): String {
+        val parts = mutableListOf<String>()
+
+        if (youtube != "none") {
+            val idx = tcpStrategyValues.indexOf(youtube)
+            if (idx > 0) parts.add("YT=${idx}")
+        }
+        if (discord != "none") {
+            val idx = tcpStrategyValues.indexOf(discord)
+            if (idx > 0) parts.add("DC=${idx}")
+        }
+        if (telegram != "none") {
+            val idx = tcpStrategyValues.indexOf(telegram)
+            if (idx > 0) parts.add("TG=${idx}")
+        }
+
+        return if (parts.isEmpty()) "All disabled" else parts.joinToString(", ")
     }
 }
