@@ -32,17 +32,17 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
 
-      - name: Build Release APK
+      - name: Build Debug APK
         run: |
           chmod +x gradlew
-          ./gradlew assembleRelease
+          ./gradlew assembleDebug
         working-directory: android-app
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: zapret2-apk
-          path: android-app/app/build/outputs/apk/release/app-release-unsigned.apk
+          path: android-app/app/build/outputs/apk/debug/app-debug.apk
 
   build-nfqws2:
     name: Build nfqws2 for ${{ matrix.abi }}
@@ -217,7 +217,7 @@ jobs:
             -x ".github/*"
 
           # Rename APK with version
-          cp apk-artifact/app-release-unsigned.apk zapret2-control-v${VERSION}.apk
+          cp apk-artifact/app-debug.apk zapret2-control-v${VERSION}.apk
 
       - name: Upload module
         uses: actions/upload-artifact@v4
