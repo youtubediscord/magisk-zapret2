@@ -33,7 +33,9 @@ jobs:
         uses: gradle/actions/setup-gradle@v3
 
       - name: Build Release APK
-        run: ./gradlew assembleRelease
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease
         working-directory: android-app
 
       - name: Upload APK
