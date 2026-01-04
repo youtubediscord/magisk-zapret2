@@ -10,7 +10,9 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.core.content.ContextCompat
+import androidx.core.os.bundleOf
 import androidx.fragment.app.Fragment
+import androidx.fragment.app.setFragmentResult
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.materialswitch.MaterialSwitch
@@ -768,8 +770,6 @@ class ControlFragment : Fragment() {
                 Shell.cmd("sh $SCRIPTS/zapret-start.sh 2>&1").exec()
             }
 
-            delay(1500)
-
             // Record approximate start time (will be refined by checkStatus)
             if (result.isSuccess) {
                 serviceStartTime = System.currentTimeMillis()
@@ -782,6 +782,8 @@ class ControlFragment : Fragment() {
 
             if (result.isSuccess) {
                 Toast.makeText(ctx, "Service started", Toast.LENGTH_SHORT).show()
+                // Notify LogsFragment to refresh
+                setFragmentResult(LogsFragment.SERVICE_RESTARTED_KEY, bundleOf())
             } else {
                 serviceStartTime = 0L
                 Toast.makeText(ctx, "Start failed", Toast.LENGTH_SHORT).show()
@@ -804,7 +806,6 @@ class ControlFragment : Fragment() {
             // Reset start time immediately
             serviceStartTime = 0L
 
-            delay(500)
             checkStatus()
             buttonToggle.isEnabled = true
 
@@ -812,6 +813,8 @@ class ControlFragment : Fragment() {
 
             if (result.isSuccess) {
                 Toast.makeText(ctx, "Service stopped", Toast.LENGTH_SHORT).show()
+                // Notify LogsFragment to refresh
+                setFragmentResult(LogsFragment.SERVICE_RESTARTED_KEY, bundleOf())
             } else {
                 Toast.makeText(ctx, "Stop failed", Toast.LENGTH_SHORT).show()
             }

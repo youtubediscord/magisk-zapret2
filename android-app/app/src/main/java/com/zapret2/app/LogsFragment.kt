@@ -65,6 +65,7 @@ class LogsFragment : Fragment() {
         private const val CMDLINE_FILE = "/data/local/tmp/nfqws2-cmdline.txt"
         private const val POLL_INTERVAL_MS = 3000L
         private const val MAX_LINES = 500
+        const val SERVICE_RESTARTED_KEY = "service_restarted"
     }
 
     override fun onCreateView(
@@ -80,6 +81,11 @@ class LogsFragment : Fragment() {
         initViews(view)
         setupTabListener()
         setupCmdlineSection()
+
+        // Listen for service restart events from StrategiesFragment
+        parentFragmentManager.setFragmentResultListener(SERVICE_RESTARTED_KEY, viewLifecycleOwner) { _, _ ->
+            refreshAll()
+        }
         setupFilterInput()
         setupButtons()
 
@@ -484,5 +490,13 @@ class LogsFragment : Fragment() {
         super.onDestroyView()
         pollingJob?.cancel()
         pollingJob = null
+    }
+
+    /**
+     * Refresh both cmdline and logs after service restart
+     */
+    private fun refreshAll() {
+        loadCmdline()
+        loadLogs()
     }
 }
