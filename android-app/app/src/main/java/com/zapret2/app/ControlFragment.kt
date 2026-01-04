@@ -23,6 +23,7 @@ class ControlFragment : Fragment() {
         private const val PREFS_NAME = "zapret2_prefs"
         private const val KEY_AUTO_CHECK_UPDATES = "auto_check_updates"
         private const val KEY_LAST_UPDATE_CHECK = "last_update_check"
+        private const val KEY_QUIC_BANNER_DISMISSED = "quic_banner_dismissed"
         private const val UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000L // 24 hours
 
         // PKT limits for packet interception settings
@@ -79,6 +80,10 @@ class ControlFragment : Fragment() {
     // PKT current values
     private var pktOutValue: Int = PKT_OUT_DEFAULT
     private var pktInValue: Int = PKT_IN_DEFAULT
+
+    // QUIC Warning Banner
+    private lateinit var bannerQuicWarning: LinearLayout
+    private lateinit var buttonDismissQuicBanner: MaterialButton
 
     // Network stats manager
     private var networkStatsManager: NetworkStatsManager? = null
@@ -226,6 +231,13 @@ class ControlFragment : Fragment() {
 
         // Initialize network stats manager
         networkStatsManager = NetworkStatsManager(view.context)
+
+        // QUIC Warning Banner
+        bannerQuicWarning = view.findViewById(R.id.bannerQuicWarning)
+        buttonDismissQuicBanner = view.findViewById(R.id.buttonDismissQuicBanner)
+
+        // Show QUIC banner if not dismissed
+        setupQuicWarningBanner()
     }
 
     private fun setupListeners() {
@@ -396,7 +408,8 @@ class ControlFragment : Fragment() {
                 Shell.cmd("grep 'version=' $MODDIR/module.prop | cut -d= -f2").exec()
                     .out.firstOrNull() ?: "Unknown"
             }
-            textModuleVersion.text = "v$version"
+            // version already contains "v" prefix from module.prop
+            textModuleVersion.text = version
         }
     }
 
@@ -1112,6 +1125,50 @@ class ControlFragment : Fragment() {
             val rulesColorRes = if (stats.nfqueueRulesCount > 0) R.color.status_running else R.color.text_secondary
             textNfqueueRulesCount.setTextColor(ContextCompat.getColor(ctx, rulesColorRes))
         }
+    }
+
+    // ==================== QUIC Warning Banner ====================
+
+    /**
+     * Sets up the QUIC warning banner visibility based on SharedPreferences.
+     * Shows the banner if user hasn't dismissed it yet.
+     */
+    private fun setupQuicWarningBanner() {
+        val ctx = context ?: return
+        val prefs = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val isDismissed = prefs.getBoolean(KEY_QUIC_BANNER_DISMISSED, false)
+
+        if (!isDismissed) {
+            bannerQuicWarning.visibility = View.VISIBLE
+        } else {
+            bannerQuicWarning.visibility = View.GONE
+        }
+
+        // Set up dismiss button click listener
+        buttonDismissQuicBanner.setOnClickListener {
+            dismissQuicWarningBanner()
+        }
+    }
+
+    /**
+     * Dismisses the QUIC warning banner and saves the preference.
+     */
+    private fun dismissQuicWarningBanner() {
+        val ctx = context ?: return
+
+        // Hide banner with animation
+        bannerQuicWarning.animate()
+            .alpha(0f)
+            .setDuration(200)
+            .withEndAction {
+                bannerQuicWarning.visibility = View.GONE
+                bannerQuicWarning.alpha = 1f
+            }
+            .start()
+
+        // Save dismissed state to SharedPreferences
+        val prefs = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().putBoolean(KEY_QUIC_BANNER_DISMISSED, true).apply()
     }
 
 }

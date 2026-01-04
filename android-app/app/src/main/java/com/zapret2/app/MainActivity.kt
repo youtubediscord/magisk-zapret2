@@ -114,6 +114,10 @@ class MainActivity : AppCompatActivity() {
                     pager.setCurrentItem(4, true)
                     true
                 }
+                R.id.nav_about -> {
+                    pager.setCurrentItem(5, true)
+                    true
+                }
                 else -> false
             }
         }
