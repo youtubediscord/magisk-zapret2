@@ -42,15 +42,19 @@ class HostlistsFragment : Fragment() {
     private val LISTS_DIR = "/data/adb/modules/zapret2/zapret2/lists"
     private val CONFIG_FILE = "/data/local/tmp/zapret2-hostlists.conf"
 
+    // Default strategy name (first working strategy)
+    private val DEFAULT_STRATEGY = "syndata_multisplit_tls_google_700"
+
     /**
      * Hostlist configuration with file info and selected strategy
+     * Now uses strategy NAME instead of index
      */
     data class HostlistConfig(
         val filename: String,
         val path: String,
         val domainCount: Int,
         val sizeBytes: Long,
-        var strategyIndex: Int  // 0 = disabled, 1+ = strategy index
+        var strategyName: String  // "disabled" or actual strategy name like "syndata_multisplit_tls_google_700"
     )
 
     override fun onCreateView(
@@ -182,7 +186,7 @@ class HostlistsFragment : Fragment() {
             // Update adapter with strategies
             adapter?.updateStrategies(strategies)
 
-            // Load saved config
+            // Load saved config (now returns Map<String, String> - filename to strategyName)
             val savedConfig = withContext(Dispatchers.IO) {
                 loadSavedConfig()
             }
@@ -225,9 +229,10 @@ class HostlistsFragment : Fragment() {
 
     /**
      * Load saved hostlist configuration from file
+     * Returns Map<filename, strategyName> where strategyName is "disabled" or actual strategy ID
      */
-    private fun loadSavedConfig(): Map<String, Int> {
-        val configMap = mutableMapOf<String, Int>()
+    private fun loadSavedConfig(): Map<String, String> {
+        val configMap = mutableMapOf<String, String>()
 
         try {
             val result = Shell.cmd("cat $CONFIG_FILE 2>/dev/null").exec()
@@ -238,8 +243,9 @@ class HostlistsFragment : Fragment() {
                         val parts = trimmed.split("=", limit = 2)
                         if (parts.size == 2) {
                             val filename = parts[0].trim()
-                            val strategyIndex = parts[1].trim().toIntOrNull() ?: 0
-                            configMap[filename] = strategyIndex
+                            val strategyName = parts[1].trim()
+                            // Store strategy name directly (no conversion needed)
+                            configMap[filename] = strategyName
                         }
                     }
                 }
@@ -253,6 +259,7 @@ class HostlistsFragment : Fragment() {
 
     /**
      * Save hostlist configuration to file
+     * Format: HOSTLIST_FILE=STRATEGY_NAME
      */
     private fun saveConfig() {
         viewLifecycleOwner.lifecycleScope.launch {
@@ -260,17 +267,16 @@ class HostlistsFragment : Fragment() {
                 try {
                     val content = buildString {
                         appendLine("# Zapret2 Hostlists Configuration")
-                        appendLine("# Format: HOSTLIST_FILE=STRATEGY_INDEX")
-                        appendLine("# Strategy 0 = Disabled")
+                        appendLine("# Format: HOSTLIST_FILE=STRATEGY_NAME")
+                        appendLine("# Use 'disabled' to disable a hostlist")
                         appendLine()
                         hostlistConfigs.forEach { config ->
-                            appendLine("${config.filename}=${config.strategyIndex}")
+                            appendLine("${config.filename}=${config.strategyName}")
                         }
                     }
 
-                    // Escape single quotes for shell
-                    val escaped = content.replace("'", "'\\''")
-                    Shell.cmd("echo '$escaped' > $CONFIG_FILE").exec()
+                    // Use heredoc for safe multiline write
+                    Shell.cmd("cat > $CONFIG_FILE << 'EOFCONFIG'\n$content\nEOFCONFIG").exec()
                 } catch (e: Exception) {
                     withContext(Dispatchers.Main) {
                         Toast.makeText(context, "Failed to save config", Toast.LENGTH_SHORT).show()
@@ -280,7 +286,11 @@ class HostlistsFragment : Fragment() {
         }
     }
 
-    private fun loadHostlistFiles(savedConfig: Map<String, Int>): List<HostlistConfig> {
+    /**
+     * Load hostlist files from the lists directory
+     * Uses strategy names from saved config, defaults to DEFAULT_STRATEGY
+     */
+    private fun loadHostlistFiles(savedConfig: Map<String, String>): List<HostlistConfig> {
         val result = Shell.cmd("ls -la \"$LISTS_DIR\"/*.txt 2>/dev/null").exec()
         if (!result.isSuccess) {
             return emptyList()
@@ -307,15 +317,15 @@ class HostlistsFragment : Fragment() {
             val statResult = Shell.cmd("stat -c %s \"$filePath\" 2>/dev/null").exec()
             val sizeBytes = statResult.out.firstOrNull()?.trim()?.toLongOrNull() ?: 0L
 
-            // Get saved strategy index or default to 1 (first strategy)
-            val strategyIndex = savedConfig[fileName] ?: 1
+            // Get saved strategy name or default
+            val strategyName = savedConfig[fileName] ?: DEFAULT_STRATEGY
 
             files.add(HostlistConfig(
                 filename = fileName,
                 path = filePath,
                 domainCount = domainCount,
                 sizeBytes = sizeBytes,
-                strategyIndex = strategyIndex
+                strategyName = strategyName
             ))
         }
 
@@ -338,6 +348,7 @@ class HostlistsFragment : Fragment() {
 
     /**
      * Show strategy picker bottom sheet for a hostlist
+     * Now passes strategy NAME instead of index
      */
     private fun showStrategyPicker(config: HostlistConfig, position: Int) {
         if (!isAdded || isDetached) return
@@ -351,13 +362,13 @@ class HostlistsFragment : Fragment() {
             categoryName = displayName,
             protocol = "TCP 443",
             iconRes = iconRes,
-            currentIndex = config.strategyIndex,
+            currentStrategyName = config.strategyName,  // Pass name, not index!
             strategyType = StrategyPickerBottomSheet.TYPE_TCP
         )
 
-        bottomSheet.setOnStrategySelectedListener { selectedIndex ->
-            // Update config
-            config.strategyIndex = selectedIndex
+        bottomSheet.setOnStrategySelectedListener { selectedName ->
+            // Update config with strategy NAME
+            config.strategyName = selectedName
 
             // Update UI
             adapter?.notifyItemChanged(position)
@@ -365,16 +376,24 @@ class HostlistsFragment : Fragment() {
             // Save config
             saveConfig()
 
-            // Show toast
-            val strategyName = if (selectedIndex == 0) {
-                "Disabled"
+            // Show toast with strategy name
+            val toastText = if (selectedName == "disabled") {
+                "$displayName: Disabled"
             } else {
-                strategies.getOrNull(selectedIndex)?.displayName ?: "Unknown"
+                "$displayName: ${formatStrategyNameForDisplay(selectedName)}"
             }
-            Toast.makeText(context, "$displayName: $strategyName", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, toastText, Toast.LENGTH_SHORT).show()
         }
 
         bottomSheet.show(parentFragmentManager, "strategy_picker")
+    }
+
+    /**
+     * Format strategy name for display in toast
+     */
+    private fun formatStrategyNameForDisplay(name: String): String {
+        val formatted = name.replace("_", " ")
+        return if (formatted.length > 30) formatted.take(27) + "..." else formatted
     }
 
     /**

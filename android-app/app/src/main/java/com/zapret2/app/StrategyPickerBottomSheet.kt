@@ -14,6 +14,12 @@ import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import kotlinx.coroutines.launch
 
+/**
+ * Bottom sheet for selecting a strategy for a hostlist or category.
+ *
+ * Now works with strategy NAMES instead of indices.
+ * Returns the selected strategy ID (name) via callback.
+ */
 class StrategyPickerBottomSheet : BottomSheetDialogFragment() {
 
     companion object {
@@ -21,7 +27,7 @@ class StrategyPickerBottomSheet : BottomSheetDialogFragment() {
         private const val ARG_CATEGORY_NAME = "category_name"
         private const val ARG_PROTOCOL = "protocol"
         private const val ARG_ICON_RES = "icon_res"
-        private const val ARG_CURRENT_INDEX = "current_index"
+        private const val ARG_CURRENT_STRATEGY_NAME = "current_strategy_name"
         private const val ARG_STRATEGY_TYPE = "strategy_type"
 
         const val TYPE_TCP = "tcp"
@@ -30,12 +36,15 @@ class StrategyPickerBottomSheet : BottomSheetDialogFragment() {
         const val TYPE_DEBUG = "debug"
         const val TYPE_PKT_COUNT = "pkt_count"
 
+        /**
+         * Create a new instance with strategy NAME (not index)
+         */
         fun newInstance(
             categoryKey: String,
             categoryName: String,
             protocol: String,
             iconRes: Int,
-            currentIndex: Int,
+            currentStrategyName: String,  // Now accepts name instead of index
             strategyType: String
         ): StrategyPickerBottomSheet {
             return StrategyPickerBottomSheet().apply {
@@ -44,16 +53,17 @@ class StrategyPickerBottomSheet : BottomSheetDialogFragment() {
                     putString(ARG_CATEGORY_NAME, categoryName)
                     putString(ARG_PROTOCOL, protocol)
                     putInt(ARG_ICON_RES, iconRes)
-                    putInt(ARG_CURRENT_INDEX, currentIndex)
+                    putString(ARG_CURRENT_STRATEGY_NAME, currentStrategyName)  // Store as String
                     putString(ARG_STRATEGY_TYPE, strategyType)
                 }
             }
         }
     }
 
-    private var onStrategySelected: ((Int) -> Unit)? = null
+    // Callback now returns strategy NAME (String) instead of index (Int)
+    private var onStrategySelected: ((String) -> Unit)? = null
 
-    fun setOnStrategySelectedListener(listener: (Int) -> Unit) {
+    fun setOnStrategySelectedListener(listener: (String) -> Unit) {
         onStrategySelected = listener
     }
 
@@ -74,7 +84,7 @@ class StrategyPickerBottomSheet : BottomSheetDialogFragment() {
         val categoryName = arguments?.getString(ARG_CATEGORY_NAME) ?: return
         val protocol = arguments?.getString(ARG_PROTOCOL) ?: ""
         val iconRes = arguments?.getInt(ARG_ICON_RES) ?: R.drawable.ic_settings
-        val currentIndex = arguments?.getInt(ARG_CURRENT_INDEX) ?: 0
+        val currentStrategyName = arguments?.getString(ARG_CURRENT_STRATEGY_NAME) ?: "disabled"
         val strategyType = arguments?.getString(ARG_STRATEGY_TYPE) ?: TYPE_TCP
 
         // Set title and icon
@@ -87,16 +97,19 @@ class StrategyPickerBottomSheet : BottomSheetDialogFragment() {
 
         // Load strategies asynchronously for TCP/UDP
         when (strategyType) {
-            TYPE_TCP -> loadStrategiesAsync(recyclerView, true, currentIndex)
-            TYPE_UDP -> loadStrategiesAsync(recyclerView, false, currentIndex)
-            TYPE_VOICE -> setupAdapter(recyclerView, getVoiceStrategies(), currentIndex)
-            TYPE_DEBUG -> setupAdapter(recyclerView, getDebugModes(), currentIndex)
-            TYPE_PKT_COUNT -> setupAdapter(recyclerView, getPktCountOptions(), currentIndex)
-            else -> loadStrategiesAsync(recyclerView, true, currentIndex)
+            TYPE_TCP -> loadStrategiesAsync(recyclerView, true, currentStrategyName)
+            TYPE_UDP -> loadStrategiesAsync(recyclerView, false, currentStrategyName)
+            TYPE_VOICE -> setupAdapter(recyclerView, getVoiceStrategies(), currentStrategyName)
+            TYPE_DEBUG -> setupAdapter(recyclerView, getDebugModes(), currentStrategyName)
+            TYPE_PKT_COUNT -> setupAdapter(recyclerView, getPktCountOptions(), currentStrategyName)
+            else -> loadStrategiesAsync(recyclerView, true, currentStrategyName)
         }
     }
 
-    private fun loadStrategiesAsync(recyclerView: RecyclerView, isTcp: Boolean, currentIndex: Int) {
+    /**
+     * Load TCP/UDP strategies asynchronously and setup adapter
+     */
+    private fun loadStrategiesAsync(recyclerView: RecyclerView, isTcp: Boolean, currentStrategyName: String) {
         lifecycleScope.launch {
             val strategyInfoList = if (isTcp) {
                 StrategyRepository.getTcpStrategies()
@@ -105,52 +118,74 @@ class StrategyPickerBottomSheet : BottomSheetDialogFragment() {
             }
 
             // Convert to StrategyItem format
+            // strategyInfoList already includes "disabled" at index 0 from StrategyRepository
             val strategies = strategyInfoList.map { info ->
-                StrategyItem(info.displayName, info.id)
+                StrategyItem(
+                    id = info.id,  // Use the actual ID
+                    name = info.displayName,
+                    description = if (info.id == "disabled") "No DPI bypass" else ""
+                )
             }
 
-            setupAdapter(recyclerView, strategies, currentIndex)
+            setupAdapter(recyclerView, strategies, currentStrategyName)
         }
     }
 
-    private fun setupAdapter(recyclerView: RecyclerView, strategies: List<StrategyItem>, currentIndex: Int) {
-        recyclerView.adapter = StrategyAdapter(strategies, currentIndex) { selectedIndex ->
-            onStrategySelected?.invoke(selectedIndex)
+    /**
+     * Setup adapter with strategy items
+     * Now finds selected item by NAME instead of index
+     */
+    private fun setupAdapter(recyclerView: RecyclerView, strategies: List<StrategyItem>, currentStrategyName: String) {
+        recyclerView.adapter = StrategyAdapter(strategies, currentStrategyName) { selectedId ->
+            // Return the strategy ID (name), not index
+            onStrategySelected?.invoke(selectedId)
             dismiss()
         }
     }
 
     // Voice, Debug and PktCount strategies remain as hardcoded small lists
+    // Now they have proper IDs
 
     private fun getVoiceStrategies(): List<StrategyItem> = listOf(
-        StrategyItem("Disabled", "No voice bypass"),
-        StrategyItem("Strategy 1 - fake STUN x6", "6 STUN fake packets"),
-        StrategyItem("Strategy 2 - fake STUN x4", "4 STUN fake packets"),
-        StrategyItem("Strategy 3 - fake+udplen", "STUN + length mod")
+        StrategyItem("disabled", "Disabled", "No voice bypass"),
+        StrategyItem("voice_fake_stun_6", "Strategy 1 - fake STUN x6", "6 STUN fake packets"),
+        StrategyItem("voice_fake_stun_4", "Strategy 2 - fake STUN x4", "4 STUN fake packets"),
+        StrategyItem("voice_fake_udplen", "Strategy 3 - fake+udplen", "STUN + length mod")
     )
 
     private fun getDebugModes(): List<StrategyItem> = listOf(
-        StrategyItem("None", "Logging disabled"),
-        StrategyItem("Android (logcat)", "Output to logcat"),
-        StrategyItem("File", "Write to file"),
-        StrategyItem("Syslog", "System logger")
+        StrategyItem("none", "None", "Logging disabled"),
+        StrategyItem("android", "Android (logcat)", "Output to logcat"),
+        StrategyItem("file", "File", "Write to file"),
+        StrategyItem("syslog", "Syslog", "System logger")
     )
 
     private fun getPktCountOptions(): List<StrategyItem> = listOf(
-        StrategyItem("1", "Minimal"),
-        StrategyItem("3", "Light"),
-        StrategyItem("5", "Default"),
-        StrategyItem("10", "Extended"),
-        StrategyItem("15", "Heavy"),
-        StrategyItem("20", "Maximum")
+        StrategyItem("1", "1", "Minimal"),
+        StrategyItem("3", "3", "Light"),
+        StrategyItem("5", "5", "Default"),
+        StrategyItem("10", "10", "Extended"),
+        StrategyItem("15", "15", "Heavy"),
+        StrategyItem("20", "20", "Maximum")
     )
 
-    data class StrategyItem(val name: String, val description: String = "")
+    /**
+     * Strategy item with ID, name and description
+     */
+    data class StrategyItem(
+        val id: String,           // The actual strategy ID (e.g., "syndata_multisplit_tls_google_700")
+        val name: String,         // Display name
+        val description: String = ""
+    )
 
+    /**
+     * Adapter for strategy list
+     * Now works with strategy IDs (names) instead of indices
+     */
     inner class StrategyAdapter(
         private val items: List<StrategyItem>,
-        private val selectedIndex: Int,
-        private val onItemClick: (Int) -> Unit
+        private val selectedStrategyId: String,  // Changed from selectedIndex to selectedStrategyId
+        private val onItemClick: (String) -> Unit  // Changed from Int to String
     ) : RecyclerView.Adapter<StrategyAdapter.ViewHolder>() {
 
         inner class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
@@ -168,7 +203,9 @@ class StrategyPickerBottomSheet : BottomSheetDialogFragment() {
         override fun onBindViewHolder(holder: ViewHolder, position: Int) {
             val item = items[position]
             holder.nameText.text = item.name
-            holder.radioButton.isChecked = position == selectedIndex
+
+            // Check by ID (strategy name), not by position
+            holder.radioButton.isChecked = item.id == selectedStrategyId
 
             if (item.description.isNotEmpty()) {
                 holder.descText.visibility = View.VISIBLE
@@ -178,7 +215,8 @@ class StrategyPickerBottomSheet : BottomSheetDialogFragment() {
             }
 
             holder.itemView.setOnClickListener {
-                onItemClick(position)
+                // Return the strategy ID, not the position
+                onItemClick(item.id)
             }
         }
 

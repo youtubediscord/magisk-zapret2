@@ -13,6 +13,8 @@ import androidx.recyclerview.widget.RecyclerView
 /**
  * RecyclerView Adapter for displaying hostlist files with strategy selection.
  * Each item shows the hostlist name, domain count, and a strategy selector.
+ *
+ * Now works with strategy NAMES instead of indices.
  */
 class HostlistsAdapter(
     private val items: MutableList<HostlistsFragment.HostlistConfig>,
@@ -55,16 +57,18 @@ class HostlistsAdapter(
         val iconTint = getHostlistIconTint(config.filename)
         holder.iconCategory.setColorFilter(ContextCompat.getColor(context, iconTint))
 
-        // Set selected strategy text
-        val strategyName = if (config.strategyIndex == 0) {
+        // Set selected strategy text - now uses strategyName directly
+        val displayStrategy = if (config.strategyName == "disabled") {
             "Disabled"
         } else {
-            strategies.getOrNull(config.strategyIndex)?.displayName ?: "Strategy ${config.strategyIndex}"
+            // Try to find display name from strategies list, otherwise format the name
+            val strategyInfo = strategies.find { it.id == config.strategyName }
+            strategyInfo?.displayName ?: formatStrategyName(config.strategyName)
         }
-        holder.textSelectedStrategy.text = strategyName
+        holder.textSelectedStrategy.text = displayStrategy
 
         // Style based on enabled/disabled state
-        if (config.strategyIndex == 0) {
+        if (config.strategyName == "disabled") {
             // Disabled state - gray text
             holder.textSelectedStrategy.setTextColor(Color.parseColor("#808080"))
         } else {
@@ -95,6 +99,16 @@ class HostlistsAdapter(
     fun updateStrategies(newStrategies: List<StrategyRepository.StrategyInfo>) {
         strategies = newStrategies
         notifyDataSetChanged()
+    }
+
+    /**
+     * Format strategy name for display when not found in strategies list
+     * Replaces underscores with spaces and truncates if too long
+     */
+    private fun formatStrategyName(name: String): String {
+        // "syndata_multisplit_tls_google_700" -> "syndata multisplit tls..."
+        val formatted = name.replace("_", " ")
+        return if (formatted.length > 25) formatted.take(22) + "..." else formatted
     }
 
     /**
