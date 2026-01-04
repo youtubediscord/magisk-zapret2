@@ -15,148 +15,61 @@
         android:layout_marginBottom="16dp"
         android:background="@drawable/bottom_sheet_handle" />
 
-    <!-- Category name -->
+    <!-- Category name header -->
     <TextView
         android:id="@+id/textCategoryName"
-        android:layout_width="wrap_content"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:textSize="20sp"
         android:textColor="#FFFFFF"
-        android:textSize="18sp"
         android:textStyle="bold"
         android:layout_marginBottom="24dp" />
 
-    <!-- Filter mode section -->
+    <!-- Filter Mode section -->
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="Filter Mode"
-        android:textColor="#808080"
-        android:textSize="12sp"
-        android:layout_marginTop="16dp"
-        android:layout_marginBottom="8dp" />
+        android:textColor="#AAAAAA"
+        android:textSize="14sp"
+        android:layout_marginBottom="12dp" />
 
     <RadioGroup
         android:id="@+id/radioGroupFilterMode"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="vertical">
-
-        <RadioButton
-            android:id="@+id/radioNone"
-            android:layout_width="match_parent"
-            android:layout_height="48dp"
-            android:text="None (no filtering)"
-            android:textColor="#FFFFFF"
-            android:textSize="14sp"
-            android:buttonTint="#0078D4"
-            android:paddingStart="8dp" />
+        android:orientation="horizontal"
+        android:layout_marginBottom="24dp">
 
         <RadioButton
             android:id="@+id/radioHostlist"
-            android:layout_width="match_parent"
-            android:layout_height="48dp"
-            android:text="Hostlist (domain-based)"
-            android:textColor="#FFFFFF"
-            android:textSize="14sp"
-            android:buttonTint="#0078D4"
-            android:paddingStart="8dp" />
-
-        <RadioButton
-            android:id="@+id/radioIpset"
-            android:layout_width="match_parent"
-            android:layout_height="48dp"
-            android:text="IPset (IP-based)"
-            android:textColor="#FFFFFF"
-            android:textSize="14sp"
-            android:buttonTint="#0078D4"
-            android:paddingStart="8dp" />
-
-    </RadioGroup>
-
-    <!-- Hostlist file (shown when hostlist/ipset selected) -->
-    <LinearLayout
-        android:id="@+id/layoutHostlistFile"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:layout_marginTop="16dp"
-        android:visibility="gone">
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="List File"
-            android:textColor="#808080"
-            android:textSize="12sp"
-            android:layout_marginBottom="8dp" />
-
-        <EditText
-            android:id="@+id/editHostlistFile"
-            android:layout_width="match_parent"
-            android:layout_height="48dp"
-            android:background="@drawable/edit_text_background"
-            android:textColor="#FFFFFF"
-            android:textSize="14sp"
-            android:hint="e.g. youtube.txt"
-            android:textColorHint="#606060"
-            android:paddingHorizontal="12dp"
-            android:inputType="text"
-            android:singleLine="true" />
-
-    </LinearLayout>
-
-    <!-- Strategy section -->
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Strategy"
-        android:textColor="#808080"
-        android:textSize="12sp"
-        android:layout_marginTop="16dp"
-        android:layout_marginBottom="8dp" />
-
-    <LinearLayout
-        android:id="@+id/layoutStrategyPicker"
-        android:layout_width="match_parent"
-        android:layout_height="48dp"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:background="@drawable/edit_text_background"
-        android:paddingHorizontal="12dp"
-        android:clickable="true"
-        android:focusable="true">
-
-        <TextView
-            android:id="@+id/textSelectedStrategy"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="Select strategy..."
+            android:text="Hostlist"
             android:textColor="#FFFFFF"
-            android:textSize="14sp"
-            android:ellipsize="end"
-            android:maxLines="1" />
+            android:buttonTint="#BB86FC" />
 
-        <ImageView
-            android:layout_width="20dp"
-            android:layout_height="20dp"
-            android:src="@drawable/ic_chevron_right"
-            android:contentDescription="Select"
-            app:tint="#808080" />
+        <RadioButton
+            android:id="@+id/radioIpset"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="IPset"
+            android:textColor="#FFFFFF"
+            android:buttonTint="#BB86FC" />
 
-    </LinearLayout>
+    </RadioGroup>
 
     <!-- Save button -->
     <com.google.android.material.button.MaterialButton
         android:id="@+id/btnSave"
         android:layout_width="match_parent"
         android:layout_height="48dp"
-        android:layout_marginTop="24dp"
         android:text="Save"
-        android:textColor="#FFFFFF"
-        android:textSize="14sp"
+        android:textColor="#000000"
+        android:backgroundTint="#BB86FC"
         android:textAllCaps="false"
-        app:cornerRadius="8dp"
-        app:backgroundTint="#0078D4" />
+        app:cornerRadius="8dp" />
 
 </LinearLayout>

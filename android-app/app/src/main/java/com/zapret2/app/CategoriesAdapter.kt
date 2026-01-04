@@ -85,7 +85,6 @@ class CategoriesAdapter(
     inner class CategoryViewHolder(view: View) : RecyclerView.ViewHolder(view) {
         private val textName: TextView = view.findViewById(R.id.textCategoryName)
         private val textProtocol: TextView = view.findViewById(R.id.textProtocol)
-        private val textFilterMode: TextView = view.findViewById(R.id.textFilterMode)
         private val textHostlist: TextView = view.findViewById(R.id.textHostlist)
         private val textStrategy: TextView = view.findViewById(R.id.textStrategy)
         private val btnEdit: ImageView = view.findViewById(R.id.btnEdit)
@@ -100,10 +99,6 @@ class CategoriesAdapter(
             // Dim row if disabled (strategy == "disabled")
             val alpha = if (category.isEnabled) 1.0f else 0.5f
             itemView.alpha = alpha
-
-            // Filter mode badge
-            textFilterMode.text = category.filterMode.value.uppercase()
-            textFilterMode.setBackgroundColor(getFilterModeColor(category.filterMode))
 
             // Hostlist file
             if (category.hostlistFile.isNotEmpty()) {
@@ -127,14 +122,6 @@ class CategoriesAdapter(
                 "udp" -> Color.parseColor("#5A4A2D")   // orange
                 "stun" -> Color.parseColor("#4A3B5C") // purple
                 else -> Color.parseColor("#505050")
-            }
-        }
-
-        private fun getFilterModeColor(mode: Category.FilterMode): Int {
-            return when (mode) {
-                Category.FilterMode.NONE -> Color.parseColor("#505050")
-                Category.FilterMode.HOSTLIST -> Color.parseColor("#2D5A27")
-                Category.FilterMode.IPSET -> Color.parseColor("#4A3B5C")
             }
         }
 
