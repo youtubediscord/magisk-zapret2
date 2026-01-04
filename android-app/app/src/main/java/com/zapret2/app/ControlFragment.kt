@@ -94,6 +94,7 @@ class ControlFragment : Fragment() {
     // Paths
     private val MODDIR = "/data/adb/modules/zapret2"
     private val CONFIG = "$MODDIR/zapret2/config.sh"
+    private val USER_CONFIG = "/data/local/tmp/zapret2-user.conf"  // Persistent user config
     private val SCRIPTS = "$MODDIR/zapret2/scripts"
     private val PIDFILE = "/data/local/tmp/nfqws2.pid"
 
@@ -401,30 +402,37 @@ class ControlFragment : Fragment() {
 
     private fun loadConfig() {
         viewLifecycleOwner.lifecycleScope.launch {
-            val config = withContext(Dispatchers.IO) {
-                Shell.cmd("cat $CONFIG 2>/dev/null").exec().out.joinToString("\n")
+            // Load both module config and user config
+            val (moduleConfig, userConfig) = withContext(Dispatchers.IO) {
+                val modConfig = Shell.cmd("cat $CONFIG 2>/dev/null").exec().out.joinToString("\n")
+                val usrConfig = Shell.cmd("cat $USER_CONFIG 2>/dev/null").exec().out.joinToString("\n")
+                Pair(modConfig, usrConfig)
             }
 
-            // Parse AUTOSTART
-            val autostartValue = parseConfigValue(config, "AUTOSTART")
+            // Parse AUTOSTART (user config overrides module config)
+            val autostartValue = parseConfigValue(userConfig, "AUTOSTART")
+                ?: parseConfigValue(moduleConfig, "AUTOSTART")
             val isAutostartEnabled = autostartValue == "1"
             switchAutostart.isChecked = isAutostartEnabled
             textAutostartValue.text = if (isAutostartEnabled) "On" else "Off"
 
-            // Parse WIFI_ONLY (if exists)
-            val wifiOnlyValue = parseConfigValue(config, "WIFI_ONLY")
+            // Parse WIFI_ONLY (user config overrides module config)
+            val wifiOnlyValue = parseConfigValue(userConfig, "WIFI_ONLY")
+                ?: parseConfigValue(moduleConfig, "WIFI_ONLY")
             val isWifiOnlyEnabled = wifiOnlyValue == "1"
             switchWifiOnly.isChecked = isWifiOnlyEnabled
             textWifiOnlyValue.text = if (isWifiOnlyEnabled) "On" else "Off"
 
-            // Parse PKT_OUT (if exists)
-            val pktOutStr = parseConfigValue(config, "PKT_OUT")
+            // Parse PKT_OUT (user config overrides module config)
+            val pktOutStr = parseConfigValue(userConfig, "PKT_OUT")
+                ?: parseConfigValue(moduleConfig, "PKT_OUT")
             pktOutValue = pktOutStr?.toIntOrNull() ?: PKT_OUT_DEFAULT
             pktOutValue = pktOutValue.coerceIn(PKT_MIN, PKT_MAX)
             textPktOutValue.text = pktOutValue.toString()
 
-            // Parse PKT_IN (if exists)
-            val pktInStr = parseConfigValue(config, "PKT_IN")
+            // Parse PKT_IN (user config overrides module config)
+            val pktInStr = parseConfigValue(userConfig, "PKT_IN")
+                ?: parseConfigValue(moduleConfig, "PKT_IN")
             pktInValue = pktInStr?.toIntOrNull() ?: PKT_IN_DEFAULT
             pktInValue = pktInValue.coerceIn(PKT_MIN, PKT_MAX)
             textPktInValue.text = pktInValue.toString()
@@ -802,7 +810,15 @@ class ControlFragment : Fragment() {
             val ctx = context ?: return@launch
             val value = if (enabled) "1" else "0"
             withContext(Dispatchers.IO) {
-                Shell.cmd("sed -i 's/^AUTOSTART=.*/AUTOSTART=$value/' $CONFIG").exec()
+                // Save to user config (persistent across module updates)
+                val hasValue = Shell.cmd("grep -q '^AUTOSTART=' $USER_CONFIG 2>/dev/null && echo 1 || echo 0").exec()
+                    .out.firstOrNull()?.trim() == "1"
+
+                if (hasValue) {
+                    Shell.cmd("sed -i 's/^AUTOSTART=.*/AUTOSTART=$value/' $USER_CONFIG").exec()
+                } else {
+                    Shell.cmd("echo 'AUTOSTART=$value' >> $USER_CONFIG").exec()
+                }
             }
             if (!isAdded) return@launch
             Toast.makeText(
@@ -818,14 +834,14 @@ class ControlFragment : Fragment() {
             val ctx = context ?: return@launch
             val value = if (enabled) "1" else "0"
             withContext(Dispatchers.IO) {
-                // Check if WIFI_ONLY exists in config, if not add it
-                val hasWifiOnly = Shell.cmd("grep -q 'WIFI_ONLY=' $CONFIG && echo 1 || echo 0").exec()
-                    .out.firstOrNull() == "1"
+                // Save to user config (persistent across module updates)
+                val hasValue = Shell.cmd("grep -q '^WIFI_ONLY=' $USER_CONFIG 2>/dev/null && echo 1 || echo 0").exec()
+                    .out.firstOrNull()?.trim() == "1"
 
-                if (hasWifiOnly) {
-                    Shell.cmd("sed -i 's/^WIFI_ONLY=.*/WIFI_ONLY=$value/' $CONFIG").exec()
+                if (hasValue) {
+                    Shell.cmd("sed -i 's/^WIFI_ONLY=.*/WIFI_ONLY=$value/' $USER_CONFIG").exec()
                 } else {
-                    Shell.cmd("echo 'WIFI_ONLY=$value' >> $CONFIG").exec()
+                    Shell.cmd("echo 'WIFI_ONLY=$value' >> $USER_CONFIG").exec()
                 }
             }
             if (!isAdded) return@launch
@@ -840,14 +856,14 @@ class ControlFragment : Fragment() {
     private fun savePktOut(value: Int) {
         viewLifecycleOwner.lifecycleScope.launch {
             withContext(Dispatchers.IO) {
-                // Check if PKT_OUT exists in config, if not add it
-                val hasPktOut = Shell.cmd("grep -q 'PKT_OUT=' $CONFIG && echo 1 || echo 0").exec()
-                    .out.firstOrNull() == "1"
+                // Save to user config (persistent across module updates)
+                val hasValue = Shell.cmd("grep -q '^PKT_OUT=' $USER_CONFIG 2>/dev/null && echo 1 || echo 0").exec()
+                    .out.firstOrNull()?.trim() == "1"
 
-                if (hasPktOut) {
-                    Shell.cmd("sed -i 's/^PKT_OUT=.*/PKT_OUT=$value/' $CONFIG").exec()
+                if (hasValue) {
+                    Shell.cmd("sed -i 's/^PKT_OUT=.*/PKT_OUT=$value/' $USER_CONFIG").exec()
                 } else {
-                    Shell.cmd("echo 'PKT_OUT=$value' >> $CONFIG").exec()
+                    Shell.cmd("echo 'PKT_OUT=$value' >> $USER_CONFIG").exec()
                 }
             }
         }
@@ -856,14 +872,14 @@ class ControlFragment : Fragment() {
     private fun savePktIn(value: Int) {
         viewLifecycleOwner.lifecycleScope.launch {
             withContext(Dispatchers.IO) {
-                // Check if PKT_IN exists in config, if not add it
-                val hasPktIn = Shell.cmd("grep -q 'PKT_IN=' $CONFIG && echo 1 || echo 0").exec()
-                    .out.firstOrNull() == "1"
+                // Save to user config (persistent across module updates)
+                val hasValue = Shell.cmd("grep -q '^PKT_IN=' $USER_CONFIG 2>/dev/null && echo 1 || echo 0").exec()
+                    .out.firstOrNull()?.trim() == "1"
 
-                if (hasPktIn) {
-                    Shell.cmd("sed -i 's/^PKT_IN=.*/PKT_IN=$value/' $CONFIG").exec()
+                if (hasValue) {
+                    Shell.cmd("sed -i 's/^PKT_IN=.*/PKT_IN=$value/' $USER_CONFIG").exec()
                 } else {
-                    Shell.cmd("echo 'PKT_IN=$value' >> $CONFIG").exec()
+                    Shell.cmd("echo 'PKT_IN=$value' >> $USER_CONFIG").exec()
                 }
             }
         }
