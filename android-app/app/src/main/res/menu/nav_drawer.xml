@@ -10,10 +10,6 @@
             android:icon="@drawable/ic_strategies"
             android:title="Strategies" />
         <item
-            android:id="@+id/nav_categories"
-            android:icon="@drawable/ic_categories"
-            android:title="Categories" />
-        <item
             android:id="@+id/nav_hostlists"
             android:icon="@drawable/ic_hostlist"
             android:title="Hostlists" />
