@@ -66,11 +66,6 @@ object StrategyRepository {
                 }
             }
 
-            // Fallback to hardcoded list if file reading fails
-            if (strategies.size == 1) {
-                strategies.addAll(getHardcodedTcpStrategies())
-            }
-
             tcpStrategies = strategies
             strategies
         }
@@ -108,11 +103,6 @@ object StrategyRepository {
                         index = index + 1
                     ))
                 }
-            }
-
-            // Fallback to hardcoded list if file reading fails
-            if (strategies.size == 1) {
-                strategies.addAll(getHardcodedUdpStrategies())
             }
 
             udpStrategies = strategies
@@ -310,10 +300,6 @@ object StrategyRepository {
             }
         }
 
-        if (strategies.size == 1) {
-            strategies.addAll(getHardcodedTcpStrategies())
-        }
-
         tcpStrategies = strategies
         return strategies
     }
@@ -345,10 +331,6 @@ object StrategyRepository {
                     index = index + 1
                 ))
             }
-        }
-
-        if (strategies.size == 1) {
-            strategies.addAll(getHardcodedUdpStrategies())
         }
 
         udpStrategies = strategies
@@ -431,35 +413,5 @@ object StrategyRepository {
             .joinToString(" ") { word ->
                 word.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
             }
-    }
-
-    // Hardcoded fallbacks (in case file reading fails)
-
-    private fun getHardcodedTcpStrategies(): List<StrategyInfo> {
-        return listOf(
-            StrategyInfo("syndata_2_tls_7", "Syndata 2 tls 7", 1),
-            StrategyInfo("syndata_3_tls_google", "Syndata 3 tls google", 2),
-            StrategyInfo("syndata_7_n3", "Syndata 7 n3", 3),
-            StrategyInfo("syndata_multisplit_tls_google_700", "Syndata multisplit tls google 700", 4),
-            StrategyInfo("syndata_multidisorder_tls_google_700", "Syndata multidisorder tls google 700", 5),
-            StrategyInfo("syndata_7_tls_google_multisplit_midsld", "Syndata 7 tls google multisplit midsld", 6),
-            StrategyInfo("censorliber_google_syndata", "Censorliber google syndata", 7),
-            StrategyInfo("censorliber_google_syndata_v2", "Censorliber google syndata v2", 8),
-            StrategyInfo("multidisorder_legacy_midsld", "Multidisorder legacy midsld", 9),
-            StrategyInfo("multidisorder_midsld", "Multidisorder midsld", 10),
-            StrategyInfo("tls_aggressive", "Tls aggressive", 11),
-            StrategyInfo("syndata", "Syndata", 12)
-        )
-    }
-
-    private fun getHardcodedUdpStrategies(): List<StrategyInfo> {
-        return listOf(
-            StrategyInfo("fake_6_google_quic", "Fake 6 google quic", 1),
-            StrategyInfo("fake_4_google_quic", "Fake 4 google quic", 2),
-            StrategyInfo("fake_11_quic_bin", "Fake 11 quic bin", 3),
-            StrategyInfo("fake_udplen_25_10", "Fake udplen 25 10", 4),
-            StrategyInfo("fake_ipfrag2_quic5", "Fake ipfrag2 quic5", 5),
-            StrategyInfo("ipset_fake_12_n3", "Ipset fake 12 n3", 6)
-        )
     }
 }
