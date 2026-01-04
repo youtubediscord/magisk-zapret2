@@ -393,16 +393,13 @@ class StrategiesFragment : Fragment() {
 
     private fun saveConfigAndRestart() {
         viewLifecycleOwner.lifecycleScope.launch {
-            var allSuccess = true
+            // Build updates map: category key -> strategy name
+            val categoryUpdates = categoryKeyMap.map { (uiKey, categoryKey) ->
+                categoryKey to (selections[uiKey] ?: "disabled")
+            }.toMap()
 
-            // Save each category to categories.txt using strategy name directly
-            categoryKeyMap.forEach { (uiKey, categoryKey) ->
-                val strategyName = selections[uiKey] ?: "disabled"
-
-                // Write strategy name directly to categories.txt
-                val success = StrategyRepository.updateCategoryStrategyByName(categoryKey, strategyName)
-                if (!success) allSuccess = false
-            }
+            // Batch update all categories in single file operation (2 shell commands instead of 32!)
+            val allSuccess = StrategyRepository.updateAllCategoryStrategies(categoryUpdates)
 
             // Save PKT_COUNT and LOG_MODE to config.sh
             val pktCount = selections["pkt_count"] ?: "5"

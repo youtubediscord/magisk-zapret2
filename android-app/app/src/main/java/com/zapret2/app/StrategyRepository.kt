@@ -217,6 +217,45 @@ object StrategyRepository {
     }
 
     /**
+     * Batch update strategies for multiple categories in a single file operation.
+     * Much more efficient than calling updateCategoryStrategyByName() multiple times.
+     * Reduces 32 shell commands to just 2 (one read, one write).
+     *
+     * @param updates Map of category key to strategy name (e.g., "youtube" to "syndata_multisplit_tls_google_700")
+     */
+    suspend fun updateAllCategoryStrategies(updates: Map<String, String>): Boolean {
+        return withContext(Dispatchers.IO) {
+            // Read file ONCE
+            val result = Shell.cmd("cat $CATEGORIES_FILE 2>/dev/null").exec()
+            if (!result.isSuccess) return@withContext false
+
+            val lines = result.out.toMutableList()
+
+            // Update all matching lines in memory
+            for (i in lines.indices) {
+                val line = lines[i]
+                if (line.startsWith("#") || line.isBlank()) continue
+
+                val parts = line.split("|").toMutableList()
+                if (parts.size >= 5) {
+                    val categoryKey = parts[0]
+                    // Check if this category should be updated
+                    updates[categoryKey]?.let { newStrategyName ->
+                        parts[4] = newStrategyName.ifEmpty { "disabled" }
+                        lines[i] = parts.joinToString("|")
+                    }
+                }
+            }
+
+            // Write file ONCE
+            val newContent = lines.joinToString("\n")
+            val escaped = newContent.replace("'", "'\\''")
+            val writeResult = Shell.cmd("echo '$escaped' > $CATEGORIES_FILE").exec()
+            writeResult.isSuccess
+        }
+    }
+
+    /**
      * Update strategy for a category in categories.txt by strategy INDEX
      * Format: CATEGORY|PROTOCOL|FILTER_MODE|HOSTLIST_FILE|STRATEGY_NAME
      *
