@@ -15,15 +15,17 @@
         android:gravity="center_vertical"
         android:padding="16dp">
 
-        <!-- Enable/Disable switch -->
-        <androidx.appcompat.widget.SwitchCompat
-            android:id="@+id/switchEnabled"
+        <!-- Protocol badge -->
+        <TextView
+            android:id="@+id/textProtocol"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:minWidth="0dp"
-            android:minHeight="0dp"
-            app:thumbTint="@color/switch_thumb_color"
-            app:trackTint="@color/switch_track_color" />
+            android:paddingHorizontal="8dp"
+            android:paddingVertical="4dp"
+            android:background="@drawable/badge_background"
+            android:textColor="#FFFFFF"
+            android:textSize="10sp"
+            android:textAllCaps="true" />
 
         <!-- Category info -->
         <LinearLayout

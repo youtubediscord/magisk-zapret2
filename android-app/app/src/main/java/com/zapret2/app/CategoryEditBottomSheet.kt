@@ -9,7 +9,6 @@ import android.widget.LinearLayout
 import android.widget.RadioButton
 import android.widget.RadioGroup
 import android.widget.TextView
-import androidx.appcompat.widget.SwitchCompat
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import com.google.android.material.button.MaterialButton
@@ -25,7 +24,6 @@ class CategoryEditBottomSheet : BottomSheetDialogFragment() {
 
     // Views
     private lateinit var textCategoryName: TextView
-    private lateinit var switchEnabled: SwitchCompat
     private lateinit var radioGroupFilterMode: RadioGroup
     private lateinit var radioNone: RadioButton
     private lateinit var radioHostlist: RadioButton
@@ -43,7 +41,7 @@ class CategoryEditBottomSheet : BottomSheetDialogFragment() {
 
     companion object {
         private const val ARG_NAME = "name"
-        private const val ARG_ENABLED = "enabled"
+        private const val ARG_PROTOCOL = "protocol"
         private const val ARG_FILTER_MODE = "filter_mode"
         private const val ARG_HOSTLIST_FILE = "hostlist_file"
         private const val ARG_STRATEGY = "strategy"
@@ -53,7 +51,7 @@ class CategoryEditBottomSheet : BottomSheetDialogFragment() {
             return CategoryEditBottomSheet().apply {
                 arguments = Bundle().apply {
                     putString(ARG_NAME, category.name)
-                    putBoolean(ARG_ENABLED, category.enabled)
+                    putString(ARG_PROTOCOL, category.protocol)
                     putString(ARG_FILTER_MODE, category.filterMode.value)
                     putString(ARG_HOSTLIST_FILE, category.hostlistFile)
                     putString(ARG_STRATEGY, category.strategy)
@@ -74,7 +72,7 @@ class CategoryEditBottomSheet : BottomSheetDialogFragment() {
             selectedStrategyId = args.getString(ARG_STRATEGY, "disabled")
             category = Category(
                 name = args.getString(ARG_NAME, ""),
-                enabled = args.getBoolean(ARG_ENABLED, false),
+                protocol = args.getString(ARG_PROTOCOL, "tcp"),
                 filterMode = Category.FilterMode.fromString(args.getString(ARG_FILTER_MODE, "none")),
                 hostlistFile = args.getString(ARG_HOSTLIST_FILE, ""),
                 strategy = selectedStrategyId,
@@ -101,7 +99,6 @@ class CategoryEditBottomSheet : BottomSheetDialogFragment() {
 
     private fun initViews(view: View) {
         textCategoryName = view.findViewById(R.id.textCategoryName)
-        switchEnabled = view.findViewById(R.id.switchEnabled)
         radioGroupFilterMode = view.findViewById(R.id.radioGroupFilterMode)
         radioNone = view.findViewById(R.id.radioNone)
         radioHostlist = view.findViewById(R.id.radioHostlist)
@@ -124,7 +121,6 @@ class CategoryEditBottomSheet : BottomSheetDialogFragment() {
     private fun populateViews() {
         category?.let { cat ->
             textCategoryName.text = cat.getDisplayName()
-            switchEnabled.isChecked = cat.enabled
             editHostlistFile.setText(cat.hostlistFile)
             updateStrategyDisplay()
 
@@ -154,8 +150,8 @@ class CategoryEditBottomSheet : BottomSheetDialogFragment() {
     }
 
     private fun getStrategiesForCurrentCategory(): List<StrategyRepository.StrategyInfo> {
-        val categoryName = category?.name?.lowercase() ?: ""
-        return if (categoryName.contains("udp") || categoryName.contains("quic")) {
+        val protocol = category?.protocol?.lowercase() ?: "tcp"
+        return if (protocol == "udp" || protocol == "stun") {
             udpStrategies
         } else {
             tcpStrategies
@@ -163,8 +159,8 @@ class CategoryEditBottomSheet : BottomSheetDialogFragment() {
     }
 
     private fun isUdpCategory(): Boolean {
-        val categoryName = category?.name?.lowercase() ?: ""
-        return categoryName.contains("udp") || categoryName.contains("quic")
+        val protocol = category?.protocol?.lowercase() ?: "tcp"
+        return protocol == "udp" || protocol == "stun"
     }
 
     private fun setupListeners() {
@@ -229,7 +225,6 @@ class CategoryEditBottomSheet : BottomSheetDialogFragment() {
         category?.let { cat ->
             // Update category with new values
             val updatedCategory = cat.copy(
-                enabled = switchEnabled.isChecked,
                 filterMode = when {
                     radioNone.isChecked -> Category.FilterMode.NONE
                     radioHostlist.isChecked -> Category.FilterMode.HOSTLIST

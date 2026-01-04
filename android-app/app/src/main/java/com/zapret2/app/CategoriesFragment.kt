@@ -78,9 +78,6 @@ class CategoriesFragment : Fragment() {
 
     private fun setupRecyclerView() {
         val newAdapter = CategoriesAdapter(
-            onToggle = { category, enabled ->
-                toggleCategory(category, enabled)
-            },
             onEdit = { category ->
                 showEditDialog(category)
             }
@@ -150,16 +147,6 @@ class CategoriesFragment : Fragment() {
             if (category != null) {
                 categories.add(category)
             }
-        }
-    }
-
-    private fun toggleCategory(category: Category, enabled: Boolean) {
-        // Update local data
-        val index = categories.indexOfFirst { it.name == category.name }
-        if (index >= 0) {
-            categories[index] = category.copy(enabled = enabled)
-            adapter?.submitCategories(categories.toList())
-            saveAndRestart()
         }
     }
 
