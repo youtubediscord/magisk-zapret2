@@ -285,13 +285,14 @@ class UpdateDialogFragment : DialogFragment() {
                 moduleFile?.let { file ->
                     updateProgressText("Установка модуля...")
 
-                    val moduleInstallResult = updateManager.installModule(file)
-                    if (moduleInstallResult) {
-                        Toast.makeText(
-                            toastContext,
-                            "Модуль установлен. Требуется перезагрузка.",
-                            Toast.LENGTH_LONG
-                        ).show()
+                    val (success, needsReboot) = updateManager.installModule(file)
+                    if (success) {
+                        val message = if (needsReboot) {
+                            "Модуль установлен. Требуется перезагрузка."
+                        } else {
+                            "Модуль обновлён! Перезагрузка не требуется."
+                        }
+                        Toast.makeText(toastContext, message, Toast.LENGTH_LONG).show()
                     } else {
                         Toast.makeText(
                             toastContext,
