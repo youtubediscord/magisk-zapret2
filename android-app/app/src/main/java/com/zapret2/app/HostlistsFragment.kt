@@ -9,7 +9,6 @@ import android.view.ViewGroup
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
-import android.widget.Toast
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -31,7 +30,6 @@ class HostlistsFragment : Fragment() {
 
     private val hostlistConfigs = mutableListOf<HostlistConfig>()
     private var adapter: HostlistsAdapter? = null
-    private var strategies: List<StrategyRepository.StrategyInfo> = emptyList()
 
     private var fileObserver: FileObserver? = null
 
@@ -40,21 +38,15 @@ class HostlistsFragment : Fragment() {
 
     // Path to hostlist files
     private val LISTS_DIR = "/data/adb/modules/zapret2/zapret2/lists"
-    private val CONFIG_FILE = "/data/local/tmp/zapret2-hostlists.conf"
-
-    // Default strategy name (first working strategy)
-    private val DEFAULT_STRATEGY = "syndata_multisplit_tls_google_700"
 
     /**
-     * Hostlist configuration with file info and selected strategy
-     * Now uses strategy NAME instead of index
+     * Hostlist configuration with file info (simplified - no strategy)
      */
     data class HostlistConfig(
         val filename: String,
         val path: String,
         val domainCount: Int,
-        val sizeBytes: Long,
-        var strategyName: String  // "disabled" or actual strategy name like "syndata_multisplit_tls_google_700"
+        val sizeBytes: Long
     )
 
     override fun onCreateView(
@@ -103,9 +95,7 @@ class HostlistsFragment : Fragment() {
     private fun setupRecyclerView() {
         adapter = HostlistsAdapter(
             hostlistConfigs,
-            strategies,
-            onViewClick = { config -> openHostlistContent(config) },
-            onStrategyClick = { config, position -> showStrategyPicker(config, position) }
+            onItemClick = { config -> openHostlistContent(config) }
         )
         recyclerView?.layoutManager = LinearLayoutManager(requireContext())
         recyclerView?.adapter = adapter
@@ -159,7 +149,7 @@ class HostlistsFragment : Fragment() {
     }
 
     /**
-     * Load strategies and hostlist configurations
+     * Load hostlist files
      */
     private fun loadData() {
         // Safety check - don't proceed if view is not active
@@ -174,27 +164,10 @@ class HostlistsFragment : Fragment() {
             }
             emptyView?.visibility = View.GONE
 
-            // Load strategies first
-            strategies = withContext(Dispatchers.IO) {
-                try {
-                    StrategyRepository.getTcpStrategies()
-                } catch (e: Exception) {
-                    emptyList()
-                }
-            }
-
-            // Update adapter with strategies
-            adapter?.updateStrategies(strategies)
-
-            // Load saved config (now returns Map<String, String> - filename to strategyName)
-            val savedConfig = withContext(Dispatchers.IO) {
-                loadSavedConfig()
-            }
-
             // Load hostlist files
             val files = withContext(Dispatchers.IO) {
                 try {
-                    loadHostlistFiles(savedConfig)
+                    loadHostlistFiles()
                 } catch (e: Exception) {
                     emptyList()
                 }
@@ -228,69 +201,9 @@ class HostlistsFragment : Fragment() {
     }
 
     /**
-     * Load saved hostlist configuration from file
-     * Returns Map<filename, strategyName> where strategyName is "disabled" or actual strategy ID
-     */
-    private fun loadSavedConfig(): Map<String, String> {
-        val configMap = mutableMapOf<String, String>()
-
-        try {
-            val result = Shell.cmd("cat $CONFIG_FILE 2>/dev/null").exec()
-            if (result.isSuccess) {
-                result.out.forEach { line ->
-                    val trimmed = line.trim()
-                    if (trimmed.isNotEmpty() && !trimmed.startsWith("#") && trimmed.contains("=")) {
-                        val parts = trimmed.split("=", limit = 2)
-                        if (parts.size == 2) {
-                            val filename = parts[0].trim()
-                            val strategyName = parts[1].trim()
-                            // Store strategy name directly (no conversion needed)
-                            configMap[filename] = strategyName
-                        }
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            // Config file doesn't exist yet, use defaults
-        }
-
-        return configMap
-    }
-
-    /**
-     * Save hostlist configuration to file
-     * Format: HOSTLIST_FILE=STRATEGY_NAME
-     */
-    private fun saveConfig() {
-        viewLifecycleOwner.lifecycleScope.launch {
-            withContext(Dispatchers.IO) {
-                try {
-                    val content = buildString {
-                        appendLine("# Zapret2 Hostlists Configuration")
-                        appendLine("# Format: HOSTLIST_FILE=STRATEGY_NAME")
-                        appendLine("# Use 'disabled' to disable a hostlist")
-                        appendLine()
-                        hostlistConfigs.forEach { config ->
-                            appendLine("${config.filename}=${config.strategyName}")
-                        }
-                    }
-
-                    // Use heredoc for safe multiline write
-                    Shell.cmd("cat > $CONFIG_FILE << 'EOFCONFIG'\n$content\nEOFCONFIG").exec()
-                } catch (e: Exception) {
-                    withContext(Dispatchers.Main) {
-                        Toast.makeText(context, "Failed to save config", Toast.LENGTH_SHORT).show()
-                    }
-                }
-            }
-        }
-    }
-
-    /**
      * Load hostlist files from the lists directory
-     * Uses strategy names from saved config, defaults to DEFAULT_STRATEGY
      */
-    private fun loadHostlistFiles(savedConfig: Map<String, String>): List<HostlistConfig> {
+    private fun loadHostlistFiles(): List<HostlistConfig> {
         val result = Shell.cmd("ls -la \"$LISTS_DIR\"/*.txt 2>/dev/null").exec()
         if (!result.isSuccess) {
             return emptyList()
@@ -317,15 +230,11 @@ class HostlistsFragment : Fragment() {
             val statResult = Shell.cmd("stat -c %s \"$filePath\" 2>/dev/null").exec()
             val sizeBytes = statResult.out.firstOrNull()?.trim()?.toLongOrNull() ?: 0L
 
-            // Get saved strategy name or default
-            val strategyName = savedConfig[fileName] ?: DEFAULT_STRATEGY
-
             files.add(HostlistConfig(
                 filename = fileName,
                 path = filePath,
                 domainCount = domainCount,
-                sizeBytes = sizeBytes,
-                strategyName = strategyName
+                sizeBytes = sizeBytes
             ))
         }
 
@@ -347,59 +256,9 @@ class HostlistsFragment : Fragment() {
     }
 
     /**
-     * Show strategy picker bottom sheet for a hostlist
-     * Now passes strategy NAME instead of index
-     */
-    private fun showStrategyPicker(config: HostlistConfig, position: Int) {
-        if (!isAdded || isDetached) return
-
-        // Get icon based on hostlist name
-        val iconRes = getHostlistIcon(config.filename)
-        val displayName = config.filename.removeSuffix(".txt")
-
-        val bottomSheet = StrategyPickerBottomSheet.newInstance(
-            categoryKey = config.filename,
-            categoryName = displayName,
-            protocol = "TCP 443",
-            iconRes = iconRes,
-            currentStrategyName = config.strategyName,  // Pass name, not index!
-            strategyType = StrategyPickerBottomSheet.TYPE_TCP
-        )
-
-        bottomSheet.setOnStrategySelectedListener { selectedName ->
-            // Update config with strategy NAME
-            config.strategyName = selectedName
-
-            // Update UI
-            adapter?.notifyItemChanged(position)
-
-            // Save config
-            saveConfig()
-
-            // Show toast with strategy name
-            val toastText = if (selectedName == "disabled") {
-                "$displayName: Disabled"
-            } else {
-                "$displayName: ${formatStrategyNameForDisplay(selectedName)}"
-            }
-            Toast.makeText(context, toastText, Toast.LENGTH_SHORT).show()
-        }
-
-        bottomSheet.show(parentFragmentManager, "strategy_picker")
-    }
-
-    /**
-     * Format strategy name for display in toast
-     */
-    private fun formatStrategyNameForDisplay(name: String): String {
-        val formatted = name.replace("_", " ")
-        return if (formatted.length > 30) formatted.take(27) + "..." else formatted
-    }
-
-    /**
      * Get icon resource based on hostlist filename
      */
-    private fun getHostlistIcon(filename: String): Int {
+    fun getHostlistIcon(filename: String): Int {
         val name = filename.lowercase().removeSuffix(".txt")
         return when {
             name.contains("youtube") -> R.drawable.ic_video
@@ -424,14 +283,6 @@ class HostlistsFragment : Fragment() {
             number >= 1_000_000 -> String.format("%.1fM", number / 1_000_000.0)
             number >= 1_000 -> String.format("%.1fK", number / 1_000.0)
             else -> number.toString()
-        }
-    }
-
-    private fun formatFileSize(bytes: Long): String {
-        return when {
-            bytes >= 1_048_576 -> String.format("%.1f MB", bytes / 1_048_576.0)
-            bytes >= 1_024 -> String.format("%.1f KB", bytes / 1_024.0)
-            else -> "$bytes B"
         }
     }
 }
