@@ -13,6 +13,11 @@
 # Each category requires corresponding hostlist or ipset file in lists/
 
 # ===============================
+# Voice (Discord + Telegram STUN)
+# ===============================
+voice_stun|stun|none||fake_veryfast_stun_discord
+
+# ===============================
 # YouTube & Google Video
 # ===============================
 youtube|tcp|hostlist|youtube.txt|syndata_multisplit_tls_google_700
@@ -22,23 +27,20 @@ googlevideo_tcp|tcp|ipset|ipset-googlevideo.txt|disabled
 # ===============================
 # Discord
 # ===============================
-discord_tcp|tcp|hostlist|discord.txt|syndata_multisplit_tls_google_700
-discord_udp|udp|hostlist|discord.txt|disabled
-
-# ===============================
-# Voice (Discord + Telegram STUN)
-# ===============================
-voice_stun|stun|none||fake_veryfast_stun_discord
+discord_tcp|tcp|ipset|discord.txt|syndata_multisplit_tls_google_700
+discord_udp|udp|ipset|discord.txt|disabled
 
 # ===============================
 # Telegram
 # ===============================
 telegram_tcp|tcp|ipset|ipset-telegram.txt|syndata_multisplit_tls_google_700
+telegram_udp|udp|ipset|ipset-telegram.txt|disabled
 
 # ===============================
 # Messengers
 # ===============================
 whatsapp_tcp|tcp|ipset|ipset-whatsapp.txt|syndata_multisplit_tls_google_700
+whatsapp_udp|udp|ipset|ipset-whatsapp.txt|disabled
 
 # ===============================
 # Social Networks
