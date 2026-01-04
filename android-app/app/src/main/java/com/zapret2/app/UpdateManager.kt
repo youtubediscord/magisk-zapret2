@@ -269,28 +269,62 @@ class UpdateManager(private val context: Context) {
     }
 
     /**
-     * Installs a Magisk module using Magisk's built-in installer.
+     * Installs a Magisk module.
+     * Uses hot update (no reboot) if module is already installed,
+     * otherwise uses standard Magisk installer (requires reboot).
      *
      * @param moduleFile The module ZIP file to install
-     * @return true if installation command was executed successfully, false otherwise
+     * @return Pair<Boolean, Boolean> - (success, needsReboot)
      */
-    suspend fun installModule(moduleFile: File): Boolean = withContext(Dispatchers.IO) {
+    suspend fun installModule(moduleFile: File): Pair<Boolean, Boolean> = withContext(Dispatchers.IO) {
         try {
             if (!moduleFile.exists()) {
-                return@withContext false
+                return@withContext Pair(false, false)
             }
 
-            // First, check if Magisk is available
-            val magiskCheck = Shell.cmd("magisk -v").exec()
-            if (!magiskCheck.isSuccess) {
-                return@withContext false
-            }
+            val modDir = "/data/adb/modules/zapret2"
 
-            // Install module using Magisk's command
-            val result = Shell.cmd("magisk --install-module ${moduleFile.absolutePath}").exec()
-            result.isSuccess
+            // Check if module is already installed
+            val moduleExists = Shell.cmd("[ -d $modDir ] && echo 1 || echo 0").exec()
+                .out.firstOrNull()?.trim() == "1"
+
+            if (moduleExists) {
+                // Hot update - no reboot needed!
+                // 1. Stop the service
+                Shell.cmd("$modDir/zapret2/scripts/zapret-stop.sh 2>/dev/null || true").exec()
+
+                // 2. Extract new files over existing module
+                val extractResult = Shell.cmd(
+                    "unzip -o ${moduleFile.absolutePath} -d $modDir -x 'META-INF/*'"
+                ).exec()
+
+                if (!extractResult.isSuccess) {
+                    return@withContext Pair(false, false)
+                }
+
+                // 3. Fix permissions
+                Shell.cmd("chmod 755 $modDir/zapret2/nfqws2").exec()
+                Shell.cmd("chmod 755 $modDir/zapret2/scripts/*.sh").exec()
+                Shell.cmd("chmod 755 $modDir/service.sh").exec()
+
+                // 4. Restart the service
+                Shell.cmd("$modDir/zapret2/scripts/zapret-start.sh &").exec()
+
+                // Hot update successful - no reboot needed
+                Pair(true, false)
+            } else {
+                // First install - use Magisk installer (requires reboot)
+                val magiskCheck = Shell.cmd("magisk -v").exec()
+                if (!magiskCheck.isSuccess) {
+                    return@withContext Pair(false, false)
+                }
+
+                val result = Shell.cmd("magisk --install-module ${moduleFile.absolutePath}").exec()
+                // First install requires reboot
+                Pair(result.isSuccess, true)
+            }
         } catch (e: Exception) {
-            false
+            Pair(false, false)
         }
     }
 
