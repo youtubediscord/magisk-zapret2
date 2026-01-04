@@ -624,7 +624,14 @@ build_category_filter() {
             fi
             ;;
         ipset)
-            local ipset_file="ipset-${hostlist_file}"
+            local ipset_file
+            if [ "${hostlist_file#ipset-}" != "$hostlist_file" ]; then
+                # Already has ipset- prefix
+                ipset_file="$hostlist_file"
+            else
+                # Add ipset- prefix
+                ipset_file="ipset-${hostlist_file}"
+            fi
             if [ -n "$hostlist_file" ] && [ -f "$LISTS_DIR/$ipset_file" ]; then
                 filter_opts="--ipset=$LISTS_DIR/$ipset_file"
                 log_debug "Using ipset: $ipset_file"
