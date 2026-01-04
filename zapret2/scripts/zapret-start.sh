@@ -28,6 +28,10 @@ STRATEGIES_FILE="$ZAPRET_DIR/strategies.sh"
 BLOBS_FILE="$ZAPRET_DIR/blobs.txt"
 LISTS_DIR="$ZAPRET_DIR/lists"
 
+# Hostlists configuration files
+USER_HOSTLISTS="/data/local/tmp/zapret2-hostlists.conf"
+DEFAULT_HOSTLISTS="$ZAPRET_DIR/hostlists-default.conf"
+
 # Runtime files (in writable location)
 PIDFILE="/data/local/tmp/nfqws2.pid"
 LOGFILE="/data/local/tmp/zapret2.log"
@@ -87,7 +91,6 @@ set_default_config() {
 
     # Strategy configuration
     STRATEGY_PRESET="youtube"
-    USE_CATEGORIES=1
 
     # Logging
     LOG_MODE="android"
@@ -715,6 +718,90 @@ build_category_options_single() {
     log_msg "Added category: $category (proto=$protocol, strategy=$strategy_name, filter=$filter_mode)"
 }
 
+##########################################################################################
+# STRATEGY BUILDING - NEW HOSTLISTS FORMAT
+##########################################################################################
+
+# Build nfqws2 options for a single hostlist entry
+# Arguments: $1 = hostlist filename, $2 = strategy name
+# Uses global: NFQWS_OPT_DESYNC, first
+build_hostlist_options() {
+    local hostlist="$1"
+    local strategy_name="$2"
+    local hostlist_path="$LISTS_DIR/$hostlist"
+
+    # Get strategy command from strategies.sh using existing functions
+    local filter="--out-range=-d$PKT_OUT --filter-tcp=80,443 --hostlist=$hostlist_path"
+    local strat_opts=""
+
+    # Try TCP strategy first (most common)
+    strat_opts=$(get_tcp_strategy_options "$strategy_name" "$filter")
+
+    if [ -z "$strat_opts" ]; then
+        log_error "Unknown strategy: $strategy_name"
+        return 1
+    fi
+
+    # Add filter and strategy
+    if [ $first -eq 1 ]; then
+        first=0
+        NFQWS_OPT_DESYNC="$strat_opts"
+    else
+        NFQWS_OPT_DESYNC="$NFQWS_OPT_DESYNC --new $strat_opts"
+    fi
+
+    return 0
+}
+
+# Parse hostlists from simple format configuration file
+# Format: hostlist.txt=strategy_name
+parse_hostlists() {
+    local config_file="$USER_HOSTLISTS"
+
+    # Fallback to default if user config doesn't exist
+    if [ ! -f "$config_file" ]; then
+        config_file="$DEFAULT_HOSTLISTS"
+    fi
+
+    if [ ! -f "$config_file" ]; then
+        log_error "Hostlists config not found"
+        return 1
+    fi
+
+    log_msg "Parsing hostlists from: $config_file"
+
+    while IFS= read -r line || [ -n "$line" ]; do
+        # Skip empty lines and comments
+        [ -z "$line" ] && continue
+        case "$line" in \#*) continue ;; esac
+
+        # Parse: hostlist.txt=strategy_name
+        local hostlist=$(echo "$line" | cut -d'=' -f1 | tr -d ' \t\r')
+        local strategy=$(echo "$line" | cut -d'=' -f2 | tr -d ' \t\r')
+
+        [ -z "$hostlist" ] && continue
+        [ -z "$strategy" ] && continue
+        [ "$strategy" = "disabled" ] && continue
+
+        # Check hostlist file exists
+        local hostlist_path="$LISTS_DIR/$hostlist"
+        if [ ! -f "$hostlist_path" ]; then
+            log_msg "Skipping $hostlist (file not found)"
+            continue
+        fi
+
+        log_msg "Hostlist: $hostlist -> Strategy: $strategy"
+
+        # Build nfqws2 options for this hostlist
+        build_hostlist_options "$hostlist" "$strategy"
+
+    done < "$config_file"
+}
+
+##########################################################################################
+# STRATEGY BUILDING - LEGACY CATEGORIES.TXT PARSING (kept for backwards compatibility)
+##########################################################################################
+
 # Parse categories from categories.txt file
 # Format: CATEGORY|PROTOCOL|FILTER_MODE|HOSTLIST_FILE|STRATEGY_NAME
 parse_categories() {
@@ -774,82 +861,26 @@ parse_categories() {
 }
 
 # Build options for category-based strategies (main entry point)
+# Now uses hostlists format as primary, with preset fallback
 build_category_options() {
     first=1
+    NFQWS_OPT_DESYNC=""
 
-    log_msg "Building category-based options..."
+    log_msg "Building hostlist-based options..."
+    parse_hostlists
 
-    # Try to parse categories.txt first (new format)
-    if [ -f "$CATEGORIES_FILE" ]; then
-        log_msg "Using categories.txt configuration"
-        parse_categories
-
-        # If no categories enabled, nfqws2 starts with base options only (no strategies)
-        if [ $first -eq 1 ]; then
-            log_msg "No enabled categories found, starting with base options only"
+    if [ -z "$NFQWS_OPT_DESYNC" ]; then
+        log_msg "No hostlists enabled, using preset fallback"
+        # Fallback to preset strategy
+        local preset_opts=$(build_preset_options)
+        if [ -n "$preset_opts" ]; then
+            OPTS="$OPTS $preset_opts"
         fi
         return
     fi
 
-    # Fallback to legacy config.sh variables
-    log_msg "categories.txt not found, using legacy config variables"
-
-    # YouTube TCP
-    add_category "YouTube TCP" "$STRATEGY_YOUTUBE" "--filter-tcp=80,443" "youtube.txt"
-
-    # YouTube QUIC/UDP
-    add_category "YouTube QUIC" "$STRATEGY_YOUTUBE_UDP" "--filter-udp=443" "youtube.txt"
-
-    # Discord TCP
-    add_category "Discord TCP" "$STRATEGY_DISCORD" "--filter-tcp=80,443" "discord.txt"
-
-    # Voice (Discord + Telegram) - STUN/Discord protocol detection
-    if [ -n "$STRATEGY_DISCORD_VOICE_UDP" ] && [ "$STRATEGY_DISCORD_VOICE_UDP" != "none" ]; then
-        if [ $first -eq 0 ]; then
-            OPTS="$OPTS --new"
-        fi
-        OPTS="$OPTS --out-range=-d$PKT_OUT --filter-l7=stun,discord --payload=stun,discord_ip_discovery --lua-desync=fake:blob=fake_stun:repeats=6"
-        first=0
-        log_msg "Added Voice (STUN/Discord) (pkt=$PKT_OUT)"
-    fi
-
-    # Telegram TCP
-    add_category "Telegram TCP" "$STRATEGY_TELEGRAM_TCP" "--filter-tcp=80,443" "telegram.txt"
-
-    # WhatsApp TCP
-    add_category "WhatsApp TCP" "$STRATEGY_WHATSAPP_TCP" "--filter-tcp=80,443" "whatsapp.txt"
-
-    # Facebook TCP
-    add_category "Facebook TCP" "$STRATEGY_FACEBOOK_TCP" "--filter-tcp=80,443" "facebook.txt"
-
-    # Instagram TCP
-    add_category "Instagram TCP" "$STRATEGY_INSTAGRAM_TCP" "--filter-tcp=80,443" "instagram.txt"
-
-    # Twitter TCP
-    add_category "Twitter TCP" "$STRATEGY_TWITTER_TCP" "--filter-tcp=80,443" "twitter.txt"
-
-    # GitHub TCP
-    add_category "GitHub TCP" "$STRATEGY_GITHUB_TCP" "--filter-tcp=443" "github.txt"
-
-    # Steam TCP
-    add_category "Steam TCP" "$STRATEGY_STEAM_TCP" "--filter-tcp=80,443" "steam.txt"
-
-    # Twitch TCP
-    add_category "Twitch TCP" "$STRATEGY_TWITCH_TCP" "--filter-tcp=443" "twitch.txt"
-
-    # SoundCloud TCP
-    add_category "SoundCloud TCP" "$STRATEGY_SOUNDCLOUD_TCP" "--filter-tcp=80,443" "soundcloud.txt"
-
-    # Rutracker TCP
-    add_category "Rutracker TCP" "$STRATEGY_RUTRACKER_TCP" "--filter-tcp=80,443" "rutracker.txt"
-
-    # Other (Hostlist)
-    add_category "Other HTTPS" "$STRATEGY_OTHER" "--filter-tcp=443" "other.txt"
-
-    # If no categories configured, nfqws2 starts with base options only (no strategies)
-    if [ $first -eq 1 ]; then
-        log_msg "No categories configured, starting with base options only"
-    fi
+    # Add built options to OPTS
+    OPTS="$OPTS $NFQWS_OPT_DESYNC"
 }
 
 ##########################################################################################
@@ -884,24 +915,10 @@ build_options() {
         OPTS="$OPTS$blob_opts"
     fi
 
-    # Auto-detect categories mode if categories.txt exists
-    if [ -f "$CATEGORIES_FILE" ]; then
-        USE_CATEGORIES=1
-    fi
-
-    # Build strategy options based on mode
-    if [ "$USE_CATEGORIES" = "1" ]; then
-        log_msg "Mode: Category-based configuration"
-        log_msg "Packet count (--out-range): $PKT_OUT"
-        build_category_options
-    else
-        log_msg "Mode: Preset-based configuration"
-        local preset_opts=$(build_preset_options)
-        if [ $? -ne 0 ]; then
-            return 1
-        fi
-        OPTS="$OPTS $preset_opts"
-    fi
+    # Build strategy options using hostlists format (with preset fallback)
+    log_msg "Mode: Hostlist-based configuration"
+    log_msg "Packet count (--out-range): $PKT_OUT"
+    build_category_options
 
     # Log final statistics
     local new_count=$(echo "$OPTS" | grep -o '\--new' | wc -l)

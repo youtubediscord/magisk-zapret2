@@ -17,5 +17,5 @@ DEBUG=0
 PKT_OUT=20
 PKT_IN=10
 
-# Use categories.txt for per-category strategies (1=yes, 0=no)
-USE_CATEGORIES=1
+# Strategy preset to use
+STRATEGY_PRESET=syndata_multisplit_tls_google_700

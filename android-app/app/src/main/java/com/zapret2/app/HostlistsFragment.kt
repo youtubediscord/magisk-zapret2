@@ -29,8 +29,9 @@ class HostlistsFragment : Fragment() {
     private var textTotalDomains: TextView? = null
     private var textTotalFiles: TextView? = null
 
-    private val hostlistFiles = mutableListOf<HostlistFile>()
-    private var adapter: HostlistAdapter? = null
+    private val hostlistConfigs = mutableListOf<HostlistConfig>()
+    private var adapter: HostlistsAdapter? = null
+    private var strategies: List<StrategyRepository.StrategyInfo> = emptyList()
 
     private var fileObserver: FileObserver? = null
 
@@ -39,12 +40,17 @@ class HostlistsFragment : Fragment() {
 
     // Path to hostlist files
     private val LISTS_DIR = "/data/adb/modules/zapret2/zapret2/lists"
+    private val CONFIG_FILE = "/data/local/tmp/zapret2-hostlists.conf"
 
-    data class HostlistFile(
-        val name: String,
+    /**
+     * Hostlist configuration with file info and selected strategy
+     */
+    data class HostlistConfig(
+        val filename: String,
         val path: String,
         val domainCount: Int,
-        val sizeBytes: Long
+        val sizeBytes: Long,
+        var strategyIndex: Int  // 0 = disabled, 1+ = strategy index
     )
 
     override fun onCreateView(
@@ -61,7 +67,7 @@ class HostlistsFragment : Fragment() {
         initViews(view)
         setupRecyclerView()
         setupSwipeRefresh()
-        loadHostlists()
+        loadData()
         setupFileObserver()
     }
 
@@ -91,9 +97,12 @@ class HostlistsFragment : Fragment() {
     }
 
     private fun setupRecyclerView() {
-        adapter = HostlistAdapter(hostlistFiles) { file ->
-            openHostlistContent(file)
-        }
+        adapter = HostlistsAdapter(
+            hostlistConfigs,
+            strategies,
+            onViewClick = { config -> openHostlistContent(config) },
+            onStrategyClick = { config, position -> showStrategyPicker(config, position) }
+        )
         recyclerView?.layoutManager = LinearLayoutManager(requireContext())
         recyclerView?.adapter = adapter
     }
@@ -107,7 +116,7 @@ class HostlistsFragment : Fragment() {
             resources.getColor(R.color.surface, null)
         )
         swipeRefresh?.setOnRefreshListener {
-            loadHostlists()
+            loadData()
         }
     }
 
@@ -130,7 +139,7 @@ class HostlistsFragment : Fragment() {
                                 // Use view?.post for safer UI updates
                                 view?.post {
                                     if (isViewActive && isAdded && !isDetached) {
-                                        loadHostlists()
+                                        loadData()
                                     }
                                 }
                             }
@@ -145,7 +154,10 @@ class HostlistsFragment : Fragment() {
         }
     }
 
-    private fun loadHostlists() {
+    /**
+     * Load strategies and hostlist configurations
+     */
+    private fun loadData() {
         // Safety check - don't proceed if view is not active
         if (!isViewActive || !isAdded) return
 
@@ -158,9 +170,27 @@ class HostlistsFragment : Fragment() {
             }
             emptyView?.visibility = View.GONE
 
+            // Load strategies first
+            strategies = withContext(Dispatchers.IO) {
+                try {
+                    StrategyRepository.getTcpStrategies()
+                } catch (e: Exception) {
+                    emptyList()
+                }
+            }
+
+            // Update adapter with strategies
+            adapter?.updateStrategies(strategies)
+
+            // Load saved config
+            val savedConfig = withContext(Dispatchers.IO) {
+                loadSavedConfig()
+            }
+
+            // Load hostlist files
             val files = withContext(Dispatchers.IO) {
                 try {
-                    loadHostlistFiles()
+                    loadHostlistFiles(savedConfig)
                 } catch (e: Exception) {
                     emptyList()
                 }
@@ -169,13 +199,13 @@ class HostlistsFragment : Fragment() {
             // Check again after IO operation
             if (!isViewActive) return@launch
 
-            hostlistFiles.clear()
-            hostlistFiles.addAll(files)
+            hostlistConfigs.clear()
+            hostlistConfigs.addAll(files)
             adapter?.notifyDataSetChanged()
 
             // Update statistics
-            val totalDomains = hostlistFiles.sumOf { it.domainCount }
-            val totalFiles = hostlistFiles.size
+            val totalDomains = hostlistConfigs.sumOf { it.domainCount }
+            val totalFiles = hostlistConfigs.size
 
             textTotalDomains?.text = formatNumber(totalDomains)
             textTotalFiles?.text = totalFiles.toString()
@@ -183,7 +213,7 @@ class HostlistsFragment : Fragment() {
             progressBar?.visibility = View.GONE
             swipeRefresh?.isRefreshing = false
 
-            if (hostlistFiles.isEmpty()) {
+            if (hostlistConfigs.isEmpty()) {
                 emptyView?.visibility = View.VISIBLE
                 recyclerView?.visibility = View.GONE
             } else {
@@ -193,13 +223,70 @@ class HostlistsFragment : Fragment() {
         }
     }
 
-    private fun loadHostlistFiles(): List<HostlistFile> {
+    /**
+     * Load saved hostlist configuration from file
+     */
+    private fun loadSavedConfig(): Map<String, Int> {
+        val configMap = mutableMapOf<String, Int>()
+
+        try {
+            val result = Shell.cmd("cat $CONFIG_FILE 2>/dev/null").exec()
+            if (result.isSuccess) {
+                result.out.forEach { line ->
+                    val trimmed = line.trim()
+                    if (trimmed.isNotEmpty() && !trimmed.startsWith("#") && trimmed.contains("=")) {
+                        val parts = trimmed.split("=", limit = 2)
+                        if (parts.size == 2) {
+                            val filename = parts[0].trim()
+                            val strategyIndex = parts[1].trim().toIntOrNull() ?: 0
+                            configMap[filename] = strategyIndex
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            // Config file doesn't exist yet, use defaults
+        }
+
+        return configMap
+    }
+
+    /**
+     * Save hostlist configuration to file
+     */
+    private fun saveConfig() {
+        viewLifecycleOwner.lifecycleScope.launch {
+            withContext(Dispatchers.IO) {
+                try {
+                    val content = buildString {
+                        appendLine("# Zapret2 Hostlists Configuration")
+                        appendLine("# Format: HOSTLIST_FILE=STRATEGY_INDEX")
+                        appendLine("# Strategy 0 = Disabled")
+                        appendLine()
+                        hostlistConfigs.forEach { config ->
+                            appendLine("${config.filename}=${config.strategyIndex}")
+                        }
+                    }
+
+                    // Escape single quotes for shell
+                    val escaped = content.replace("'", "'\\''")
+                    Shell.cmd("echo '$escaped' > $CONFIG_FILE").exec()
+                } catch (e: Exception) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(context, "Failed to save config", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        }
+    }
+
+    private fun loadHostlistFiles(savedConfig: Map<String, Int>): List<HostlistConfig> {
         val result = Shell.cmd("ls -la \"$LISTS_DIR\"/*.txt 2>/dev/null").exec()
         if (!result.isSuccess) {
             return emptyList()
         }
 
-        val files = mutableListOf<HostlistFile>()
+        val files = mutableListOf<HostlistConfig>()
 
         // Get list of .txt files
         val listResult = Shell.cmd("ls \"$LISTS_DIR\"/*.txt 2>/dev/null").exec()
@@ -220,11 +307,15 @@ class HostlistsFragment : Fragment() {
             val statResult = Shell.cmd("stat -c %s \"$filePath\" 2>/dev/null").exec()
             val sizeBytes = statResult.out.firstOrNull()?.trim()?.toLongOrNull() ?: 0L
 
-            files.add(HostlistFile(
-                name = fileName,
+            // Get saved strategy index or default to 1 (first strategy)
+            val strategyIndex = savedConfig[fileName] ?: 1
+
+            files.add(HostlistConfig(
+                filename = fileName,
                 path = filePath,
                 domainCount = domainCount,
-                sizeBytes = sizeBytes
+                sizeBytes = sizeBytes,
+                strategyIndex = strategyIndex
             ))
         }
 
@@ -232,17 +323,81 @@ class HostlistsFragment : Fragment() {
         return files.sortedByDescending { it.domainCount }
     }
 
-    private fun openHostlistContent(file: HostlistFile) {
+    private fun openHostlistContent(config: HostlistConfig) {
         // Safety check to avoid crash when fragment is detached
         val ctx = context ?: return
         if (!isAdded || isDetached) return
 
         val intent = Intent(ctx, HostlistContentActivity::class.java).apply {
-            putExtra(HostlistContentActivity.EXTRA_FILE_PATH, file.path)
-            putExtra(HostlistContentActivity.EXTRA_FILE_NAME, file.name)
-            putExtra(HostlistContentActivity.EXTRA_DOMAIN_COUNT, file.domainCount)
+            putExtra(HostlistContentActivity.EXTRA_FILE_PATH, config.path)
+            putExtra(HostlistContentActivity.EXTRA_FILE_NAME, config.filename)
+            putExtra(HostlistContentActivity.EXTRA_DOMAIN_COUNT, config.domainCount)
         }
         startActivity(intent)
+    }
+
+    /**
+     * Show strategy picker bottom sheet for a hostlist
+     */
+    private fun showStrategyPicker(config: HostlistConfig, position: Int) {
+        if (!isAdded || isDetached) return
+
+        // Get icon based on hostlist name
+        val iconRes = getHostlistIcon(config.filename)
+        val displayName = config.filename.removeSuffix(".txt")
+
+        val bottomSheet = StrategyPickerBottomSheet.newInstance(
+            categoryKey = config.filename,
+            categoryName = displayName,
+            protocol = "TCP 443",
+            iconRes = iconRes,
+            currentIndex = config.strategyIndex,
+            strategyType = StrategyPickerBottomSheet.TYPE_TCP
+        )
+
+        bottomSheet.setOnStrategySelectedListener { selectedIndex ->
+            // Update config
+            config.strategyIndex = selectedIndex
+
+            // Update UI
+            adapter?.notifyItemChanged(position)
+
+            // Save config
+            saveConfig()
+
+            // Show toast
+            val strategyName = if (selectedIndex == 0) {
+                "Disabled"
+            } else {
+                strategies.getOrNull(selectedIndex)?.displayName ?: "Unknown"
+            }
+            Toast.makeText(context, "$displayName: $strategyName", Toast.LENGTH_SHORT).show()
+        }
+
+        bottomSheet.show(parentFragmentManager, "strategy_picker")
+    }
+
+    /**
+     * Get icon resource based on hostlist filename
+     */
+    private fun getHostlistIcon(filename: String): Int {
+        val name = filename.lowercase().removeSuffix(".txt")
+        return when {
+            name.contains("youtube") -> R.drawable.ic_video
+            name.contains("discord") -> R.drawable.ic_message
+            name.contains("telegram") -> R.drawable.ic_message
+            name.contains("whatsapp") -> R.drawable.ic_message
+            name.contains("facebook") -> R.drawable.ic_social
+            name.contains("instagram") -> R.drawable.ic_social
+            name.contains("twitter") -> R.drawable.ic_social
+            name.contains("tiktok") -> R.drawable.ic_video
+            name.contains("twitch") -> R.drawable.ic_video
+            name.contains("spotify") -> R.drawable.ic_apps
+            name.contains("soundcloud") -> R.drawable.ic_apps
+            name.contains("steam") -> R.drawable.ic_apps
+            name.contains("google") -> R.drawable.ic_apps
+            else -> R.drawable.ic_hostlist
+        }
     }
 
     private fun formatNumber(number: Int): String {
@@ -259,39 +414,5 @@ class HostlistsFragment : Fragment() {
             bytes >= 1_024 -> String.format("%.1f KB", bytes / 1_024.0)
             else -> "$bytes B"
         }
-    }
-
-    // RecyclerView Adapter
-    inner class HostlistAdapter(
-        private val items: List<HostlistFile>,
-        private val onClick: (HostlistFile) -> Unit
-    ) : RecyclerView.Adapter<HostlistAdapter.ViewHolder>() {
-
-        inner class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
-            val textFileName: TextView = view.findViewById(R.id.textFileName)
-            val textDomainCount: TextView = view.findViewById(R.id.textDomainCount)
-            val textFileSize: TextView = view.findViewById(R.id.textFileSize)
-        }
-
-        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
-            val view = LayoutInflater.from(parent.context)
-                .inflate(R.layout.item_hostlist_file, parent, false)
-            return ViewHolder(view)
-        }
-
-        override fun onBindViewHolder(holder: ViewHolder, position: Int) {
-            val file = items[position]
-
-            // Remove .txt extension for display
-            holder.textFileName.text = file.name.removeSuffix(".txt")
-            holder.textDomainCount.text = "${formatNumber(file.domainCount)} domains"
-            holder.textFileSize.text = formatFileSize(file.sizeBytes)
-
-            holder.itemView.setOnClickListener {
-                onClick(file)
-            }
-        }
-
-        override fun getItemCount() = items.size
     }
 }
