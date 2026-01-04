@@ -30,6 +30,14 @@ esac
 
 ui_print "- Installing Zapret2 for $ARCH_DIR"
 
+# Backup user settings before extraction (for updates)
+USER_CATEGORIES_BAK="/data/local/tmp/zapret2-categories.txt.bak"
+EXISTING_MODPATH="/data/adb/modules/zapret2"
+if [ -f "$EXISTING_MODPATH/zapret2/categories.txt" ]; then
+    ui_print "- Backing up user strategy settings..."
+    cp "$EXISTING_MODPATH/zapret2/categories.txt" "$USER_CATEGORIES_BAK"
+fi
+
 # Create directories
 mkdir -p "$MODPATH/zapret2/bin"
 mkdir -p "$MODPATH/zapret2/lua"
@@ -41,6 +49,14 @@ mkdir -p "$MODPATH/webroot"
 # Extract all files
 ui_print "- Extracting module files..."
 unzip -o "$ZIPFILE" -x 'META-INF/*' -d "$MODPATH" >&2
+
+# Restore user strategy settings if backup exists
+if [ -f "$USER_CATEGORIES_BAK" ]; then
+    ui_print "- Restoring user strategy settings..."
+    cp "$USER_CATEGORIES_BAK" "$MODPATH/zapret2/categories.txt"
+    rm -f "$USER_CATEGORIES_BAK"
+    ui_print "  [OK] Strategy settings preserved"
+fi
 
 # Copy architecture-specific binary
 if [ -f "$MODPATH/zapret2/bin/$ARCH_DIR/nfqws2" ]; then
