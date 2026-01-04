@@ -12,11 +12,13 @@ object StrategyRepository {
 
     private const val MODDIR = "/data/adb/modules/zapret2"
     private const val STRATEGIES_FILE = "$MODDIR/zapret2/strategies.sh"
+    private const val STUN_STRATEGIES_FILE = "$MODDIR/zapret2/strategies-stun.sh"
     private const val CATEGORIES_FILE = "$MODDIR/zapret2/categories.txt"
 
     // Cached strategies
     private var tcpStrategies: List<StrategyInfo>? = null
     private var udpStrategies: List<StrategyInfo>? = null
+    private var stunStrategies: List<StrategyInfo>? = null
 
     data class StrategyInfo(
         val id: String,           // Internal ID (e.g., "syndata_2_tls_7")
@@ -106,6 +108,46 @@ object StrategyRepository {
             }
 
             udpStrategies = strategies
+            strategies
+        }
+    }
+
+    /**
+     * Load STUN strategies from strategies-stun.sh
+     * Used for voice/video calls (Discord, Telegram, etc.)
+     */
+    suspend fun getStunStrategies(): List<StrategyInfo> {
+        if (stunStrategies != null) return stunStrategies!!
+
+        return withContext(Dispatchers.IO) {
+            val strategies = mutableListOf<StrategyInfo>()
+
+            // Add "Disabled" as first option
+            strategies.add(StrategyInfo("disabled", "Disabled", 0))
+
+            val result = Shell.cmd("cat $STUN_STRATEGIES_FILE 2>/dev/null").exec()
+            if (result.isSuccess) {
+                val content = result.out.joinToString("\n")
+
+                // Primary: Parse from list_stun_strategies() function (most reliable)
+                var ids = parseStrategiesFromListFunction(content, "list_stun_strategies")
+
+                // Fallback: Parse from case statement if list function not found
+                if (ids.isEmpty()) {
+                    val stunSection = extractSection(content, "STUN STRATEGIES", null)
+                    ids = parseStrategyIds(stunSection)
+                }
+
+                ids.forEachIndexed { index, id ->
+                    strategies.add(StrategyInfo(
+                        id = id,
+                        displayName = formatDisplayName(id),
+                        index = index + 1
+                    ))
+                }
+            }
+
+            stunStrategies = strategies
             strategies
         }
     }
@@ -377,6 +419,39 @@ object StrategyRepository {
     }
 
     /**
+     * Synchronous version of getStunStrategies for use within IO context
+     */
+    private fun getStunStrategiesSync(): List<StrategyInfo> {
+        val strategies = mutableListOf<StrategyInfo>()
+        strategies.add(StrategyInfo("disabled", "Disabled", 0))
+
+        val result = Shell.cmd("cat $STUN_STRATEGIES_FILE 2>/dev/null").exec()
+        if (result.isSuccess) {
+            val content = result.out.joinToString("\n")
+
+            // Primary: Parse from list_stun_strategies() function (most reliable)
+            var ids = parseStrategiesFromListFunction(content, "list_stun_strategies")
+
+            // Fallback: Parse from case statement if list function not found
+            if (ids.isEmpty()) {
+                val stunSection = extractSection(content, "STUN STRATEGIES", null)
+                ids = parseStrategyIds(stunSection)
+            }
+
+            ids.forEachIndexed { index, id ->
+                strategies.add(StrategyInfo(
+                    id = id,
+                    displayName = formatDisplayName(id),
+                    index = index + 1
+                ))
+            }
+        }
+
+        stunStrategies = strategies
+        return strategies
+    }
+
+    /**
      * Check if a category is enabled (has a non-disabled strategy)
      */
     suspend fun isCategoryEnabled(categoryKey: String): Boolean {
@@ -391,6 +466,7 @@ object StrategyRepository {
     fun clearCache() {
         tcpStrategies = null
         udpStrategies = null
+        stunStrategies = null
     }
 
     // Helper functions

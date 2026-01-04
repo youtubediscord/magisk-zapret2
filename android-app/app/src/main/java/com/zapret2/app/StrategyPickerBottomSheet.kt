@@ -99,7 +99,7 @@ class StrategyPickerBottomSheet : BottomSheetDialogFragment() {
         when (strategyType) {
             TYPE_TCP -> loadStrategiesAsync(recyclerView, true, currentStrategyName)
             TYPE_UDP -> loadStrategiesAsync(recyclerView, false, currentStrategyName)
-            TYPE_VOICE -> loadStrategiesAsync(recyclerView, false, currentStrategyName)  // Voice uses UDP strategies
+            TYPE_VOICE -> loadStunStrategiesAsync(recyclerView, currentStrategyName)  // Voice uses STUN strategies
             TYPE_DEBUG -> setupAdapter(recyclerView, getDebugModes(), currentStrategyName)
             TYPE_PKT_COUNT -> setupAdapter(recyclerView, getPktCountOptions(), currentStrategyName)
             else -> loadStrategiesAsync(recyclerView, true, currentStrategyName)
@@ -122,6 +122,26 @@ class StrategyPickerBottomSheet : BottomSheetDialogFragment() {
             val strategies = strategyInfoList.map { info ->
                 StrategyItem(
                     id = info.id,  // Use the actual ID
+                    name = info.displayName,
+                    description = if (info.id == "disabled") "No DPI bypass" else ""
+                )
+            }
+
+            setupAdapter(recyclerView, strategies, currentStrategyName)
+        }
+    }
+
+    /**
+     * Load STUN strategies asynchronously for voice/video calls
+     */
+    private fun loadStunStrategiesAsync(recyclerView: RecyclerView, currentStrategyName: String) {
+        lifecycleScope.launch {
+            val strategyInfoList = StrategyRepository.getStunStrategies()
+
+            // Convert to StrategyItem format
+            val strategies = strategyInfoList.map { info ->
+                StrategyItem(
+                    id = info.id,
                     name = info.displayName,
                     description = if (info.id == "disabled") "No DPI bypass" else ""
                 )
