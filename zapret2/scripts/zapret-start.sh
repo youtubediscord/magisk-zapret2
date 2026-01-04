@@ -133,6 +133,13 @@ load_config() {
         log_msg "Loaded strategies from $STRATEGIES_FILE"
     fi
 
+    # Load STUN strategies helper if exists
+    STUN_STRATEGIES_FILE="$ZAPRET_DIR/strategies-stun.sh"
+    if [ -f "$STUN_STRATEGIES_FILE" ]; then
+        . "$STUN_STRATEGIES_FILE"
+        log_msg "Loaded STUN strategies from $STUN_STRATEGIES_FILE"
+    fi
+
     # Log current configuration
     log_debug "QNUM=$QNUM"
     log_debug "PORTS_TCP=$PORTS_TCP"
@@ -667,9 +674,10 @@ build_category_options_single() {
     local strat_opts=""
     case "$protocol" in
         stun)
-            # STUN/Voice - use selected UDP strategy
-            proto_filter="--filter-udp=1400,4000-5000,50000-51000 --ipset=$LISTS_DIR/ipset-discord.txt --ipset=$LISTS_DIR/ipset-telegram.txt"
-            local full_filter="--out-range=-d$PKT_OUT $proto_filter"
+            # STUN/Voice - use STUN-specific strategies
+            # Note: --payload and --out-range are already in strategy options
+            proto_filter="--filter-l7=stun,discord"
+            local full_filter="$proto_filter"
 
             # Add hostlist/ipset if specified
             local filter_opts=$(build_category_filter "$filter_mode" "$hostlist")
@@ -677,8 +685,8 @@ build_category_options_single() {
                 full_filter="$full_filter $filter_opts"
             fi
 
-            # Get UDP strategy options (STUN uses UDP strategies)
-            strat_opts=$(get_udp_strategy_options "$strategy_name" "$full_filter")
+            # Get STUN strategy options from strategies-stun.sh
+            strat_opts=$(get_stun_strategy_options "$strategy_name" "$full_filter")
             ;;
         udp)
             # UDP/QUIC - use get_udp_strategy_options

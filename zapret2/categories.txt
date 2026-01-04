@@ -28,7 +28,7 @@ discord_udp|udp|hostlist|discord.txt|disabled
 # ===============================
 # Voice (Discord + Telegram STUN)
 # ===============================
-voice_stun|stun|none||disabled
+voice_stun|stun|none||fake_veryfast_stun_discord
 
 # ===============================
 # Telegram
