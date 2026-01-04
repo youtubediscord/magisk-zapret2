@@ -26,10 +26,10 @@ object StrategyRepository {
 
     data class CategoryConfig(
         val key: String,          // e.g., "youtube"
-        val enabled: Int,         // 0 or 1
+        val protocol: String,     // "tcp", "udp", or "stun"
         val filterMode: String,   // "none", "hostlist", "ipset"
         val hostlistFile: String, // e.g., "youtube.txt"
-        val strategyIndex: Int    // 1-based strategy index (1 = first strategy)
+        val strategyName: String  // Strategy name (e.g., "syndata_multisplit_tls_google_700" or "disabled")
     )
 
     /**
@@ -128,6 +128,7 @@ object StrategyRepository {
 
     /**
      * Read all category configurations from categories.txt
+     * Format: CATEGORY|PROTOCOL|FILTER_MODE|HOSTLIST_FILE|STRATEGY_NAME
      */
     suspend fun readCategories(): Map<String, CategoryConfig> {
         return withContext(Dispatchers.IO) {
@@ -143,10 +144,10 @@ object StrategyRepository {
                             val key = parts[0]
                             categories[key] = CategoryConfig(
                                 key = key,
-                                enabled = parts[1].toIntOrNull() ?: 0,
-                                filterMode = parts[2],
+                                protocol = parts[1].ifEmpty { "tcp" },
+                                filterMode = parts[2].ifEmpty { "none" },
                                 hostlistFile = parts[3],
-                                strategyIndex = parts[4].toIntOrNull() ?: 1
+                                strategyName = parts[4].ifEmpty { "disabled" }
                             )
                         }
                     }
@@ -159,16 +160,30 @@ object StrategyRepository {
 
     /**
      * Get strategy index for a specific category
+     * Returns the index of the strategy in the strategy list (0 = disabled)
      */
     suspend fun getCategoryStrategyIndex(categoryKey: String): Int {
         val categories = readCategories()
-        return categories[categoryKey]?.strategyIndex ?: 0
+        val category = categories[categoryKey] ?: return 0
+
+        val strategyName = category.strategyName
+        if (strategyName == "disabled" || strategyName.isEmpty()) {
+            return 0
+        }
+
+        // Determine if TCP or UDP based on protocol
+        val isTcp = category.protocol != "udp"
+        return getIndexById(isTcp, strategyName)
     }
 
     /**
-     * Update strategy for a category in categories.txt
+     * Update strategy for a category in categories.txt by strategy NAME
+     * Format: CATEGORY|PROTOCOL|FILTER_MODE|HOSTLIST_FILE|STRATEGY_NAME
+     *
+     * @param categoryKey The category key (e.g., "youtube")
+     * @param newStrategyName The strategy name (e.g., "syndata_multisplit_tls_google_700" or "disabled")
      */
-    suspend fun updateCategoryStrategy(categoryKey: String, newStrategyIndex: Int): Boolean {
+    suspend fun updateCategoryStrategyByName(categoryKey: String, newStrategyName: String): Boolean {
         return withContext(Dispatchers.IO) {
             // Read current file
             val result = Shell.cmd("cat $CATEGORIES_FILE 2>/dev/null").exec()
@@ -182,13 +197,8 @@ object StrategyRepository {
                 if (!line.startsWith("#") && line.startsWith("$categoryKey|")) {
                     val parts = line.split("|").toMutableList()
                     if (parts.size >= 5) {
-                        // Update strategy index (parts[4]) and enable if strategy > 0
-                        parts[4] = newStrategyIndex.toString()
-                        if (newStrategyIndex > 0) {
-                            parts[1] = "1" // Enable category
-                        } else {
-                            parts[1] = "0" // Disable category
-                        }
+                        // Update strategy name (parts[4])
+                        parts[4] = newStrategyName.ifEmpty { "disabled" }
                         lines[i] = parts.joinToString("|")
                         found = true
                         break
@@ -207,11 +217,127 @@ object StrategyRepository {
     }
 
     /**
-     * Check if a category is enabled
+     * Update strategy for a category in categories.txt by strategy INDEX
+     * Format: CATEGORY|PROTOCOL|FILTER_MODE|HOSTLIST_FILE|STRATEGY_NAME
+     *
+     * @param categoryKey The category key (e.g., "youtube")
+     * @param newStrategyIndex The index in the strategy list (0 = disabled)
+     * @deprecated Use updateCategoryStrategyByName instead for better clarity
+     */
+    suspend fun updateCategoryStrategy(categoryKey: String, newStrategyIndex: Int): Boolean {
+        return withContext(Dispatchers.IO) {
+            // Read current file to get the protocol
+            val result = Shell.cmd("cat $CATEGORIES_FILE 2>/dev/null").exec()
+            if (!result.isSuccess) return@withContext false
+
+            val lines = result.out.toMutableList()
+            var found = false
+
+            for (i in lines.indices) {
+                val line = lines[i]
+                if (!line.startsWith("#") && line.startsWith("$categoryKey|")) {
+                    val parts = line.split("|").toMutableList()
+                    if (parts.size >= 5) {
+                        // Get protocol from the category line (parts[1])
+                        val protocol = parts[1].ifEmpty { "tcp" }
+                        val isTcp = protocol != "udp"
+
+                        // Get the strategy name from index
+                        val strategies = if (isTcp) {
+                            tcpStrategies ?: getTcpStrategiesSync()
+                        } else {
+                            udpStrategies ?: getUdpStrategiesSync()
+                        }
+
+                        // Get strategy name (index 0 = "disabled")
+                        val strategyName = strategies.getOrNull(newStrategyIndex)?.id ?: "disabled"
+
+                        // Update strategy name (parts[4])
+                        parts[4] = strategyName
+                        lines[i] = parts.joinToString("|")
+                        found = true
+                        break
+                    }
+                }
+            }
+
+            if (!found) return@withContext false
+
+            // Write back
+            val newContent = lines.joinToString("\n")
+            val escaped = newContent.replace("'", "'\\''")
+            val writeResult = Shell.cmd("echo '$escaped' > $CATEGORIES_FILE").exec()
+            writeResult.isSuccess
+        }
+    }
+
+    /**
+     * Synchronous version of getTcpStrategies for use within IO context
+     */
+    private fun getTcpStrategiesSync(): List<StrategyInfo> {
+        val strategies = mutableListOf<StrategyInfo>()
+        strategies.add(StrategyInfo("disabled", "Disabled", 0))
+
+        val result = Shell.cmd("cat $STRATEGIES_FILE 2>/dev/null").exec()
+        if (result.isSuccess) {
+            val content = result.out.joinToString("\n")
+            val tcpSection = extractSection(content, "TCP STRATEGIES", "UDP STRATEGIES")
+            val ids = parseStrategyIds(tcpSection)
+
+            ids.forEachIndexed { index, id ->
+                strategies.add(StrategyInfo(
+                    id = id,
+                    displayName = formatDisplayName(id),
+                    index = index + 1
+                ))
+            }
+        }
+
+        if (strategies.size == 1) {
+            strategies.addAll(getHardcodedTcpStrategies())
+        }
+
+        tcpStrategies = strategies
+        return strategies
+    }
+
+    /**
+     * Synchronous version of getUdpStrategies for use within IO context
+     */
+    private fun getUdpStrategiesSync(): List<StrategyInfo> {
+        val strategies = mutableListOf<StrategyInfo>()
+        strategies.add(StrategyInfo("disabled", "Disabled", 0))
+
+        val result = Shell.cmd("cat $STRATEGIES_FILE 2>/dev/null").exec()
+        if (result.isSuccess) {
+            val content = result.out.joinToString("\n")
+            val udpSection = extractSection(content, "UDP STRATEGIES", null)
+            val ids = parseStrategyIds(udpSection)
+
+            ids.forEachIndexed { index, id ->
+                strategies.add(StrategyInfo(
+                    id = id,
+                    displayName = formatDisplayName(id),
+                    index = index + 1
+                ))
+            }
+        }
+
+        if (strategies.size == 1) {
+            strategies.addAll(getHardcodedUdpStrategies())
+        }
+
+        udpStrategies = strategies
+        return strategies
+    }
+
+    /**
+     * Check if a category is enabled (has a non-disabled strategy)
      */
     suspend fun isCategoryEnabled(categoryKey: String): Boolean {
         val categories = readCategories()
-        return categories[categoryKey]?.enabled == 1
+        val strategyName = categories[categoryKey]?.strategyName ?: "disabled"
+        return strategyName != "disabled" && strategyName.isNotEmpty()
     }
 
     /**
