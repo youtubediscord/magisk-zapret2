@@ -359,19 +359,31 @@ class StrategiesFragment : Fragment() {
             val tcpStrategies = StrategyRepository.getTcpStrategies()
             val udpStrategies = StrategyRepository.getUdpStrategies()
 
+            // Voice strategies mapping (index to id)
+            val voiceStrategyIds = listOf("disabled", "voice_fake_stun_6", "voice_fake_stun_4", "voice_fake_udplen")
+
             // Load each category's strategy
             categoryKeyMap.forEach { (uiKey, categoryKey) ->
                 val config = categories[categoryKey]
                 if (config != null) {
                     val strategyIndex = config.strategyIndex
-                    // If category is disabled, use "disabled", otherwise get strategy name by index
                     val isTcp = isTcpCategory[uiKey] == true
-                    val strategies = if (isTcp) tcpStrategies else udpStrategies
 
-                    val strategyName = if (config.enabled != 1 || strategyIndex == 0) {
-                        "disabled"
+                    // Voice has special handling - uses its own strategy list
+                    val strategyName = if (uiKey == "voice") {
+                        if (config.enabled != 1 || strategyIndex == 0) {
+                            "disabled"
+                        } else {
+                            voiceStrategyIds.getOrNull(strategyIndex) ?: "disabled"
+                        }
                     } else {
-                        strategies.getOrNull(strategyIndex)?.id ?: "disabled"
+                        // TCP/UDP categories use their respective strategy lists
+                        val strategies = if (isTcp) tcpStrategies else udpStrategies
+                        if (config.enabled != 1 || strategyIndex == 0) {
+                            "disabled"
+                        } else {
+                            strategies.getOrNull(strategyIndex)?.id ?: "disabled"
+                        }
                     }
                     selections[uiKey] = strategyName
 
@@ -420,17 +432,30 @@ class StrategiesFragment : Fragment() {
             val tcpStrategies = StrategyRepository.getTcpStrategies()
             val udpStrategies = StrategyRepository.getUdpStrategies()
 
+            // Voice strategies mapping (id to index)
+            val voiceStrategyIds = listOf("disabled", "voice_fake_stun_6", "voice_fake_stun_4", "voice_fake_udplen")
+
             // Save each category to categories.txt
             categoryKeyMap.forEach { (uiKey, categoryKey) ->
                 val strategyName = selections[uiKey] ?: "disabled"
 
                 // Convert strategy name to index
-                val isTcp = isTcpCategory[uiKey] == true
-                val strategies = if (isTcp) tcpStrategies else udpStrategies
-                val strategyIndex = if (strategyName == "disabled") {
-                    0
+                val strategyIndex = if (uiKey == "voice") {
+                    // Voice has special handling
+                    if (strategyName == "disabled") {
+                        0
+                    } else {
+                        voiceStrategyIds.indexOf(strategyName).takeIf { it >= 0 } ?: 0
+                    }
                 } else {
-                    strategies.indexOfFirst { it.id == strategyName }.takeIf { it >= 0 } ?: 0
+                    // TCP/UDP categories use their respective strategy lists
+                    val isTcp = isTcpCategory[uiKey] == true
+                    val strategies = if (isTcp) tcpStrategies else udpStrategies
+                    if (strategyName == "disabled") {
+                        0
+                    } else {
+                        strategies.indexOfFirst { it.id == strategyName }.takeIf { it >= 0 } ?: 0
+                    }
                 }
 
                 val success = StrategyRepository.updateCategoryStrategy(categoryKey, strategyIndex)

@@ -1,35 +1,27 @@
 package com.zapret2.app
 
-import android.graphics.Color
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageView
-import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.RecyclerView
 
 /**
- * RecyclerView Adapter for displaying hostlist files with strategy selection.
- * Each item shows the hostlist name, domain count, and a strategy selector.
- *
- * Now works with strategy NAMES instead of indices.
+ * RecyclerView Adapter for displaying hostlist files.
+ * Simplified version - shows hostlist name, domain count, and opens content on click.
  */
 class HostlistsAdapter(
     private val items: MutableList<HostlistsFragment.HostlistConfig>,
-    private var strategies: List<StrategyRepository.StrategyInfo>,
-    private val onViewClick: (HostlistsFragment.HostlistConfig) -> Unit,
-    private val onStrategyClick: (HostlistsFragment.HostlistConfig, Int) -> Unit
+    private val onItemClick: (HostlistsFragment.HostlistConfig) -> Unit
 ) : RecyclerView.Adapter<HostlistsAdapter.ViewHolder>() {
 
     inner class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
         val iconCategory: ImageView = view.findViewById(R.id.iconCategory)
         val textHostlistName: TextView = view.findViewById(R.id.textHostlistName)
         val textDomainCount: TextView = view.findViewById(R.id.textDomainCount)
-        val btnViewContent: ImageView = view.findViewById(R.id.btnViewContent)
-        val strategySelector: LinearLayout = view.findViewById(R.id.strategySelector)
-        val textSelectedStrategy: TextView = view.findViewById(R.id.textSelectedStrategy)
+        val iconChevron: ImageView = view.findViewById(R.id.iconChevron)
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
@@ -57,59 +49,13 @@ class HostlistsAdapter(
         val iconTint = getHostlistIconTint(config.filename)
         holder.iconCategory.setColorFilter(ContextCompat.getColor(context, iconTint))
 
-        // Set selected strategy text - now uses strategyName directly
-        val displayStrategy = if (config.strategyName == "disabled") {
-            "Disabled"
-        } else {
-            // Try to find display name from strategies list, otherwise format the name
-            val strategyInfo = strategies.find { it.id == config.strategyName }
-            strategyInfo?.displayName ?: formatStrategyName(config.strategyName)
-        }
-        holder.textSelectedStrategy.text = displayStrategy
-
-        // Style based on enabled/disabled state
-        if (config.strategyName == "disabled") {
-            // Disabled state - gray text
-            holder.textSelectedStrategy.setTextColor(Color.parseColor("#808080"))
-        } else {
-            // Enabled state - white text
-            holder.textSelectedStrategy.setTextColor(Color.parseColor("#FFFFFF"))
-        }
-
-        // Click listeners
-        holder.btnViewContent.setOnClickListener {
-            onViewClick(config)
-        }
-
-        holder.strategySelector.setOnClickListener {
-            onStrategyClick(config, position)
-        }
-
-        // Also allow clicking on the whole card to view content
+        // Click on whole card opens content
         holder.itemView.setOnClickListener {
-            onViewClick(config)
+            onItemClick(config)
         }
     }
 
     override fun getItemCount() = items.size
-
-    /**
-     * Update strategies list (called when strategies are loaded async)
-     */
-    fun updateStrategies(newStrategies: List<StrategyRepository.StrategyInfo>) {
-        strategies = newStrategies
-        notifyDataSetChanged()
-    }
-
-    /**
-     * Format strategy name for display when not found in strategies list
-     * Replaces underscores with spaces and truncates if too long
-     */
-    private fun formatStrategyName(name: String): String {
-        // "syndata_multisplit_tls_google_700" -> "syndata multisplit tls..."
-        val formatted = name.replace("_", " ")
-        return if (formatted.length > 25) formatted.take(22) + "..." else formatted
-    }
 
     /**
      * Get icon resource based on hostlist filename

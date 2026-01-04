@@ -719,91 +719,107 @@ build_category_options_single() {
 }
 
 ##########################################################################################
-# STRATEGY BUILDING - NEW HOSTLISTS FORMAT
+# STRATEGY BUILDING - HOSTLISTS FORMAT (DEPRECATED)
+# NOTE: These functions are kept for backwards compatibility but are no longer used.
+#       The main flow now uses parse_categories() which reads from categories.txt
 ##########################################################################################
 
-# Build nfqws2 options for a single hostlist entry
-# Arguments: $1 = hostlist filename, $2 = strategy name
-# Uses global: NFQWS_OPT_DESYNC, first
-build_hostlist_options() {
-    local hostlist="$1"
-    local strategy_name="$2"
-    local hostlist_path="$LISTS_DIR/$hostlist"
+# # Build nfqws2 options for a single hostlist entry
+# # Arguments: $1 = hostlist filename, $2 = strategy name
+# # Uses global: NFQWS_OPT_DESYNC, first
+# build_hostlist_options() {
+#     local hostlist="$1"
+#     local strategy_name="$2"
+#     local hostlist_path="$LISTS_DIR/$hostlist"
+#
+#     # Get strategy command from strategies.sh using existing functions
+#     local filter="--out-range=-d$PKT_OUT --filter-tcp=80,443 --hostlist=$hostlist_path"
+#     local strat_opts=""
+#
+#     # Try TCP strategy first (most common)
+#     strat_opts=$(get_tcp_strategy_options "$strategy_name" "$filter")
+#
+#     if [ -z "$strat_opts" ]; then
+#         log_error "Unknown strategy: $strategy_name"
+#         return 1
+#     fi
+#
+#     # Add filter and strategy
+#     if [ $first -eq 1 ]; then
+#         first=0
+#         NFQWS_OPT_DESYNC="$strat_opts"
+#     else
+#         NFQWS_OPT_DESYNC="$NFQWS_OPT_DESYNC --new $strat_opts"
+#     fi
+#
+#     return 0
+# }
 
-    # Get strategy command from strategies.sh using existing functions
-    local filter="--out-range=-d$PKT_OUT --filter-tcp=80,443 --hostlist=$hostlist_path"
-    local strat_opts=""
-
-    # Try TCP strategy first (most common)
-    strat_opts=$(get_tcp_strategy_options "$strategy_name" "$filter")
-
-    if [ -z "$strat_opts" ]; then
-        log_error "Unknown strategy: $strategy_name"
-        return 1
-    fi
-
-    # Add filter and strategy
-    if [ $first -eq 1 ]; then
-        first=0
-        NFQWS_OPT_DESYNC="$strat_opts"
-    else
-        NFQWS_OPT_DESYNC="$NFQWS_OPT_DESYNC --new $strat_opts"
-    fi
-
-    return 0
-}
-
-# Parse hostlists from simple format configuration file
-# Format: hostlist.txt=strategy_name
-parse_hostlists() {
-    local config_file="$USER_HOSTLISTS"
-
-    # Fallback to default if user config doesn't exist
-    if [ ! -f "$config_file" ]; then
-        config_file="$DEFAULT_HOSTLISTS"
-    fi
-
-    if [ ! -f "$config_file" ]; then
-        log_error "Hostlists config not found"
-        return 1
-    fi
-
-    log_msg "Parsing hostlists from: $config_file"
-
-    while IFS= read -r line || [ -n "$line" ]; do
-        # Skip empty lines and comments
-        [ -z "$line" ] && continue
-        case "$line" in \#*) continue ;; esac
-
-        # Parse: hostlist.txt=strategy_name
-        local hostlist=$(echo "$line" | cut -d'=' -f1 | tr -d ' \t\r')
-        local strategy=$(echo "$line" | cut -d'=' -f2 | tr -d ' \t\r')
-
-        [ -z "$hostlist" ] && continue
-        [ -z "$strategy" ] && continue
-        [ "$strategy" = "disabled" ] && continue
-
-        # Check hostlist file exists
-        local hostlist_path="$LISTS_DIR/$hostlist"
-        if [ ! -f "$hostlist_path" ]; then
-            log_msg "Skipping $hostlist (file not found)"
-            continue
-        fi
-
-        log_msg "Hostlist: $hostlist -> Strategy: $strategy"
-
-        # Build nfqws2 options for this hostlist
-        build_hostlist_options "$hostlist" "$strategy"
-
-    done < "$config_file"
-}
+# # Parse hostlists from simple format configuration file
+# # Format: hostlist.txt=strategy_name
+# # DEPRECATED: Use parse_categories() instead which reads categories.txt
+# parse_hostlists() {
+#     local config_file="$USER_HOSTLISTS"
+#
+#     # Fallback to default if user config doesn't exist
+#     if [ ! -f "$config_file" ]; then
+#         config_file="$DEFAULT_HOSTLISTS"
+#     fi
+#
+#     if [ ! -f "$config_file" ]; then
+#         log_error "Hostlists config not found"
+#         return 1
+#     fi
+#
+#     log_msg "Parsing hostlists from: $config_file"
+#
+#     while IFS= read -r line || [ -n "$line" ]; do
+#         # Skip empty lines and comments
+#         [ -z "$line" ] && continue
+#         case "$line" in \#*) continue ;; esac
+#
+#         # Parse: hostlist.txt=strategy_name
+#         local hostlist=$(echo "$line" | cut -d'=' -f1 | tr -d ' \t\r')
+#         local strategy=$(echo "$line" | cut -d'=' -f2 | tr -d ' \t\r')
+#
+#         [ -z "$hostlist" ] && continue
+#         [ -z "$strategy" ] && continue
+#         [ "$strategy" = "disabled" ] && continue
+#
+#         # Check hostlist file exists
+#         local hostlist_path="$LISTS_DIR/$hostlist"
+#         if [ ! -f "$hostlist_path" ]; then
+#             log_msg "Skipping $hostlist (file not found)"
+#             continue
+#         fi
+#
+#         log_msg "Hostlist: $hostlist -> Strategy: $strategy"
+#
+#         # Build nfqws2 options for this hostlist
+#         build_hostlist_options "$hostlist" "$strategy"
+#
+#     done < "$config_file"
+# }
 
 ##########################################################################################
-# STRATEGY BUILDING - LEGACY CATEGORIES.TXT PARSING (kept for backwards compatibility)
+# STRATEGY BUILDING - CATEGORIES.TXT PARSING (PRIMARY METHOD)
 ##########################################################################################
 
 # Parse categories from categories.txt file
+# This is the PRIMARY method for configuring strategies.
 # Format: CATEGORY|PROTOCOL|FILTER_MODE|HOSTLIST_FILE|STRATEGY_NAME
+#
+# Fields:
+#   CATEGORY     - Category name (e.g., youtube, discord, telegram)
+#   PROTOCOL     - tcp, udp, or stun
+#   FILTER_MODE  - hostlist, ipset, or none
+#   HOSTLIST_FILE- Filename in lists/ directory (e.g., youtube.txt)
+#   STRATEGY_NAME- Strategy name from strategies.sh (e.g., syndata_midsld)
+#
+# Example:
+#   youtube|tcp|hostlist|youtube.txt|syndata_midsld
+#   discord_voice|stun|none||fake_stun
+#
 parse_categories() {
     local categories_file="$CATEGORIES_FILE"
 
@@ -861,26 +877,28 @@ parse_categories() {
 }
 
 # Build options for category-based strategies (main entry point)
-# Now uses hostlists format as primary, with preset fallback
+# Uses categories.txt as primary source with preset fallback
 build_category_options() {
     first=1
-    NFQWS_OPT_DESYNC=""
 
-    log_msg "Building hostlist-based options..."
-    parse_hostlists
+    # Try to parse categories.txt first
+    if [ -f "$CATEGORIES_FILE" ]; then
+        log_msg "Building category-based options from categories.txt..."
+        parse_categories
 
-    if [ -z "$NFQWS_OPT_DESYNC" ]; then
-        log_msg "No hostlists enabled, using preset fallback"
-        # Fallback to preset strategy
-        local preset_opts=$(build_preset_options)
-        if [ -n "$preset_opts" ]; then
-            OPTS="$OPTS $preset_opts"
+        # Check if any strategies were added (first=0 means at least one was added)
+        if [ $first -eq 0 ]; then
+            log_msg "Categories loaded successfully"
+            return
         fi
-        return
     fi
 
-    # Add built options to OPTS
-    OPTS="$OPTS $NFQWS_OPT_DESYNC"
+    # Fallback to preset strategy if no categories configured
+    log_msg "No categories configured, using preset fallback"
+    local preset_opts=$(build_preset_options)
+    if [ -n "$preset_opts" ]; then
+        OPTS="$OPTS $preset_opts"
+    fi
 }
 
 ##########################################################################################
@@ -915,8 +933,8 @@ build_options() {
         OPTS="$OPTS$blob_opts"
     fi
 
-    # Build strategy options using hostlists format (with preset fallback)
-    log_msg "Mode: Hostlist-based configuration"
+    # Build strategy options from categories.txt (with preset fallback)
+    log_msg "Mode: Category-based configuration (categories.txt)"
     log_msg "Packet count (--out-range): $PKT_OUT"
     build_category_options
 
