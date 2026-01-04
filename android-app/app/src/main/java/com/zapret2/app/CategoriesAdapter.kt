@@ -6,7 +6,6 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.TextView
-import androidx.appcompat.widget.SwitchCompat
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
@@ -16,7 +15,6 @@ import androidx.recyclerview.widget.RecyclerView
  * Supports two view types: section headers and category items
  */
 class CategoriesAdapter(
-    private val onToggle: (Category, Boolean) -> Unit,
     private val onEdit: (Category) -> Unit
 ) : ListAdapter<CategoriesAdapter.ListItem, RecyclerView.ViewHolder>(DiffCallback()) {
 
@@ -85,8 +83,8 @@ class CategoriesAdapter(
     }
 
     inner class CategoryViewHolder(view: View) : RecyclerView.ViewHolder(view) {
-        private val switchEnabled: SwitchCompat = view.findViewById(R.id.switchEnabled)
         private val textName: TextView = view.findViewById(R.id.textCategoryName)
+        private val textProtocol: TextView = view.findViewById(R.id.textProtocol)
         private val textFilterMode: TextView = view.findViewById(R.id.textFilterMode)
         private val textHostlist: TextView = view.findViewById(R.id.textHostlist)
         private val textStrategy: TextView = view.findViewById(R.id.textStrategy)
@@ -95,12 +93,13 @@ class CategoriesAdapter(
         fun bind(category: Category) {
             textName.text = category.getDisplayName()
 
-            // Switch state
-            switchEnabled.setOnCheckedChangeListener(null)
-            switchEnabled.isChecked = category.enabled
-            switchEnabled.setOnCheckedChangeListener { _, isChecked ->
-                onToggle(category, isChecked)
-            }
+            // Protocol badge
+            textProtocol.text = category.protocol.uppercase()
+            textProtocol.setBackgroundColor(getProtocolColor(category.protocol))
+
+            // Dim row if disabled (strategy == "disabled")
+            val alpha = if (category.isEnabled) 1.0f else 0.5f
+            itemView.alpha = alpha
 
             // Filter mode badge
             textFilterMode.text = category.filterMode.value.uppercase()
@@ -114,12 +113,21 @@ class CategoriesAdapter(
                 textHostlist.visibility = View.GONE
             }
 
-            // Strategy badge - show formatted strategy name
+            // Strategy badge - show "Off" or strategy name
             textStrategy.text = formatStrategyName(category.strategy)
 
             // Edit button and row click
             btnEdit.setOnClickListener { onEdit(category) }
             itemView.setOnClickListener { onEdit(category) }
+        }
+
+        private fun getProtocolColor(protocol: String): Int {
+            return when (protocol.lowercase()) {
+                "tcp" -> Color.parseColor("#2D5A27")   // green
+                "udp" -> Color.parseColor("#5A4A2D")   // orange
+                "stun" -> Color.parseColor("#4A3B5C") // purple
+                else -> Color.parseColor("#505050")
+            }
         }
 
         private fun getFilterModeColor(mode: Category.FilterMode): Int {

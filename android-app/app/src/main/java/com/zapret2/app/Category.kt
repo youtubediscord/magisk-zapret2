@@ -2,16 +2,22 @@ package com.zapret2.app
 
 /**
  * Data class representing a category from categories.txt
- * Format: CATEGORY|ENABLED|FILTER_MODE|HOSTLIST_FILE|STRATEGY
+ * Format: CATEGORY|PROTOCOL|FILTER_MODE|HOSTLIST_FILE|STRATEGY
  */
 data class Category(
     val name: String,
-    var enabled: Boolean,
+    var protocol: String,  // tcp, udp, stun
     var filterMode: FilterMode,
     var hostlistFile: String,
     var strategy: String,
     val section: String = ""
 ) {
+    /**
+     * Category is enabled if strategy != "disabled"
+     */
+    val isEnabled: Boolean
+        get() = strategy != "disabled"
+
     enum class FilterMode(val value: String) {
         NONE("none"),
         HOSTLIST("hostlist"),
@@ -28,7 +34,7 @@ data class Category(
      * Convert category back to line format for saving
      */
     fun toLine(): String {
-        return "$name|${if (enabled) 1 else 0}|${filterMode.value}|$hostlistFile|$strategy"
+        return "$name|$protocol|${filterMode.value}|$hostlistFile|$strategy"
     }
 
     /**
@@ -48,6 +54,7 @@ data class Category(
     companion object {
         /**
          * Parse a single line from categories.txt
+         * New format: CATEGORY|PROTOCOL|FILTER_MODE|HOSTLIST_FILE|STRATEGY_NAME
          * Returns null for comments and empty lines
          */
         fun fromLine(line: String, section: String = ""): Category? {
@@ -66,7 +73,7 @@ data class Category(
             return try {
                 Category(
                     name = parts[0],
-                    enabled = parts[1] == "1",
+                    protocol = parts[1],  // tcp, udp, stun
                     filterMode = FilterMode.fromString(parts[2]),
                     hostlistFile = parts[3],
                     strategy = parts[4].ifEmpty { "disabled" },
