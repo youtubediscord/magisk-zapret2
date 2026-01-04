@@ -661,8 +661,8 @@ build_category_options_single() {
     case "$protocol" in
         stun)
             # STUN/Voice - use selected UDP strategy
-            proto_filter="--filter-l7=stun,discord"
-            local full_filter="--out-range=-d$PKT_OUT $proto_filter --payload=stun,discord_ip_discovery"
+            proto_filter="--filter-l7=stun,discord --ipset=$LISTS_DIR/ipset-discord.txt --ipset=$LISTS_DIR/ipset-telegram.txt"
+            local full_filter="--out-range=-d$PKT_OUT $proto_filter"
 
             # Add hostlist/ipset if specified
             local filter_opts=$(build_category_filter "$filter_mode" "$hostlist")
@@ -983,8 +983,8 @@ start_nfqws2() {
     $NFQWS2 $OPTS >"$STARTUP_LOG" 2>"$ERROR_LOG" &
     PID=$!
 
-    # Wait for startup
-    sleep 3
+    # Quick check - nfqws2 starts in milliseconds
+    sleep 0.2
 
     # Parse and log startup output
     parse_startup_output

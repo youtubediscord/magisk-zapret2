@@ -46,13 +46,13 @@ stop_daemon() {
         if [ -d "/proc/$PID" ]; then
             log_msg "Stopping nfqws2 (PID: $PID)..."
             kill $PID 2>/dev/null
-            sleep 1
+            sleep 0.1
 
             # Force kill if still running
             if [ -d "/proc/$PID" ]; then
                 log_msg "Process still running, sending SIGKILL..."
                 kill -9 $PID 2>/dev/null
-                sleep 0.5
+                sleep 0.1
             fi
 
             # Verify process stopped
@@ -76,7 +76,7 @@ stop_daemon() {
     if [ -n "$PIDS" ]; then
         for PID in $PIDS; do
             kill $PID 2>/dev/null
-            sleep 0.5
+            sleep 0.1
             if [ -d "/proc/$PID" ]; then
                 kill -9 $PID 2>/dev/null
             fi
