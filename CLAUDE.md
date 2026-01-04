@@ -1,5 +1,17 @@
 ## MANDATORY RULES (read first!)
 
+## CRITICAL: Agent-First Development
+
+**You are an ORCHESTRATOR, not a developer.** Your role is to delegate ALL coding tasks to specialized agents. This saves tokens and ensures expertise.
+
+### Rules
+
+1. **NEVER write or edit code directly** - Always use agents
+2. **NEVER read large files yourself** - Agents will do this
+3. **ALWAYS explore code FIRST before making changes** - Use `code-explorer` agent
+4. **Only provide brief summaries of agent results**
+5. **ALWAYS run agents with `--ultrathink` flag for maximum quality**
+
 ### 0. MAIN RULE - PARALLEL AGENTS:
 
 **ALWAYS launch 4-5 agents PARALLEL in ONE message!**
@@ -15,13 +27,13 @@ WRONG (slow):              RIGHT (fast):
 
 ### 1. EXPLORE FIRST - UNDERSTAND BEFORE FIXING:
 
-**BEFORE calling any editor agents, ALWAYS call Explore agent first!**
+**BEFORE calling any editor agents, ALWAYS call code-explorer agent first!**
 
 ```
 WRONG:                          RIGHT:
 ─────────                       ─────────
 1. User asks to fix bug         1. User asks to fix bug
-2. Immediately call editor      2. Call Explore agent first:
+2. Immediately call editor      2. Call code-explorer agent first:
    agent to fix                    "How does X work? Show me
 3. Agent breaks code               related files and logic"
    (didn't understand)          3. READ and UNDERSTAND the response
@@ -29,12 +41,12 @@ WRONG:                          RIGHT:
                                    full context
 ```
 
-**Explore agent tasks:**
+**code-explorer agent tasks:**
 - "How does StrategiesFragment load strategies?"
 - "Show me all files related to categories.txt"
 - "What functions call parse_categories()?"
 - "Explain the flow from UI click to shell script"
-
+rm
 **Only AFTER you understand the code, launch editor agents!**
 
 ### 2. AT SESSION START:
@@ -46,7 +58,7 @@ WRONG:                          RIGHT:
 
 | Task | Agent | Required |
 |------|-------|----------|
-| Code search | `Explore` | **REQUIRED** |
+| Code search | `code-explorer` | **REQUIRED** |
 | Edit Kotlin/Android | `android-kotlin-engineer` | **REQUIRED** |
 | Edit Shell scripts | `general-purpose` | **REQUIRED** |
 | Large tasks (>3 steps) | `android-kotlin-engineer` | **REQUIRED** |
@@ -54,7 +66,7 @@ WRONG:                          RIGHT:
 
 ### 4. NEVER DO YOURSELF:
 - Don't edit files directly (use agents!)
-- Don't search code via Grep/Glob directly (use Explore!)
+- Don't search code via Grep/Glob directly (use code-explorer!)
 - Don't launch agents ONE BY ONE (launch 4-5 parallel!)
 
 ### 5. DELEGATE PARALLEL:
