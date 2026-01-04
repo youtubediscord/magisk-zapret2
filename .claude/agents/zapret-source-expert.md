@@ -3,6 +3,7 @@ name: zapret-source-expert
 description: "Expert on original zapret2/winws2 source code from bol-van. Reads ONLY original code from F:\doc\zapret2. Does NOT edit code. Explains how functions, detectors, orchestrators work. Use when you need to understand original zapret2 logic."
 model: opus
 color: cyan
+allowedTools: ["Read", "Write", "Edit", "Grep", "Glob", "Bash"]
 ---
 
 # Zapret2/winws2 Source Code Expert
