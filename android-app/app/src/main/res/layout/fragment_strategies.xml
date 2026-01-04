@@ -463,6 +463,67 @@
 
         </LinearLayout>
 
+        <!-- Telegram UDP Row -->
+        <LinearLayout
+            android:id="@+id/rowTelegramUdp"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingHorizontal="16dp"
+            android:background="@drawable/setting_row_background"
+            android:clickable="true"
+            android:focusable="true">
+
+            <ImageView
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:src="@drawable/ic_message"
+                app:tint="#0088CC" />
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:layout_marginStart="16dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Telegram UDP"
+                    android:textColor="#FFFFFF"
+                    android:textSize="14sp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="UDP 443"
+                    android:textColor="#888888"
+                    android:textSize="11sp" />
+
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/textTelegramUdpValue"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Disabled"
+                android:textColor="#888888"
+                android:textSize="13sp"
+                android:layout_marginEnd="8dp"
+                android:maxWidth="140dp"
+                android:ellipsize="end"
+                android:singleLine="true" />
+
+            <ImageView
+                android:layout_width="20dp"
+                android:layout_height="20dp"
+                android:src="@drawable/ic_chevron_right"
+                app:tint="#888888" />
+
+        </LinearLayout>
+
         <!-- WhatsApp Row -->
         <LinearLayout
             android:id="@+id/rowWhatsapp"
@@ -506,6 +567,67 @@
 
             <TextView
                 android:id="@+id/textWhatsappValue"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Disabled"
+                android:textColor="#888888"
+                android:textSize="13sp"
+                android:layout_marginEnd="8dp"
+                android:maxWidth="140dp"
+                android:ellipsize="end"
+                android:singleLine="true" />
+
+            <ImageView
+                android:layout_width="20dp"
+                android:layout_height="20dp"
+                android:src="@drawable/ic_chevron_right"
+                app:tint="#888888" />
+
+        </LinearLayout>
+
+        <!-- WhatsApp UDP Row -->
+        <LinearLayout
+            android:id="@+id/rowWhatsappUdp"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingHorizontal="16dp"
+            android:background="@drawable/setting_row_background"
+            android:clickable="true"
+            android:focusable="true">
+
+            <ImageView
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:src="@drawable/ic_message"
+                app:tint="#25D366" />
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:layout_marginStart="16dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="WhatsApp UDP"
+                    android:textColor="#FFFFFF"
+                    android:textSize="14sp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="UDP 443"
+                    android:textColor="#888888"
+                    android:textSize="11sp" />
+
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/textWhatsappUdpValue"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Disabled"

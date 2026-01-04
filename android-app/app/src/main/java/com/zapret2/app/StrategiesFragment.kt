@@ -26,7 +26,9 @@ class StrategiesFragment : Fragment() {
     private lateinit var rowDiscordQuic: LinearLayout
     private lateinit var rowVoice: LinearLayout
     private lateinit var rowTelegram: LinearLayout
+    private lateinit var rowTelegramUdp: LinearLayout
     private lateinit var rowWhatsapp: LinearLayout
+    private lateinit var rowWhatsappUdp: LinearLayout
     private lateinit var rowFacebook: LinearLayout
     private lateinit var rowInstagram: LinearLayout
     private lateinit var rowTwitter: LinearLayout
@@ -46,7 +48,9 @@ class StrategiesFragment : Fragment() {
     private lateinit var textDiscordQuicValue: TextView
     private lateinit var textVoiceValue: TextView
     private lateinit var textTelegramValue: TextView
+    private lateinit var textTelegramUdpValue: TextView
     private lateinit var textWhatsappValue: TextView
+    private lateinit var textWhatsappUdpValue: TextView
     private lateinit var textFacebookValue: TextView
     private lateinit var textInstagramValue: TextView
     private lateinit var textTwitterValue: TextView
@@ -77,7 +81,9 @@ class StrategiesFragment : Fragment() {
         "discord_quic" to "discord_udp",
         "voice" to "voice_stun",
         "telegram" to "telegram_tcp",
+        "telegram_udp" to "telegram_udp",
         "whatsapp" to "whatsapp_tcp",
+        "whatsapp_udp" to "whatsapp_udp",
         "facebook" to "facebook_tcp",
         "instagram" to "instagram_tcp",
         "twitter" to "twitter_tcp",
@@ -97,7 +103,9 @@ class StrategiesFragment : Fragment() {
         "discord_quic" to false,
         "voice" to false,
         "telegram" to true,
+        "telegram_udp" to false,
         "whatsapp" to true,
+        "whatsapp_udp" to false,
         "facebook" to true,
         "instagram" to true,
         "twitter" to true,
@@ -137,7 +145,9 @@ class StrategiesFragment : Fragment() {
         rowDiscordQuic = view.findViewById(R.id.rowDiscordQuic)
         rowVoice = view.findViewById(R.id.rowVoice)
         rowTelegram = view.findViewById(R.id.rowTelegram)
+        rowTelegramUdp = view.findViewById(R.id.rowTelegramUdp)
         rowWhatsapp = view.findViewById(R.id.rowWhatsapp)
+        rowWhatsappUdp = view.findViewById(R.id.rowWhatsappUdp)
         rowFacebook = view.findViewById(R.id.rowFacebook)
         rowInstagram = view.findViewById(R.id.rowInstagram)
         rowTwitter = view.findViewById(R.id.rowTwitter)
@@ -157,7 +167,9 @@ class StrategiesFragment : Fragment() {
         textDiscordQuicValue = view.findViewById(R.id.textDiscordQuicValue)
         textVoiceValue = view.findViewById(R.id.textVoiceValue)
         textTelegramValue = view.findViewById(R.id.textTelegramValue)
+        textTelegramUdpValue = view.findViewById(R.id.textTelegramUdpValue)
         textWhatsappValue = view.findViewById(R.id.textWhatsappValue)
+        textWhatsappUdpValue = view.findViewById(R.id.textWhatsappUdpValue)
         textFacebookValue = view.findViewById(R.id.textFacebookValue)
         textInstagramValue = view.findViewById(R.id.textInstagramValue)
         textTwitterValue = view.findViewById(R.id.textTwitterValue)
@@ -202,9 +214,17 @@ class StrategiesFragment : Fragment() {
             showStrategyPicker("telegram", "Telegram", "TCP 443", R.drawable.ic_message,
                 selections["telegram"] ?: "disabled", StrategyPickerBottomSheet.TYPE_TCP)
         }
+        rowTelegramUdp.setOnClickListener {
+            showStrategyPicker("telegram_udp", "Telegram UDP", "UDP 443", R.drawable.ic_message,
+                selections["telegram_udp"] ?: "disabled", StrategyPickerBottomSheet.TYPE_UDP)
+        }
         rowWhatsapp.setOnClickListener {
             showStrategyPicker("whatsapp", "WhatsApp", "TCP 443", R.drawable.ic_message,
                 selections["whatsapp"] ?: "disabled", StrategyPickerBottomSheet.TYPE_TCP)
+        }
+        rowWhatsappUdp.setOnClickListener {
+            showStrategyPicker("whatsapp_udp", "WhatsApp UDP", "UDP 443", R.drawable.ic_message,
+                selections["whatsapp_udp"] ?: "disabled", StrategyPickerBottomSheet.TYPE_UDP)
         }
 
         // Social Media
@@ -325,7 +345,9 @@ class StrategiesFragment : Fragment() {
             "discord_quic" -> textDiscordQuicValue.text = shortName
             "voice" -> textVoiceValue.text = shortName
             "telegram" -> textTelegramValue.text = shortName
+            "telegram_udp" -> textTelegramUdpValue.text = shortName
             "whatsapp" -> textWhatsappValue.text = shortName
+            "whatsapp_udp" -> textWhatsappUdpValue.text = shortName
             "facebook" -> textFacebookValue.text = shortName
             "instagram" -> textInstagramValue.text = shortName
             "twitter" -> textTwitterValue.text = shortName
