@@ -87,6 +87,21 @@
         <item name="android:textColor">#FFFFFF</item>
     </style>
 
+    <!-- Toolbar style -->
+    <style name="Widget.Zapret2.Toolbar" parent="Widget.Material3.Toolbar">
+        <item name="android:background">#1A1A1A</item>
+        <item name="titleTextColor">#FFFFFF</item>
+        <item name="navigationIconTint">#FFFFFF</item>
+    </style>
+
+    <!-- Navigation Drawer style -->
+    <style name="Widget.Zapret2.NavigationView" parent="Widget.Material3.NavigationView">
+        <item name="android:background">#2D2D2D</item>
+        <item name="itemIconTint">@color/nav_item_color</item>
+        <item name="itemTextColor">@color/nav_item_color</item>
+        <item name="itemShapeFillColor">@color/nav_item_background</item>
+    </style>
+
     <!-- BottomSheet Dialog Theme for fragments -->
     <style name="BottomSheetDialogTheme" parent="Theme.Material3.Dark.BottomSheetDialog">
         <item name="android:colorBackground">#2D2D2D</item>
