@@ -48,9 +48,14 @@ object StrategyRepository {
             if (result.isSuccess) {
                 val content = result.out.joinToString("\n")
 
-                // Parse TCP strategies (between "# ==================== TCP STRATEGIES ====================" and "# ==================== UDP STRATEGIES ====================")
-                val tcpSection = extractSection(content, "TCP STRATEGIES", "UDP STRATEGIES")
-                val ids = parseStrategyIds(tcpSection)
+                // Primary: Parse from list_tcp_strategies() function (most reliable)
+                var ids = parseStrategiesFromListFunction(content, "list_tcp_strategies")
+
+                // Fallback: Parse from case statement if list function not found
+                if (ids.isEmpty()) {
+                    val tcpSection = extractSection(content, "TCP STRATEGIES", "UDP STRATEGIES")
+                    ids = parseStrategyIds(tcpSection)
+                }
 
                 ids.forEachIndexed { index, id ->
                     strategies.add(StrategyInfo(
@@ -87,9 +92,14 @@ object StrategyRepository {
             if (result.isSuccess) {
                 val content = result.out.joinToString("\n")
 
-                // Parse UDP strategies (after "# ==================== UDP STRATEGIES ====================")
-                val udpSection = extractSection(content, "UDP STRATEGIES", null)
-                val ids = parseStrategyIds(udpSection)
+                // Primary: Parse from list_udp_strategies() function (most reliable)
+                var ids = parseStrategiesFromListFunction(content, "list_udp_strategies")
+
+                // Fallback: Parse from case statement if list function not found
+                if (ids.isEmpty()) {
+                    val udpSection = extractSection(content, "UDP STRATEGIES", null)
+                    ids = parseStrategyIds(udpSection)
+                }
 
                 ids.forEachIndexed { index, id ->
                     strategies.add(StrategyInfo(
@@ -281,8 +291,15 @@ object StrategyRepository {
         val result = Shell.cmd("cat $STRATEGIES_FILE 2>/dev/null").exec()
         if (result.isSuccess) {
             val content = result.out.joinToString("\n")
-            val tcpSection = extractSection(content, "TCP STRATEGIES", "UDP STRATEGIES")
-            val ids = parseStrategyIds(tcpSection)
+
+            // Primary: Parse from list_tcp_strategies() function (most reliable)
+            var ids = parseStrategiesFromListFunction(content, "list_tcp_strategies")
+
+            // Fallback: Parse from case statement if list function not found
+            if (ids.isEmpty()) {
+                val tcpSection = extractSection(content, "TCP STRATEGIES", "UDP STRATEGIES")
+                ids = parseStrategyIds(tcpSection)
+            }
 
             ids.forEachIndexed { index, id ->
                 strategies.add(StrategyInfo(
@@ -311,8 +328,15 @@ object StrategyRepository {
         val result = Shell.cmd("cat $STRATEGIES_FILE 2>/dev/null").exec()
         if (result.isSuccess) {
             val content = result.out.joinToString("\n")
-            val udpSection = extractSection(content, "UDP STRATEGIES", null)
-            val ids = parseStrategyIds(udpSection)
+
+            // Primary: Parse from list_udp_strategies() function (most reliable)
+            var ids = parseStrategiesFromListFunction(content, "list_udp_strategies")
+
+            // Fallback: Parse from case statement if list function not found
+            if (ids.isEmpty()) {
+                val udpSection = extractSection(content, "UDP STRATEGIES", null)
+                ids = parseStrategyIds(udpSection)
+            }
 
             ids.forEachIndexed { index, id ->
                 strategies.add(StrategyInfo(
@@ -349,6 +373,27 @@ object StrategyRepository {
     }
 
     // Helper functions
+
+    /**
+     * Extract strategy names from list_*_strategies() function in strategies.sh
+     * These functions contain all strategy names in a single echo line:
+     * list_tcp_strategies() {
+     *     echo "strategy1 strategy2 strategy3..."
+     * }
+     */
+    private fun parseStrategiesFromListFunction(content: String, functionName: String): List<String> {
+        // Match: list_tcp_strategies() { echo "strategy1 strategy2..." }
+        // or: list_udp_strategies() { echo "..." }
+        val pattern = Regex("""$functionName\s*\(\s*\)\s*\{\s*\n\s*echo\s+"([^"]+)"""")
+        val match = pattern.find(content)
+
+        return if (match != null) {
+            val strategiesString = match.groupValues[1]
+            strategiesString.split(Regex("\\s+")).filter { it.isNotBlank() }
+        } else {
+            emptyList()
+        }
+    }
 
     private fun extractSection(content: String, startMarker: String, endMarker: String?): String {
         val startPattern = "# =+ $startMarker =+"
