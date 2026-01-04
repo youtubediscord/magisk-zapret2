@@ -69,15 +69,22 @@ jobs:
           path: android-app/keystore.jks
           retention-days: 1
 
-      - name: Set version from tag
+      - name: Set version from module.prop
         run: |
-          VERSION="${{ github.event.inputs.version || github.ref_name }}"
-          VERSION="${VERSION#v}"
-          VERSION_CODE=$(echo $VERSION | tr -d '.' | head -c 6)
+          # Get version from module.prop (source of truth)
+          VERSION=$(grep "^version=" ../module.prop | cut -d= -f2 | tr -d 'v')
+          VERSION_CODE=$(grep "^versionCode=" ../module.prop | cut -d= -f2)
+
+          # Override with manual input if provided
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+            VERSION="${VERSION#v}"
+            VERSION_CODE=$(echo $VERSION | tr -d '.' | head -c 6)
+          fi
 
           echo "Setting version to $VERSION (code: $VERSION_CODE)"
 
-          # Update build.gradle.kts with version from tag
+          # Update build.gradle.kts
           sed -i "s/versionCode = [0-9]*/versionCode = ${VERSION_CODE}/" app/build.gradle.kts
           sed -i "s/versionName = \"[^\"]*\"/versionName = \"${VERSION}\"/" app/build.gradle.kts
 
@@ -231,13 +238,14 @@ jobs:
           cp binaries/nfqws2-arm64-v8a/nfqws2 zapret2/bin/arm64-v8a/ || true
           cp binaries/nfqws2-armeabi-v7a/nfqws2 zapret2/bin/armeabi-v7a/ || true
 
-          # Set version
-          VERSION="${{ github.event.inputs.version || github.ref_name }}"
-          VERSION="${VERSION#v}"
-          VERSION_CODE=$(echo $VERSION | tr -d '.' | head -c 6)
-
-          sed -i "s/^version=.*/version=v${VERSION}/" module.prop
-          sed -i "s/^versionCode=.*/versionCode=${VERSION_CODE}/" module.prop
+          # Version already set in module.prop, just override if manual input
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+            VERSION="${VERSION#v}"
+            VERSION_CODE=$(echo $VERSION | tr -d '.' | head -c 6)
+            sed -i "s/^version=.*/version=v${VERSION}/" module.prop
+            sed -i "s/^versionCode=.*/versionCode=${VERSION_CODE}/" module.prop
+          fi
 
           # Make scripts executable
           chmod +x customize.sh service.sh uninstall.sh action.sh
@@ -245,12 +253,13 @@ jobs:
 
       - name: Create ZIP
         run: |
-          VERSION="${{ github.event.inputs.version || github.ref_name }}"
-          VERSION="${VERSION#v}"
+          # Get version from module.prop (source of truth)
+          VERSION=$(grep "^version=" module.prop | cut -d= -f2 | tr -d 'v')
 
           # Update update.json with current version
+          VERSION_CODE=$(grep "^versionCode=" module.prop | cut -d= -f2)
           sed -i "s/\"version\": \"v[^\"]*\"/\"version\": \"v${VERSION}\"/" update.json
-          sed -i "s/\"versionCode\": [0-9]*/\"versionCode\": $(echo $VERSION | tr -d '.')/" update.json
+          sed -i "s/\"versionCode\": [0-9]*/\"versionCode\": ${VERSION_CODE}/" update.json
           sed -i "s/zapret2-magisk-v[^\"]*\.zip/zapret2-magisk-v${VERSION}.zip/" update.json
 
           zip -r zapret2-magisk-v${VERSION}.zip \
