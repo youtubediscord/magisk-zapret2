@@ -121,7 +121,10 @@
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:clipToPadding="false"
-            android:paddingBottom="16dp" />
+            android:paddingBottom="16dp"
+            android:scrollbars="vertical"
+            android:scrollbarAlwaysDrawVerticalTrack="true"
+            android:fadeScrollbars="false" />
 
         <!-- Progress bar -->
         <ProgressBar

@@ -44,37 +44,16 @@
                 android:textSize="14sp"
                 android:textStyle="bold" />
 
-            <!-- Filter mode and hostlist -->
-            <LinearLayout
+            <!-- Hostlist file -->
+            <TextView
+                android:id="@+id/textHostlist"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:layout_marginTop="4dp">
-
-                <!-- Filter mode badge -->
-                <TextView
-                    android:id="@+id/textFilterMode"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:paddingHorizontal="8dp"
-                    android:paddingVertical="2dp"
-                    android:background="@drawable/badge_background"
-                    android:textColor="#FFFFFF"
-                    android:textSize="10sp"
-                    android:textAllCaps="true" />
-
-                <!-- Hostlist file -->
-                <TextView
-                    android:id="@+id/textHostlist"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="8dp"
-                    android:textColor="#808080"
-                    android:textSize="11sp"
-                    android:ellipsize="end"
-                    android:maxLines="1" />
-
-            </LinearLayout>
+                android:layout_marginTop="4dp"
+                android:textColor="#808080"
+                android:textSize="11sp"
+                android:ellipsize="end"
+                android:maxLines="1" />
 
         </LinearLayout>
 
