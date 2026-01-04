@@ -660,7 +660,7 @@ build_category_options_single() {
     local strat_opts=""
     case "$protocol" in
         stun)
-            # STUN/Voice - use hardcoded strategy
+            # STUN/Voice - use selected UDP strategy
             proto_filter="--filter-l7=stun,discord"
             local full_filter="--out-range=-d$PKT_OUT $proto_filter --payload=stun,discord_ip_discovery"
 
@@ -670,8 +670,8 @@ build_category_options_single() {
                 full_filter="$full_filter $filter_opts"
             fi
 
-            # Hardcoded STUN strategy
-            strat_opts="$full_filter --lua-desync=fake:blob=fake_stun:repeats=6"
+            # Get UDP strategy options (STUN uses UDP strategies)
+            strat_opts=$(get_udp_strategy_options "$strategy_name" "$full_filter")
             ;;
         udp)
             # UDP/QUIC - use get_udp_strategy_options

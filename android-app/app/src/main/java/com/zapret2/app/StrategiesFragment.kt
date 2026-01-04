@@ -108,13 +108,6 @@ class StrategiesFragment : Fragment() {
         "other" to true
     )
 
-    private val voiceStrategies = arrayOf(
-        "Disabled",
-        "Strategy 1 - fake STUN x6",
-        "Strategy 2 - fake STUN x4",
-        "Strategy 3 - fake+udplen"
-    )
-
     private val debugModes = arrayOf("None", "Android (logcat)", "File", "Syslog")
     private val debugModeValues = arrayOf("none", "android", "file", "syslog")
 
@@ -281,8 +274,10 @@ class StrategiesFragment : Fragment() {
     }
 
     private fun updateValueText(key: String, strategyName: String, type: String) {
-        // For TCP/UDP, format the strategy name for display
-        if (type == StrategyPickerBottomSheet.TYPE_TCP || type == StrategyPickerBottomSheet.TYPE_UDP) {
+        // For TCP/UDP/Voice, format the strategy name for display
+        if (type == StrategyPickerBottomSheet.TYPE_TCP ||
+            type == StrategyPickerBottomSheet.TYPE_UDP ||
+            type == StrategyPickerBottomSheet.TYPE_VOICE) {
             val displayName = if (strategyName == "disabled") {
                 "Disabled"
             } else {
@@ -294,17 +289,8 @@ class StrategiesFragment : Fragment() {
             }
             updateTextView(key, displayName)
         } else {
-            // For voice, debug, and pkt_count - strategyName is already the display value or ID
+            // For debug and pkt_count - strategyName is already the display value or ID
             val displayName = when (type) {
-                StrategyPickerBottomSheet.TYPE_VOICE -> {
-                    when (strategyName) {
-                        "disabled" -> "Disabled"
-                        "voice_fake_stun_6" -> "Strategy 1 - fake STUN x6"
-                        "voice_fake_stun_4" -> "Strategy 2 - fake STUN x4"
-                        "voice_fake_udplen" -> "Strategy 3 - fake+udplen"
-                        else -> "Disabled"
-                    }
-                }
                 StrategyPickerBottomSheet.TYPE_DEBUG -> {
                     when (strategyName) {
                         "none" -> "None"
