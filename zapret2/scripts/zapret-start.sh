@@ -675,14 +675,14 @@ build_category_options_single() {
     case "$protocol" in
         stun)
             # STUN/Voice - use STUN-specific strategies
-            # Note: --payload and --out-range are already in strategy options
-            proto_filter="--filter-l7=stun,discord"
-            local full_filter="$proto_filter"
+            # Note: --payload, --out-range, --lua-desync are ALL in strategy options
+            # No proto_filter needed - --payload in strategy does the filtering
+            local full_filter=""
 
-            # Add hostlist/ipset if specified
+            # Add hostlist/ipset if specified (usually none for STUN)
             local filter_opts=$(build_category_filter "$filter_mode" "$hostlist")
             if [ -n "$filter_opts" ]; then
-                full_filter="$full_filter $filter_opts"
+                full_filter="$filter_opts"
             fi
 
             # Get STUN strategy options from strategies-stun.sh
@@ -690,7 +690,7 @@ build_category_options_single() {
             ;;
         udp)
             # UDP/QUIC - use get_udp_strategy_options
-            proto_filter="--filter-udp=443"
+            proto_filter="--filter-udp=443,1400,50000-51000"
             local full_filter="--out-range=-d$PKT_OUT $proto_filter"
 
             # Add hostlist/ipset if specified
