@@ -95,11 +95,11 @@ class StrategyPickerBottomSheet : BottomSheetDialogFragment() {
         val recyclerView = view.findViewById<RecyclerView>(R.id.recyclerStrategies)
         recyclerView.layoutManager = LinearLayoutManager(requireContext())
 
-        // Load strategies asynchronously for TCP/UDP
+        // Load strategies asynchronously for TCP/UDP/Voice
         when (strategyType) {
             TYPE_TCP -> loadStrategiesAsync(recyclerView, true, currentStrategyName)
             TYPE_UDP -> loadStrategiesAsync(recyclerView, false, currentStrategyName)
-            TYPE_VOICE -> setupAdapter(recyclerView, getVoiceStrategies(), currentStrategyName)
+            TYPE_VOICE -> loadStrategiesAsync(recyclerView, false, currentStrategyName)  // Voice uses UDP strategies
             TYPE_DEBUG -> setupAdapter(recyclerView, getDebugModes(), currentStrategyName)
             TYPE_PKT_COUNT -> setupAdapter(recyclerView, getPktCountOptions(), currentStrategyName)
             else -> loadStrategiesAsync(recyclerView, true, currentStrategyName)
@@ -143,15 +143,8 @@ class StrategyPickerBottomSheet : BottomSheetDialogFragment() {
         }
     }
 
-    // Voice, Debug and PktCount strategies remain as hardcoded small lists
-    // Now they have proper IDs
-
-    private fun getVoiceStrategies(): List<StrategyItem> = listOf(
-        StrategyItem("disabled", "Disabled", "No voice bypass"),
-        StrategyItem("voice_fake_stun_6", "Strategy 1 - fake STUN x6", "6 STUN fake packets"),
-        StrategyItem("voice_fake_stun_4", "Strategy 2 - fake STUN x4", "4 STUN fake packets"),
-        StrategyItem("voice_fake_udplen", "Strategy 3 - fake+udplen", "STUN + length mod")
-    )
+    // Debug and PktCount strategies remain as hardcoded small lists
+    // Voice now uses UDP strategies (loaded dynamically via loadStrategiesAsync)
 
     private fun getDebugModes(): List<StrategyItem> = listOf(
         StrategyItem("none", "None", "Logging disabled"),
