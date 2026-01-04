@@ -22,7 +22,7 @@ googlevideo_tcp|tcp|ipset|ipset-googlevideo.txt|disabled
 # ===============================
 # Discord
 # ===============================
-discord_tcp|tcp|hostlist|discord.txt|disabled
+discord_tcp|tcp|hostlist|discord.txt|syndata_multisplit_tls_google_700
 discord_udp|udp|hostlist|discord.txt|disabled
 
 # ===============================
@@ -33,12 +33,12 @@ voice_stun|stun|none||disabled
 # ===============================
 # Telegram
 # ===============================
-telegram_tcp|tcp|hostlist|telegram.txt|disabled
+telegram_tcp|tcp|ipset|ipset-telegram.txt|syndata_multisplit_tls_google_700
 
 # ===============================
 # Messengers
 # ===============================
-whatsapp_tcp|tcp|hostlist|whatsapp.txt|disabled
+whatsapp_tcp|tcp|ipset|ipset-whatsapp.txt|syndata_multisplit_tls_google_700
 
 # ===============================
 # Social Networks

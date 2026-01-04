@@ -516,7 +516,7 @@ build_preset_options() {
 
         discord)
             # Discord TLS + Voice (STUN/Discord protocol detection)
-            strategy_opts="--filter-tcp=443 \
+            strategy_opts="--filter-tcp=443,1080,2053,2083,2087,2096,8443 \
 --lua-desync=syndata:blob=tls_google \
 --lua-desync=multisplit:pos=midsld \
 --new \
@@ -661,7 +661,7 @@ build_category_options_single() {
     case "$protocol" in
         stun)
             # STUN/Voice - use selected UDP strategy
-            proto_filter="--filter-l7=stun,discord --ipset=$LISTS_DIR/ipset-discord.txt --ipset=$LISTS_DIR/ipset-telegram.txt"
+            proto_filter="--filter-udp=1400,4000-5000,50000-51000 --ipset=$LISTS_DIR/ipset-discord.txt --ipset=$LISTS_DIR/ipset-telegram.txt"
             local full_filter="--out-range=-d$PKT_OUT $proto_filter"
 
             # Add hostlist/ipset if specified
