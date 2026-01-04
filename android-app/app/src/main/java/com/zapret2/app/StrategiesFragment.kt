@@ -56,8 +56,8 @@ class StrategiesFragment : Fragment() {
     private lateinit var textPktCountValue: TextView
     private lateinit var textDebugValue: TextView
 
-    // Current selection indices
-    private val selections = mutableMapOf<String, Int>()
+    // Current selections (strategy IDs/names)
+    private val selections = mutableMapOf<String, String>()
 
     // Paths
     private val MODDIR = "/data/adb/modules/zapret2"
@@ -178,83 +178,83 @@ class StrategiesFragment : Fragment() {
         // Video Services
         rowYoutubeTcp.setOnClickListener {
             showStrategyPicker("youtube_tcp", "YouTube TCP", "TCP 443", R.drawable.ic_video,
-                selections["youtube_tcp"] ?: 0, StrategyPickerBottomSheet.TYPE_TCP)
+                selections["youtube_tcp"] ?: "disabled", StrategyPickerBottomSheet.TYPE_TCP)
         }
         rowYoutubeQuic.setOnClickListener {
             showStrategyPicker("youtube_quic", "YouTube QUIC", "UDP 443", R.drawable.ic_video,
-                selections["youtube_quic"] ?: 0, StrategyPickerBottomSheet.TYPE_UDP)
+                selections["youtube_quic"] ?: "disabled", StrategyPickerBottomSheet.TYPE_UDP)
         }
         rowTwitch.setOnClickListener {
             showStrategyPicker("twitch", "Twitch", "TCP 443", R.drawable.ic_video,
-                selections["twitch"] ?: 0, StrategyPickerBottomSheet.TYPE_TCP)
+                selections["twitch"] ?: "disabled", StrategyPickerBottomSheet.TYPE_TCP)
         }
 
         // Messaging
         rowDiscordTcp.setOnClickListener {
             showStrategyPicker("discord_tcp", "Discord", "TCP 443", R.drawable.ic_message,
-                selections["discord_tcp"] ?: 0, StrategyPickerBottomSheet.TYPE_TCP)
+                selections["discord_tcp"] ?: "disabled", StrategyPickerBottomSheet.TYPE_TCP)
         }
         rowDiscordQuic.setOnClickListener {
             showStrategyPicker("discord_quic", "Discord QUIC", "UDP 443", R.drawable.ic_message,
-                selections["discord_quic"] ?: 0, StrategyPickerBottomSheet.TYPE_UDP)
+                selections["discord_quic"] ?: "disabled", StrategyPickerBottomSheet.TYPE_UDP)
         }
         rowVoice.setOnClickListener {
             showStrategyPicker("voice", "Voice/STUN", "UDP Voice", R.drawable.ic_message,
-                selections["voice"] ?: 0, StrategyPickerBottomSheet.TYPE_VOICE)
+                selections["voice"] ?: "disabled", StrategyPickerBottomSheet.TYPE_VOICE)
         }
         rowTelegram.setOnClickListener {
             showStrategyPicker("telegram", "Telegram", "TCP 443", R.drawable.ic_message,
-                selections["telegram"] ?: 0, StrategyPickerBottomSheet.TYPE_TCP)
+                selections["telegram"] ?: "disabled", StrategyPickerBottomSheet.TYPE_TCP)
         }
         rowWhatsapp.setOnClickListener {
             showStrategyPicker("whatsapp", "WhatsApp", "TCP 443", R.drawable.ic_message,
-                selections["whatsapp"] ?: 0, StrategyPickerBottomSheet.TYPE_TCP)
+                selections["whatsapp"] ?: "disabled", StrategyPickerBottomSheet.TYPE_TCP)
         }
 
         // Social Media
         rowFacebook.setOnClickListener {
             showStrategyPicker("facebook", "Facebook", "TCP 443", R.drawable.ic_social,
-                selections["facebook"] ?: 0, StrategyPickerBottomSheet.TYPE_TCP)
+                selections["facebook"] ?: "disabled", StrategyPickerBottomSheet.TYPE_TCP)
         }
         rowInstagram.setOnClickListener {
             showStrategyPicker("instagram", "Instagram", "TCP 443", R.drawable.ic_social,
-                selections["instagram"] ?: 0, StrategyPickerBottomSheet.TYPE_TCP)
+                selections["instagram"] ?: "disabled", StrategyPickerBottomSheet.TYPE_TCP)
         }
         rowTwitter.setOnClickListener {
             showStrategyPicker("twitter", "Twitter/X", "TCP 443", R.drawable.ic_social,
-                selections["twitter"] ?: 0, StrategyPickerBottomSheet.TYPE_TCP)
+                selections["twitter"] ?: "disabled", StrategyPickerBottomSheet.TYPE_TCP)
         }
 
         // Other Services
         rowGithub.setOnClickListener {
             showStrategyPicker("github", "GitHub", "TCP 443", R.drawable.ic_apps,
-                selections["github"] ?: 0, StrategyPickerBottomSheet.TYPE_TCP)
+                selections["github"] ?: "disabled", StrategyPickerBottomSheet.TYPE_TCP)
         }
         rowSteam.setOnClickListener {
             showStrategyPicker("steam", "Steam", "TCP 443", R.drawable.ic_apps,
-                selections["steam"] ?: 0, StrategyPickerBottomSheet.TYPE_TCP)
+                selections["steam"] ?: "disabled", StrategyPickerBottomSheet.TYPE_TCP)
         }
         rowSoundcloud.setOnClickListener {
             showStrategyPicker("soundcloud", "SoundCloud", "TCP 443", R.drawable.ic_apps,
-                selections["soundcloud"] ?: 0, StrategyPickerBottomSheet.TYPE_TCP)
+                selections["soundcloud"] ?: "disabled", StrategyPickerBottomSheet.TYPE_TCP)
         }
         rowRutracker.setOnClickListener {
             showStrategyPicker("rutracker", "Rutracker", "TCP 443", R.drawable.ic_apps,
-                selections["rutracker"] ?: 0, StrategyPickerBottomSheet.TYPE_TCP)
+                selections["rutracker"] ?: "disabled", StrategyPickerBottomSheet.TYPE_TCP)
         }
         rowOther.setOnClickListener {
             showStrategyPicker("other", "Other/Hostlist", "TCP 443", R.drawable.ic_apps,
-                selections["other"] ?: 0, StrategyPickerBottomSheet.TYPE_TCP)
+                selections["other"] ?: "disabled", StrategyPickerBottomSheet.TYPE_TCP)
         }
 
         // Advanced
         rowPktCount.setOnClickListener {
             showStrategyPicker("pkt_count", "PKT_COUNT", "Packets to modify", R.drawable.ic_settings,
-                selections["pkt_count"] ?: 2, StrategyPickerBottomSheet.TYPE_PKT_COUNT)
+                selections["pkt_count"] ?: "5", StrategyPickerBottomSheet.TYPE_PKT_COUNT)
         }
         rowDebug.setOnClickListener {
             showStrategyPicker("debug", "Debug Mode", "Log destination", R.drawable.ic_settings,
-                selections["debug"] ?: 0, StrategyPickerBottomSheet.TYPE_DEBUG)
+                selections["debug"] ?: "none", StrategyPickerBottomSheet.TYPE_DEBUG)
         }
     }
 
@@ -263,34 +263,55 @@ class StrategiesFragment : Fragment() {
         name: String,
         protocol: String,
         iconRes: Int,
-        currentIndex: Int,
+        currentStrategyName: String,
         type: String
     ) {
         val bottomSheet = StrategyPickerBottomSheet.newInstance(
-            key, name, protocol, iconRes, currentIndex, type
+            key, name, protocol, iconRes, currentStrategyName, type
         )
-        bottomSheet.setOnStrategySelectedListener { selectedIndex ->
-            selections[key] = selectedIndex
-            updateValueText(key, selectedIndex, type)
+        bottomSheet.setOnStrategySelectedListener { selectedName ->
+            selections[key] = selectedName
+            updateValueText(key, selectedName, type)
             saveConfigAndRestart()
         }
         bottomSheet.show(parentFragmentManager, "strategy_picker")
     }
 
-    private fun updateValueText(key: String, index: Int, type: String) {
-        // For TCP/UDP, get strategy name from repository asynchronously
+    private fun updateValueText(key: String, strategyName: String, type: String) {
+        // For TCP/UDP, format the strategy name for display
         if (type == StrategyPickerBottomSheet.TYPE_TCP || type == StrategyPickerBottomSheet.TYPE_UDP) {
-            viewLifecycleOwner.lifecycleScope.launch {
-                val isTcp = type == StrategyPickerBottomSheet.TYPE_TCP
-                val strategyInfo = StrategyRepository.getStrategyByIndex(isTcp, index)
-                val displayName = strategyInfo?.displayName ?: "Disabled"
-                updateTextView(key, displayName)
+            val displayName = if (strategyName == "disabled") {
+                "Disabled"
+            } else {
+                // Format strategy name for display (replace underscores with spaces, title case)
+                strategyName.split("_")
+                    .joinToString(" ") { word ->
+                        word.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
+                    }
             }
+            updateTextView(key, displayName)
         } else {
+            // For voice, debug, and pkt_count - strategyName is already the display value or ID
             val displayName = when (type) {
-                StrategyPickerBottomSheet.TYPE_VOICE -> voiceStrategies.getOrNull(index) ?: "Disabled"
-                StrategyPickerBottomSheet.TYPE_DEBUG -> debugModes.getOrNull(index) ?: "None"
-                StrategyPickerBottomSheet.TYPE_PKT_COUNT -> pktCountOptions.getOrNull(index) ?: "5"
+                StrategyPickerBottomSheet.TYPE_VOICE -> {
+                    when (strategyName) {
+                        "disabled" -> "Disabled"
+                        "voice_fake_stun_6" -> "Strategy 1 - fake STUN x6"
+                        "voice_fake_stun_4" -> "Strategy 2 - fake STUN x4"
+                        "voice_fake_udplen" -> "Strategy 3 - fake+udplen"
+                        else -> "Disabled"
+                    }
+                }
+                StrategyPickerBottomSheet.TYPE_DEBUG -> {
+                    when (strategyName) {
+                        "none" -> "None"
+                        "android" -> "Android (logcat)"
+                        "file" -> "File"
+                        "syslog" -> "Syslog"
+                        else -> "None"
+                    }
+                }
+                StrategyPickerBottomSheet.TYPE_PKT_COUNT -> strategyName  // "1", "3", "5", etc.
                 else -> "Disabled"
             }
             updateTextView(key, displayName)
@@ -334,21 +355,32 @@ class StrategiesFragment : Fragment() {
             // Load from categories.txt using StrategyRepository
             val categories = StrategyRepository.readCategories()
 
-            // Load each category's strategy index
+            // Preload TCP and UDP strategies to convert indices to names
+            val tcpStrategies = StrategyRepository.getTcpStrategies()
+            val udpStrategies = StrategyRepository.getUdpStrategies()
+
+            // Load each category's strategy
             categoryKeyMap.forEach { (uiKey, categoryKey) ->
                 val config = categories[categoryKey]
                 if (config != null) {
                     val strategyIndex = config.strategyIndex
-                    // If category is disabled, show 0 (Disabled), otherwise show actual strategy index
-                    val index = if (config.enabled == 1) strategyIndex else 0
-                    selections[uiKey] = index
+                    // If category is disabled, use "disabled", otherwise get strategy name by index
+                    val isTcp = isTcpCategory[uiKey] == true
+                    val strategies = if (isTcp) tcpStrategies else udpStrategies
+
+                    val strategyName = if (config.enabled != 1 || strategyIndex == 0) {
+                        "disabled"
+                    } else {
+                        strategies.getOrNull(strategyIndex)?.id ?: "disabled"
+                    }
+                    selections[uiKey] = strategyName
 
                     val type = when {
                         uiKey == "voice" -> StrategyPickerBottomSheet.TYPE_VOICE
-                        isTcpCategory[uiKey] == true -> StrategyPickerBottomSheet.TYPE_TCP
+                        isTcp -> StrategyPickerBottomSheet.TYPE_TCP
                         else -> StrategyPickerBottomSheet.TYPE_UDP
                     }
-                    updateValueText(uiKey, index, type)
+                    updateValueText(uiKey, strategyName, type)
                 }
             }
 
@@ -358,18 +390,18 @@ class StrategiesFragment : Fragment() {
             }
 
             parseConfigValue(config, "PKT_COUNT")?.let { value ->
-                val idx = pktCountOptions.indexOf(value)
-                if (idx >= 0) {
-                    selections["pkt_count"] = idx
-                    updateValueText("pkt_count", idx, StrategyPickerBottomSheet.TYPE_PKT_COUNT)
+                // Store the value directly (e.g., "5", "10")
+                if (value in pktCountOptions) {
+                    selections["pkt_count"] = value
+                    updateValueText("pkt_count", value, StrategyPickerBottomSheet.TYPE_PKT_COUNT)
                 }
             }
 
             parseConfigValue(config, "LOG_MODE")?.let { value ->
-                val idx = debugModeValues.indexOf(value)
-                if (idx >= 0) {
-                    selections["debug"] = idx
-                    updateValueText("debug", idx, StrategyPickerBottomSheet.TYPE_DEBUG)
+                // Store the value directly (e.g., "none", "android", "file", "syslog")
+                if (value in debugModeValues) {
+                    selections["debug"] = value
+                    updateValueText("debug", value, StrategyPickerBottomSheet.TYPE_DEBUG)
                 }
             }
         }
@@ -384,16 +416,30 @@ class StrategiesFragment : Fragment() {
         viewLifecycleOwner.lifecycleScope.launch {
             var allSuccess = true
 
+            // Preload TCP and UDP strategies to convert names to indices
+            val tcpStrategies = StrategyRepository.getTcpStrategies()
+            val udpStrategies = StrategyRepository.getUdpStrategies()
+
             // Save each category to categories.txt
             categoryKeyMap.forEach { (uiKey, categoryKey) ->
-                val strategyIndex = selections[uiKey] ?: 0
+                val strategyName = selections[uiKey] ?: "disabled"
+
+                // Convert strategy name to index
+                val isTcp = isTcpCategory[uiKey] == true
+                val strategies = if (isTcp) tcpStrategies else udpStrategies
+                val strategyIndex = if (strategyName == "disabled") {
+                    0
+                } else {
+                    strategies.indexOfFirst { it.id == strategyName }.takeIf { it >= 0 } ?: 0
+                }
+
                 val success = StrategyRepository.updateCategoryStrategy(categoryKey, strategyIndex)
                 if (!success) allSuccess = false
             }
 
             // Save PKT_COUNT and LOG_MODE to config.sh
-            val pktCount = pktCountOptions.getOrNull(selections["pkt_count"] ?: 2) ?: "5"
-            val debugMode = debugModeValues.getOrNull(selections["debug"] ?: 0) ?: "none"
+            val pktCount = selections["pkt_count"] ?: "5"
+            val debugMode = selections["debug"] ?: "none"
 
             val (configSuccess, restartSuccess) = withContext(Dispatchers.IO) {
                 // Read current config
