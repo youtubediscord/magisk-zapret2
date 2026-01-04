@@ -104,6 +104,18 @@ ln -sf "$MODPATH/zapret2/scripts/zapret-start.sh" "$MODPATH/system/bin/zapret2-s
 ln -sf "$MODPATH/zapret2/scripts/zapret-stop.sh" "$MODPATH/system/bin/zapret2-stop"
 ln -sf "$MODPATH/zapret2/scripts/zapret-status.sh" "$MODPATH/system/bin/zapret2-status"
 
+# Create user config if not exists (preserve user settings across updates)
+USER_HOSTLISTS="/data/local/tmp/zapret2-hostlists.conf"
+if [ ! -f "$USER_HOSTLISTS" ]; then
+    ui_print "- Creating user hostlists config..."
+    cp "$MODPATH/zapret2/hostlists-default.conf" "$USER_HOSTLISTS"
+    chmod 644 "$USER_HOSTLISTS"
+    ui_print "  [OK] User config created at $USER_HOSTLISTS"
+else
+    ui_print "- User hostlists config already exists"
+    ui_print "  [OK] Preserving user settings at $USER_HOSTLISTS"
+fi
+
 ui_print ""
 ui_print "===================================="
 ui_print " Zapret2 installed successfully!"
@@ -116,4 +128,8 @@ ui_print " Terminal commands:"
 ui_print "   zapret2-start  - Start"
 ui_print "   zapret2-stop   - Stop"
 ui_print "   zapret2-status - Status"
+ui_print ""
+ui_print " Config files:"
+ui_print "   Default: $MODPATH/zapret2/hostlists-default.conf"
+ui_print "   User:    $USER_HOSTLISTS (preserved on updates)"
 ui_print ""
