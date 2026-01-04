@@ -108,12 +108,20 @@ load_config() {
     # Set defaults first
     set_default_config
 
-    # Load user config if exists
+    # Load module config if exists (default values)
     if [ -f "$CONFIG" ]; then
         . "$CONFIG"
-        log_msg "Loaded config from $CONFIG"
+        log_msg "Loaded module config from $CONFIG"
     else
         log_msg "Using default configuration (no config.sh found)"
+    fi
+
+    # Load user config if exists (overrides module config)
+    # This file persists across module updates
+    USER_CONFIG="/data/local/tmp/zapret2-user.conf"
+    if [ -f "$USER_CONFIG" ]; then
+        . "$USER_CONFIG"
+        log_msg "Loaded user config from $USER_CONFIG"
     fi
 
     # Load strategies helper if exists
@@ -128,6 +136,8 @@ load_config() {
     log_debug "PORTS_UDP=$PORTS_UDP"
     log_debug "STRATEGY_PRESET=$STRATEGY_PRESET"
     log_debug "HOSTLIST_MODE=$HOSTLIST_MODE"
+    log_debug "PKT_OUT=$PKT_OUT"
+    log_debug "PKT_IN=$PKT_IN"
 }
 
 ##########################################################################################
