@@ -293,15 +293,19 @@ jobs:
         run: |
           VERSION=$(grep "^version=" module.prop | cut -d= -f2)
 
-          # Check if tag already exists
-          if git rev-parse "$VERSION" >/dev/null 2>&1; then
-            echo "Tag $VERSION already exists, skipping release"
-            exit 0
-          fi
-
-          # Create and push tag
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Delete existing release if exists
+          gh release delete "$VERSION" --yes 2>/dev/null || true
+
+          # Delete remote tag if exists
+          git push origin ":refs/tags/$VERSION" 2>/dev/null || true
+
+          # Delete local tag if exists
+          git tag -d "$VERSION" 2>/dev/null || true
+
+          # Create and push new tag
           git tag -a "$VERSION" -m "Release $VERSION"
           git push origin "$VERSION"
 
