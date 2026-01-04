@@ -729,21 +729,36 @@ parse_categories() {
 
     # Read each line, skip comments and empty lines
     # NEW FORMAT: CATEGORY|PROTOCOL|FILTER_MODE|HOSTLIST_FILE|STRATEGY_NAME
-    while IFS='|' read -r category protocol filter_mode hostlist strategy_name; do
-        # Skip comments and empty lines
-        case "$category" in
+    # NOTE: Using 'cut' instead of IFS because IFS doesn't handle empty fields correctly!
+    # Example: "cat|tcp|none||disabled" with IFS='|' read gives wrong results
+    while IFS= read -r line || [ -n "$line" ]; do
+        # Skip empty lines
+        [ -z "$line" ] && continue
+
+        # Skip comments (trim leading whitespace first)
+        local trimmed_line=$(echo "$line" | sed 's/^[[:space:]]*//')
+        case "$trimmed_line" in
             "#"*|"") continue ;;
         esac
 
-        # Trim whitespace from all fields
-        category=$(echo "$category" | tr -d ' \t\r')
-        protocol=$(echo "$protocol" | tr -d ' \t\r')
-        filter_mode=$(echo "$filter_mode" | tr -d ' \t\r')
-        hostlist=$(echo "$hostlist" | tr -d ' \t\r')
-        strategy_name=$(echo "$strategy_name" | tr -d ' \t\r')
+        # Parse fields using cut (handles empty fields correctly!)
+        local category=$(echo "$line" | cut -d'|' -f1 | tr -d ' \t\r')
+        local protocol=$(echo "$line" | cut -d'|' -f2 | tr -d ' \t\r')
+        local filter_mode=$(echo "$line" | cut -d'|' -f3 | tr -d ' \t\r')
+        local hostlist=$(echo "$line" | cut -d'|' -f4 | tr -d ' \t\r')
+        local strategy_name=$(echo "$line" | cut -d'|' -f5 | tr -d ' \t\r')
 
-        # Skip disabled categories (strategy_name == "disabled")
-        if [ "$strategy_name" = "disabled" ]; then
+        # Skip if category name is empty
+        [ -z "$category" ] && continue
+
+        # Default protocol to tcp if empty
+        [ -z "$protocol" ] && protocol="tcp"
+
+        # Default filter_mode to none if empty
+        [ -z "$filter_mode" ] && filter_mode="none"
+
+        # Skip disabled categories (strategy_name == "disabled" or empty)
+        if [ -z "$strategy_name" ] || [ "$strategy_name" = "disabled" ]; then
             log_debug "Skipping disabled category: $category"
             continue
         fi
