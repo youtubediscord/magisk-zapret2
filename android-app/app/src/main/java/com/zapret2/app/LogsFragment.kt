@@ -435,7 +435,7 @@ class LogsFragment : Fragment() {
      * /data/adb/modules/zapret2/zapret2/nfqws2
      *   --qnum=200
      *   --fwmark=0x40000000
-     *   --filter-tcp=443
+     *   --filter-tcp=80,443
      *   ...
      */
     private fun formatCmdline(cmdline: String): String {

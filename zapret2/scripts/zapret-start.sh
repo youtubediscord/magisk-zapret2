@@ -509,14 +509,14 @@ build_preset_options() {
     case "$STRATEGY_PRESET" in
         youtube)
             # YouTube strategy with syndata + multisplit
-            strategy_opts="--filter-tcp=443 \
+            strategy_opts="--filter-tcp=80,443 \
 --lua-desync=syndata:blob=tls_google \
 --lua-desync=multisplit:pos=midsld"
             ;;
 
         discord)
             # Discord TLS + Voice (STUN/Discord protocol detection)
-            strategy_opts="--filter-tcp=443,1080,2053,2083,2087,2096,8443 \
+            strategy_opts="--filter-tcp=80,443,1080,2053,2083,2087,2096,8443 \
 --lua-desync=syndata:blob=tls_google \
 --lua-desync=multisplit:pos=midsld \
 --new \
@@ -531,7 +531,7 @@ build_preset_options() {
 --lua-desync=fake:blob=http_fake:badsum \
 --lua-desync=multisplit:pos=host+1 \
 --new \
---filter-tcp=443 \
+--filter-tcp=80,443 \
 --lua-desync=syndata:blob=tls_google \
 --lua-desync=fake:blob=tls_google:repeats=6 \
 --lua-desync=multidisorder:pos=1,midsld \
