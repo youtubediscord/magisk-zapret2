@@ -158,6 +158,7 @@ get_strategy_args_from_ini() {
     local strategy_name="$2"
 
     if [ ! -f "$ini_file" ]; then
+        log_debug "INI file not found: $ini_file"
         return
     fi
 
@@ -166,39 +167,20 @@ get_strategy_args_from_ini() {
         strategy_name="default"
     fi
 
-    local in_section=0
+    log_debug "Looking for strategy [$strategy_name] in $ini_file"
+
+    # Use grep + sed for more reliable parsing (busybox compatible)
+    # Find section, then extract args= line
     local args=""
 
-    while IFS= read -r line || [ -n "$line" ]; do
-        # Remove carriage return if present (Windows line endings)
-        line="${line%$'\r'}"
+    # Method: grep from [section] to next [ or EOF, then get args=
+    args=$(sed -n "/^\[$strategy_name\]/,/^\[/p" "$ini_file" | grep "^args=" | head -1 | sed 's/^args=//')
 
-        # Skip empty lines and comments
-        case "$line" in
-            ""|\#*|\;*) continue ;;
-        esac
-
-        # Check for section header [name]
-        case "$line" in
-            \[*\])
-                # Extract section name
-                local section="${line#\[}"
-                section="${section%\]}"
-                if [ "$section" = "$strategy_name" ]; then
-                    in_section=1
-                elif [ $in_section -eq 1 ]; then
-                    # We've left our section, stop
-                    break
-                fi
-                ;;
-            args=*)
-                if [ $in_section -eq 1 ]; then
-                    args="${line#args=}"
-                    break
-                fi
-                ;;
-        esac
-    done < "$ini_file"
+    if [ -n "$args" ]; then
+        log_debug "Found args for [$strategy_name]: ${args:0:50}..."
+    else
+        log_debug "No args found for [$strategy_name]"
+    fi
 
     echo "$args"
 }
