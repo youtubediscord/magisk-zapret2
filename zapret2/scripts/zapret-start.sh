@@ -169,15 +169,24 @@ get_strategy_args_from_ini() {
 
     log_debug "Looking for strategy [$strategy_name] in $ini_file"
 
-    # Use grep + sed for more reliable parsing (busybox compatible)
-    # Find section, then extract args= line
+    # Simple approach: use awk (more reliable on busybox than sed ranges)
     local args=""
-
-    # Method: grep from [section] to next [ or EOF, then get args=
-    args=$(sed -n "/^\[$strategy_name\]/,/^\[/p" "$ini_file" | grep "^args=" | head -1 | sed 's/^args=//')
+    args=$(awk -v section="$strategy_name" '
+        BEGIN { in_section = 0 }
+        /^\[/ {
+            gsub(/[\[\]]/, "")
+            in_section = ($0 == section)
+            next
+        }
+        in_section && /^args=/ {
+            sub(/^args=/, "")
+            print
+            exit
+        }
+    ' "$ini_file")
 
     if [ -n "$args" ]; then
-        log_debug "Found args for [$strategy_name]: ${args:0:50}..."
+        log_debug "Found args for [$strategy_name]"
     else
         log_debug "No args found for [$strategy_name]"
     fi
