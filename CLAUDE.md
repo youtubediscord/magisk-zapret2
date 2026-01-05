@@ -304,11 +304,3 @@ Check kernel support:
 cat /proc/net/netfilter/nf_queue
 lsmod | grep nf
 ```
-
----
-
-## Resources
-
-- [Zapret GitHub](https://github.com/bol-van/zapret) - Original project
-- [Magisk Docs](https://topjohnwu.github.io/Magisk/guides.html) - Module development
-- [libsu](https://github.com/topjohnwu/libsu) - Root shell library
