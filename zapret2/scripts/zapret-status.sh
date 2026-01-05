@@ -3,8 +3,8 @@
 # Zapret2 Status Script
 ##########################################################################################
 
-PIDFILE="/data/local/tmp/nfqws2.pid"
-LOGFILE="/data/local/tmp/zapret2.log"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+. "$SCRIPT_DIR/common.sh"
 
 echo "=========================================="
 echo " Zapret2 Status"

@@ -4,11 +4,7 @@
 ##########################################################################################
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-ZAPRET_DIR="$(dirname "$SCRIPT_DIR")"
-CONFIG="$ZAPRET_DIR/config.sh"
-
-PIDFILE="/data/local/tmp/nfqws2.pid"
-LOGFILE="/data/local/tmp/zapret2.log"
+. "$SCRIPT_DIR/common.sh"
 
 ##########################################################################################
 # Logging
@@ -18,21 +14,6 @@ log_msg() {
     echo "$(date '+%Y-%m-%d %H:%M:%S') [STOP] $1" >> "$LOGFILE"
     /system/bin/log -t "Zapret2" "$1" 2>/dev/null
 }
-
-##########################################################################################
-# Load configuration
-##########################################################################################
-
-QNUM=200
-DESYNC_MARK=0x40000000
-PORTS_TCP="80,443"
-PORTS_UDP="443"
-PKT_OUT=20
-PKT_IN=10
-
-if [ -f "$CONFIG" ]; then
-    . "$CONFIG"
-fi
 
 ##########################################################################################
 # Stop nfqws2 daemon
