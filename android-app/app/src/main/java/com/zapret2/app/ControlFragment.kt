@@ -33,6 +33,10 @@ class ControlFragment : Fragment() {
         private const val PKT_MAX = 100
         private const val PKT_OUT_DEFAULT = 20
         private const val PKT_IN_DEFAULT = 10
+
+        // NFQUEUE support cache keys
+        private const val KEY_NFQUEUE_SUPPORT = "nfqueue_support"
+        private const val KEY_NFQUEUE_CHECKED = "nfqueue_checked"
     }
 
     // UI Elements
@@ -97,6 +101,14 @@ class ControlFragment : Fragment() {
     private var currentPid: String? = null   // Current nfqws2 process ID
     private var lastCpuTime: Long = 0L       // For CPU usage calculation
     private var lastCpuCheckTime: Long = 0L  // Timestamp of last CPU check
+
+    // Smart polling variables for battery optimization
+    private var lastServiceStatus: ServiceStatus? = null
+    private var stableCount = 0
+    private var currentPollInterval = 3000L
+
+    // Service status enum for smart polling comparison
+    private enum class ServiceStatus { RUNNING, STOPPED, ERROR }
 
     // Paths
     private val MODDIR = "/data/adb/modules/zapret2"
@@ -472,173 +484,13 @@ class ControlFragment : Fragment() {
         val uptimeFormatted: String
     )
 
+    /**
+     * Simple wrapper that calls checkStatusAndGetState().
+     * Used by startService() and stopService() for immediate status refresh.
+     */
     private fun checkStatus() {
         viewLifecycleOwner.lifecycleScope.launch {
-            // Re-check root status dynamically
-            val hasRoot = withContext(Dispatchers.IO) {
-                try {
-                    Shell.getShell().isRoot
-                } catch (e: Exception) {
-                    false
-                }
-            }
-
-            val ctx = context ?: return@launch
-
-            // Update root status UI dynamically
-            if (!hasRoot) {
-                textRootStatus.text = "Not granted"
-                textRootStatus.setTextColor(ContextCompat.getColor(ctx, R.color.status_error))
-                setStatus(Status.ERROR)
-                textStatusValue.text = "Root lost!"
-                textStatusValue.setTextColor(ContextCompat.getColor(ctx, R.color.status_error))
-                textUptime.visibility = View.GONE
-                hideProcessStats()
-                disableControls()
-                return@launch
-            } else {
-                textRootStatus.text = "Granted"
-                textRootStatus.setTextColor(ContextCompat.getColor(ctx, R.color.status_running))
-                enableControls()
-            }
-
-            // Re-check NFQUEUE status dynamically
-            val nfqueueSupported = withContext(Dispatchers.IO) {
-                checkNfqueueSupport()
-            }
-            updateNfqueueStatusUI(nfqueueSupported)
-
-            val stats = withContext(Dispatchers.IO) {
-                // Check if nfqws2 is running
-                val pgrepResult = Shell.cmd("pgrep -f nfqws2").exec()
-                val running = pgrepResult.isSuccess && pgrepResult.out.isNotEmpty()
-
-                if (!running) {
-                    return@withContext ProcessStats(
-                        running = false,
-                        pid = null,
-                        startTime = 0L,
-                        memoryRssKb = 0L,
-                        cpuPercent = 0.0,
-                        threads = 0,
-                        uptimeFormatted = ""
-                    )
-                }
-
-                val pid = pgrepResult.out.firstOrNull()?.trim() ?: return@withContext ProcessStats(
-                    running = false, pid = null, startTime = 0L, memoryRssKb = 0L,
-                    cpuPercent = 0.0, threads = 0, uptimeFormatted = ""
-                )
-
-                var startTime = 0L
-                var memoryRssKb = 0L
-                var threads = 0
-                var cpuPercent = 0.0
-                var processUptimeSeconds = 0.0
-
-                // Read /proc/PID/status for memory and threads
-                val statusResult = Shell.cmd("cat /proc/$pid/status 2>/dev/null").exec()
-                if (statusResult.isSuccess) {
-                    for (line in statusResult.out) {
-                        when {
-                            line.startsWith("VmRSS:") -> {
-                                // Format: "VmRSS:    1234 kB"
-                                memoryRssKb = line.split(Regex("\\s+"))
-                                    .getOrNull(1)?.toLongOrNull() ?: 0L
-                            }
-                            line.startsWith("Threads:") -> {
-                                threads = line.split(Regex("\\s+"))
-                                    .getOrNull(1)?.toIntOrNull() ?: 0
-                            }
-                        }
-                    }
-                }
-
-                // Read /proc/PID/stat for CPU time and start time
-                val statResult = Shell.cmd("cat /proc/$pid/stat 2>/dev/null").exec()
-                if (statResult.isSuccess && statResult.out.isNotEmpty()) {
-                    try {
-                        // Parse stat file - fields are space-separated
-                        // But comm (field 2) can contain spaces and is in parentheses
-                        val statLine = statResult.out.first()
-                        val commEnd = statLine.lastIndexOf(')')
-                        val fieldsAfterComm = statLine.substring(commEnd + 2).split(" ")
-
-                        // Field indices after comm (0-based from fieldsAfterComm):
-                        // 0=state, 11=utime, 12=stime, 19=starttime (relative to original stat)
-                        // In original /proc/PID/stat: field 14=utime, 15=stime, 22=starttime (1-based)
-
-                        val utime = fieldsAfterComm.getOrNull(11)?.toLongOrNull() ?: 0L
-                        val stime = fieldsAfterComm.getOrNull(12)?.toLongOrNull() ?: 0L
-                        val startTicks = fieldsAfterComm.getOrNull(19)?.toLongOrNull() ?: 0L
-
-                        val totalCpuTime = utime + stime
-
-                        // Get system uptime
-                        val uptimeResult = Shell.cmd("cat /proc/uptime").exec()
-                        if (uptimeResult.isSuccess && uptimeResult.out.isNotEmpty()) {
-                            val systemUptimeSeconds = uptimeResult.out.first()
-                                .split(" ").firstOrNull()?.toDoubleOrNull() ?: 0.0
-
-                            // Clock ticks per second (usually 100 on Android)
-                            val ticksPerSec = 100L
-                            processUptimeSeconds = systemUptimeSeconds - (startTicks.toDouble() / ticksPerSec)
-
-                            // Calculate absolute start time
-                            startTime = System.currentTimeMillis() - (processUptimeSeconds * 1000).toLong()
-
-                            // Calculate CPU percentage
-                            val currentTime = System.currentTimeMillis()
-                            if (lastCpuTime > 0 && lastCpuCheckTime > 0 && currentPid == pid) {
-                                val cpuTimeDelta = totalCpuTime - lastCpuTime
-                                val realTimeDelta = (currentTime - lastCpuCheckTime) / 1000.0
-                                if (realTimeDelta > 0) {
-                                    // CPU time is in ticks, convert to seconds
-                                    val cpuSeconds = cpuTimeDelta.toDouble() / ticksPerSec
-                                    cpuPercent = (cpuSeconds / realTimeDelta) * 100.0
-                                    // Clamp to 0-100%
-                                    cpuPercent = cpuPercent.coerceIn(0.0, 100.0)
-                                }
-                            }
-
-                            // Store for next calculation
-                            lastCpuTime = totalCpuTime
-                            lastCpuCheckTime = currentTime
-                        }
-                    } catch (e: Exception) {
-                        // Parsing failed, use defaults
-                    }
-                }
-
-                ProcessStats(
-                    running = true,
-                    pid = pid,
-                    startTime = startTime,
-                    memoryRssKb = memoryRssKb,
-                    cpuPercent = cpuPercent,
-                    threads = threads,
-                    uptimeFormatted = formatUptimeHMS((processUptimeSeconds * 1000).toLong())
-                )
-            }
-
-            val wasRunning = isRunning
-            isRunning = stats.running
-            currentPid = stats.pid
-
-            // Update start time only when service transitions to running
-            // or when we get a valid start time and don't have one yet
-            if (isRunning && stats.startTime > 0L) {
-                if (serviceStartTime == 0L || !wasRunning) {
-                    serviceStartTime = stats.startTime
-                }
-            } else if (!isRunning) {
-                serviceStartTime = 0L
-                lastCpuTime = 0L
-                lastCpuCheckTime = 0L
-            }
-
-            updateUI()
-            updateProcessStats(stats)
+            checkStatusAndGetState()
         }
     }
 
@@ -933,11 +785,21 @@ class ControlFragment : Fragment() {
     }
 
     /**
-     * Check NFQUEUE support using 4 different methods.
+     * Check NFQUEUE support using 4 different methods with SharedPreferences caching.
+     * The result is cached because NFQUEUE support never changes without a device reboot.
      * Returns true if any method indicates support.
      * Must be called from IO dispatcher.
      */
     private fun checkNfqueueSupport(): Boolean {
+        val ctx = context ?: return false
+        val prefs = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
+        // Check if we already have a cached result
+        if (prefs.getBoolean(KEY_NFQUEUE_CHECKED, false)) {
+            return prefs.getBoolean(KEY_NFQUEUE_SUPPORT, false)
+        }
+
+        // First check - run all 4 shell commands
         // Method 1: Check /proc/net/netfilter/nf_queue (traditional)
         val method1 = Shell.cmd("[ -f /proc/net/netfilter/nf_queue ] && echo 1 || echo 0").exec()
             .out.firstOrNull() == "1"
@@ -954,7 +816,15 @@ class ControlFragment : Fragment() {
         val method4 = Shell.cmd("zcat /proc/config.gz 2>/dev/null | grep -q CONFIG_NETFILTER_NETLINK_QUEUE=y && echo 1 || echo 0").exec()
             .out.firstOrNull() == "1"
 
-        return method1 || method2 || method3 || method4
+        val supported = method1 || method2 || method3 || method4
+
+        // Cache the result - this won't change until device reboot
+        prefs.edit()
+            .putBoolean(KEY_NFQUEUE_SUPPORT, supported)
+            .putBoolean(KEY_NFQUEUE_CHECKED, true)
+            .apply()
+
+        return supported
     }
 
     /**
@@ -1002,8 +872,24 @@ class ControlFragment : Fragment() {
     private fun startStatusPolling() {
         statusPollingJob = viewLifecycleOwner.lifecycleScope.launch {
             while (isActive) {
-                checkStatus()
-                delay(3000)
+                val newStatus = checkStatusAndGetState()
+
+                // Adaptive polling interval based on status stability
+                if (newStatus == lastServiceStatus) {
+                    stableCount++
+                    currentPollInterval = when {
+                        stableCount > 20 -> 30000L  // 30 sec after 20 identical polls
+                        stableCount > 10 -> 15000L  // 15 sec after 10 identical polls
+                        stableCount > 5 -> 10000L   // 10 sec after 5 identical polls
+                        else -> 3000L               // 3 sec default
+                    }
+                } else {
+                    stableCount = 0
+                    currentPollInterval = 3000L
+                }
+                lastServiceStatus = newStatus
+
+                delay(currentPollInterval)
             }
         }
     }
@@ -1011,6 +897,167 @@ class ControlFragment : Fragment() {
     private fun stopStatusPolling() {
         statusPollingJob?.cancel()
         statusPollingJob = null
+        // Reset smart polling state when stopping
+        stableCount = 0
+        currentPollInterval = 3000L
+    }
+
+    /**
+     * Checks status and returns the ServiceStatus for smart polling comparison.
+     * This wraps checkStatus() and determines the current state.
+     */
+    private suspend fun checkStatusAndGetState(): ServiceStatus {
+        // Re-check root status dynamically
+        val hasRoot = withContext(Dispatchers.IO) {
+            try {
+                Shell.getShell().isRoot
+            } catch (e: Exception) {
+                false
+            }
+        }
+
+        val ctx = context ?: return ServiceStatus.ERROR
+
+        // Update root status UI dynamically
+        if (!hasRoot) {
+            textRootStatus.text = "Not granted"
+            textRootStatus.setTextColor(ContextCompat.getColor(ctx, R.color.status_error))
+            setStatus(Status.ERROR)
+            textStatusValue.text = "Root lost!"
+            textStatusValue.setTextColor(ContextCompat.getColor(ctx, R.color.status_error))
+            textUptime.visibility = View.GONE
+            hideProcessStats()
+            disableControls()
+            return ServiceStatus.ERROR
+        } else {
+            textRootStatus.text = "Granted"
+            textRootStatus.setTextColor(ContextCompat.getColor(ctx, R.color.status_running))
+            enableControls()
+        }
+
+        // Re-check NFQUEUE status dynamically (now cached)
+        val nfqueueSupported = withContext(Dispatchers.IO) {
+            checkNfqueueSupport()
+        }
+        updateNfqueueStatusUI(nfqueueSupported)
+
+        val stats = withContext(Dispatchers.IO) {
+            // Check if nfqws2 is running
+            val pgrepResult = Shell.cmd("pgrep -f nfqws2").exec()
+            val running = pgrepResult.isSuccess && pgrepResult.out.isNotEmpty()
+
+            if (!running) {
+                return@withContext ProcessStats(
+                    running = false,
+                    pid = null,
+                    startTime = 0L,
+                    memoryRssKb = 0L,
+                    cpuPercent = 0.0,
+                    threads = 0,
+                    uptimeFormatted = ""
+                )
+            }
+
+            val pid = pgrepResult.out.firstOrNull()?.trim() ?: return@withContext ProcessStats(
+                running = false, pid = null, startTime = 0L, memoryRssKb = 0L,
+                cpuPercent = 0.0, threads = 0, uptimeFormatted = ""
+            )
+
+            var startTime = 0L
+            var memoryRssKb = 0L
+            var threads = 0
+            var cpuPercent = 0.0
+            var processUptimeSeconds = 0.0
+
+            // Read /proc/PID/status for memory and threads
+            val statusResult = Shell.cmd("cat /proc/$pid/status 2>/dev/null").exec()
+            if (statusResult.isSuccess) {
+                for (line in statusResult.out) {
+                    when {
+                        line.startsWith("VmRSS:") -> {
+                            memoryRssKb = line.split(Regex("\\s+"))
+                                .getOrNull(1)?.toLongOrNull() ?: 0L
+                        }
+                        line.startsWith("Threads:") -> {
+                            threads = line.split(Regex("\\s+"))
+                                .getOrNull(1)?.toIntOrNull() ?: 0
+                        }
+                    }
+                }
+            }
+
+            // Read /proc/PID/stat for CPU time and start time
+            val statResult = Shell.cmd("cat /proc/$pid/stat 2>/dev/null").exec()
+            if (statResult.isSuccess && statResult.out.isNotEmpty()) {
+                try {
+                    val statLine = statResult.out.first()
+                    val commEnd = statLine.lastIndexOf(')')
+                    val fieldsAfterComm = statLine.substring(commEnd + 2).split(" ")
+
+                    val utime = fieldsAfterComm.getOrNull(11)?.toLongOrNull() ?: 0L
+                    val stime = fieldsAfterComm.getOrNull(12)?.toLongOrNull() ?: 0L
+                    val startTicks = fieldsAfterComm.getOrNull(19)?.toLongOrNull() ?: 0L
+
+                    val totalCpuTime = utime + stime
+
+                    val uptimeResult = Shell.cmd("cat /proc/uptime").exec()
+                    if (uptimeResult.isSuccess && uptimeResult.out.isNotEmpty()) {
+                        val systemUptimeSeconds = uptimeResult.out.first()
+                            .split(" ").firstOrNull()?.toDoubleOrNull() ?: 0.0
+
+                        val ticksPerSec = 100L
+                        processUptimeSeconds = systemUptimeSeconds - (startTicks.toDouble() / ticksPerSec)
+
+                        startTime = System.currentTimeMillis() - (processUptimeSeconds * 1000).toLong()
+
+                        val currentTime = System.currentTimeMillis()
+                        if (lastCpuTime > 0 && lastCpuCheckTime > 0 && currentPid == pid) {
+                            val cpuTimeDelta = totalCpuTime - lastCpuTime
+                            val realTimeDelta = (currentTime - lastCpuCheckTime) / 1000.0
+                            if (realTimeDelta > 0) {
+                                val cpuSeconds = cpuTimeDelta.toDouble() / ticksPerSec
+                                cpuPercent = (cpuSeconds / realTimeDelta) * 100.0
+                                cpuPercent = cpuPercent.coerceIn(0.0, 100.0)
+                            }
+                        }
+
+                        lastCpuTime = totalCpuTime
+                        lastCpuCheckTime = currentTime
+                    }
+                } catch (e: Exception) {
+                    // Parsing failed, use defaults
+                }
+            }
+
+            ProcessStats(
+                running = true,
+                pid = pid,
+                startTime = startTime,
+                memoryRssKb = memoryRssKb,
+                cpuPercent = cpuPercent,
+                threads = threads,
+                uptimeFormatted = formatUptimeHMS((processUptimeSeconds * 1000).toLong())
+            )
+        }
+
+        val wasRunning = isRunning
+        isRunning = stats.running
+        currentPid = stats.pid
+
+        if (isRunning && stats.startTime > 0L) {
+            if (serviceStartTime == 0L || !wasRunning) {
+                serviceStartTime = stats.startTime
+            }
+        } else if (!isRunning) {
+            serviceStartTime = 0L
+            lastCpuTime = 0L
+            lastCpuCheckTime = 0L
+        }
+
+        updateUI()
+        updateProcessStats(stats)
+
+        return if (isRunning) ServiceStatus.RUNNING else ServiceStatus.STOPPED
     }
 
     private fun checkForUpdates() {
