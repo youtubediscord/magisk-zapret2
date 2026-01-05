@@ -24,13 +24,13 @@ MODDIR="$(dirname "$ZAPRET_DIR")"
 # Core paths
 NFQWS2="$ZAPRET_DIR/nfqws2"
 CONFIG="$ZAPRET_DIR/config.sh"
-STRATEGIES_FILE="$ZAPRET_DIR/strategies.sh"
 BLOBS_FILE="$ZAPRET_DIR/blobs.txt"
 LISTS_DIR="$ZAPRET_DIR/lists"
 
-# Hostlists configuration files
-USER_HOSTLISTS="/data/local/tmp/zapret2-hostlists.conf"
-DEFAULT_HOSTLISTS="$ZAPRET_DIR/hostlists-default.conf"
+# Strategy INI files
+TCP_STRATEGIES_INI="$ZAPRET_DIR/strategies-tcp.ini"
+UDP_STRATEGIES_INI="$ZAPRET_DIR/strategies-udp.ini"
+STUN_STRATEGIES_INI="$ZAPRET_DIR/strategies-stun.ini"
 
 # Runtime files (in writable location)
 PIDFILE="/data/local/tmp/nfqws2.pid"
@@ -127,18 +127,14 @@ load_config() {
         log_msg "Loaded user config from $USER_CONFIG"
     fi
 
-    # Load strategies helper if exists
-    if [ -f "$STRATEGIES_FILE" ]; then
-        . "$STRATEGIES_FILE"
-        log_msg "Loaded strategies from $STRATEGIES_FILE"
-    fi
-
-    # Load STUN strategies helper if exists
-    STUN_STRATEGIES_FILE="$ZAPRET_DIR/strategies-stun.sh"
-    if [ -f "$STUN_STRATEGIES_FILE" ]; then
-        . "$STUN_STRATEGIES_FILE"
-        log_msg "Loaded STUN strategies from $STUN_STRATEGIES_FILE"
-    fi
+    # Verify strategy INI files exist
+    for ini_file in "$TCP_STRATEGIES_INI" "$UDP_STRATEGIES_INI" "$STUN_STRATEGIES_INI"; do
+        if [ -f "$ini_file" ]; then
+            log_msg "Found strategy file: $ini_file"
+        else
+            log_msg "WARNING: Strategy file not found: $ini_file"
+        fi
+    done
 
     # Log current configuration
     log_debug "QNUM=$QNUM"
@@ -148,6 +144,132 @@ load_config() {
     log_debug "HOSTLIST_MODE=$HOSTLIST_MODE"
     log_debug "PKT_OUT=$PKT_OUT"
     log_debug "PKT_IN=$PKT_IN"
+}
+
+##########################################################################################
+# STRATEGY INI PARSING
+##########################################################################################
+
+# Get strategy args from INI file
+# Usage: get_strategy_args_from_ini <ini_file> <strategy_name>
+# Returns: args value for the strategy, or empty if not found
+get_strategy_args_from_ini() {
+    local ini_file="$1"
+    local strategy_name="$2"
+
+    if [ ! -f "$ini_file" ]; then
+        return
+    fi
+
+    # Handle "default" strategy - look up [default] section
+    if [ "$strategy_name" = "default" ] || [ -z "$strategy_name" ]; then
+        strategy_name="default"
+    fi
+
+    local in_section=0
+    local args=""
+
+    while IFS= read -r line || [ -n "$line" ]; do
+        # Remove carriage return if present (Windows line endings)
+        line="${line%$'\r'}"
+
+        # Skip empty lines and comments
+        case "$line" in
+            ""|\#*|\;*) continue ;;
+        esac
+
+        # Check for section header [name]
+        case "$line" in
+            \[*\])
+                # Extract section name
+                local section="${line#\[}"
+                section="${section%\]}"
+                if [ "$section" = "$strategy_name" ]; then
+                    in_section=1
+                elif [ $in_section -eq 1 ]; then
+                    # We've left our section, stop
+                    break
+                fi
+                ;;
+            args=*)
+                if [ $in_section -eq 1 ]; then
+                    args="${line#args=}"
+                    break
+                fi
+                ;;
+        esac
+    done < "$ini_file"
+
+    echo "$args"
+}
+
+# Get TCP strategy options
+# Usage: get_tcp_strategy_options <strategy_name> <filter>
+# Returns: filter + strategy args
+get_tcp_strategy_options() {
+    local strategy_name="$1"
+    local filter="$2"
+
+    local args=$(get_strategy_args_from_ini "$TCP_STRATEGIES_INI" "$strategy_name")
+
+    if [ -n "$args" ]; then
+        echo "$filter $args"
+    else
+        # Fallback to default strategy
+        args=$(get_strategy_args_from_ini "$TCP_STRATEGIES_INI" "default")
+        if [ -n "$args" ]; then
+            echo "$filter $args"
+        fi
+    fi
+}
+
+# Get UDP strategy options
+# Usage: get_udp_strategy_options <strategy_name> <filter>
+# Returns: filter + strategy args
+get_udp_strategy_options() {
+    local strategy_name="$1"
+    local filter="$2"
+
+    local args=$(get_strategy_args_from_ini "$UDP_STRATEGIES_INI" "$strategy_name")
+
+    if [ -n "$args" ]; then
+        echo "$filter $args"
+    else
+        # Fallback to default strategy
+        args=$(get_strategy_args_from_ini "$UDP_STRATEGIES_INI" "default")
+        if [ -n "$args" ]; then
+            echo "$filter $args"
+        fi
+    fi
+}
+
+# Get STUN strategy options
+# Usage: get_stun_strategy_options <strategy_name> <filter>
+# Returns: filter + strategy args (STUN args include --payload)
+get_stun_strategy_options() {
+    local strategy_name="$1"
+    local filter="$2"
+
+    local args=$(get_strategy_args_from_ini "$STUN_STRATEGIES_INI" "$strategy_name")
+
+    if [ -n "$args" ]; then
+        # STUN args already include --payload and --out-range, just add filter if any
+        if [ -n "$filter" ]; then
+            echo "$filter $args"
+        else
+            echo "$args"
+        fi
+    else
+        # Fallback to default strategy
+        args=$(get_strategy_args_from_ini "$STUN_STRATEGIES_INI" "default")
+        if [ -n "$args" ]; then
+            if [ -n "$filter" ]; then
+                echo "$filter $args"
+            else
+                echo "$args"
+            fi
+        fi
+    fi
 }
 
 ##########################################################################################
@@ -609,11 +731,11 @@ add_category() {
 }
 
 ##########################################################################################
-# STRATEGY BUILDING - CATEGORIES.TXT PARSING
+# STRATEGY BUILDING - CATEGORY FILTER HELPERS
 ##########################################################################################
 
-# Path to categories configuration file
-CATEGORIES_FILE="$ZAPRET_DIR/categories.txt"
+# Path to categories configuration file (INI format)
+CATEGORIES_FILE="$ZAPRET_DIR/categories.ini"
 
 # Build filter option for a category based on filter mode
 # Arguments: $1=filter_mode, $2=hostlist_file
@@ -685,7 +807,7 @@ build_category_options_single() {
                 full_filter="$filter_opts"
             fi
 
-            # Get STUN strategy options from strategies-stun.sh
+            # Get STUN strategy options from strategies-stun.ini
             strat_opts=$(get_stun_strategy_options "$strategy_name" "$full_filter")
             ;;
         udp)
@@ -747,7 +869,7 @@ build_category_options_single() {
 #     local strategy_name="$2"
 #     local hostlist_path="$LISTS_DIR/$hostlist"
 #
-#     # Get strategy command from strategies.sh using existing functions
+#     # Get strategy command from strategies INI files using existing functions
 #     local filter="--out-range=-d$PKT_OUT --filter-tcp=80,443 --hostlist=$hostlist_path"
 #     local strat_opts=""
 #
@@ -817,88 +939,116 @@ build_category_options_single() {
 # }
 
 ##########################################################################################
-# STRATEGY BUILDING - CATEGORIES.TXT PARSING (PRIMARY METHOD)
+# STRATEGY BUILDING - CATEGORIES.INI PARSING (PRIMARY METHOD)
 ##########################################################################################
 
-# Parse categories from categories.txt file
+# Add a category command to FULL_FILTER_OPTIONS
+# Arguments: $1=category_name, $2=command
+# Uses global: OPTS, first
+add_category_to_filter() {
+    local category="$1"
+    local command="$2"
+
+    if [ -z "$command" ]; then
+        log_msg "WARNING: Empty command for category: $category"
+        return
+    fi
+
+    # Add --new separator if not first strategy
+    if [ $first -eq 0 ]; then
+        OPTS="$OPTS --new"
+    fi
+
+    OPTS="$OPTS $command"
+    first=0
+    log_msg "Added category: $category"
+}
+
+# Parse categories from categories.ini file (INI format)
 # This is the PRIMARY method for configuring strategies.
-# Format: CATEGORY|PROTOCOL|FILTER_MODE|HOSTLIST_FILE|STRATEGY_NAME
 #
-# Fields:
-#   CATEGORY     - Category name (e.g., youtube, discord, telegram)
-#   PROTOCOL     - tcp, udp, or stun
-#   FILTER_MODE  - hostlist, ipset, or none
-#   HOSTLIST_FILE- Filename in lists/ directory (e.g., youtube.txt)
-#   STRATEGY_NAME- Strategy name from strategies.sh (e.g., syndata_midsld)
+# INI Format:
+#   [category_name]
+#   protocol=tcp|udp|stun
+#   enabled=true|false
+#   filter=--filter-tcp=80,443
+#   hostlist=--hostlist=lists/youtube.txt
+#   strategy=syndata_multisplit_tls_google_700
+#   command=--filter-tcp=80,443 --hostlist=lists/youtube.txt --lua-desync=...
 #
-# Example:
-#   youtube|tcp|hostlist|youtube.txt|syndata_midsld
-#   discord_voice|stun|none||fake_stun
+# The 'command' field contains the complete nfqws2 options for this category.
+# When enabled=true, the command is added directly to FULL_FILTER_OPTIONS.
 #
 parse_categories() {
-    local categories_file="$CATEGORIES_FILE"
+    local ini_file="$CATEGORIES_FILE"
+    local current_section=""
+    local enabled=""
+    local command=""
 
-    if [ ! -f "$categories_file" ]; then
-        log_error "Categories file not found: $categories_file"
+    if [ ! -f "$ini_file" ]; then
+        log_error "Categories file not found: $ini_file"
         return 1
     fi
 
-    log_msg "Parsing categories from: $categories_file"
+    log_msg "Parsing categories from: $ini_file"
 
-    # Read each line, skip comments and empty lines
-    # NEW FORMAT: CATEGORY|PROTOCOL|FILTER_MODE|HOSTLIST_FILE|STRATEGY_NAME
-    # NOTE: Using 'cut' instead of IFS because IFS doesn't handle empty fields correctly!
-    # Example: "cat|tcp|none||disabled" with IFS='|' read gives wrong results
     while IFS= read -r line || [ -n "$line" ]; do
-        # Skip empty lines
-        [ -z "$line" ] && continue
+        # Remove Windows carriage return
+        line=$(echo "$line" | tr -d '\r')
 
-        # Skip comments (trim leading whitespace first)
-        local trimmed_line=$(echo "$line" | sed 's/^[[:space:]]*//')
-        case "$trimmed_line" in
-            "#"*|"") continue ;;
+        # Skip empty lines and comments
+        [ -z "$line" ] && continue
+        case "$line" in
+            "#"*|";"*) continue ;;
         esac
 
-        # Parse fields using cut (handles empty fields correctly!)
-        local category=$(echo "$line" | cut -d'|' -f1 | tr -d ' \t\r')
-        local protocol=$(echo "$line" | cut -d'|' -f2 | tr -d ' \t\r')
-        local filter_mode=$(echo "$line" | cut -d'|' -f3 | tr -d ' \t\r')
-        local hostlist=$(echo "$line" | cut -d'|' -f4 | tr -d ' \t\r')
-        local strategy_name=$(echo "$line" | cut -d'|' -f5 | tr -d ' \t\r')
+        # Section header [name]
+        if echo "$line" | grep -q '^\[.*\]$'; then
+            # Save previous section if enabled
+            if [ -n "$current_section" ] && [ "$enabled" = "true" ] && [ -n "$command" ]; then
+                add_category_to_filter "$current_section" "$command"
+            fi
 
-        # Skip if category name is empty
-        [ -z "$category" ] && continue
-
-        # Default protocol to tcp if empty
-        [ -z "$protocol" ] && protocol="tcp"
-
-        # Default filter_mode to none if empty
-        [ -z "$filter_mode" ] && filter_mode="none"
-
-        # Skip disabled categories (strategy_name == "disabled" or empty)
-        if [ -z "$strategy_name" ] || [ "$strategy_name" = "disabled" ]; then
-            log_debug "Skipping disabled category: $category"
+            # Extract section name (remove [ and ])
+            current_section=$(echo "$line" | sed 's/^\[\(.*\)\]$/\1/')
+            enabled=""
+            command=""
+            log_debug "Found section: $current_section"
             continue
         fi
 
-        log_msg "Category: $category (proto=$protocol, filter=$filter_mode, hostlist=$hostlist, strategy=$strategy_name)"
+        # Key=value parsing
+        if echo "$line" | grep -q '^[a-z_]*='; then
+            local key=$(echo "$line" | cut -d'=' -f1)
+            local value=$(echo "$line" | cut -d'=' -f2-)
 
-        # Build options for this category
-        build_category_options_single "$category" "$protocol" "$filter_mode" "$hostlist" "$strategy_name"
+            case "$key" in
+                enabled)
+                    enabled="$value"
+                    ;;
+                command)
+                    command="$value"
+                    ;;
+            esac
+        fi
+    done < "$ini_file"
 
-    done < "$categories_file"
+    # Don't forget last section
+    if [ -n "$current_section" ] && [ "$enabled" = "true" ] && [ -n "$command" ]; then
+        add_category_to_filter "$current_section" "$command"
+    fi
 
     return 0
 }
 
 # Build options for category-based strategies (main entry point)
-# Uses categories.txt as primary source with preset fallback
+# Uses categories.ini as primary source with preset fallback
 build_category_options() {
     first=1
 
-    # Try to parse categories.txt first
+    # Try to parse categories.ini first
     if [ -f "$CATEGORIES_FILE" ]; then
-        log_msg "Building category-based options from categories.txt..."
+        log_msg "Building category-based options from categories.ini..."
         parse_categories
 
         # Check if any strategies were added (first=0 means at least one was added)

@@ -45,7 +45,6 @@ sed -i "s/^versionCode=.*/versionCode=$VERSION_CODE/" module.prop
 # Make scripts executable
 chmod +x customize.sh service.sh uninstall.sh action.sh 2>/dev/null || true
 chmod +x zapret2/scripts/*.sh 2>/dev/null || true
-chmod +x zapret2/strategies.sh 2>/dev/null || true
 
 # Create ZIP
 ZIP_NAME="zapret2-magisk-v$VERSION.zip"

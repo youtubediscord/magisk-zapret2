@@ -6,14 +6,19 @@ import kotlinx.coroutines.withContext
 
 /**
  * Repository for managing DPI bypass strategies.
- * Reads strategy definitions from strategies.sh and categories.txt from the Magisk module.
+ * Reads strategy definitions from INI files:
+ * - strategies-tcp.ini (TCP strategies)
+ * - strategies-udp.ini (UDP/QUIC strategies)
+ * - strategies-stun.ini (STUN/voice strategies)
+ * - categories.ini (category configurations)
  */
 object StrategyRepository {
 
     private const val MODDIR = "/data/adb/modules/zapret2"
-    private const val STRATEGIES_FILE = "$MODDIR/zapret2/strategies.sh"
-    private const val STUN_STRATEGIES_FILE = "$MODDIR/zapret2/strategies-stun.sh"
-    private const val CATEGORIES_FILE = "$MODDIR/zapret2/categories.txt"
+    private const val TCP_STRATEGIES_FILE = "$MODDIR/zapret2/strategies-tcp.ini"
+    private const val UDP_STRATEGIES_FILE = "$MODDIR/zapret2/strategies-udp.ini"
+    private const val STUN_STRATEGIES_FILE = "$MODDIR/zapret2/strategies-stun.ini"
+    private const val CATEGORIES_FILE = "$MODDIR/zapret2/categories.ini"
 
     // Cached strategies
     private var tcpStrategies: List<StrategyInfo>? = null
@@ -26,16 +31,41 @@ object StrategyRepository {
         val index: Int            // 0-based index (0 = disabled)
     )
 
+    /**
+     * Category configuration from INI file.
+     * INI format:
+     * [category_name]
+     * protocol=tcp
+     * enabled=true
+     * filter=--filter-tcp=80,443
+     * hostlist=--hostlist=lists/youtube.txt
+     * strategy=syndata_multisplit_tls_google_700
+     * command=--filter-tcp=80,443 --hostlist=lists/youtube.txt --lua-desync=...
+     */
     data class CategoryConfig(
-        val key: String,          // e.g., "youtube"
+        val key: String,          // e.g., "youtube" (section name)
         val protocol: String,     // "tcp", "udp", or "stun"
-        val filterMode: String,   // "none", "hostlist", "ipset"
-        val hostlistFile: String, // e.g., "youtube.txt"
-        val strategyName: String  // Strategy name (e.g., "syndata_multisplit_tls_google_700" or "disabled")
-    )
+        val enabled: Boolean,     // true if category is enabled
+        val filter: String,       // e.g., "--filter-tcp=80,443"
+        val hostlist: String,     // e.g., "--hostlist=lists/youtube.txt" or "--ipset=lists/ipset-discord.txt"
+        val strategy: String,     // Strategy name (e.g., "syndata_multisplit_tls_google_700" or "disabled")
+        val command: String       // Full nfqws command for this category
+    ) {
+        // Backward compatibility properties
+        val strategyName: String get() = strategy
+        val filterMode: String get() = when {
+            hostlist.contains("--ipset=") -> "ipset"
+            hostlist.contains("--hostlist=") -> "hostlist"
+            else -> "none"
+        }
+        val hostlistFile: String get() {
+            val regex = Regex("""(?:--hostlist|--ipset)=(?:lists/)?([^\s]+)""")
+            return regex.find(hostlist)?.groupValues?.get(1) ?: ""
+        }
+    }
 
     /**
-     * Load TCP strategies from strategies.sh
+     * Load TCP strategies from strategies-tcp.ini
      */
     suspend fun getTcpStrategies(): List<StrategyInfo> {
         if (tcpStrategies != null) return tcpStrategies!!
@@ -46,19 +76,9 @@ object StrategyRepository {
             // Add "Disabled" as first option
             strategies.add(StrategyInfo("disabled", "Disabled", 0))
 
-            val result = Shell.cmd("cat $STRATEGIES_FILE 2>/dev/null").exec()
+            val result = Shell.cmd("cat $TCP_STRATEGIES_FILE 2>/dev/null").exec()
             if (result.isSuccess) {
-                val content = result.out.joinToString("\n")
-
-                // Primary: Parse from list_tcp_strategies() function (most reliable)
-                var ids = parseStrategiesFromListFunction(content, "list_tcp_strategies")
-
-                // Fallback: Parse from case statement if list function not found
-                if (ids.isEmpty()) {
-                    val tcpSection = extractSection(content, "TCP STRATEGIES", "UDP STRATEGIES")
-                    ids = parseStrategyIds(tcpSection)
-                }
-
+                val ids = parseStrategiesFromIni(result.out)
                 ids.forEachIndexed { index, id ->
                     strategies.add(StrategyInfo(
                         id = id,
@@ -74,7 +94,7 @@ object StrategyRepository {
     }
 
     /**
-     * Load UDP strategies from strategies.sh
+     * Load UDP strategies from strategies-udp.ini
      */
     suspend fun getUdpStrategies(): List<StrategyInfo> {
         if (udpStrategies != null) return udpStrategies!!
@@ -85,19 +105,9 @@ object StrategyRepository {
             // Add "Disabled" as first option
             strategies.add(StrategyInfo("disabled", "Disabled", 0))
 
-            val result = Shell.cmd("cat $STRATEGIES_FILE 2>/dev/null").exec()
+            val result = Shell.cmd("cat $UDP_STRATEGIES_FILE 2>/dev/null").exec()
             if (result.isSuccess) {
-                val content = result.out.joinToString("\n")
-
-                // Primary: Parse from list_udp_strategies() function (most reliable)
-                var ids = parseStrategiesFromListFunction(content, "list_udp_strategies")
-
-                // Fallback: Parse from case statement if list function not found
-                if (ids.isEmpty()) {
-                    val udpSection = extractSection(content, "UDP STRATEGIES", null)
-                    ids = parseStrategyIds(udpSection)
-                }
-
+                val ids = parseStrategiesFromIni(result.out)
                 ids.forEachIndexed { index, id ->
                     strategies.add(StrategyInfo(
                         id = id,
@@ -113,7 +123,7 @@ object StrategyRepository {
     }
 
     /**
-     * Load STUN strategies from strategies-stun.sh
+     * Load STUN strategies from strategies-stun.ini
      * Used for voice/video calls (Discord, Telegram, etc.)
      */
     suspend fun getStunStrategies(): List<StrategyInfo> {
@@ -127,17 +137,7 @@ object StrategyRepository {
 
             val result = Shell.cmd("cat $STUN_STRATEGIES_FILE 2>/dev/null").exec()
             if (result.isSuccess) {
-                val content = result.out.joinToString("\n")
-
-                // Primary: Parse from list_stun_strategies() function (most reliable)
-                var ids = parseStrategiesFromListFunction(content, "list_stun_strategies")
-
-                // Fallback: Parse from case statement if list function not found
-                if (ids.isEmpty()) {
-                    val stunSection = extractSection(content, "STUN STRATEGIES", null)
-                    ids = parseStrategyIds(stunSection)
-                }
-
+                val ids = parseStrategiesFromIni(result.out)
                 ids.forEachIndexed { index, id ->
                     strategies.add(StrategyInfo(
                         id = id,
@@ -169,31 +169,89 @@ object StrategyRepository {
     }
 
     /**
-     * Read all category configurations from categories.txt
-     * Format: CATEGORY|PROTOCOL|FILTER_MODE|HOSTLIST_FILE|STRATEGY_NAME
+     * Read all category configurations from categories.ini
+     * INI format:
+     * [section_name]
+     * protocol=tcp
+     * enabled=true
+     * filter=--filter-tcp=80,443
+     * hostlist=--hostlist=lists/youtube.txt
+     * strategy=syndata_multisplit_tls_google_700
+     * command=--filter-tcp=80,443 --hostlist=lists/youtube.txt --lua-desync=...
      */
     suspend fun readCategories(): Map<String, CategoryConfig> {
         return withContext(Dispatchers.IO) {
             val categories = mutableMapOf<String, CategoryConfig>()
 
             val result = Shell.cmd("cat $CATEGORIES_FILE 2>/dev/null").exec()
-            if (result.isSuccess) {
-                result.out.forEach { line ->
-                    val trimmed = line.trim()
-                    if (trimmed.isNotEmpty() && !trimmed.startsWith("#")) {
-                        val parts = trimmed.split("|")
-                        if (parts.size >= 5) {
-                            val key = parts[0]
-                            categories[key] = CategoryConfig(
-                                key = key,
-                                protocol = parts[1].ifEmpty { "tcp" },
-                                filterMode = parts[2].ifEmpty { "none" },
-                                hostlistFile = parts[3],
-                                strategyName = parts[4].ifEmpty { "disabled" }
-                            )
-                        }
+            if (!result.isSuccess) return@withContext categories
+
+            var currentSection = ""
+            var protocol = "tcp"
+            var enabled = false
+            var filter = ""
+            var hostlist = ""
+            var strategy = "disabled"
+            var command = ""
+
+            for (line in result.out) {
+                val trimmed = line.trim()
+                // Skip empty lines and comments
+                if (trimmed.isEmpty() || trimmed.startsWith("#") || trimmed.startsWith(";")) continue
+
+                // Section header [name]
+                val sectionMatch = Regex("""^\[([a-zA-Z0-9_]+)\]$""").find(trimmed)
+                if (sectionMatch != null) {
+                    // Save previous section if exists
+                    if (currentSection.isNotEmpty()) {
+                        categories[currentSection] = CategoryConfig(
+                            key = currentSection,
+                            protocol = protocol,
+                            enabled = enabled,
+                            filter = filter,
+                            hostlist = hostlist,
+                            strategy = strategy,
+                            command = command
+                        )
+                    }
+                    // Start new section with defaults
+                    currentSection = sectionMatch.groupValues[1]
+                    protocol = "tcp"
+                    enabled = false
+                    filter = ""
+                    hostlist = ""
+                    strategy = "disabled"
+                    command = ""
+                    continue
+                }
+
+                // Key=value pairs
+                val keyValueMatch = Regex("""^([a-z_]+)=(.*)$""").find(trimmed)
+                if (keyValueMatch != null) {
+                    val key = keyValueMatch.groupValues[1]
+                    val value = keyValueMatch.groupValues[2]
+                    when (key) {
+                        "protocol" -> protocol = value.ifEmpty { "tcp" }
+                        "enabled" -> enabled = value == "true"
+                        "filter" -> filter = value
+                        "hostlist" -> hostlist = value
+                        "strategy" -> strategy = value.ifEmpty { "disabled" }
+                        "command" -> command = value
                     }
                 }
+            }
+
+            // Don't forget the last section
+            if (currentSection.isNotEmpty()) {
+                categories[currentSection] = CategoryConfig(
+                    key = currentSection,
+                    protocol = protocol,
+                    enabled = enabled,
+                    filter = filter,
+                    hostlist = hostlist,
+                    strategy = strategy,
+                    command = command
+                )
             }
 
             categories
@@ -219,8 +277,8 @@ object StrategyRepository {
     }
 
     /**
-     * Update strategy for a category in categories.txt by strategy NAME
-     * Format: CATEGORY|PROTOCOL|FILTER_MODE|HOSTLIST_FILE|STRATEGY_NAME
+     * Update strategy for a category in categories.ini by strategy NAME.
+     * Updates both the 'strategy' and 'enabled' fields in the INI section.
      *
      * @param categoryKey The category key (e.g., "youtube")
      * @param newStrategyName The strategy name (e.g., "syndata_multisplit_tls_google_700" or "disabled")
@@ -232,25 +290,42 @@ object StrategyRepository {
             if (!result.isSuccess) return@withContext false
 
             val lines = result.out.toMutableList()
-            var found = false
+            var inTargetSection = false
+            var sectionFound = false
+            var strategyUpdated = false
+            var enabledUpdated = false
+            val isEnabled = newStrategyName.isNotEmpty() && newStrategyName != "disabled"
 
             for (i in lines.indices) {
                 val line = lines[i]
-                if (!line.startsWith("#") && line.startsWith("$categoryKey|")) {
-                    val parts = line.split("|").toMutableList()
-                    if (parts.size >= 5) {
-                        // Update strategy name (parts[4])
-                        parts[4] = newStrategyName.ifEmpty { "disabled" }
-                        lines[i] = parts.joinToString("|")
-                        found = true
-                        break
+                val trimmed = line.trim()
+
+                // Check for section header
+                val sectionMatch = Regex("""^\[([a-zA-Z0-9_]+)\]$""").find(trimmed)
+                if (sectionMatch != null) {
+                    // If we were in target section and leaving, break
+                    if (inTargetSection) break
+                    // Check if this is our target section
+                    inTargetSection = sectionMatch.groupValues[1] == categoryKey
+                    if (inTargetSection) sectionFound = true
+                    continue
+                }
+
+                // If in target section, update strategy and enabled fields
+                if (inTargetSection) {
+                    if (trimmed.startsWith("strategy=")) {
+                        lines[i] = "strategy=${newStrategyName.ifEmpty { "disabled" }}"
+                        strategyUpdated = true
+                    } else if (trimmed.startsWith("enabled=")) {
+                        lines[i] = "enabled=$isEnabled"
+                        enabledUpdated = true
                     }
                 }
             }
 
-            if (!found) return@withContext false
+            if (!sectionFound) return@withContext false
 
-            // Write back
+            // Write back preserving original formatting
             val newContent = lines.joinToString("\n")
             val escaped = newContent.replace("'", "'\\''")
             val writeResult = Shell.cmd("echo '$escaped' > $CATEGORIES_FILE").exec()
@@ -261,7 +336,9 @@ object StrategyRepository {
     /**
      * Batch update strategies for multiple categories in a single file operation.
      * Much more efficient than calling updateCategoryStrategyByName() multiple times.
-     * Reduces 32 shell commands to just 2 (one read, one write).
+     * Reduces many shell commands to just 2 (one read, one write).
+     *
+     * Updates both 'strategy' and 'enabled' fields for each category in the INI file.
      *
      * @param updates Map of category key to strategy name (e.g., "youtube" to "syndata_multisplit_tls_google_700")
      */
@@ -272,24 +349,36 @@ object StrategyRepository {
             if (!result.isSuccess) return@withContext false
 
             val lines = result.out.toMutableList()
+            var currentSection = ""
 
-            // Update all matching lines in memory
+            // Update all matching sections in memory
             for (i in lines.indices) {
                 val line = lines[i]
-                if (line.startsWith("#") || line.isBlank()) continue
+                val trimmed = line.trim()
 
-                val parts = line.split("|").toMutableList()
-                if (parts.size >= 5) {
-                    val categoryKey = parts[0]
-                    // Check if this category should be updated
-                    updates[categoryKey]?.let { newStrategyName ->
-                        parts[4] = newStrategyName.ifEmpty { "disabled" }
-                        lines[i] = parts.joinToString("|")
+                // Skip comments and empty lines (preserve them)
+                if (trimmed.isEmpty() || trimmed.startsWith("#") || trimmed.startsWith(";")) continue
+
+                // Check for section header
+                val sectionMatch = Regex("""^\[([a-zA-Z0-9_]+)\]$""").find(trimmed)
+                if (sectionMatch != null) {
+                    currentSection = sectionMatch.groupValues[1]
+                    continue
+                }
+
+                // If current section is in updates map, update strategy and enabled
+                updates[currentSection]?.let { newStrategyName ->
+                    val isEnabled = newStrategyName.isNotEmpty() && newStrategyName != "disabled"
+
+                    if (trimmed.startsWith("strategy=")) {
+                        lines[i] = "strategy=${newStrategyName.ifEmpty { "disabled" }}"
+                    } else if (trimmed.startsWith("enabled=")) {
+                        lines[i] = "enabled=$isEnabled"
                     }
                 }
             }
 
-            // Write file ONCE
+            // Write file ONCE preserving original formatting
             val newContent = lines.joinToString("\n")
             val escaped = newContent.replace("'", "'\\''")
             val writeResult = Shell.cmd("echo '$escaped' > $CATEGORIES_FILE").exec()
@@ -298,8 +387,8 @@ object StrategyRepository {
     }
 
     /**
-     * Update strategy for a category in categories.txt by strategy INDEX
-     * Format: CATEGORY|PROTOCOL|FILTER_MODE|HOSTLIST_FILE|STRATEGY_NAME
+     * Update strategy for a category in categories.ini by strategy INDEX.
+     * Converts index to strategy name and delegates to updateCategoryStrategyByName.
      *
      * @param categoryKey The category key (e.g., "youtube")
      * @param newStrategyIndex The index in the strategy list (0 = disabled)
@@ -307,48 +396,25 @@ object StrategyRepository {
      */
     suspend fun updateCategoryStrategy(categoryKey: String, newStrategyIndex: Int): Boolean {
         return withContext(Dispatchers.IO) {
-            // Read current file to get the protocol
-            val result = Shell.cmd("cat $CATEGORIES_FILE 2>/dev/null").exec()
-            if (!result.isSuccess) return@withContext false
+            // First read categories to get the protocol for this category
+            val categories = readCategories()
+            val category = categories[categoryKey] ?: return@withContext false
 
-            val lines = result.out.toMutableList()
-            var found = false
+            val isTcp = category.protocol != "udp" && category.protocol != "stun"
+            val isStun = category.protocol == "stun"
 
-            for (i in lines.indices) {
-                val line = lines[i]
-                if (!line.startsWith("#") && line.startsWith("$categoryKey|")) {
-                    val parts = line.split("|").toMutableList()
-                    if (parts.size >= 5) {
-                        // Get protocol from the category line (parts[1])
-                        val protocol = parts[1].ifEmpty { "tcp" }
-                        val isTcp = protocol != "udp"
-
-                        // Get the strategy name from index
-                        val strategies = if (isTcp) {
-                            tcpStrategies ?: getTcpStrategiesSync()
-                        } else {
-                            udpStrategies ?: getUdpStrategiesSync()
-                        }
-
-                        // Get strategy name (index 0 = "disabled")
-                        val strategyName = strategies.getOrNull(newStrategyIndex)?.id ?: "disabled"
-
-                        // Update strategy name (parts[4])
-                        parts[4] = strategyName
-                        lines[i] = parts.joinToString("|")
-                        found = true
-                        break
-                    }
-                }
+            // Get the strategy name from index
+            val strategies = when {
+                isStun -> stunStrategies ?: getStunStrategiesSync()
+                isTcp -> tcpStrategies ?: getTcpStrategiesSync()
+                else -> udpStrategies ?: getUdpStrategiesSync()
             }
 
-            if (!found) return@withContext false
+            // Get strategy name (index 0 = "disabled")
+            val strategyName = strategies.getOrNull(newStrategyIndex)?.id ?: "disabled"
 
-            // Write back
-            val newContent = lines.joinToString("\n")
-            val escaped = newContent.replace("'", "'\\''")
-            val writeResult = Shell.cmd("echo '$escaped' > $CATEGORIES_FILE").exec()
-            writeResult.isSuccess
+            // Delegate to updateCategoryStrategyByName
+            updateCategoryStrategyByName(categoryKey, strategyName)
         }
     }
 
@@ -359,19 +425,9 @@ object StrategyRepository {
         val strategies = mutableListOf<StrategyInfo>()
         strategies.add(StrategyInfo("disabled", "Disabled", 0))
 
-        val result = Shell.cmd("cat $STRATEGIES_FILE 2>/dev/null").exec()
+        val result = Shell.cmd("cat $TCP_STRATEGIES_FILE 2>/dev/null").exec()
         if (result.isSuccess) {
-            val content = result.out.joinToString("\n")
-
-            // Primary: Parse from list_tcp_strategies() function (most reliable)
-            var ids = parseStrategiesFromListFunction(content, "list_tcp_strategies")
-
-            // Fallback: Parse from case statement if list function not found
-            if (ids.isEmpty()) {
-                val tcpSection = extractSection(content, "TCP STRATEGIES", "UDP STRATEGIES")
-                ids = parseStrategyIds(tcpSection)
-            }
-
+            val ids = parseStrategiesFromIni(result.out)
             ids.forEachIndexed { index, id ->
                 strategies.add(StrategyInfo(
                     id = id,
@@ -392,19 +448,9 @@ object StrategyRepository {
         val strategies = mutableListOf<StrategyInfo>()
         strategies.add(StrategyInfo("disabled", "Disabled", 0))
 
-        val result = Shell.cmd("cat $STRATEGIES_FILE 2>/dev/null").exec()
+        val result = Shell.cmd("cat $UDP_STRATEGIES_FILE 2>/dev/null").exec()
         if (result.isSuccess) {
-            val content = result.out.joinToString("\n")
-
-            // Primary: Parse from list_udp_strategies() function (most reliable)
-            var ids = parseStrategiesFromListFunction(content, "list_udp_strategies")
-
-            // Fallback: Parse from case statement if list function not found
-            if (ids.isEmpty()) {
-                val udpSection = extractSection(content, "UDP STRATEGIES", null)
-                ids = parseStrategyIds(udpSection)
-            }
-
+            val ids = parseStrategiesFromIni(result.out)
             ids.forEachIndexed { index, id ->
                 strategies.add(StrategyInfo(
                     id = id,
@@ -427,17 +473,7 @@ object StrategyRepository {
 
         val result = Shell.cmd("cat $STUN_STRATEGIES_FILE 2>/dev/null").exec()
         if (result.isSuccess) {
-            val content = result.out.joinToString("\n")
-
-            // Primary: Parse from list_stun_strategies() function (most reliable)
-            var ids = parseStrategiesFromListFunction(content, "list_stun_strategies")
-
-            // Fallback: Parse from case statement if list function not found
-            if (ids.isEmpty()) {
-                val stunSection = extractSection(content, "STUN STRATEGIES", null)
-                ids = parseStrategyIds(stunSection)
-            }
-
+            val ids = parseStrategiesFromIni(result.out)
             ids.forEachIndexed { index, id ->
                 strategies.add(StrategyInfo(
                     id = id,
@@ -452,12 +488,14 @@ object StrategyRepository {
     }
 
     /**
-     * Check if a category is enabled (has a non-disabled strategy)
+     * Check if a category is enabled.
+     * Uses the 'enabled' field from INI (true/false).
      */
     suspend fun isCategoryEnabled(categoryKey: String): Boolean {
         val categories = readCategories()
-        val strategyName = categories[categoryKey]?.strategyName ?: "disabled"
-        return strategyName != "disabled" && strategyName.isNotEmpty()
+        val category = categories[categoryKey] ?: return false
+        // Use the enabled field directly from INI
+        return category.enabled
     }
 
     /**
@@ -472,51 +510,23 @@ object StrategyRepository {
     // Helper functions
 
     /**
-     * Extract strategy names from list_*_strategies() function in strategies.sh
-     * These functions contain all strategy names in a single echo line:
-     * list_tcp_strategies() {
-     *     echo "strategy1 strategy2 strategy3..."
-     * }
+     * Parse strategy names from INI file content.
+     * Extracts section names [strategy_name] from the file.
+     * Skips 'default' and 'disabled' sections as they are handled separately.
      */
-    private fun parseStrategiesFromListFunction(content: String, functionName: String): List<String> {
-        // Match: list_tcp_strategies() { echo "strategy1 strategy2..." }
-        // or: list_udp_strategies() { echo "..." }
-        val pattern = Regex("""$functionName\s*\(\s*\)\s*\{\s*\n\s*echo\s+"([^"]+)"""")
-        val match = pattern.find(content)
-
-        return if (match != null) {
-            val strategiesString = match.groupValues[1]
-            strategiesString.split(Regex("\\s+")).filter { it.isNotBlank() }
-        } else {
-            emptyList()
-        }
-    }
-
-    private fun extractSection(content: String, startMarker: String, endMarker: String?): String {
-        val startPattern = "# =+ $startMarker =+"
-        val startIdx = content.indexOf(startMarker)
-        if (startIdx == -1) return ""
-
-        val endIdx = if (endMarker != null) {
-            val idx = content.indexOf(endMarker, startIdx)
-            if (idx == -1) content.length else idx
-        } else {
-            content.length
-        }
-
-        return content.substring(startIdx, endIdx)
-    }
-
-    private fun parseStrategyIds(section: String): List<String> {
+    private fun parseStrategiesFromIni(lines: List<String>): List<String> {
         val ids = mutableListOf<String>()
-        // Match lines like "        strategy_name)" - strategy IDs in case statements
-        val pattern = Regex("""^\s{8}(\w+)\)\s*$""", RegexOption.MULTILINE)
+        val sectionPattern = Regex("""^\[([a-zA-Z0-9_]+)\]$""")
 
-        pattern.findAll(section).forEach { match ->
-            val id = match.groupValues[1]
-            // Skip the catch-all case and other non-strategy patterns
-            if (id != "*" && id != "esac" && !id.startsWith("_")) {
-                ids.add(id)
+        for (line in lines) {
+            val trimmed = line.trim()
+            val match = sectionPattern.find(trimmed)
+            if (match != null) {
+                val sectionName = match.groupValues[1]
+                // Skip special sections - they are added manually as first items
+                if (sectionName != "default" && sectionName != "disabled") {
+                    ids.add(sectionName)
+                }
             }
         }
 
