@@ -4,6 +4,7 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
@@ -40,6 +41,10 @@ class StrategiesFragment : Fragment() {
     private lateinit var rowPktCount: LinearLayout
     private lateinit var rowDebug: LinearLayout
 
+    // Loading overlay
+    private lateinit var loadingOverlay: FrameLayout
+    private lateinit var loadingText: TextView
+
     // Value TextViews
     private lateinit var textYoutubeTcpValue: TextView
     private lateinit var textYoutubeQuicValue: TextView
@@ -68,8 +73,7 @@ class StrategiesFragment : Fragment() {
     // Paths
     private val MODDIR = "/data/adb/modules/zapret2"
     private val CONFIG = "$MODDIR/zapret2/config.sh"
-    private val START_SCRIPT = "$MODDIR/zapret2/scripts/zapret-start.sh"
-    private val STOP_SCRIPT = "$MODDIR/zapret2/scripts/zapret-stop.sh"
+    private val RESTART_SCRIPT = "$MODDIR/zapret2/scripts/zapret-restart.sh"
 
     // Category key to categories.txt mapping
     // UI key -> category name in categories.txt (first column before |)
@@ -158,6 +162,10 @@ class StrategiesFragment : Fragment() {
         rowOther = view.findViewById(R.id.rowOther)
         rowPktCount = view.findViewById(R.id.rowPktCount)
         rowDebug = view.findViewById(R.id.rowDebug)
+
+        // Loading overlay
+        loadingOverlay = view.findViewById(R.id.loadingOverlay)
+        loadingText = view.findViewById(R.id.loadingText)
 
         // Value texts
         textYoutubeTcpValue = view.findViewById(R.id.textYoutubeTcpValue)
@@ -413,8 +421,20 @@ class StrategiesFragment : Fragment() {
         return regex.find(config)?.groupValues?.get(1)?.trim()
     }
 
+    private fun showLoading(text: String = "Restarting service...") {
+        loadingText.text = text
+        loadingOverlay.visibility = View.VISIBLE
+    }
+
+    private fun hideLoading() {
+        loadingOverlay.visibility = View.GONE
+    }
+
     private fun saveConfigAndRestart() {
         viewLifecycleOwner.lifecycleScope.launch {
+            // Show loading overlay
+            showLoading("Restarting service...")
+
             // Build updates map: category key -> strategy name
             val categoryUpdates = categoryKeyMap.map { (uiKey, categoryKey) ->
                 categoryKey to (selections[uiKey] ?: "disabled")
@@ -451,10 +471,13 @@ class StrategiesFragment : Fragment() {
                     return@withContext Pair(false, false)
                 }
 
-                Shell.cmd("$STOP_SCRIPT").exec()
-                val startResult = Shell.cmd("$START_SCRIPT").exec()
-                Pair(true, startResult.isSuccess)
+                // Quick restart using single script (no delay between stop/start)
+                val restartResult = Shell.cmd("sh $RESTART_SCRIPT").exec()
+                Pair(true, restartResult.isSuccess)
             }
+
+            // Hide loading overlay
+            hideLoading()
 
             if (allSuccess && configSuccess && restartSuccess) {
                 Toast.makeText(requireContext(), "Applied successfully", Toast.LENGTH_SHORT).show()
