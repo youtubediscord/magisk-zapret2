@@ -418,6 +418,8 @@ main() {
     log_section "Zapret2 started successfully"
     log_msg "HOSTLIST_MODE: $HOSTLIST_MODE"
     log_msg "HOSTLIST_FILES: $HOSTLIST_FILES"
+
+    exit 0
 }
 
 # Run main function

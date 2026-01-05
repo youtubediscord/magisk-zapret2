@@ -791,12 +791,12 @@ class ControlFragment : Fragment() {
      * Must be called from IO dispatcher.
      */
     private fun checkNfqueueSupport(): Boolean {
-        val ctx = context ?: return false
+        val ctx = context ?: return true  // Default to true if no context (don't block user)
         val prefs = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
         // Check if we already have a cached result
         if (prefs.getBoolean(KEY_NFQUEUE_CHECKED, false)) {
-            return prefs.getBoolean(KEY_NFQUEUE_SUPPORT, false)
+            return prefs.getBoolean(KEY_NFQUEUE_SUPPORT, true)  // Default true if not found
         }
 
         // First check - run all 4 shell commands
