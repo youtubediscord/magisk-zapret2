@@ -973,8 +973,9 @@ add_category_to_filter() {
 parse_categories() {
     local ini_file="$CATEGORIES_FILE"
     local current_section=""
-    local enabled=""
-    local command=""
+    local protocol=""
+    local file=""
+    local strategy=""
 
     if [ ! -f "$ini_file" ]; then
         log_error "Categories file not found: $ini_file"
@@ -995,15 +996,21 @@ parse_categories() {
 
         # Section header [name]
         if echo "$line" | grep -q '^\[.*\]$'; then
-            # Save previous section if enabled
-            if [ -n "$current_section" ] && [ "$enabled" = "true" ] && [ -n "$command" ]; then
-                add_category_to_filter "$current_section" "$command"
+            # Process previous section if valid
+            if [ -n "$current_section" ] && [ -n "$strategy" ] && [ "$strategy" != "disabled" ]; then
+                # Determine filter_mode based on file name
+                local filter_mode="hostlist"
+                case "$file" in
+                    ipset-*) filter_mode="ipset" ;;
+                esac
+                build_category_options_single "$current_section" "$protocol" "$filter_mode" "$file" "$strategy"
             fi
 
             # Extract section name (remove [ and ])
             current_section=$(echo "$line" | sed 's/^\[\(.*\)\]$/\1/')
-            enabled=""
-            command=""
+            protocol="tcp"
+            file=""
+            strategy=""
             log_debug "Found section: $current_section"
             continue
         fi
@@ -1014,19 +1021,26 @@ parse_categories() {
             local value=$(echo "$line" | cut -d'=' -f2-)
 
             case "$key" in
-                enabled)
-                    enabled="$value"
+                protocol)
+                    protocol="$value"
                     ;;
-                command)
-                    command="$value"
+                file)
+                    file="$value"
+                    ;;
+                strategy)
+                    strategy="$value"
                     ;;
             esac
         fi
     done < "$ini_file"
 
     # Don't forget last section
-    if [ -n "$current_section" ] && [ "$enabled" = "true" ] && [ -n "$command" ]; then
-        add_category_to_filter "$current_section" "$command"
+    if [ -n "$current_section" ] && [ -n "$strategy" ] && [ "$strategy" != "disabled" ]; then
+        local filter_mode="hostlist"
+        case "$file" in
+            ipset-*) filter_mode="ipset" ;;
+        esac
+        build_category_options_single "$current_section" "$protocol" "$filter_mode" "$file" "$strategy"
     fi
 
     return 0
