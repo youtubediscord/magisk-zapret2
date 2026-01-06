@@ -70,6 +70,12 @@ class StrategiesFragment : Fragment() {
     // Current selections (strategy IDs/names)
     private val selections = mutableMapOf<String, String>()
 
+    // Current filter modes for each category
+    private val filterModes = mutableMapOf<String, String>()
+
+    // Categories that support filter mode switching (have both hostlist and ipset)
+    private val canSwitchFilterMode = mutableMapOf<String, Boolean>()
+
     // Paths
     private val MODDIR = "/data/adb/modules/zapret2"
     private val CONFIG = "$MODDIR/zapret2/config.sh"
@@ -290,14 +296,34 @@ class StrategiesFragment : Fragment() {
         currentStrategyName: String,
         type: String
     ) {
+        // Get category key for filter mode lookup
+        val categoryKey = categoryKeyMap[key] ?: key
+        val canSwitch = canSwitchFilterMode[key] ?: false
+        val currentFilterMode = filterModes[key] ?: "none"
+
         val bottomSheet = StrategyPickerBottomSheet.newInstance(
-            key, name, protocol, iconRes, currentStrategyName, type
+            key, name, protocol, iconRes, currentStrategyName, type, canSwitch, currentFilterMode
         )
-        bottomSheet.setOnStrategySelectedListener { selectedName ->
+
+        // Set listener for strategy and filter mode selection
+        bottomSheet.setOnStrategyAndFilterSelectedListener { selectedName, newFilterMode ->
             selections[key] = selectedName
+            newFilterMode?.let { filterModes[key] = it }
             updateValueText(key, selectedName, type)
             saveConfigAndRestart()
         }
+
+        // Fallback for types that don't have filter mode (debug, pkt_count)
+        bottomSheet.setOnStrategySelectedListener { selectedName ->
+            // Only handle if filter mode callback wasn't used
+            if (type == StrategyPickerBottomSheet.TYPE_DEBUG ||
+                type == StrategyPickerBottomSheet.TYPE_PKT_COUNT) {
+                selections[key] = selectedName
+                updateValueText(key, selectedName, type)
+                saveConfigAndRestart()
+            }
+        }
+
         bottomSheet.show(parentFragmentManager, "strategy_picker")
     }
 
@@ -371,17 +397,20 @@ class StrategiesFragment : Fragment() {
 
     private fun loadConfig() {
         viewLifecycleOwner.lifecycleScope.launch {
-            // Load from categories.txt using StrategyRepository
+            // Load from categories.ini using StrategyRepository
             val categories = StrategyRepository.readCategories()
 
-            // Load each category's strategy
-            // The strategyName is now stored directly in categories.txt
+            // Load each category's strategy and filter mode
             categoryKeyMap.forEach { (uiKey, categoryKey) ->
                 val config = categories[categoryKey]
                 if (config != null) {
                     // Strategy name is now stored directly (not as index)
                     val strategyName = config.strategyName.ifEmpty { "disabled" }
                     selections[uiKey] = strategyName
+
+                    // Store filter mode and check if switching is available
+                    filterModes[uiKey] = config.filterMode
+                    canSwitchFilterMode[uiKey] = config.canSwitchFilterMode
 
                     val isTcp = isTcpCategory[uiKey] == true
                     val type = when {
@@ -435,13 +464,21 @@ class StrategiesFragment : Fragment() {
             // Show loading overlay
             showLoading("Restarting service...")
 
-            // Build updates map: category key -> strategy name
+            // Build strategy updates map: category key -> strategy name
             val categoryUpdates = categoryKeyMap.map { (uiKey, categoryKey) ->
                 categoryKey to (selections[uiKey] ?: "disabled")
             }.toMap()
 
+            // Build filter mode updates map (only for categories that have filter mode set)
+            val filterModeUpdates = categoryKeyMap.mapNotNull { (uiKey, categoryKey) ->
+                filterModes[uiKey]?.let { categoryKey to it }
+            }.toMap()
+
             // Batch update all categories in single file operation (2 shell commands instead of 32!)
-            val allSuccess = StrategyRepository.updateAllCategoryStrategies(categoryUpdates)
+            val allSuccess = StrategyRepository.updateAllCategoryStrategies(
+                categoryUpdates,
+                filterModeUpdates.ifEmpty { null }
+            )
 
             // Save PKT_COUNT and LOG_MODE to config.sh
             val pktCount = selections["pkt_count"] ?: "5"
