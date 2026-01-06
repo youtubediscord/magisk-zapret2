@@ -139,16 +139,24 @@ class NetworkStatsManager(context: Context) {
     /**
      * Checks if iptables NFQUEUE rules are active
      * Must be called from IO dispatcher
+     *
+     * Note: grep -c returns exit code 1 when no matches found (even though it outputs "0"),
+     * so we must check the output value, not the exit code.
+     * Also checks ip6tables for IPv6 rules.
      */
     suspend fun checkIptablesActive(): Boolean = withContext(Dispatchers.IO) {
         try {
-            val result = Shell.cmd("iptables -t mangle -L OUTPUT -n 2>/dev/null | grep -c NFQUEUE").exec()
-            if (result.isSuccess && result.out.isNotEmpty()) {
-                val count = result.out.firstOrNull()?.trim()?.toIntOrNull() ?: 0
-                return@withContext count > 0
-            }
+            // Check IPv4 iptables - grep -c outputs count even on exit code 1 (no matches)
+            val ipv4Result = Shell.cmd("iptables -t mangle -L OUTPUT -n 2>/dev/null | grep -c NFQUEUE || true").exec()
+            val ipv4Count = ipv4Result.out.firstOrNull()?.trim()?.toIntOrNull() ?: 0
+
+            // Check IPv6 ip6tables
+            val ipv6Result = Shell.cmd("ip6tables -t mangle -L OUTPUT -n 2>/dev/null | grep -c NFQUEUE || true").exec()
+            val ipv6Count = ipv6Result.out.firstOrNull()?.trim()?.toIntOrNull() ?: 0
+
+            return@withContext (ipv4Count + ipv6Count) > 0
         } catch (e: Exception) {
-            // Ignore errors
+            Log.e(TAG, "Error checking iptables active", e)
         }
         false
     }
@@ -156,24 +164,34 @@ class NetworkStatsManager(context: Context) {
     /**
      * Gets the count of NFQUEUE rules in iptables
      * Must be called from IO dispatcher
+     *
+     * Note: grep -c returns exit code 1 when no matches found (even though it outputs "0"),
+     * so we use "|| true" to ensure command always succeeds and we can read the count.
+     * Also checks both iptables (IPv4) and ip6tables (IPv6).
      */
     suspend fun getNfqueueRulesCount(): Int = withContext(Dispatchers.IO) {
         try {
-            // Count NFQUEUE rules in OUTPUT chain (mangle table)
-            val outputResult = Shell.cmd("iptables -t mangle -L OUTPUT -n 2>/dev/null | grep -c NFQUEUE").exec()
-            val outputCount = if (outputResult.isSuccess && outputResult.out.isNotEmpty()) {
-                outputResult.out.firstOrNull()?.trim()?.toIntOrNull() ?: 0
-            } else 0
+            var totalCount = 0
 
-            // Count NFQUEUE rules in INPUT chain (mangle table)
-            val inputResult = Shell.cmd("iptables -t mangle -L INPUT -n 2>/dev/null | grep -c NFQUEUE").exec()
-            val inputCount = if (inputResult.isSuccess && inputResult.out.isNotEmpty()) {
-                inputResult.out.firstOrNull()?.trim()?.toIntOrNull() ?: 0
-            } else 0
+            // IPv4: Count NFQUEUE rules in OUTPUT chain (mangle table)
+            val ipv4OutputResult = Shell.cmd("iptables -t mangle -L OUTPUT -n 2>/dev/null | grep -c NFQUEUE || true").exec()
+            totalCount += ipv4OutputResult.out.firstOrNull()?.trim()?.toIntOrNull() ?: 0
 
-            return@withContext outputCount + inputCount
+            // IPv4: Count NFQUEUE rules in INPUT chain (mangle table)
+            val ipv4InputResult = Shell.cmd("iptables -t mangle -L INPUT -n 2>/dev/null | grep -c NFQUEUE || true").exec()
+            totalCount += ipv4InputResult.out.firstOrNull()?.trim()?.toIntOrNull() ?: 0
+
+            // IPv6: Count NFQUEUE rules in OUTPUT chain (mangle table)
+            val ipv6OutputResult = Shell.cmd("ip6tables -t mangle -L OUTPUT -n 2>/dev/null | grep -c NFQUEUE || true").exec()
+            totalCount += ipv6OutputResult.out.firstOrNull()?.trim()?.toIntOrNull() ?: 0
+
+            // IPv6: Count NFQUEUE rules in INPUT chain (mangle table)
+            val ipv6InputResult = Shell.cmd("ip6tables -t mangle -L INPUT -n 2>/dev/null | grep -c NFQUEUE || true").exec()
+            totalCount += ipv6InputResult.out.firstOrNull()?.trim()?.toIntOrNull() ?: 0
+
+            return@withContext totalCount
         } catch (e: Exception) {
-            // Ignore errors
+            Log.e(TAG, "Error counting NFQUEUE rules", e)
         }
         0
     }
