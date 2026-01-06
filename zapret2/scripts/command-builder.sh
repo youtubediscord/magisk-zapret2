@@ -282,7 +282,7 @@ build_category_options_single() {
         udp)
             # UDP/QUIC - use get_udp_strategy_options
             proto_filter="--filter-udp=443,1400,50000-51000"
-            local full_filter="--out-range=-d$PKT_OUT $proto_filter"
+            local full_filter="--out-range=-n$PKT_OUT $proto_filter"
 
             # Add hostlist/ipset if specified
             local filter_opts=$(build_category_filter "$filter_mode" "$hostlist")
@@ -296,7 +296,7 @@ build_category_options_single() {
         tcp|*)
             # TCP (default) - use get_tcp_strategy_options
             proto_filter="--filter-tcp=80,443"
-            local full_filter="--out-range=-d$PKT_OUT $proto_filter"
+            local full_filter="--out-range=-n$PKT_OUT $proto_filter"
 
             # Add hostlist/ipset if specified
             local filter_opts=$(build_category_filter "$filter_mode" "$hostlist")
@@ -475,7 +475,7 @@ build_category_options() {
         # Use default TCP strategy as fallback
         local default_args=$(get_strategy_args_from_ini "$TCP_STRATEGIES_INI" "default")
         if [ -n "$default_args" ]; then
-            OPTS="$OPTS --out-range=-d$PKT_OUT --filter-tcp=80,443 $default_args"
+            OPTS="$OPTS --out-range=-n$PKT_OUT --filter-tcp=80,443 $default_args"
             first=0
         fi
         return
@@ -490,7 +490,7 @@ build_category_options() {
         log_msg "No enabled categories found, using [default] strategy"
         local default_args=$(get_strategy_args_from_ini "$TCP_STRATEGIES_INI" "default")
         if [ -n "$default_args" ]; then
-            OPTS="$OPTS --out-range=-d$PKT_OUT --filter-tcp=80,443 $default_args"
+            OPTS="$OPTS --out-range=-n$PKT_OUT --filter-tcp=80,443 $default_args"
         fi
     fi
 }
