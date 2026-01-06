@@ -31,6 +31,19 @@ jobs:
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
+        with:
+          cache-read-only: false
+
+      - name: Cache Gradle dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+            android-app/.gradle
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
 
       - name: Create keystore
         id: keystore
@@ -99,7 +112,21 @@ jobs:
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD || 'zapret2release' }}
         run: |
           chmod +x gradlew
-          ./gradlew assembleRelease
+          # Retry build up to 3 times (Maven Central sometimes returns 403)
+          for i in 1 2 3; do
+            echo "Build attempt $i..."
+            if ./gradlew assembleRelease --no-daemon; then
+              echo "Build succeeded on attempt $i"
+              break
+            fi
+            if [ $i -lt 3 ]; then
+              echo "Build failed, waiting 30s before retry..."
+              sleep 30
+            else
+              echo "Build failed after 3 attempts"
+              exit 1
+            fi
+          done
         working-directory: android-app
 
       - name: Upload APK
