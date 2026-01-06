@@ -36,32 +36,25 @@ object StrategyRepository {
      * INI format:
      * [category_name]
      * protocol=tcp
-     * enabled=true
-     * filter=--filter-tcp=80,443
-     * hostlist=--hostlist=lists/youtube.txt
+     * hostlist=youtube.txt
+     * ipset=ipset-youtube.txt
+     * filter_mode=ipset
      * strategy=syndata_multisplit_tls_google_700
-     * command=--filter-tcp=80,443 --hostlist=lists/youtube.txt --lua-desync=...
      */
     data class CategoryConfig(
         val key: String,          // e.g., "youtube" (section name)
         val protocol: String,     // "tcp", "udp", or "stun"
-        val enabled: Boolean,     // true if category is enabled
-        val filter: String,       // e.g., "--filter-tcp=80,443"
-        val hostlist: String,     // e.g., "--hostlist=lists/youtube.txt" or "--ipset=lists/ipset-discord.txt"
-        val strategy: String,     // Strategy name (e.g., "syndata_multisplit_tls_google_700" or "disabled")
-        val command: String       // Full nfqws command for this category
+        val hostlistFile: String, // Hostlist filename (e.g., "youtube.txt")
+        val ipsetFile: String,    // IP set filename (e.g., "ipset-youtube.txt")
+        val filterMode: String,   // "ipset", "hostlist", or "none"
+        val strategy: String      // Strategy name (e.g., "syndata_multisplit_tls_google_700" or "disabled")
     ) {
         // Backward compatibility properties
         val strategyName: String get() = strategy
-        val filterMode: String get() = when {
-            hostlist.contains("--ipset=") -> "ipset"
-            hostlist.contains("--hostlist=") -> "hostlist"
-            else -> "none"
-        }
-        val hostlistFile: String get() {
-            val regex = Regex("""(?:--hostlist|--ipset)=(?:lists/)?([^\s]+)""")
-            return regex.find(hostlist)?.groupValues?.get(1) ?: ""
-        }
+        val enabled: Boolean get() = strategy.isNotEmpty() && strategy != "disabled"
+
+        // Check if filter mode switching is available (both files exist)
+        val canSwitchFilterMode: Boolean get() = hostlistFile.isNotEmpty() && ipsetFile.isNotEmpty()
     }
 
     /**
@@ -173,11 +166,10 @@ object StrategyRepository {
      * INI format:
      * [section_name]
      * protocol=tcp
-     * enabled=true
-     * filter=--filter-tcp=80,443
-     * hostlist=--hostlist=lists/youtube.txt
+     * hostlist=youtube.txt
+     * ipset=ipset-youtube.txt
+     * filter_mode=ipset
      * strategy=syndata_multisplit_tls_google_700
-     * command=--filter-tcp=80,443 --hostlist=lists/youtube.txt --lua-desync=...
      */
     suspend fun readCategories(): Map<String, CategoryConfig> {
         return withContext(Dispatchers.IO) {
@@ -188,11 +180,10 @@ object StrategyRepository {
 
             var currentSection = ""
             var protocol = "tcp"
-            var enabled = false
-            var filter = ""
-            var hostlist = ""
+            var hostlistFile = ""
+            var ipsetFile = ""
+            var filterMode = "none"
             var strategy = "disabled"
-            var command = ""
 
             for (line in result.out) {
                 val trimmed = line.trim()
@@ -207,21 +198,19 @@ object StrategyRepository {
                         categories[currentSection] = CategoryConfig(
                             key = currentSection,
                             protocol = protocol,
-                            enabled = enabled,
-                            filter = filter,
-                            hostlist = hostlist,
-                            strategy = strategy,
-                            command = command
+                            hostlistFile = hostlistFile,
+                            ipsetFile = ipsetFile,
+                            filterMode = filterMode,
+                            strategy = strategy
                         )
                     }
                     // Start new section with defaults
                     currentSection = sectionMatch.groupValues[1]
                     protocol = "tcp"
-                    enabled = false
-                    filter = ""
-                    hostlist = ""
+                    hostlistFile = ""
+                    ipsetFile = ""
+                    filterMode = "none"
                     strategy = "disabled"
-                    command = ""
                     continue
                 }
 
@@ -232,11 +221,10 @@ object StrategyRepository {
                     val value = keyValueMatch.groupValues[2]
                     when (key) {
                         "protocol" -> protocol = value.ifEmpty { "tcp" }
-                        "enabled" -> enabled = value == "true"
-                        "filter" -> filter = value
-                        "hostlist" -> hostlist = value
+                        "hostlist" -> hostlistFile = value
+                        "ipset" -> ipsetFile = value
+                        "filter_mode" -> filterMode = value.ifEmpty { "none" }
                         "strategy" -> strategy = value.ifEmpty { "disabled" }
-                        "command" -> command = value
                     }
                 }
             }
@@ -246,11 +234,10 @@ object StrategyRepository {
                 categories[currentSection] = CategoryConfig(
                     key = currentSection,
                     protocol = protocol,
-                    enabled = enabled,
-                    filter = filter,
-                    hostlist = hostlist,
-                    strategy = strategy,
-                    command = command
+                    hostlistFile = hostlistFile,
+                    ipsetFile = ipsetFile,
+                    filterMode = filterMode,
+                    strategy = strategy
                 )
             }
 
@@ -278,7 +265,6 @@ object StrategyRepository {
 
     /**
      * Update strategy for a category in categories.ini by strategy NAME.
-     * Updates both the 'strategy' and 'enabled' fields in the INI section.
      *
      * @param categoryKey The category key (e.g., "youtube")
      * @param newStrategyName The strategy name (e.g., "syndata_multisplit_tls_google_700" or "disabled")
@@ -292,9 +278,6 @@ object StrategyRepository {
             val lines = result.out.toMutableList()
             var inTargetSection = false
             var sectionFound = false
-            var strategyUpdated = false
-            var enabledUpdated = false
-            val isEnabled = newStrategyName.isNotEmpty() && newStrategyName != "disabled"
 
             for (i in lines.indices) {
                 val line = lines[i]
@@ -311,15 +294,9 @@ object StrategyRepository {
                     continue
                 }
 
-                // If in target section, update strategy and enabled fields
-                if (inTargetSection) {
-                    if (trimmed.startsWith("strategy=")) {
-                        lines[i] = "strategy=${newStrategyName.ifEmpty { "disabled" }}"
-                        strategyUpdated = true
-                    } else if (trimmed.startsWith("enabled=")) {
-                        lines[i] = "enabled=$isEnabled"
-                        enabledUpdated = true
-                    }
+                // If in target section, update strategy field
+                if (inTargetSection && trimmed.startsWith("strategy=")) {
+                    lines[i] = "strategy=${newStrategyName.ifEmpty { "disabled" }}"
                 }
             }
 
@@ -334,15 +311,64 @@ object StrategyRepository {
     }
 
     /**
-     * Batch update strategies for multiple categories in a single file operation.
+     * Update filter_mode for a category in categories.ini.
+     *
+     * @param categoryKey The category key (e.g., "youtube")
+     * @param newFilterMode The filter mode ("ipset", "hostlist", or "none")
+     */
+    suspend fun updateCategoryFilterMode(categoryKey: String, newFilterMode: String): Boolean {
+        return withContext(Dispatchers.IO) {
+            // Read current file
+            val result = Shell.cmd("cat $CATEGORIES_FILE 2>/dev/null").exec()
+            if (!result.isSuccess) return@withContext false
+
+            val lines = result.out.toMutableList()
+            var inTargetSection = false
+            var sectionFound = false
+
+            for (i in lines.indices) {
+                val line = lines[i]
+                val trimmed = line.trim()
+
+                // Check for section header
+                val sectionMatch = Regex("""^\[([a-zA-Z0-9_]+)\]$""").find(trimmed)
+                if (sectionMatch != null) {
+                    // If we were in target section and leaving, break
+                    if (inTargetSection) break
+                    // Check if this is our target section
+                    inTargetSection = sectionMatch.groupValues[1] == categoryKey
+                    if (inTargetSection) sectionFound = true
+                    continue
+                }
+
+                // If in target section, update filter_mode field
+                if (inTargetSection && trimmed.startsWith("filter_mode=")) {
+                    lines[i] = "filter_mode=$newFilterMode"
+                }
+            }
+
+            if (!sectionFound) return@withContext false
+
+            // Write back preserving original formatting
+            val newContent = lines.joinToString("\n")
+            val escaped = newContent.replace("'", "'\\''")
+            val writeResult = Shell.cmd("echo '$escaped' > $CATEGORIES_FILE").exec()
+            writeResult.isSuccess
+        }
+    }
+
+    /**
+     * Batch update strategies and filter modes for multiple categories in a single file operation.
      * Much more efficient than calling updateCategoryStrategyByName() multiple times.
      * Reduces many shell commands to just 2 (one read, one write).
      *
-     * Updates both 'strategy' and 'enabled' fields for each category in the INI file.
-     *
-     * @param updates Map of category key to strategy name (e.g., "youtube" to "syndata_multisplit_tls_google_700")
+     * @param strategyUpdates Map of category key to strategy name (e.g., "youtube" to "syndata_multisplit_tls_google_700")
+     * @param filterModeUpdates Optional map of category key to filter mode ("ipset", "hostlist", or "none")
      */
-    suspend fun updateAllCategoryStrategies(updates: Map<String, String>): Boolean {
+    suspend fun updateAllCategoryStrategies(
+        strategyUpdates: Map<String, String>,
+        filterModeUpdates: Map<String, String>? = null
+    ): Boolean {
         return withContext(Dispatchers.IO) {
             // Read file ONCE
             val result = Shell.cmd("cat $CATEGORIES_FILE 2>/dev/null").exec()
@@ -366,14 +392,17 @@ object StrategyRepository {
                     continue
                 }
 
-                // If current section is in updates map, update strategy and enabled
-                updates[currentSection]?.let { newStrategyName ->
-                    val isEnabled = newStrategyName.isNotEmpty() && newStrategyName != "disabled"
-
+                // Update strategy if current section is in strategyUpdates map
+                strategyUpdates[currentSection]?.let { newStrategyName ->
                     if (trimmed.startsWith("strategy=")) {
                         lines[i] = "strategy=${newStrategyName.ifEmpty { "disabled" }}"
-                    } else if (trimmed.startsWith("enabled=")) {
-                        lines[i] = "enabled=$isEnabled"
+                    }
+                }
+
+                // Update filter_mode if current section is in filterModeUpdates map
+                filterModeUpdates?.get(currentSection)?.let { newFilterMode ->
+                    if (trimmed.startsWith("filter_mode=")) {
+                        lines[i] = "filter_mode=$newFilterMode"
                     }
                 }
             }

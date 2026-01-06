@@ -214,28 +214,25 @@ build_debug_opts() {
 
 build_category_filter() {
     local filter_mode="$1"
-    local hostlist_file="$2"
+    local filter_file="$2"
     local filter_opts=""
 
     case "$filter_mode" in
         hostlist)
-            if [ -n "$hostlist_file" ] && [ -f "$LISTS_DIR/$hostlist_file" ]; then
-                filter_opts="--hostlist=$LISTS_DIR/$hostlist_file"
-                log_debug "Using hostlist: $hostlist_file"
+            if [ -n "$filter_file" ] && [ -f "$LISTS_DIR/$filter_file" ]; then
+                filter_opts="--hostlist=$LISTS_DIR/$filter_file"
+                log_debug "Using hostlist: $filter_file"
+            elif [ -n "$filter_file" ]; then
+                log_debug "Hostlist file not found: $LISTS_DIR/$filter_file"
             fi
             ;;
         ipset)
-            local ipset_file
-            if [ "${hostlist_file#ipset-}" != "$hostlist_file" ]; then
-                # Already has ipset- prefix
-                ipset_file="$hostlist_file"
-            else
-                # Add ipset- prefix
-                ipset_file="ipset-${hostlist_file}"
-            fi
-            if [ -n "$hostlist_file" ] && [ -f "$LISTS_DIR/$ipset_file" ]; then
-                filter_opts="--ipset=$LISTS_DIR/$ipset_file"
-                log_debug "Using ipset: $ipset_file"
+            # filter_file is the ipset filename directly from categories.ini
+            if [ -n "$filter_file" ] && [ -f "$LISTS_DIR/$filter_file" ]; then
+                filter_opts="--ipset=$LISTS_DIR/$filter_file"
+                log_debug "Using ipset: $filter_file"
+            elif [ -n "$filter_file" ]; then
+                log_debug "Ipset file not found: $LISTS_DIR/$filter_file"
             fi
             ;;
         none|*)
@@ -333,11 +330,14 @@ build_category_options_single() {
 
 # Parse categories.txt INI file and build options for each category
 # Modifies global: OPTS, first
+# New format supports: hostlist, ipset, filter_mode fields
 parse_categories() {
     local ini_file="$CATEGORIES_FILE"
     local current_section=""
     local protocol=""
-    local file=""
+    local hostlist=""
+    local ipset=""
+    local filter_mode=""
     local strategy=""
 
     if [ ! -f "$ini_file" ]; then
@@ -361,18 +361,42 @@ parse_categories() {
         if echo "$line" | grep -q '^\[.*\]$'; then
             # Process previous section if valid
             if [ -n "$current_section" ] && [ -n "$strategy" ] && [ "$strategy" != "disabled" ]; then
-                # Determine filter_mode based on file name
-                local filter_mode="hostlist"
-                case "$file" in
-                    ipset-*) filter_mode="ipset" ;;
+                # Determine the file to use based on filter_mode
+                local filter_file=""
+                local effective_filter_mode="$filter_mode"
+
+                # Default filter_mode to hostlist if not specified but hostlist exists
+                if [ -z "$effective_filter_mode" ]; then
+                    if [ -n "$hostlist" ]; then
+                        effective_filter_mode="hostlist"
+                    elif [ -n "$ipset" ]; then
+                        effective_filter_mode="ipset"
+                    else
+                        effective_filter_mode="none"
+                    fi
+                fi
+
+                case "$effective_filter_mode" in
+                    ipset)
+                        filter_file="$ipset"
+                        ;;
+                    hostlist)
+                        filter_file="$hostlist"
+                        ;;
+                    none|*)
+                        filter_file=""
+                        ;;
                 esac
-                build_category_options_single "$current_section" "$protocol" "$filter_mode" "$file" "$strategy"
+
+                build_category_options_single "$current_section" "$protocol" "$effective_filter_mode" "$filter_file" "$strategy"
             fi
 
             # Extract section name (remove [ and ])
             current_section=$(echo "$line" | sed 's/^\[\(.*\)\]$/\1/')
             protocol="tcp"
-            file=""
+            hostlist=""
+            ipset=""
+            filter_mode=""
             strategy=""
             log_debug "Found section: $current_section"
             continue
@@ -387,8 +411,14 @@ parse_categories() {
                 protocol)
                     protocol="$value"
                     ;;
-                file)
-                    file="$value"
+                hostlist)
+                    hostlist="$value"
+                    ;;
+                ipset)
+                    ipset="$value"
+                    ;;
+                filter_mode)
+                    filter_mode="$value"
                     ;;
                 strategy)
                     strategy="$value"
@@ -399,11 +429,34 @@ parse_categories() {
 
     # Don't forget last section
     if [ -n "$current_section" ] && [ -n "$strategy" ] && [ "$strategy" != "disabled" ]; then
-        local filter_mode="hostlist"
-        case "$file" in
-            ipset-*) filter_mode="ipset" ;;
+        # Determine the file to use based on filter_mode
+        local filter_file=""
+        local effective_filter_mode="$filter_mode"
+
+        # Default filter_mode to hostlist if not specified but hostlist exists
+        if [ -z "$effective_filter_mode" ]; then
+            if [ -n "$hostlist" ]; then
+                effective_filter_mode="hostlist"
+            elif [ -n "$ipset" ]; then
+                effective_filter_mode="ipset"
+            else
+                effective_filter_mode="none"
+            fi
+        fi
+
+        case "$effective_filter_mode" in
+            ipset)
+                filter_file="$ipset"
+                ;;
+            hostlist)
+                filter_file="$hostlist"
+                ;;
+            none|*)
+                filter_file=""
+                ;;
         esac
-        build_category_options_single "$current_section" "$protocol" "$filter_mode" "$file" "$strategy"
+
+        build_category_options_single "$current_section" "$protocol" "$effective_filter_mode" "$filter_file" "$strategy"
     fi
 
     return 0

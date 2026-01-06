@@ -5,6 +5,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.RadioButton
 import android.widget.TextView
@@ -18,7 +19,7 @@ import kotlinx.coroutines.launch
  * Bottom sheet for selecting a strategy for a hostlist or category.
  *
  * Now works with strategy NAMES instead of indices.
- * Returns the selected strategy ID (name) via callback.
+ * Returns the selected strategy ID (name) and optional filter mode via callback.
  */
 class StrategyPickerBottomSheet : BottomSheetDialogFragment() {
 
@@ -29,6 +30,8 @@ class StrategyPickerBottomSheet : BottomSheetDialogFragment() {
         private const val ARG_ICON_RES = "icon_res"
         private const val ARG_CURRENT_STRATEGY_NAME = "current_strategy_name"
         private const val ARG_STRATEGY_TYPE = "strategy_type"
+        private const val ARG_CAN_SWITCH_FILTER = "can_switch_filter"
+        private const val ARG_CURRENT_FILTER_MODE = "current_filter_mode"
 
         const val TYPE_TCP = "tcp"
         const val TYPE_UDP = "udp"
@@ -45,7 +48,9 @@ class StrategyPickerBottomSheet : BottomSheetDialogFragment() {
             protocol: String,
             iconRes: Int,
             currentStrategyName: String,  // Now accepts name instead of index
-            strategyType: String
+            strategyType: String,
+            canSwitchFilterMode: Boolean = false,
+            currentFilterMode: String = "none"
         ): StrategyPickerBottomSheet {
             return StrategyPickerBottomSheet().apply {
                 arguments = Bundle().apply {
@@ -55,16 +60,30 @@ class StrategyPickerBottomSheet : BottomSheetDialogFragment() {
                     putInt(ARG_ICON_RES, iconRes)
                     putString(ARG_CURRENT_STRATEGY_NAME, currentStrategyName)  // Store as String
                     putString(ARG_STRATEGY_TYPE, strategyType)
+                    putBoolean(ARG_CAN_SWITCH_FILTER, canSwitchFilterMode)
+                    putString(ARG_CURRENT_FILTER_MODE, currentFilterMode)
                 }
             }
         }
     }
 
-    // Callback now returns strategy NAME (String) instead of index (Int)
+    // Callback now returns strategy NAME and optional filter mode
     private var onStrategySelected: ((String) -> Unit)? = null
+    private var onStrategyAndFilterSelected: ((String, String?) -> Unit)? = null
+
+    // Current selected filter mode (updated when user clicks toggle)
+    private var selectedFilterMode: String = "none"
 
     fun setOnStrategySelectedListener(listener: (String) -> Unit) {
         onStrategySelected = listener
+    }
+
+    /**
+     * Set listener that receives both strategy name and filter mode.
+     * Filter mode will be null if filter mode switching is not available.
+     */
+    fun setOnStrategyAndFilterSelectedListener(listener: (String, String?) -> Unit) {
+        onStrategyAndFilterSelected = listener
     }
 
     override fun getTheme(): Int = R.style.Theme_Zapret2_BottomSheet
@@ -86,30 +105,74 @@ class StrategyPickerBottomSheet : BottomSheetDialogFragment() {
         val iconRes = arguments?.getInt(ARG_ICON_RES) ?: R.drawable.ic_settings
         val currentStrategyName = arguments?.getString(ARG_CURRENT_STRATEGY_NAME) ?: "disabled"
         val strategyType = arguments?.getString(ARG_STRATEGY_TYPE) ?: TYPE_TCP
+        val canSwitchFilter = arguments?.getBoolean(ARG_CAN_SWITCH_FILTER) ?: false
+        val currentFilterMode = arguments?.getString(ARG_CURRENT_FILTER_MODE) ?: "none"
+
+        // Initialize selected filter mode
+        selectedFilterMode = currentFilterMode
 
         // Set title and icon
         view.findViewById<TextView>(R.id.sheetTitle).text = categoryName
         view.findViewById<TextView>(R.id.sheetProtocol).text = protocol
         view.findViewById<ImageView>(R.id.sheetIcon).setImageResource(iconRes)
 
+        // Setup filter mode toggle if available
+        val filterModeContainer = view.findViewById<LinearLayout>(R.id.filterModeContainer)
+        val btnFilterIpset = view.findViewById<TextView>(R.id.btnFilterIpset)
+        val btnFilterHostlist = view.findViewById<TextView>(R.id.btnFilterHostlist)
+
+        if (canSwitchFilter && strategyType in listOf(TYPE_TCP, TYPE_UDP, TYPE_VOICE)) {
+            filterModeContainer.visibility = View.VISIBLE
+            updateFilterModeButtons(btnFilterIpset, btnFilterHostlist, currentFilterMode)
+
+            btnFilterIpset.setOnClickListener {
+                selectedFilterMode = "ipset"
+                updateFilterModeButtons(btnFilterIpset, btnFilterHostlist, "ipset")
+            }
+
+            btnFilterHostlist.setOnClickListener {
+                selectedFilterMode = "hostlist"
+                updateFilterModeButtons(btnFilterIpset, btnFilterHostlist, "hostlist")
+            }
+        } else {
+            filterModeContainer.visibility = View.GONE
+        }
+
         val recyclerView = view.findViewById<RecyclerView>(R.id.recyclerStrategies)
         recyclerView.layoutManager = LinearLayoutManager(requireContext())
 
         // Load strategies asynchronously for TCP/UDP/Voice
         when (strategyType) {
-            TYPE_TCP -> loadStrategiesAsync(recyclerView, true, currentStrategyName)
-            TYPE_UDP -> loadStrategiesAsync(recyclerView, false, currentStrategyName)
-            TYPE_VOICE -> loadStunStrategiesAsync(recyclerView, currentStrategyName)  // Voice uses STUN strategies
-            TYPE_DEBUG -> setupAdapter(recyclerView, getDebugModes(), currentStrategyName)
-            TYPE_PKT_COUNT -> setupAdapter(recyclerView, getPktCountOptions(), currentStrategyName)
-            else -> loadStrategiesAsync(recyclerView, true, currentStrategyName)
+            TYPE_TCP -> loadStrategiesAsync(recyclerView, true, currentStrategyName, canSwitchFilter)
+            TYPE_UDP -> loadStrategiesAsync(recyclerView, false, currentStrategyName, canSwitchFilter)
+            TYPE_VOICE -> loadStunStrategiesAsync(recyclerView, currentStrategyName, canSwitchFilter)
+            TYPE_DEBUG -> setupAdapter(recyclerView, getDebugModes(), currentStrategyName, false)
+            TYPE_PKT_COUNT -> setupAdapter(recyclerView, getPktCountOptions(), currentStrategyName, false)
+            else -> loadStrategiesAsync(recyclerView, true, currentStrategyName, canSwitchFilter)
+        }
+    }
+
+    /**
+     * Update filter mode toggle button states
+     */
+    private fun updateFilterModeButtons(btnIpset: TextView, btnHostlist: TextView, selectedMode: String) {
+        if (selectedMode == "ipset") {
+            btnIpset.setBackgroundResource(R.drawable.segmented_button_left_selected)
+            btnIpset.setTextColor(0xFFFFFFFF.toInt())
+            btnHostlist.setBackgroundResource(R.drawable.segmented_button_right)
+            btnHostlist.setTextColor(0xFF888888.toInt())
+        } else {
+            btnIpset.setBackgroundResource(R.drawable.segmented_button_left)
+            btnIpset.setTextColor(0xFF888888.toInt())
+            btnHostlist.setBackgroundResource(R.drawable.segmented_button_right_selected)
+            btnHostlist.setTextColor(0xFFFFFFFF.toInt())
         }
     }
 
     /**
      * Load TCP/UDP strategies asynchronously and setup adapter
      */
-    private fun loadStrategiesAsync(recyclerView: RecyclerView, isTcp: Boolean, currentStrategyName: String) {
+    private fun loadStrategiesAsync(recyclerView: RecyclerView, isTcp: Boolean, currentStrategyName: String, canSwitchFilter: Boolean) {
         lifecycleScope.launch {
             val strategyInfoList = if (isTcp) {
                 StrategyRepository.getTcpStrategies()
@@ -127,14 +190,14 @@ class StrategyPickerBottomSheet : BottomSheetDialogFragment() {
                 )
             }
 
-            setupAdapter(recyclerView, strategies, currentStrategyName)
+            setupAdapter(recyclerView, strategies, currentStrategyName, canSwitchFilter)
         }
     }
 
     /**
      * Load STUN strategies asynchronously for voice/video calls
      */
-    private fun loadStunStrategiesAsync(recyclerView: RecyclerView, currentStrategyName: String) {
+    private fun loadStunStrategiesAsync(recyclerView: RecyclerView, currentStrategyName: String, canSwitchFilter: Boolean) {
         lifecycleScope.launch {
             val strategyInfoList = StrategyRepository.getStunStrategies()
 
@@ -147,7 +210,7 @@ class StrategyPickerBottomSheet : BottomSheetDialogFragment() {
                 )
             }
 
-            setupAdapter(recyclerView, strategies, currentStrategyName)
+            setupAdapter(recyclerView, strategies, currentStrategyName, canSwitchFilter)
         }
     }
 
@@ -155,9 +218,12 @@ class StrategyPickerBottomSheet : BottomSheetDialogFragment() {
      * Setup adapter with strategy items
      * Now finds selected item by NAME instead of index
      */
-    private fun setupAdapter(recyclerView: RecyclerView, strategies: List<StrategyItem>, currentStrategyName: String) {
+    private fun setupAdapter(recyclerView: RecyclerView, strategies: List<StrategyItem>, currentStrategyName: String, canSwitchFilter: Boolean) {
         recyclerView.adapter = StrategyAdapter(strategies, currentStrategyName) { selectedId ->
-            // Return the strategy ID (name), not index
+            // Return the strategy ID (name) and optional filter mode
+            if (canSwitchFilter) {
+                onStrategyAndFilterSelected?.invoke(selectedId, selectedFilterMode)
+            }
             onStrategySelected?.invoke(selectedId)
             dismiss()
         }
