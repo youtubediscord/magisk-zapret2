@@ -56,6 +56,56 @@
         android:textColor="#888888"
         android:textSize="12sp" />
 
+    <!-- Filter Mode Toggle (hidden by default, shown when both hostlist and ipset available) -->
+    <LinearLayout
+        android:id="@+id/filterModeContainer"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:visibility="gone"
+        android:paddingHorizontal="24dp"
+        android:paddingBottom="12dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Filter Mode"
+            android:textColor="#888888"
+            android:textSize="12sp"
+            android:paddingBottom="8dp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="40dp"
+            android:orientation="horizontal"
+            android:background="@drawable/segmented_control_background">
+
+            <TextView
+                android:id="@+id/btnFilterIpset"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:gravity="center"
+                android:text="IP Set"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp"
+                android:background="@drawable/segmented_button_left_selected" />
+
+            <TextView
+                android:id="@+id/btnFilterHostlist"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:gravity="center"
+                android:text="Hostlist"
+                android:textColor="#888888"
+                android:textSize="14sp"
+                android:background="@drawable/segmented_button_right" />
+
+        </LinearLayout>
+
+    </LinearLayout>
+
     <!-- Divider -->
     <View
         android:layout_width="match_parent"
