@@ -27,3 +27,8 @@ PRESET_MODE=categories
 
 # Preset file name in zapret2/presets/ (used when PRESET_MODE=file)
 PRESET_FILE="Default.txt"
+
+# Privilege drop for nfqws2.
+# Default: run as root on Android to avoid hostlist access issues.
+# Set to "1:3003" if you want privilege drop and your filesystem labels allow it.
+NFQWS_UID=""
