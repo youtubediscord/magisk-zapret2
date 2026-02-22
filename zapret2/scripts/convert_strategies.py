@@ -9,6 +9,7 @@ an INI file compatible with the other strategy files (strategies-udp.ini, strate
 import re
 import os
 from pathlib import Path
+from typing import Optional
 
 
 def parse_strategies_sh(content: str) -> dict:
@@ -110,7 +111,7 @@ def generate_description(name: str) -> str:
     return desc
 
 
-def write_ini(strategies: dict, output_path: str, default_strategy: str = None):
+def write_ini(strategies: dict, output_path: str, default_strategy: Optional[str] = None):
     """
     Write strategies to INI format file.
     """
@@ -124,7 +125,7 @@ def write_ini(strategies: dict, output_path: str, default_strategy: str = None):
         "# - args: Lua desync arguments (WITHOUT --filter-tcp, --hostlist - they come from categories)",
         "#",
         "# Usage: These strategies are applied to TCP/TLS traffic",
-        "# Filter arguments (--filter-tcp, --hostlist, --ipset) are added by categories.txt",
+        "# Filter arguments (--filter-tcp, --hostlist, --ipset) are added by categories.ini",
         "",
         "[disabled]",
         "desc=TCP bypass disabled",

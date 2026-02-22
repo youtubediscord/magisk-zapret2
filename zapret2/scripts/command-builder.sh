@@ -69,12 +69,16 @@ get_strategy_args_from_ini() {
 get_tcp_strategy_options() {
     local strategy_name="$1"
     local filter="$2"
+    local requested_strategy="$strategy_name"
 
     local args=$(get_strategy_args_from_ini "$TCP_STRATEGIES_INI" "$strategy_name")
 
     if [ -n "$args" ]; then
         echo "$filter $args"
     else
+        if [ -n "$requested_strategy" ] && [ "$requested_strategy" != "default" ]; then
+            log_msg "WARNING: TCP strategy [$requested_strategy] not found in $TCP_STRATEGIES_INI, falling back to [default]"
+        fi
         # Fallback to default strategy
         args=$(get_strategy_args_from_ini "$TCP_STRATEGIES_INI" "default")
         if [ -n "$args" ]; then
@@ -89,12 +93,16 @@ get_tcp_strategy_options() {
 get_udp_strategy_options() {
     local strategy_name="$1"
     local filter="$2"
+    local requested_strategy="$strategy_name"
 
     local args=$(get_strategy_args_from_ini "$UDP_STRATEGIES_INI" "$strategy_name")
 
     if [ -n "$args" ]; then
         echo "$filter $args"
     else
+        if [ -n "$requested_strategy" ] && [ "$requested_strategy" != "default" ]; then
+            log_msg "WARNING: UDP strategy [$requested_strategy] not found in $UDP_STRATEGIES_INI, falling back to [default]"
+        fi
         # Fallback to default strategy
         args=$(get_strategy_args_from_ini "$UDP_STRATEGIES_INI" "default")
         if [ -n "$args" ]; then
@@ -109,6 +117,7 @@ get_udp_strategy_options() {
 get_stun_strategy_options() {
     local strategy_name="$1"
     local filter="$2"
+    local requested_strategy="$strategy_name"
 
     local args=$(get_strategy_args_from_ini "$STUN_STRATEGIES_INI" "$strategy_name")
 
@@ -120,6 +129,9 @@ get_stun_strategy_options() {
             echo "$args"
         fi
     else
+        if [ -n "$requested_strategy" ] && [ "$requested_strategy" != "default" ]; then
+            log_msg "WARNING: STUN strategy [$requested_strategy] not found in $STUN_STRATEGIES_INI, falling back to [default]"
+        fi
         # Fallback to default strategy
         args=$(get_strategy_args_from_ini "$STUN_STRATEGIES_INI" "default")
         if [ -n "$args" ]; then
@@ -573,10 +585,27 @@ process_category_section() {
             ;;
     esac
 
+    case "$effective_filter_mode" in
+        hostlist|ipset)
+            if [ -z "$filter_file" ]; then
+                log_msg "WARNING: Skipping category [$current_section]: filter_mode=$effective_filter_mode requires a file, but none is set"
+                return
+            fi
+            if [ ! -f "$LISTS_DIR/$filter_file" ]; then
+                log_msg "WARNING: Skipping category [$current_section]: $effective_filter_mode file not found: $LISTS_DIR/$filter_file"
+                return
+            fi
+            if [ ! -r "$LISTS_DIR/$filter_file" ]; then
+                log_msg "WARNING: Skipping category [$current_section]: $effective_filter_mode file is not readable: $LISTS_DIR/$filter_file"
+                return
+            fi
+            ;;
+    esac
+
     build_category_options_single "$current_section" "$protocol" "$effective_filter_mode" "$filter_file" "$strategy"
 }
 
-# Parse categories.txt INI file and build options for each category
+# Parse categories.ini file and build options for each category
 # Modifies global: OPTS, first
 # New format supports: hostlist, ipset, hostlist-domains, filter_mode fields
 parse_categories() {

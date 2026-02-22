@@ -14,6 +14,10 @@
             android:icon="@drawable/ic_shield"
             android:title="Presets" />
         <item
+            android:id="@+id/nav_editor"
+            android:icon="@drawable/ic_strategies"
+            android:title="Editor" />
+        <item
             android:id="@+id/nav_hostlists"
             android:icon="@drawable/ic_hostlist"
             android:title="Hostlists" />
