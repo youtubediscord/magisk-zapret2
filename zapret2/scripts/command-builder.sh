@@ -249,6 +249,12 @@ resolve_preset_file_path() {
     esac
 }
 
+# Returns 0 if file exists and is readable.
+is_readable_file() {
+    local file_path="$1"
+    [ -f "$file_path" ] && [ -r "$file_path" ]
+}
+
 # Build options from a Windows-style preset TXT file.
 # Modifies global: OPTS, PRESET_HAS_LUA, PRESET_HAS_BLOB
 build_preset_file_options() {
@@ -267,6 +273,10 @@ build_preset_file_options() {
 
     if [ ! -f "$preset_file" ]; then
         log_error "Preset file not found: $preset_file"
+        return 1
+    fi
+    if [ ! -r "$preset_file" ]; then
+        log_error "Preset file is not readable: $preset_file"
         return 1
     fi
 
@@ -326,6 +336,11 @@ build_preset_file_options() {
                     skipped=$((skipped + 1))
                     continue
                 fi
+                if [ ! -r "$resolved" ]; then
+                    log_msg "Skipping unreadable Lua file in preset: $resolved"
+                    skipped=$((skipped + 1))
+                    continue
+                fi
                 PRESET_HAS_LUA=1
                 ;;
             --blob=*:@*)
@@ -336,19 +351,25 @@ build_preset_file_options() {
                     skipped=$((skipped + 1))
                     continue
                 fi
+                if [ ! -r "$resolved" ]; then
+                    log_msg "Skipping unreadable blob file in preset: $resolved"
+                    skipped=$((skipped + 1))
+                    continue
+                fi
                 PRESET_HAS_BLOB=1
                 ;;
             --hostlist=*|--hostlist-exclude=*|--ipset=*|--ipset-exclude=*)
                 resolved="${line#*=}"
-                case "$resolved" in
-                    /*)
-                        if [ ! -f "$resolved" ]; then
-                            log_msg "Skipping missing list file in preset: $resolved"
-                            skipped=$((skipped + 1))
-                            continue
-                        fi
-                        ;;
-                esac
+                if [ ! -f "$resolved" ]; then
+                    log_msg "Skipping missing list file in preset: $resolved"
+                    skipped=$((skipped + 1))
+                    continue
+                fi
+                if [ ! -r "$resolved" ]; then
+                    log_msg "Skipping unreadable list file in preset: $resolved"
+                    skipped=$((skipped + 1))
+                    continue
+                fi
                 ;;
             --blob=*)
                 PRESET_HAS_BLOB=1
@@ -390,18 +411,22 @@ build_category_filter() {
 
     case "$filter_mode" in
         hostlist)
-            if [ -n "$filter_file" ] && [ -f "$LISTS_DIR/$filter_file" ]; then
+            if [ -n "$filter_file" ] && is_readable_file "$LISTS_DIR/$filter_file"; then
                 filter_opts="--hostlist=$LISTS_DIR/$filter_file"
                 log_debug "Using hostlist: $filter_file"
+            elif [ -n "$filter_file" ] && [ -f "$LISTS_DIR/$filter_file" ]; then
+                log_msg "WARNING: Hostlist file is not readable: $LISTS_DIR/$filter_file"
             elif [ -n "$filter_file" ]; then
                 log_debug "Hostlist file not found: $LISTS_DIR/$filter_file"
             fi
             ;;
         ipset)
             # filter_file is the ipset filename directly from categories.ini
-            if [ -n "$filter_file" ] && [ -f "$LISTS_DIR/$filter_file" ]; then
+            if [ -n "$filter_file" ] && is_readable_file "$LISTS_DIR/$filter_file"; then
                 filter_opts="--ipset=$LISTS_DIR/$filter_file"
                 log_debug "Using ipset: $filter_file"
+            elif [ -n "$filter_file" ] && [ -f "$LISTS_DIR/$filter_file" ]; then
+                log_msg "WARNING: Ipset file is not readable: $LISTS_DIR/$filter_file"
             elif [ -n "$filter_file" ]; then
                 log_debug "Ipset file not found: $LISTS_DIR/$filter_file"
             fi
