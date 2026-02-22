@@ -220,11 +220,14 @@ class StrategyPickerBottomSheet : BottomSheetDialogFragment() {
      */
     private fun setupAdapter(recyclerView: RecyclerView, strategies: List<StrategyItem>, currentStrategyName: String, canSwitchFilter: Boolean) {
         recyclerView.adapter = StrategyAdapter(strategies, currentStrategyName) { selectedId ->
-            // Return the strategy ID (name) and optional filter mode
-            if (canSwitchFilter) {
-                onStrategyAndFilterSelected?.invoke(selectedId, selectedFilterMode)
+            // Return strategy ID and filter mode when listener is available.
+            // For categories without filter switch, filter mode is null.
+            if (onStrategyAndFilterSelected != null) {
+                val filterMode = if (canSwitchFilter) selectedFilterMode else null
+                onStrategyAndFilterSelected?.invoke(selectedId, filterMode)
+            } else {
+                onStrategySelected?.invoke(selectedId)
             }
-            onStrategySelected?.invoke(selectedId)
             dismiss()
         }
     }
