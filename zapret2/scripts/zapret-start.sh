@@ -88,6 +88,9 @@ set_default_config() {
     PRESET_MODE="categories"
     PRESET_FILE="Default.txt"
 
+    # Drop privileges after start (empty by default on Android)
+    NFQWS_UID=""
+
     # Logging
     LOG_MODE="android"
     DEBUG=0
@@ -149,6 +152,7 @@ load_config() {
     log_debug "STRATEGY_PRESET=$STRATEGY_PRESET"
     log_debug "PRESET_MODE=$PRESET_MODE"
     log_debug "PRESET_FILE=$PRESET_FILE"
+    log_debug "NFQWS_UID=${NFQWS_UID:-<root>}"
     log_debug "HOSTLIST_MODE=$HOSTLIST_MODE"
     log_debug "PKT_OUT=$PKT_OUT"
     log_debug "PKT_IN=$PKT_IN"
@@ -216,11 +220,22 @@ check_binary() {
 
 # Refresh permissions for files that can change between updates/restarts.
 refresh_dynamic_file_permissions() {
+    # Parent directories must be traversable by dropped uid.
+    chmod 755 /data 2>/dev/null
+    chmod 755 /data/adb 2>/dev/null
+    chmod 755 /data/adb/modules 2>/dev/null
+    chmod 755 "$MODDIR" 2>/dev/null
+    chmod 755 "$ZAPRET_DIR" 2>/dev/null
+
     # Subdirectories that must stay traversable/readable
     chmod 755 "$ZAPRET_DIR/lua" 2>/dev/null
     chmod 755 "$ZAPRET_DIR/bin" 2>/dev/null
     chmod 755 "$LISTS_DIR" 2>/dev/null
     chmod 755 "$PRESETS_DIR" 2>/dev/null
+    chmod 755 "$ZAPRET_DIR/scripts" 2>/dev/null
+
+    # Binary needs execute
+    chmod 755 "$NFQWS2" 2>/dev/null
 
     # Lua files - READ for all
     chmod 644 "$ZAPRET_DIR/lua/"*.lua 2>/dev/null
@@ -234,6 +249,9 @@ refresh_dynamic_file_permissions() {
 
     # Preset files - READ for all
     chmod 644 "$PRESETS_DIR/"*.txt 2>/dev/null
+
+    # Keep SELinux labels aligned for module files
+    chcon -R u:object_r:system_file:s0 "$MODDIR" 2>/dev/null
 }
 
 # Fix permissions for non-root access after privilege drop
@@ -361,64 +379,93 @@ apply_iptables() {
 # NFQWS2 STARTUP
 ##########################################################################################
 
+should_retry_without_uid_drop() {
+    [ -n "${NFQWS_UID:-}" ] || return 1
+    [ -s "$ERROR_LOG" ] || return 1
+
+    if grep -q "file_open_test: Permission denied" "$ERROR_LOG" 2>/dev/null &&
+       grep -q "cannot access \(hostlist\|ipset\) file" "$ERROR_LOG" 2>/dev/null; then
+        return 0
+    fi
+
+    return 1
+}
+
 # Start nfqws2 daemon
 start_nfqws2() {
     log_section "Starting nfqws2"
 
-    # Build options
-    OPTS=$(build_options)
-    if [ $? -ne 0 ]; then
-        log_error "Failed to build options"
-        return 1
-    fi
+    local retried_without_uid=0
 
-    # Save full command line to file for WebUI access
-    echo "$NFQWS2 $OPTS" > "$CMDLINE_FILE"
-    log_msg "Command saved to: $CMDLINE_FILE"
+    while true; do
+        # Build options
+        OPTS=$(build_options)
+        if [ $? -ne 0 ]; then
+            log_error "Failed to build options"
+            return 1
+        fi
 
-    # Log full command
-    log_section "FULL COMMAND LINE"
-    log_msg "$NFQWS2 $OPTS"
-    log_section "END COMMAND LINE"
+        # Save full command line to file for WebUI access
+        echo "$NFQWS2 $OPTS" > "$CMDLINE_FILE"
+        log_msg "Command saved to: $CMDLINE_FILE"
 
-    # Clear previous logs
-    > "$STARTUP_LOG"
-    > "$ERROR_LOG"
+        # Log full command
+        log_section "FULL COMMAND LINE"
+        log_msg "$NFQWS2 $OPTS"
+        log_section "END COMMAND LINE"
 
-    # Start nfqws2 in background, capturing output
-    $NFQWS2 $OPTS >"$STARTUP_LOG" 2>"$ERROR_LOG" &
-    PID=$!
+        # Clear previous logs
+        > "$STARTUP_LOG"
+        > "$ERROR_LOG"
 
-    # Quick check - nfqws2 starts in milliseconds
-    sleep 0.2
+        # Start nfqws2 in background, capturing output
+        $NFQWS2 $OPTS >"$STARTUP_LOG" 2>"$ERROR_LOG" &
+        PID=$!
 
-    # Parse and log startup output (skip in fast restart mode)
-    if [ "$FAST_RESTART" != "1" ]; then
-        parse_startup_output
-    fi
+        # Quick check - nfqws2 starts in milliseconds
+        sleep 0.2
 
-    # Check if process is running
-    if [ -d "/proc/$PID" ]; then
-        echo $PID > "$PIDFILE"
-        log_msg "nfqws2 started successfully (PID: $PID)"
+        # Parse and log startup output (skip in fast restart mode)
+        if [ "$FAST_RESTART" != "1" ]; then
+            parse_startup_output
+        fi
 
-        # Count and display active strategies
-        local new_count=$(echo "$OPTS" | grep -o '\--new' | wc -l)
-        local strategy_count=$((new_count + 1))
-        log_msg "Active strategies: $strategy_count"
+        # Check if process is running
+        if [ -d "/proc/$PID" ]; then
+            echo $PID > "$PIDFILE"
+            log_msg "nfqws2 started successfully (PID: $PID)"
 
-        echo "Zapret2 started (PID: $PID)"
-        echo "Strategies: $strategy_count"
-        echo "Config file: $CMDLINE_FILE"
-        return 0
-    else
+            # Count and display active strategies
+            local new_count=$(echo "$OPTS" | grep -o '\--new' | wc -l)
+            local strategy_count=$((new_count + 1))
+            log_msg "Active strategies: $strategy_count"
+
+            if [ "$retried_without_uid" -eq 1 ]; then
+                log_msg "nfqws2 started after disabling --uid drop for this run"
+                log_msg "Tip: set NFQWS_UID=\"\" in $CONFIG to avoid repeated fallback"
+            fi
+
+            echo "Zapret2 started (PID: $PID)"
+            echo "Strategies: $strategy_count"
+            echo "Config file: $CMDLINE_FILE"
+            return 0
+        fi
+
         log_error "nfqws2 failed to start (PID $PID exited)"
+
+        if [ "$retried_without_uid" -eq 0 ] && should_retry_without_uid_drop; then
+            log_msg "Detected file access error after --uid drop. Retrying as root..."
+            NFQWS_UID=""
+            retried_without_uid=1
+            continue
+        fi
+
         show_error_details
         echo "ERROR: Failed to start nfqws2"
         echo "Check logs: $LOGFILE"
         echo "Error log: $ERROR_LOG"
         return 1
-    fi
+    done
 }
 
 # Parse startup output from nfqws2
