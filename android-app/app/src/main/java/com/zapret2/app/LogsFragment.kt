@@ -31,8 +31,8 @@ import kotlinx.coroutines.withContext
 
 class LogsFragment : Fragment() {
 
-    // Main tab enum (Command vs Logs)
-    private enum class MainTab { COMMAND, LOGS }
+    // Main tab enum (Command, Logs, Errors)
+    private enum class MainTab { COMMAND, LOGS, WARNINGS }
 
     // Log source enum (for logs tab)
     private enum class LogSource { LOGCAT, OUTPUT, ERRORS }
@@ -61,7 +61,7 @@ class LogsFragment : Fragment() {
     // File paths
     companion object {
         private const val LOG_FILE = "/data/local/tmp/zapret2.log"
-        private const val ERROR_FILE = "/data/local/tmp/zapret2_error.log"
+        private const val ERROR_FILE = "/data/local/tmp/nfqws2-error.log"
         private const val CMDLINE_FILE = "/data/local/tmp/nfqws2-cmdline.txt"
         private const val POLL_INTERVAL_MS = 3000L
         private const val MAX_LINES = 500
@@ -122,10 +122,22 @@ class LogsFragment : Fragment() {
                     1 -> {
                         // Logs tab selected
                         currentMainTab = MainTab.LOGS
+                        currentLogSource = LogSource.OUTPUT
                         showLogsTab()
                         // Clear current logs to prevent showing stale data
                         currentLogs = ""
                         textLogs?.text = "Loading..."
+                        loadLogs()
+                        startPolling()
+                    }
+                    2 -> {
+                        // Errors tab selected
+                        currentMainTab = MainTab.WARNINGS
+                        currentLogSource = LogSource.ERRORS
+                        showLogsTab()
+                        // Clear current logs to prevent showing stale data
+                        currentLogs = ""
+                        textLogs?.text = "Loading warnings/errors..."
                         loadLogs()
                         startPolling()
                     }
@@ -134,7 +146,7 @@ class LogsFragment : Fragment() {
 
             override fun onTabUnselected(tab: TabLayout.Tab?) {
                 // Stop polling when leaving Logs tab
-                if (tab?.position == 1) {
+                if (tab?.position == 1 || tab?.position == 2) {
                     pollingJob?.cancel()
                     pollingJob = null
                 }
@@ -143,7 +155,7 @@ class LogsFragment : Fragment() {
             override fun onTabReselected(tab: TabLayout.Tab?) {
                 when (tab?.position) {
                     0 -> loadCmdline()
-                    1 -> loadLogs()
+                    1, 2 -> loadLogs()
                 }
             }
         })
@@ -188,7 +200,7 @@ class LogsFragment : Fragment() {
         buttonRefresh?.setOnClickListener {
             when (currentMainTab) {
                 MainTab.COMMAND -> loadCmdline()
-                MainTab.LOGS -> {
+                MainTab.LOGS, MainTab.WARNINGS -> {
                     loadCmdline()
                     loadLogs()
                 }
@@ -206,9 +218,10 @@ class LogsFragment : Fragment() {
                         }
                     }
                 }
-                MainTab.LOGS -> {
+                MainTab.LOGS, MainTab.WARNINGS -> {
                     if (currentLogs.isNotBlank()) {
-                        copyToClipboard(currentLogs, "Logs")
+                        val label = if (currentMainTab == MainTab.WARNINGS) "Warnings" else "Logs"
+                        copyToClipboard(currentLogs, label)
                     } else {
                         context?.let { ctx ->
                             Toast.makeText(ctx, "No logs to copy", Toast.LENGTH_SHORT).show()
@@ -262,7 +275,8 @@ class LogsFragment : Fragment() {
                     "tail -n $MAX_LINES $LOG_FILE"
                 }
                 LogSource.ERRORS -> {
-                    "tail -n $MAX_LINES $ERROR_FILE"
+                    "{ if [ -f \"$LOG_FILE\" ]; then tail -n $MAX_LINES \"$LOG_FILE\"; fi; " +
+                        "if [ -f \"$ERROR_FILE\" ]; then tail -n $MAX_LINES \"$ERROR_FILE\"; fi; }"
                 }
             }
 
@@ -270,13 +284,22 @@ class LogsFragment : Fragment() {
             val output = result.out
 
             if (result.isSuccess && !output.isNullOrEmpty()) {
-                output
-                    .filter { line ->
-                        // Filter out garbage lines
-                        line.isNotBlank() &&
-                        !isGarbageLine(line)
-                    }
-                    .joinToString("\n")
+                when (currentLogSource) {
+                    LogSource.ERRORS -> output
+                        .filter { line ->
+                            line.isNotBlank() &&
+                            isWarningOrErrorLine(line) &&
+                            !isGarbageLine(line)
+                        }
+                        .joinToString("\n")
+                    else -> output
+                        .filter { line ->
+                            // Filter out garbage lines
+                            line.isNotBlank() &&
+                            !isGarbageLine(line)
+                        }
+                        .joinToString("\n")
+                }
             } else {
                 ""
             }
@@ -301,6 +324,17 @@ class LogsFragment : Fragment() {
         if (trimmed == "-t" || trimmed == "-n" || trimmed == "--") return true
 
         return false
+    }
+
+    private fun isWarningOrErrorLine(line: String): Boolean {
+        val lower = line.lowercase()
+
+        return lower.contains("error") ||
+            lower.contains("warn") ||
+            lower.contains("fatal") ||
+            lower.contains("failed") ||
+            lower.contains("permission denied") ||
+            lower.contains("not found")
     }
 
     private fun displayLogs(logs: String) {
@@ -339,7 +373,7 @@ class LogsFragment : Fragment() {
         return when (currentLogSource) {
             LogSource.LOGCAT -> "No logcat entries found.\n\nStart the Zapret2 service to see logs here."
             LogSource.OUTPUT -> "No output logs found.\n\nOutput will appear here when the service runs."
-            LogSource.ERRORS -> "No error logs found.\n\nThis is good - no errors have occurred."
+            LogSource.ERRORS -> "No warning/error entries found.\n\nThis is good - no recent issues were detected."
         }
     }
 
@@ -353,7 +387,7 @@ class LogsFragment : Fragment() {
                     val command = when (currentLogSource) {
                         LogSource.LOGCAT -> "logcat -c"
                         LogSource.OUTPUT -> "> $LOG_FILE"
-                        LogSource.ERRORS -> "> $ERROR_FILE"
+                        LogSource.ERRORS -> "{ > \"$ERROR_FILE\"; > \"$LOG_FILE\"; }"
                     }
                     Shell.cmd(command).exec().isSuccess
                 } catch (e: Exception) {
@@ -379,19 +413,21 @@ class LogsFragment : Fragment() {
 
     private fun startPolling() {
         // Only poll when on Logs tab
-        if (currentMainTab != MainTab.LOGS) return
+        if (currentMainTab != MainTab.LOGS && currentMainTab != MainTab.WARNINGS) return
 
         pollingJob?.cancel()
         pollingJob = viewLifecycleOwner.lifecycleScope.launch {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) {
-                while (isActive && currentMainTab == MainTab.LOGS) {
+                while (isActive && (currentMainTab == MainTab.LOGS || currentMainTab == MainTab.WARNINGS)) {
                     delay(POLL_INTERVAL_MS)
-                    if (isActive && currentMainTab == MainTab.LOGS) {
+                    if (isActive && (currentMainTab == MainTab.LOGS || currentMainTab == MainTab.WARNINGS)) {
                         // Fetch logs only (cmdline is on a different tab now)
                         val newLogs = withContext(Dispatchers.IO) { fetchLogs() }
 
                         // Only update UI if still active and on Logs tab
-                        if (isActive && isAdded && view != null && currentMainTab == MainTab.LOGS) {
+                        if (isActive && isAdded && view != null &&
+                            (currentMainTab == MainTab.LOGS || currentMainTab == MainTab.WARNINGS)
+                        ) {
                             // Only update if logs changed
                             if (newLogs != currentLogs) {
                                 currentLogs = newLogs
@@ -479,7 +515,7 @@ class LogsFragment : Fragment() {
         // Refresh content based on current tab
         when (currentMainTab) {
             MainTab.COMMAND -> loadCmdline()
-            MainTab.LOGS -> {
+            MainTab.LOGS, MainTab.WARNINGS -> {
                 loadLogs()
                 startPolling()
             }
