@@ -88,8 +88,8 @@ set_default_config() {
     PRESET_MODE="categories"
     PRESET_FILE="Default.txt"
 
-    # Drop privileges after start (empty by default on Android)
-    NFQWS_UID=""
+    # UID:GID for nfqws2 sandbox (explicit to avoid upstream 2147483647 default)
+    NFQWS_UID="0:0"
 
     # Logging
     LOG_MODE="android"
@@ -381,6 +381,7 @@ apply_iptables() {
 
 should_retry_without_uid_drop() {
     [ -n "${NFQWS_UID:-}" ] || return 1
+    [ "${NFQWS_UID}" != "0:0" ] || return 1
     [ -s "$ERROR_LOG" ] || return 1
 
     if grep -q "file_open_test: Permission denied" "$ERROR_LOG" 2>/dev/null &&
@@ -441,8 +442,8 @@ start_nfqws2() {
             log_msg "Active strategies: $strategy_count"
 
             if [ "$retried_without_uid" -eq 1 ]; then
-                log_msg "nfqws2 started after disabling --uid drop for this run"
-                log_msg "Tip: set NFQWS_UID=\"\" in $CONFIG to avoid repeated fallback"
+                log_msg "nfqws2 started after switching to --uid=0:0 for this run"
+                log_msg "Tip: set NFQWS_UID=\"0:0\" in $CONFIG to avoid repeated fallback"
             fi
 
             echo "Zapret2 started (PID: $PID)"
@@ -454,8 +455,8 @@ start_nfqws2() {
         log_error "nfqws2 failed to start (PID $PID exited)"
 
         if [ "$retried_without_uid" -eq 0 ] && should_retry_without_uid_drop; then
-            log_msg "Detected file access error after --uid drop. Retrying as root..."
-            NFQWS_UID=""
+            log_msg "Detected file access error after --uid drop. Retrying with --uid=0:0..."
+            NFQWS_UID="0:0"
             retried_without_uid=1
             continue
         fi

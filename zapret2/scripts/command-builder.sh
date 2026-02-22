@@ -680,13 +680,10 @@ build_options() {
     # Base options
     OPTS="--qnum=$QNUM --fwmark=$DESYNC_MARK"
 
-    # Optional privilege drop (1=system, 3003=inet)
-    local effective_uid="${NFQWS_UID-}"
-    if [ -n "$effective_uid" ]; then
-        OPTS="$OPTS --uid=$effective_uid"
-    else
-        log_msg "Privilege drop disabled: nfqws2 will run as root"
-    fi
+    # UID/GID for nfqws2 sandbox.
+    # Important: if --uid is omitted, upstream defaults to 0x7FFFFFFF:0x7FFFFFFF.
+    local effective_uid="${NFQWS_UID:-0:0}"
+    OPTS="$OPTS --uid=$effective_uid"
 
     # IP cache for better performance
     OPTS="$OPTS --ipcache-lifetime=84600 --ipcache-hostname=1"
