@@ -169,7 +169,7 @@ build_lua_opts() {
     fi
 
     if [ -f "$ZAPRET_DIR/lua/zapret-auto.lua" ]; then
-        lua_opts="$lua_opts --lua-init=@$ZAPRET_DIR/lua/custom-funcs.lua"
+        lua_opts="$lua_opts --lua-init=@$ZAPRET_DIR/lua/custom_funcs.lua"
         log_debug "Added Lua: custom-funcs.lua"
     fi
 
