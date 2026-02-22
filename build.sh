@@ -5,8 +5,23 @@
 
 set -e
 
-VERSION="${1:-1.0.0}"
+VERSION="${1:-}"
 OUTPUT_DIR="${2:-dist}"
+
+if [ -n "$VERSION" ]; then
+    VERSION="${VERSION#v}"
+    VERSION_CODE=$(printf '%s' "$VERSION" | tr -cd '0-9' | head -c 9)
+    if [ -z "$VERSION_CODE" ]; then
+        VERSION_CODE=1
+    fi
+else
+    COMMIT_COUNT=$(git rev-list --count HEAD 2>/dev/null || true)
+    if [ -z "$COMMIT_COUNT" ]; then
+        COMMIT_COUNT=1
+    fi
+    VERSION_CODE=$((100000 + COMMIT_COUNT))
+    VERSION="1.8.${VERSION_CODE}"
+fi
 
 echo "Building Zapret2 Magisk Module v$VERSION"
 echo "=========================================="
@@ -38,7 +53,6 @@ if [ $MISSING_BIN -eq 1 ]; then
 fi
 
 # Update version in module.prop
-VERSION_CODE=$(echo "$VERSION" | tr -d '.' | head -c 6)
 sed -i "s/^version=.*/version=v$VERSION/" module.prop
 sed -i "s/^versionCode=.*/versionCode=$VERSION_CODE/" module.prop
 

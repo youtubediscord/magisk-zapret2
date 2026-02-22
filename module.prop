@@ -1,8 +1,8 @@
 id=zapret2
 name=Zapret2 DPI Bypass
-version=v1.8.3
-versionCode=183
+version=v0.0.0
+versionCode=1
 author=bol-van
 description=DPI bypass using nfqws2 with Lua strategies. WebUI supported.
-updateJson=https://raw.githubusercontent.com/youtubediscord/magisk-zapret2/main/update.json
+updateJson=https://github.com/youtubediscord/magisk-zapret2/releases/latest/download/update.json
 webRoot=webroot
