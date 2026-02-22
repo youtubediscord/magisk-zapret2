@@ -214,19 +214,43 @@ check_binary() {
 # PERMISSION FIXING
 ##########################################################################################
 
+# Refresh permissions for files that can change between updates/restarts.
+refresh_dynamic_file_permissions() {
+    # Subdirectories that must stay traversable/readable
+    chmod 755 "$ZAPRET_DIR/lua" 2>/dev/null
+    chmod 755 "$ZAPRET_DIR/bin" 2>/dev/null
+    chmod 755 "$LISTS_DIR" 2>/dev/null
+    chmod 755 "$PRESETS_DIR" 2>/dev/null
+
+    # Lua files - READ for all
+    chmod 644 "$ZAPRET_DIR/lua/"*.lua 2>/dev/null
+    chmod 644 "$ZAPRET_DIR/lua/"*.lua.gz 2>/dev/null
+
+    # Blob files - READ for all
+    chmod 644 "$ZAPRET_DIR/bin/"*.bin 2>/dev/null
+
+    # Hostlist/ipset files - READ for all
+    chmod 644 "$LISTS_DIR/"*.txt 2>/dev/null
+
+    # Preset files - READ for all
+    chmod 644 "$PRESETS_DIR/"*.txt 2>/dev/null
+}
+
 # Fix permissions for non-root access after privilege drop
 # nfqws2 drops to uid 1:3003 after start, needs +x on all directories
 fix_permissions() {
     # Fast path: permissions were already initialized earlier.
     if [ "$FAST_RESTART" = "1" ] && [ -f "$PERM_STAMP_FILE" ]; then
         chmod 755 "$NFQWS2" 2>/dev/null
-        log_msg "Fast restart mode: skipping heavy permissions pass"
+        refresh_dynamic_file_permissions
+        log_msg "Fast restart mode: skipped heavy pass, refreshed dynamic file permissions"
         return
     fi
 
     if [ -f "$PERM_STAMP_FILE" ] && [ "${FORCE_PERM_FIX:-0}" != "1" ]; then
         chmod 755 "$NFQWS2" 2>/dev/null
-        log_msg "Permissions already initialized, skipping heavy permissions pass"
+        refresh_dynamic_file_permissions
+        log_msg "Permissions already initialized, refreshed dynamic file permissions"
         return
     fi
 
@@ -243,6 +267,7 @@ fix_permissions() {
     chmod 755 "$ZAPRET_DIR/lua" 2>/dev/null
     chmod 755 "$ZAPRET_DIR/bin" 2>/dev/null
     chmod 755 "$LISTS_DIR" 2>/dev/null
+    chmod 755 "$PRESETS_DIR" 2>/dev/null
     chmod 755 "$ZAPRET_DIR/scripts" 2>/dev/null
 
     # Lua files - READ for all (fopen "rb")
@@ -254,6 +279,9 @@ fix_permissions() {
 
     # Hostlist/ipset files - READ for all
     chmod 644 "$LISTS_DIR/"*.txt 2>/dev/null
+
+    # Preset files - READ for all
+    chmod 644 "$PRESETS_DIR/"*.txt 2>/dev/null
 
     # Auto-hostlist - WRITE permission (if used)
     touch "$LISTS_DIR/autohostlist.txt" 2>/dev/null
