@@ -24,6 +24,9 @@ MODDIR="$(dirname "$ZAPRET_DIR")"
 # Load common constants (paths, runtime files, defaults)
 . "$SCRIPT_DIR/common.sh"
 
+# Fast mode is used by zapret-restart.sh to minimize restart latency.
+FAST_RESTART="${FAST_RESTART:-0}"
+
 ##########################################################################################
 # LOGGING FUNCTIONS
 ##########################################################################################
@@ -82,6 +85,8 @@ set_default_config() {
 
     # Strategy configuration
     STRATEGY_PRESET="youtube"
+    PRESET_MODE="categories"
+    PRESET_FILE="Default.txt"
 
     # Logging
     LOG_MODE="android"
@@ -127,11 +132,23 @@ load_config() {
         fi
     done
 
+    if [ "$PRESET_MODE" = "file" ] || [ "$PRESET_MODE" = "preset" ] || [ "$PRESET_MODE" = "txt" ]; then
+        local preset_path
+        preset_path="$(resolve_preset_file_path "${PRESET_FILE:-Default.txt}")"
+        if [ -f "$preset_path" ]; then
+            log_msg "Found preset file: $preset_path"
+        else
+            log_msg "WARNING: Preset file not found: $preset_path"
+        fi
+    fi
+
     # Log current configuration
     log_debug "QNUM=$QNUM"
     log_debug "PORTS_TCP=$PORTS_TCP"
     log_debug "PORTS_UDP=$PORTS_UDP"
     log_debug "STRATEGY_PRESET=$STRATEGY_PRESET"
+    log_debug "PRESET_MODE=$PRESET_MODE"
+    log_debug "PRESET_FILE=$PRESET_FILE"
     log_debug "HOSTLIST_MODE=$HOSTLIST_MODE"
     log_debug "PKT_OUT=$PKT_OUT"
     log_debug "PKT_IN=$PKT_IN"
@@ -175,6 +192,12 @@ check_binary() {
         log_msg "Made nfqws2 executable"
     fi
 
+    # In fast restart mode we skip expensive self-check probing.
+    if [ "$FAST_RESTART" = "1" ]; then
+        log_msg "Fast restart mode: skipping binary --help probe"
+        return 0
+    fi
+
     # Verify binary responds
     local help_out=$($NFQWS2 --help 2>&1 | head -1)
     if [ -z "$help_out" ]; then
@@ -194,6 +217,19 @@ check_binary() {
 # Fix permissions for non-root access after privilege drop
 # nfqws2 drops to uid 1:3003 after start, needs +x on all directories
 fix_permissions() {
+    # Fast path: permissions were already initialized earlier.
+    if [ "$FAST_RESTART" = "1" ] && [ -f "$PERM_STAMP_FILE" ]; then
+        chmod 755 "$NFQWS2" 2>/dev/null
+        log_msg "Fast restart mode: skipping heavy permissions pass"
+        return
+    fi
+
+    if [ -f "$PERM_STAMP_FILE" ] && [ "${FORCE_PERM_FIX:-0}" != "1" ]; then
+        chmod 755 "$NFQWS2" 2>/dev/null
+        log_msg "Permissions already initialized, skipping heavy permissions pass"
+        return
+    fi
+
     log_msg "Fixing permissions for non-root access..."
 
     # Parent directories need +x for traversal by uid 1
@@ -229,6 +265,8 @@ fix_permissions() {
     # Fix SELinux context (critical for Android!)
     chcon -R u:object_r:system_file:s0 "$MODDIR" 2>/dev/null
 
+    echo "$(date '+%Y-%m-%d %H:%M:%S')" > "$PERM_STAMP_FILE" 2>/dev/null
+
     log_msg "Permissions and SELinux context fixed"
 }
 
@@ -239,6 +277,13 @@ fix_permissions() {
 # Apply iptables rules for traffic interception
 apply_iptables() {
     log_section "Applying iptables rules"
+
+    # Clean up stale/duplicate NFQUEUE rules before adding fresh rules.
+    local stale_removed
+    stale_removed=$(remove_nfqueue_rules_by_qnum)
+    if [ -n "$stale_removed" ] && [ "$stale_removed" -gt 0 ] 2>/dev/null; then
+        log_msg "Removed stale NFQUEUE rules: $stale_removed"
+    fi
 
     # Enable liberal TCP tracking (important for RST with wrong ACK)
     sysctl -w net.netfilter.nf_conntrack_tcp_be_liberal=1 2>/dev/null
@@ -319,8 +364,10 @@ start_nfqws2() {
     # Quick check - nfqws2 starts in milliseconds
     sleep 0.2
 
-    # Parse and log startup output
-    parse_startup_output
+    # Parse and log startup output (skip in fast restart mode)
+    if [ "$FAST_RESTART" != "1" ]; then
+        parse_startup_output
+    fi
 
     # Check if process is running
     if [ -d "/proc/$PID" ]; then

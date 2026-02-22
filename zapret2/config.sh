@@ -19,3 +19,11 @@ PKT_IN=10
 
 # Strategy preset to use
 STRATEGY_PRESET=syndata_multisplit_tls_google_700
+
+# Runtime mode:
+# - categories: build command from categories.ini + strategies-*.ini
+# - file: load full command blocks from presets/*.txt (Windows-style preset files)
+PRESET_MODE=categories
+
+# Preset file name in zapret2/presets/ (used when PRESET_MODE=file)
+PRESET_FILE="Default.txt"

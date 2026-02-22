@@ -27,13 +27,11 @@ stop_daemon() {
         if [ -d "/proc/$PID" ]; then
             log_msg "Stopping nfqws2 (PID: $PID)..."
             kill $PID 2>/dev/null
-            sleep 0.1
 
             # Force kill if still running
             if [ -d "/proc/$PID" ]; then
                 log_msg "Process still running, sending SIGKILL..."
                 kill -9 $PID 2>/dev/null
-                sleep 0.1
             fi
 
             # Verify process stopped
@@ -55,9 +53,8 @@ stop_daemon() {
     # Always try to find and kill any orphan nfqws2 processes
     PIDS=$(pgrep -f nfqws2 2>/dev/null)
     if [ -n "$PIDS" ]; then
+        kill $PIDS 2>/dev/null
         for PID in $PIDS; do
-            kill $PID 2>/dev/null
-            sleep 0.1
             if [ -d "/proc/$PID" ]; then
                 kill -9 $PID 2>/dev/null
             fi
@@ -83,31 +80,13 @@ stop_daemon() {
 remove_iptables() {
     log_msg "Removing iptables rules..."
 
-    # Remove OUTPUT TCP rule
-    iptables -t mangle -D OUTPUT \
-        -p tcp -m multiport --dports $PORTS_TCP \
-        -m connbytes --connbytes 1:$PKT_OUT --connbytes-dir=original --connbytes-mode=packets \
-        -m mark ! --mark $DESYNC_MARK/$DESYNC_MARK \
-        -j NFQUEUE --queue-num $QNUM --queue-bypass 2>/dev/null
-
-    # Remove OUTPUT UDP rule
-    iptables -t mangle -D OUTPUT \
-        -p udp -m multiport --dports $PORTS_UDP \
-        -m connbytes --connbytes 1:$PKT_OUT --connbytes-dir=original --connbytes-mode=packets \
-        -m mark ! --mark $DESYNC_MARK/$DESYNC_MARK \
-        -j NFQUEUE --queue-num $QNUM --queue-bypass 2>/dev/null
-
-    # Remove INPUT TCP rule
-    iptables -t mangle -D INPUT \
-        -p tcp -m multiport --sports $PORTS_TCP \
-        -m connbytes --connbytes 1:$PKT_IN --connbytes-dir=reply --connbytes-mode=packets \
-        -j NFQUEUE --queue-num $QNUM --queue-bypass 2>/dev/null
-
-    # Remove INPUT UDP rule
-    iptables -t mangle -D INPUT \
-        -p udp -m multiport --sports $PORTS_UDP \
-        -m connbytes --connbytes 1:$PKT_IN --connbytes-dir=reply --connbytes-mode=packets \
-        -j NFQUEUE --queue-num $QNUM --queue-bypass 2>/dev/null
+    local removed
+    removed=$(remove_nfqueue_rules_by_qnum)
+    if [ -n "$removed" ] && [ "$removed" -gt 0 ] 2>/dev/null; then
+        log_msg "Removed NFQUEUE rules: $removed"
+    else
+        log_msg "No NFQUEUE rules found for queue $QNUM"
+    fi
 
     log_msg "iptables rules removed"
 }
