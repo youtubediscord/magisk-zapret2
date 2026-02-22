@@ -354,45 +354,52 @@ apply_iptables() {
     # Enable liberal TCP tracking (important for RST with wrong ACK)
     sysctl -w net.netfilter.nf_conntrack_tcp_be_liberal=1 2>/dev/null
 
-    # OUTPUT chain - outgoing TCP
-    if iptables -t mangle -A OUTPUT \
-        -p tcp -m multiport --dports $PORTS_TCP \
-        -m connbytes --connbytes 1:$PKT_OUT --connbytes-dir=original --connbytes-mode=packets \
-        -m mark ! --mark $DESYNC_MARK/$DESYNC_MARK \
-        -j NFQUEUE --queue-num $QNUM --queue-bypass 2>/dev/null; then
-        log_msg "Added TCP OUTPUT rule (ports: $PORTS_TCP)"
-    else
-        log_error "Failed to add TCP OUTPUT rule"
-    fi
+    # Apply rules for both IPv4 and IPv6
+    local ipt
+    for ipt in iptables ip6tables; do
+        local label="IPv4"
+        [ "$ipt" = "ip6tables" ] && label="IPv6"
 
-    # OUTPUT chain - outgoing UDP (QUIC)
-    if iptables -t mangle -A OUTPUT \
-        -p udp -m multiport --dports $PORTS_UDP \
-        -m connbytes --connbytes 1:$PKT_OUT --connbytes-dir=original --connbytes-mode=packets \
-        -m mark ! --mark $DESYNC_MARK/$DESYNC_MARK \
-        -j NFQUEUE --queue-num $QNUM --queue-bypass 2>/dev/null; then
-        log_msg "Added UDP OUTPUT rule (ports: $PORTS_UDP)"
-    else
-        log_error "Failed to add UDP OUTPUT rule (connbytes may not be supported)"
-    fi
+        # OUTPUT chain - outgoing TCP
+        if $ipt -t mangle -A OUTPUT \
+            -p tcp -m multiport --dports $PORTS_TCP \
+            -m connbytes --connbytes 1:$PKT_OUT --connbytes-dir=original --connbytes-mode=packets \
+            -m mark ! --mark $DESYNC_MARK/$DESYNC_MARK \
+            -j NFQUEUE --queue-num $QNUM --queue-bypass 2>/dev/null; then
+            log_msg "Added $label TCP OUTPUT rule (ports: $PORTS_TCP)"
+        else
+            log_error "Failed to add $label TCP OUTPUT rule"
+        fi
 
-    # INPUT chain - incoming TCP (for autohostlist detection)
-    if iptables -t mangle -A INPUT \
-        -p tcp -m multiport --sports $PORTS_TCP \
-        -m connbytes --connbytes 1:$PKT_IN --connbytes-dir=reply --connbytes-mode=packets \
-        -j NFQUEUE --queue-num $QNUM --queue-bypass 2>/dev/null; then
-        log_msg "Added TCP INPUT rule"
-    fi
+        # OUTPUT chain - outgoing UDP (QUIC)
+        if $ipt -t mangle -A OUTPUT \
+            -p udp -m multiport --dports $PORTS_UDP \
+            -m connbytes --connbytes 1:$PKT_OUT --connbytes-dir=original --connbytes-mode=packets \
+            -m mark ! --mark $DESYNC_MARK/$DESYNC_MARK \
+            -j NFQUEUE --queue-num $QNUM --queue-bypass 2>/dev/null; then
+            log_msg "Added $label UDP OUTPUT rule (ports: $PORTS_UDP)"
+        else
+            log_error "Failed to add $label UDP OUTPUT rule"
+        fi
 
-    # INPUT chain - incoming UDP
-    if iptables -t mangle -A INPUT \
-        -p udp -m multiport --sports $PORTS_UDP \
-        -m connbytes --connbytes 1:$PKT_IN --connbytes-dir=reply --connbytes-mode=packets \
-        -j NFQUEUE --queue-num $QNUM --queue-bypass 2>/dev/null; then
-        log_msg "Added UDP INPUT rule"
-    fi
+        # INPUT chain - incoming TCP (for autohostlist detection)
+        if $ipt -t mangle -A INPUT \
+            -p tcp -m multiport --sports $PORTS_TCP \
+            -m connbytes --connbytes 1:$PKT_IN --connbytes-dir=reply --connbytes-mode=packets \
+            -j NFQUEUE --queue-num $QNUM --queue-bypass 2>/dev/null; then
+            log_msg "Added $label TCP INPUT rule"
+        fi
 
-    log_msg "iptables rules applied"
+        # INPUT chain - incoming UDP
+        if $ipt -t mangle -A INPUT \
+            -p udp -m multiport --sports $PORTS_UDP \
+            -m connbytes --connbytes 1:$PKT_IN --connbytes-dir=reply --connbytes-mode=packets \
+            -j NFQUEUE --queue-num $QNUM --queue-bypass 2>/dev/null; then
+            log_msg "Added $label UDP INPUT rule"
+        fi
+    done
+
+    log_msg "iptables rules applied (IPv4 + IPv6)"
 }
 
 ##########################################################################################
