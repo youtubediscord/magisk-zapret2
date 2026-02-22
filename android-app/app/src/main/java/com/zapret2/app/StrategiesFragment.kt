@@ -422,12 +422,14 @@ class StrategiesFragment : Fragment() {
                 }
             }
 
-            // Load PKT_COUNT and LOG_MODE from config.sh (they're not in categories.txt)
+            // Load PKT_OUT/PKT_COUNT and LOG_MODE from config.sh (not in categories.ini)
             val config = withContext(Dispatchers.IO) {
                 Shell.cmd("cat $CONFIG 2>/dev/null").exec().out.joinToString("\n")
             }
 
-            parseConfigValue(config, "PKT_COUNT")?.let { value ->
+            val pktValue = parseConfigValue(config, "PKT_OUT")
+                ?: parseConfigValue(config, "PKT_COUNT")
+            pktValue?.let { value ->
                 // Store the value directly (e.g., "5", "10")
                 if (value in pktCountOptions) {
                     selections["pkt_count"] = value
@@ -480,7 +482,7 @@ class StrategiesFragment : Fragment() {
                 filterModeUpdates.ifEmpty { null }
             )
 
-            // Save PKT_COUNT and LOG_MODE to config.sh
+            // Save PKT_OUT/PKT_COUNT and LOG_MODE to config.sh
             val pktCount = selections["pkt_count"] ?: "5"
             val debugMode = selections["debug"] ?: "none"
 
@@ -488,17 +490,25 @@ class StrategiesFragment : Fragment() {
                 // Read current config
                 val currentConfig = Shell.cmd("cat $CONFIG 2>/dev/null").exec().out.joinToString("\n")
 
-                // Update PKT_COUNT and LOG_MODE in config
+                // Update PKT_OUT/PKT_COUNT and LOG_MODE in config
                 var newConfig = currentConfig
+                    .replace(Regex("""PKT_OUT=["']?\d+["']?"""), "PKT_OUT=\"$pktCount\"")
                     .replace(Regex("""PKT_COUNT=["']?\d+["']?"""), "PKT_COUNT=\"$pktCount\"")
                     .replace(Regex("""LOG_MODE=["']?\w+["']?"""), "LOG_MODE=\"$debugMode\"")
+                    .replace(Regex("""PRESET_MODE=["']?[^"'\n]+["']?"""), "PRESET_MODE=\"categories\"")
 
                 // If values don't exist, add them
+                if (!newConfig.contains("PKT_OUT=")) {
+                    newConfig += "\nPKT_OUT=\"$pktCount\""
+                }
                 if (!newConfig.contains("PKT_COUNT=")) {
                     newConfig += "\nPKT_COUNT=\"$pktCount\""
                 }
                 if (!newConfig.contains("LOG_MODE=")) {
                     newConfig += "\nLOG_MODE=\"$debugMode\""
+                }
+                if (!newConfig.contains("PRESET_MODE=")) {
+                    newConfig += "\nPRESET_MODE=\"categories\""
                 }
 
                 val escaped = newConfig.replace("'", "'\\''")

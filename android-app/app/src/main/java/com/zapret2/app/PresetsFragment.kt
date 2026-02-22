@@ -1,0 +1,462 @@
+package com.zapret2.app
+
+import android.graphics.Typeface
+import android.os.Bundle
+import android.text.InputType
+import android.view.LayoutInflater
+import android.view.View
+import android.view.ViewGroup
+import android.widget.EditText
+import android.widget.FrameLayout
+import android.widget.LinearLayout
+import android.widget.TextView
+import android.widget.Toast
+import androidx.core.os.bundleOf
+import androidx.fragment.app.Fragment
+import androidx.fragment.app.setFragmentResult
+import androidx.lifecycle.lifecycleScope
+import com.google.android.material.button.MaterialButton
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.topjohnwu.superuser.Shell
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
+class PresetsFragment : Fragment() {
+
+    private data class PresetEntry(
+        val fileName: String,
+        val displayName: String
+    )
+
+    private lateinit var textActiveModeValue: TextView
+    private lateinit var textActivePresetValue: TextView
+    private lateinit var textPresetsPath: TextView
+    private lateinit var buttonReloadPresets: MaterialButton
+    private lateinit var buttonUseCategories: MaterialButton
+    private lateinit var presetListContainer: LinearLayout
+    private lateinit var textNoPresets: TextView
+
+    private lateinit var loadingOverlay: FrameLayout
+    private lateinit var loadingText: TextView
+
+    private val modDir = "/data/adb/modules/zapret2"
+    private val configFile = "$modDir/zapret2/config.sh"
+    private val presetsDir = "$modDir/zapret2/presets"
+    private val restartScript = "$modDir/zapret2/scripts/zapret-restart.sh"
+
+    private var activeMode: String = "categories"
+    private var activePresetFile: String = ""
+
+    override fun onCreateView(
+        inflater: LayoutInflater,
+        container: ViewGroup?,
+        savedInstanceState: Bundle?
+    ): View {
+        return inflater.inflate(R.layout.fragment_presets, container, false)
+    }
+
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        super.onViewCreated(view, savedInstanceState)
+        initViews(view)
+        setupListeners()
+        refreshAll()
+    }
+
+    private fun initViews(view: View) {
+        textActiveModeValue = view.findViewById(R.id.textActiveModeValue)
+        textActivePresetValue = view.findViewById(R.id.textActivePresetValue)
+        textPresetsPath = view.findViewById(R.id.textPresetsPath)
+        buttonReloadPresets = view.findViewById(R.id.buttonReloadPresets)
+        buttonUseCategories = view.findViewById(R.id.buttonUseCategories)
+        presetListContainer = view.findViewById(R.id.presetListContainer)
+        textNoPresets = view.findViewById(R.id.textNoPresets)
+
+        loadingOverlay = view.findViewById(R.id.loadingOverlay)
+        loadingText = view.findViewById(R.id.loadingText)
+    }
+
+    private fun setupListeners() {
+        buttonReloadPresets.setOnClickListener {
+            refreshAll()
+        }
+
+        buttonUseCategories.setOnClickListener {
+            switchToCategoriesMode()
+        }
+    }
+
+    private fun refreshAll() {
+        viewLifecycleOwner.lifecycleScope.launch {
+            showLoading("Loading presets...")
+
+            val configText = withContext(Dispatchers.IO) {
+                Shell.cmd("cat $configFile 2>/dev/null").exec().out.joinToString("\n")
+            }
+
+            activeMode = parseConfigValue(configText, "PRESET_MODE")?.ifEmpty { "categories" } ?: "categories"
+            activePresetFile = parseConfigValue(configText, "PRESET_FILE")?.ifEmpty { "" } ?: ""
+
+            updateActiveInfo()
+            val presets = loadPresetEntries()
+            renderPresetList(presets)
+
+            hideLoading()
+        }
+    }
+
+    private suspend fun loadPresetEntries(): List<PresetEntry> {
+        return withContext(Dispatchers.IO) {
+            val result = Shell.cmd("ls -1 \"$presetsDir\" 2>/dev/null").exec()
+            if (!result.isSuccess) return@withContext emptyList()
+
+            result.out
+                .map { it.trim() }
+                .filter { it.isNotEmpty() }
+                .filter { it.endsWith(".txt", ignoreCase = true) }
+                .filterNot { it.startsWith("_") }
+                .sortedBy { it.lowercase() }
+                .map { fileName ->
+                    PresetEntry(
+                        fileName = fileName,
+                        displayName = fileName.removeSuffix(".txt")
+                    )
+                }
+        }
+    }
+
+    private fun updateActiveInfo() {
+        textActiveModeValue.text = when (activeMode) {
+            "file", "preset", "txt" -> "Preset file mode"
+            else -> "Categories mode"
+        }
+
+        if (activeMode == "file" || activeMode == "preset" || activeMode == "txt") {
+            textActivePresetValue.text = if (activePresetFile.isNotBlank()) {
+                activePresetFile
+            } else {
+                "(not set)"
+            }
+        } else {
+            textActivePresetValue.text = "categories.ini + strategies-*.ini"
+        }
+
+        textPresetsPath.text = presetsDir
+    }
+
+    private fun renderPresetList(entries: List<PresetEntry>) {
+        presetListContainer.removeAllViews()
+
+        if (entries.isEmpty()) {
+            textNoPresets.visibility = View.VISIBLE
+            return
+        }
+
+        textNoPresets.visibility = View.GONE
+
+        entries.forEach { entry ->
+            val row = layoutInflater.inflate(
+                R.layout.item_preset_file,
+                presetListContainer,
+                false
+            )
+
+            val textPresetTitle = row.findViewById<TextView>(R.id.textPresetTitle)
+            val textPresetMeta = row.findViewById<TextView>(R.id.textPresetMeta)
+            val textPresetActive = row.findViewById<TextView>(R.id.textPresetActive)
+            val buttonApplyPreset = row.findViewById<MaterialButton>(R.id.buttonApplyPreset)
+            val buttonEditPreset = row.findViewById<MaterialButton>(R.id.buttonEditPreset)
+
+            val isActive = isActivePresetFile(entry.fileName)
+
+            textPresetTitle.text = entry.displayName
+            textPresetMeta.text = entry.fileName
+            textPresetActive.visibility = if (isActive) View.VISIBLE else View.GONE
+
+            buttonApplyPreset.text = if (isActive) "Applied" else "Apply"
+            buttonApplyPreset.isEnabled = !isActive
+
+            row.setOnClickListener {
+                if (!isActive) applyPresetFile(entry.fileName)
+            }
+            buttonApplyPreset.setOnClickListener {
+                applyPresetFile(entry.fileName)
+            }
+            buttonEditPreset.setOnClickListener {
+                openPresetEditor(entry.fileName)
+            }
+
+            presetListContainer.addView(row)
+        }
+    }
+
+    private fun isActivePresetFile(fileName: String): Boolean {
+        return (activeMode == "file" || activeMode == "preset" || activeMode == "txt") &&
+            activePresetFile == fileName
+    }
+
+    private fun applyPresetFile(fileName: String) {
+        if (loadingOverlay.visibility == View.VISIBLE) return
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            showLoading("Applying $fileName...")
+            setActionsEnabled(false)
+
+            val (configSaved, restartSuccess) = withContext(Dispatchers.IO) {
+                val currentConfig = Shell.cmd("cat $configFile 2>/dev/null").exec().out.joinToString("\n")
+                var newConfig = currentConfig
+                newConfig = upsertConfigValue(newConfig, "PRESET_MODE", "file")
+                newConfig = upsertConfigValue(newConfig, "PRESET_FILE", fileName)
+
+                val escaped = newConfig.replace("'", "'\\''")
+                val saveResult = Shell.cmd("echo '$escaped' > $configFile").exec()
+                if (!saveResult.isSuccess) {
+                    return@withContext Pair(false, false)
+                }
+
+                val restartResult = Shell.cmd("sh $restartScript").exec()
+                Pair(true, restartResult.isSuccess)
+            }
+
+            hideLoading()
+            setActionsEnabled(true)
+
+            if (!isAdded) return@launch
+
+            when {
+                configSaved && restartSuccess -> {
+                    context?.let {
+                        Toast.makeText(it, "$fileName applied", Toast.LENGTH_SHORT).show()
+                    }
+                    setFragmentResult(LogsFragment.SERVICE_RESTARTED_KEY, bundleOf())
+                    refreshAll()
+                }
+                configSaved -> {
+                    context?.let {
+                        Toast.makeText(it, "Preset selected, restart failed", Toast.LENGTH_SHORT).show()
+                    }
+                    refreshAll()
+                }
+                else -> {
+                    context?.let {
+                        Toast.makeText(it, "Failed to apply preset", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        }
+    }
+
+    private fun switchToCategoriesMode() {
+        if (loadingOverlay.visibility == View.VISIBLE) return
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            showLoading("Switching to categories mode...")
+            setActionsEnabled(false)
+
+            val (configSaved, restartSuccess) = withContext(Dispatchers.IO) {
+                val currentConfig = Shell.cmd("cat $configFile 2>/dev/null").exec().out.joinToString("\n")
+                val newConfig = upsertConfigValue(currentConfig, "PRESET_MODE", "categories")
+
+                val escaped = newConfig.replace("'", "'\\''")
+                val saveResult = Shell.cmd("echo '$escaped' > $configFile").exec()
+                if (!saveResult.isSuccess) {
+                    return@withContext Pair(false, false)
+                }
+
+                val restartResult = Shell.cmd("sh $restartScript").exec()
+                Pair(true, restartResult.isSuccess)
+            }
+
+            hideLoading()
+            setActionsEnabled(true)
+
+            if (!isAdded) return@launch
+
+            when {
+                configSaved && restartSuccess -> {
+                    context?.let {
+                        Toast.makeText(it, "Categories mode enabled", Toast.LENGTH_SHORT).show()
+                    }
+                    setFragmentResult(LogsFragment.SERVICE_RESTARTED_KEY, bundleOf())
+                    refreshAll()
+                }
+                configSaved -> {
+                    context?.let {
+                        Toast.makeText(it, "Mode switched, restart failed", Toast.LENGTH_SHORT).show()
+                    }
+                    refreshAll()
+                }
+                else -> {
+                    context?.let {
+                        Toast.makeText(it, "Failed to switch mode", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        }
+    }
+
+    private fun openPresetEditor(fileName: String) {
+        if (loadingOverlay.visibility == View.VISIBLE) return
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            showLoading("Loading $fileName...")
+
+            val readResult = withContext(Dispatchers.IO) {
+                val escapedPath = "$presetsDir/$fileName".replace("\"", "\\\"")
+                val result = Shell.cmd("cat \"$escapedPath\" 2>/dev/null").exec()
+                Pair(result.isSuccess, result.out.joinToString("\n"))
+            }
+
+            hideLoading()
+
+            if (!isAdded) return@launch
+
+            if (!readResult.first) {
+                context?.let {
+                    Toast.makeText(it, "Failed to read preset", Toast.LENGTH_SHORT).show()
+                }
+                return@launch
+            }
+
+            showEditorDialog(fileName, readResult.second)
+        }
+    }
+
+    private fun showEditorDialog(fileName: String, initialText: String) {
+        val editor = EditText(requireContext()).apply {
+            setText(initialText)
+            setTextColor(0xFFFFFFFF.toInt())
+            setHintTextColor(0xFF808080.toInt())
+            setBackgroundColor(0xFF2D2D2D.toInt())
+            typeface = Typeface.MONOSPACE
+            inputType = InputType.TYPE_CLASS_TEXT or
+                InputType.TYPE_TEXT_FLAG_MULTI_LINE or
+                InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+            setSingleLine(false)
+            minLines = 12
+            maxLines = 28
+            setPadding(24, 24, 24, 24)
+        }
+
+        val container = FrameLayout(requireContext()).apply {
+            setPadding(32, 8, 32, 0)
+            addView(editor, FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT
+            ))
+        }
+
+        MaterialAlertDialogBuilder(requireContext())
+            .setTitle("Edit preset")
+            .setMessage(fileName)
+            .setView(container)
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Save") { _, _ ->
+                savePresetText(fileName, editor.text?.toString().orEmpty(), applyAfterSave = false)
+            }
+            .setNeutralButton("Save + Apply") { _, _ ->
+                savePresetText(fileName, editor.text?.toString().orEmpty(), applyAfterSave = true)
+            }
+            .show()
+    }
+
+    private fun savePresetText(fileName: String, content: String, applyAfterSave: Boolean) {
+        if (loadingOverlay.visibility == View.VISIBLE) return
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            showLoading(if (applyAfterSave) "Saving and applying..." else "Saving preset...")
+            setActionsEnabled(false)
+
+            val (saved, restartSuccess) = withContext(Dispatchers.IO) {
+                val escapedPath = "$presetsDir/$fileName".replace("\"", "\\\"")
+                val normalized = content.replace("\r\n", "\n")
+                val escaped = normalized.replace("'", "'\\''")
+
+                val writeResult = Shell.cmd("echo '$escaped' > \"$escapedPath\"").exec()
+                if (!writeResult.isSuccess) {
+                    return@withContext Pair(false, false)
+                }
+
+                if (!applyAfterSave) {
+                    return@withContext Pair(true, true)
+                }
+
+                val currentConfig = Shell.cmd("cat $configFile 2>/dev/null").exec().out.joinToString("\n")
+                var newConfig = currentConfig
+                newConfig = upsertConfigValue(newConfig, "PRESET_MODE", "file")
+                newConfig = upsertConfigValue(newConfig, "PRESET_FILE", fileName)
+
+                val escapedConfig = newConfig.replace("'", "'\\''")
+                val saveConfigResult = Shell.cmd("echo '$escapedConfig' > $configFile").exec()
+                if (!saveConfigResult.isSuccess) {
+                    return@withContext Pair(false, false)
+                }
+
+                val restartResult = Shell.cmd("sh $restartScript").exec()
+                Pair(true, restartResult.isSuccess)
+            }
+
+            hideLoading()
+            setActionsEnabled(true)
+
+            if (!isAdded) return@launch
+
+            if (!saved) {
+                context?.let {
+                    Toast.makeText(it, "Failed to save preset", Toast.LENGTH_SHORT).show()
+                }
+                return@launch
+            }
+
+            if (applyAfterSave) {
+                if (restartSuccess) {
+                    context?.let {
+                        Toast.makeText(it, "Preset saved and applied", Toast.LENGTH_SHORT).show()
+                    }
+                    setFragmentResult(LogsFragment.SERVICE_RESTARTED_KEY, bundleOf())
+                } else {
+                    context?.let {
+                        Toast.makeText(it, "Preset saved, restart failed", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            } else {
+                context?.let {
+                    Toast.makeText(it, "Preset saved", Toast.LENGTH_SHORT).show()
+                }
+            }
+
+            refreshAll()
+        }
+    }
+
+    private fun setActionsEnabled(enabled: Boolean) {
+        buttonReloadPresets.isEnabled = enabled
+        buttonUseCategories.isEnabled = enabled
+    }
+
+    private fun showLoading(text: String) {
+        loadingText.text = text
+        loadingOverlay.visibility = View.VISIBLE
+    }
+
+    private fun hideLoading() {
+        loadingOverlay.visibility = View.GONE
+    }
+
+    private fun parseConfigValue(config: String, key: String): String? {
+        val regex = Regex("""(?m)^$key\s*=\s*["']?([^"'\n]*)["']?""")
+        return regex.find(config)?.groupValues?.get(1)?.trim()
+    }
+
+    private fun upsertConfigValue(config: String, key: String, value: String): String {
+        val line = "$key=\"$value\""
+        val regex = Regex("""(?m)^$key\s*=.*$""")
+
+        if (regex.containsMatchIn(config)) {
+            return config.replace(regex, line)
+        }
+
+        val trimmed = config.trimEnd()
+        return if (trimmed.isEmpty()) line else "$trimmed\n$line"
+    }
+}

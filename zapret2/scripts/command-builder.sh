@@ -15,6 +15,10 @@
 get_strategy_args_from_ini() {
     local ini_file="$1"
     local strategy_name="$2"
+    local current_section=""
+    local line=""
+    local args=""
+    local cr
 
     if [ ! -f "$ini_file" ]; then
         log_debug "INI file not found: $ini_file"
@@ -28,29 +32,35 @@ get_strategy_args_from_ini() {
 
     log_debug "Looking for strategy [$strategy_name] in $ini_file"
 
-    # Simple approach: use awk (more reliable on busybox than sed ranges)
-    local args=""
-    args=$(awk -v section="$strategy_name" '
-        BEGIN { in_section = 0 }
-        /^\[/ {
-            gsub(/[\[\]]/, "")
-            in_section = ($0 == section)
-            next
-        }
-        in_section && /^args=/ {
-            sub(/^args=/, "")
-            print
-            exit
-        }
-    ' "$ini_file")
+    cr=$(printf '\r')
+    while IFS= read -r line || [ -n "$line" ]; do
+        line="${line%"$cr"}"
 
-    if [ -n "$args" ]; then
-        log_debug "Found args for [$strategy_name]"
-    else
-        log_debug "No args found for [$strategy_name]"
-    fi
+        case "$line" in
+            ""|"#"*|";"*)
+                continue
+                ;;
+            "["*"]")
+                current_section="${line#[}"
+                current_section="${current_section%]}"
+                continue
+                ;;
+        esac
 
-    echo "$args"
+        if [ "$current_section" = "$strategy_name" ]; then
+            case "$line" in
+                args=*)
+                    args="${line#args=}"
+                    echo "$args"
+                    log_debug "Found args for [$strategy_name]"
+                    return
+                    ;;
+            esac
+        fi
+    done < "$ini_file"
+
+    log_debug "No args found for [$strategy_name]"
+    echo ""
 }
 
 # Get TCP strategy options
@@ -208,6 +218,167 @@ build_debug_opts() {
 
     echo "$debug_opts"
 }
+
+##########################################################################################
+# PRESET FILE BUILDERS
+##########################################################################################
+
+# Returns 0 when PRESET_MODE requests file-based preset loading.
+is_preset_file_mode() {
+    case "${PRESET_MODE:-categories}" in
+        file|preset|txt)
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+# Resolve PRESET_FILE to absolute path.
+resolve_preset_file_path() {
+    local preset_name="$1"
+
+    case "$preset_name" in
+        /*)
+            echo "$preset_name"
+            ;;
+        *)
+            echo "$PRESETS_DIR/$preset_name"
+            ;;
+    esac
+}
+
+# Build options from a Windows-style preset TXT file.
+# Modifies global: OPTS, PRESET_HAS_LUA, PRESET_HAS_BLOB
+build_preset_file_options() {
+    local preset_name="${PRESET_FILE:-Default.txt}"
+    local preset_file=""
+    local line=""
+    local resolved=""
+    local cr
+    local kept=0
+    local skipped=0
+
+    PRESET_HAS_LUA=0
+    PRESET_HAS_BLOB=0
+
+    preset_file="$(resolve_preset_file_path "$preset_name")"
+
+    if [ ! -f "$preset_file" ]; then
+        log_error "Preset file not found: $preset_file"
+        return 1
+    fi
+
+    log_msg "Loading preset file: $preset_file"
+    cr=$(printf '\r')
+
+    while IFS= read -r line || [ -n "$line" ]; do
+        line="${line%"$cr"}"
+
+        # Trim leading spaces/tabs
+        while [ "${line# }" != "$line" ]; do
+            line="${line# }"
+        done
+        while [ "${line#	}" != "$line" ]; do
+            line="${line#	}"
+        done
+
+        [ -z "$line" ] && continue
+        case "$line" in
+            "#"*|";"*)
+                continue
+                ;;
+        esac
+
+        # Skip Windows-only options
+        case "$line" in
+            --wf-*|*windivert*)
+                skipped=$((skipped + 1))
+                continue
+                ;;
+        esac
+
+        # Normalize module-relative paths
+        line=$(echo "$line" | sed \
+            -e "s|@lua/|@$ZAPRET_DIR/lua/|g" \
+            -e "s|@bin/|@$ZAPRET_DIR/bin/|g" \
+            -e "s|=lists/|=$LISTS_DIR/|g" \
+            -e "s|@lists/|@$LISTS_DIR/|g")
+
+        # Accept only options known to work in Android nfqws2 mode
+        case "$line" in
+            --new|--lua-init=*|--blob=*|--ctrack-disable=*|--ipcache-lifetime=*|--ipcache-hostname|--ipcache-hostname=*|--filter-tcp=*|--filter-udp=*|--filter-l7=*|--hostlist=*|--hostlist-domains=*|--hostlist-exclude=*|--ipset=*|--ipset-exclude=*|--out-range=*|--payload=*|--lua-desync=*)
+                ;;
+            *)
+                log_debug "Skipping unsupported preset option: $line"
+                skipped=$((skipped + 1))
+                continue
+                ;;
+        esac
+
+        # Validate path-based options and skip missing files.
+        case "$line" in
+            --lua-init=@*)
+                resolved="${line#--lua-init=@}"
+                if [ ! -f "$resolved" ]; then
+                    log_msg "Skipping missing Lua file in preset: $resolved"
+                    skipped=$((skipped + 1))
+                    continue
+                fi
+                PRESET_HAS_LUA=1
+                ;;
+            --blob=*:@*)
+                resolved="${line##*:}"
+                resolved="${resolved#@}"
+                if [ ! -f "$resolved" ]; then
+                    log_msg "Skipping missing blob file in preset: $resolved"
+                    skipped=$((skipped + 1))
+                    continue
+                fi
+                PRESET_HAS_BLOB=1
+                ;;
+            --hostlist=*|--hostlist-exclude=*|--ipset=*|--ipset-exclude=*)
+                resolved="${line#*=}"
+                case "$resolved" in
+                    /*)
+                        if [ ! -f "$resolved" ]; then
+                            log_msg "Skipping missing list file in preset: $resolved"
+                            skipped=$((skipped + 1))
+                            continue
+                        fi
+                        ;;
+                esac
+                ;;
+            --blob=*)
+                PRESET_HAS_BLOB=1
+                ;;
+        esac
+
+        # Avoid duplicate separators
+        if [ "$line" = "--new" ]; then
+            case "$OPTS" in
+                *" --new")
+                    skipped=$((skipped + 1))
+                    continue
+                    ;;
+            esac
+        fi
+
+        OPTS="$OPTS $line"
+        kept=$((kept + 1))
+    done < "$preset_file"
+
+    log_msg "Preset options loaded: kept=$kept skipped=$skipped"
+
+    if [ "$kept" -eq 0 ]; then
+        log_error "Preset file produced zero valid options: $preset_file"
+        return 1
+    fi
+
+    return 0
+}
+
 ##########################################################################################
 # CATEGORY BUILDERS
 ##########################################################################################
@@ -328,17 +499,61 @@ build_category_options_single() {
 # CATEGORIES PARSER
 ##########################################################################################
 
+# Build options for a parsed category section.
+process_category_section() {
+    local current_section="$1"
+    local protocol="$2"
+    local hostlist="$3"
+    local ipset="$4"
+    local filter_mode="$5"
+    local strategy="$6"
+    local filter_file=""
+    local effective_filter_mode="$filter_mode"
+
+    [ -z "$current_section" ] && return
+    [ -z "$strategy" ] && return
+    [ "$strategy" = "disabled" ] && return
+
+    if [ -z "$effective_filter_mode" ]; then
+        if [ -n "$hostlist" ]; then
+            effective_filter_mode="hostlist"
+        elif [ -n "$ipset" ]; then
+            effective_filter_mode="ipset"
+        else
+            effective_filter_mode="none"
+        fi
+    fi
+
+    case "$effective_filter_mode" in
+        ipset)
+            filter_file="$ipset"
+            ;;
+        hostlist)
+            filter_file="$hostlist"
+            ;;
+        none|*)
+            filter_file=""
+            ;;
+    esac
+
+    build_category_options_single "$current_section" "$protocol" "$effective_filter_mode" "$filter_file" "$strategy"
+}
+
 # Parse categories.txt INI file and build options for each category
 # Modifies global: OPTS, first
 # New format supports: hostlist, ipset, filter_mode fields
 parse_categories() {
     local ini_file="$CATEGORIES_FILE"
     local current_section=""
-    local protocol=""
+    local protocol="tcp"
     local hostlist=""
     local ipset=""
     local filter_mode=""
     local strategy=""
+    local line=""
+    local key=""
+    local value=""
+    local cr
 
     if [ ! -f "$ini_file" ]; then
         log_error "Categories file not found: $ini_file"
@@ -347,118 +562,53 @@ parse_categories() {
 
     log_msg "Parsing categories from: $ini_file"
 
+    cr=$(printf '\r')
     while IFS= read -r line || [ -n "$line" ]; do
-        # Remove Windows carriage return
-        line=$(echo "$line" | tr -d '\r')
+        line="${line%"$cr"}"
 
-        # Skip empty lines and comments
-        [ -z "$line" ] && continue
         case "$line" in
-            "#"*|";"*) continue ;;
-        esac
+            ""|"#"*|";"*)
+                continue
+                ;;
+            "["*"]")
+                process_category_section "$current_section" "$protocol" "$hostlist" "$ipset" "$filter_mode" "$strategy"
 
-        # Section header [name]
-        if echo "$line" | grep -q '^\[.*\]$'; then
-            # Process previous section if valid
-            if [ -n "$current_section" ] && [ -n "$strategy" ] && [ "$strategy" != "disabled" ]; then
-                # Determine the file to use based on filter_mode
-                local filter_file=""
-                local effective_filter_mode="$filter_mode"
+                current_section="${line#[}"
+                current_section="${current_section%]}"
+                protocol="tcp"
+                hostlist=""
+                ipset=""
+                filter_mode=""
+                strategy=""
+                log_debug "Found section: $current_section"
+                continue
+                ;;
+            *=*)
+                key="${line%%=*}"
+                value="${line#*=}"
 
-                # Default filter_mode to hostlist if not specified but hostlist exists
-                if [ -z "$effective_filter_mode" ]; then
-                    if [ -n "$hostlist" ]; then
-                        effective_filter_mode="hostlist"
-                    elif [ -n "$ipset" ]; then
-                        effective_filter_mode="ipset"
-                    else
-                        effective_filter_mode="none"
-                    fi
-                fi
-
-                case "$effective_filter_mode" in
-                    ipset)
-                        filter_file="$ipset"
+                case "$key" in
+                    protocol)
+                        protocol="$value"
                         ;;
                     hostlist)
-                        filter_file="$hostlist"
+                        hostlist="$value"
                         ;;
-                    none|*)
-                        filter_file=""
+                    ipset)
+                        ipset="$value"
+                        ;;
+                    filter_mode)
+                        filter_mode="$value"
+                        ;;
+                    strategy)
+                        strategy="$value"
                         ;;
                 esac
-
-                build_category_options_single "$current_section" "$protocol" "$effective_filter_mode" "$filter_file" "$strategy"
-            fi
-
-            # Extract section name (remove [ and ])
-            current_section=$(echo "$line" | sed 's/^\[\(.*\)\]$/\1/')
-            protocol="tcp"
-            hostlist=""
-            ipset=""
-            filter_mode=""
-            strategy=""
-            log_debug "Found section: $current_section"
-            continue
-        fi
-
-        # Key=value parsing
-        if echo "$line" | grep -q '^[a-z_]*='; then
-            local key=$(echo "$line" | cut -d'=' -f1)
-            local value=$(echo "$line" | cut -d'=' -f2-)
-
-            case "$key" in
-                protocol)
-                    protocol="$value"
-                    ;;
-                hostlist)
-                    hostlist="$value"
-                    ;;
-                ipset)
-                    ipset="$value"
-                    ;;
-                filter_mode)
-                    filter_mode="$value"
-                    ;;
-                strategy)
-                    strategy="$value"
-                    ;;
-            esac
-        fi
-    done < "$ini_file"
-
-    # Don't forget last section
-    if [ -n "$current_section" ] && [ -n "$strategy" ] && [ "$strategy" != "disabled" ]; then
-        # Determine the file to use based on filter_mode
-        local filter_file=""
-        local effective_filter_mode="$filter_mode"
-
-        # Default filter_mode to hostlist if not specified but hostlist exists
-        if [ -z "$effective_filter_mode" ]; then
-            if [ -n "$hostlist" ]; then
-                effective_filter_mode="hostlist"
-            elif [ -n "$ipset" ]; then
-                effective_filter_mode="ipset"
-            else
-                effective_filter_mode="none"
-            fi
-        fi
-
-        case "$effective_filter_mode" in
-            ipset)
-                filter_file="$ipset"
-                ;;
-            hostlist)
-                filter_file="$hostlist"
-                ;;
-            none|*)
-                filter_file=""
                 ;;
         esac
+    done < "$ini_file"
 
-        build_category_options_single "$current_section" "$protocol" "$effective_filter_mode" "$filter_file" "$strategy"
-    fi
-
+    process_category_section "$current_section" "$protocol" "$hostlist" "$ipset" "$filter_mode" "$strategy"
     return 0
 }
 
@@ -514,22 +664,55 @@ build_options() {
         OPTS="$OPTS $debug_opts"
     fi
 
-    # Add Lua init options
-    local lua_opts=$(build_lua_opts)
-    if [ -n "$lua_opts" ]; then
-        OPTS="$OPTS$lua_opts"
+    local used_preset_mode=0
+
+    if is_preset_file_mode; then
+        log_msg "Mode: Preset file configuration"
+        log_msg "Preset file: ${PRESET_FILE:-Default.txt}"
+
+        if build_preset_file_options; then
+            used_preset_mode=1
+
+            # If preset has no Lua init lines, add built-in defaults.
+            if [ "${PRESET_HAS_LUA:-0}" -ne 1 ]; then
+                local lua_opts_fallback=$(build_lua_opts)
+                if [ -n "$lua_opts_fallback" ]; then
+                    OPTS="$OPTS$lua_opts_fallback"
+                    log_msg "Preset has no --lua-init, using built-in Lua init"
+                fi
+            fi
+
+            # If preset has no blob lines, add blobs.txt defaults.
+            if [ "${PRESET_HAS_BLOB:-0}" -ne 1 ]; then
+                local blob_opts_fallback=$(build_blob_opts)
+                if [ -n "$blob_opts_fallback" ]; then
+                    OPTS="$OPTS$blob_opts_fallback"
+                    log_msg "Preset has no --blob, using blobs.txt"
+                fi
+            fi
+        else
+            log_error "Preset file mode failed, falling back to categories.ini"
+        fi
     fi
 
-    # Add blob options
-    local blob_opts=$(build_blob_opts)
-    if [ -n "$blob_opts" ]; then
-        OPTS="$OPTS$blob_opts"
-    fi
+    if [ "$used_preset_mode" -eq 0 ]; then
+        # Add Lua init options
+        local lua_opts=$(build_lua_opts)
+        if [ -n "$lua_opts" ]; then
+            OPTS="$OPTS$lua_opts"
+        fi
 
-    # Build strategy options from categories.txt (with preset fallback)
-    log_msg "Mode: Category-based configuration (categories.txt)"
-    log_msg "Packet count (--out-range): $PKT_OUT"
-    build_category_options
+        # Add blob options
+        local blob_opts=$(build_blob_opts)
+        if [ -n "$blob_opts" ]; then
+            OPTS="$OPTS$blob_opts"
+        fi
+
+        # Build strategy options from categories.ini
+        log_msg "Mode: Category-based configuration (categories.ini)"
+        log_msg "Packet count (--out-range): $PKT_OUT"
+        build_category_options
+    fi
 
     # Log final statistics
     local new_count=$(echo "$OPTS" | grep -o '\--new' | wc -l)

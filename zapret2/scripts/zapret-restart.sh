@@ -14,11 +14,8 @@ if [ -f "$PIDFILE" ]; then
 fi
 pkill -9 -f nfqws2 2>/dev/null
 
-# 2. Remove iptables (quick, no logging)
-iptables -t mangle -D OUTPUT -p tcp -m multiport --dports $PORTS_TCP -m connbytes --connbytes 1:$PKT_OUT --connbytes-dir=original --connbytes-mode=packets -m mark ! --mark $DESYNC_MARK/$DESYNC_MARK -j NFQUEUE --queue-num $QNUM --queue-bypass 2>/dev/null
-iptables -t mangle -D OUTPUT -p udp -m multiport --dports $PORTS_UDP -m connbytes --connbytes 1:$PKT_OUT --connbytes-dir=original --connbytes-mode=packets -m mark ! --mark $DESYNC_MARK/$DESYNC_MARK -j NFQUEUE --queue-num $QNUM --queue-bypass 2>/dev/null
-iptables -t mangle -D INPUT -p tcp -m multiport --sports $PORTS_TCP -m connbytes --connbytes 1:$PKT_IN --connbytes-dir=reply --connbytes-mode=packets -j NFQUEUE --queue-num $QNUM --queue-bypass 2>/dev/null
-iptables -t mangle -D INPUT -p udp -m multiport --sports $PORTS_UDP -m connbytes --connbytes 1:$PKT_IN --connbytes-dir=reply --connbytes-mode=packets -j NFQUEUE --queue-num $QNUM --queue-bypass 2>/dev/null
+# 2. Remove iptables rules (resilient to stale config and duplicate rules)
+remove_nfqueue_rules_by_qnum >/dev/null 2>&1
 
 # 3. Start fresh (calls full start script for options building)
-exec "$SCRIPT_DIR/zapret-start.sh"
+FAST_RESTART=1 exec "$SCRIPT_DIR/zapret-start.sh"

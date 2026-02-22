@@ -13,6 +13,10 @@ CMDLINE_FILE="/data/local/tmp/nfqws2-cmdline.txt"
 STARTUP_LOG="/data/local/tmp/nfqws2-startup.log"
 ERROR_LOG="/data/local/tmp/nfqws2-error.log"
 DEBUG_LOG="/data/local/tmp/nfqws2-debug.log"
+PERM_STAMP_FILE="/data/local/tmp/zapret2-perms.stamp"
+
+# User overrides (persistent across module updates)
+USER_CONFIG="/data/local/tmp/zapret2-user.conf"
 
 # NFQUEUE settings (defaults, can be overridden by config.sh)
 QNUM="${QNUM:-200}"
@@ -31,6 +35,7 @@ NFQWS2="$ZAPRET_DIR/nfqws2"
 CONFIG="$ZAPRET_DIR/config.sh"
 LISTS_DIR="$ZAPRET_DIR/lists"
 BLOBS_FILE="$ZAPRET_DIR/blobs.txt"
+PRESETS_DIR="$ZAPRET_DIR/presets"
 
 # Strategy INI files
 TCP_STRATEGIES_INI="$ZAPRET_DIR/strategies-tcp.ini"
@@ -40,3 +45,39 @@ CATEGORIES_FILE="$ZAPRET_DIR/categories.ini"
 
 # Load user config (overrides defaults above)
 [ -f "$CONFIG" ] && . "$CONFIG"
+[ -f "$USER_CONFIG" ] && . "$USER_CONFIG"
+
+# Remove all NFQUEUE rules for the configured queue from mangle OUTPUT/INPUT.
+# This is resilient to config changes and cleans up stale duplicate rules.
+remove_nfqueue_rules_by_qnum() {
+    local chain line rule
+    local removed_total=0
+    local rules
+
+    for chain in OUTPUT INPUT; do
+        rules="$(iptables -t mangle -S "$chain" 2>/dev/null)"
+        [ -z "$rules" ] && continue
+
+        while IFS= read -r line; do
+            case "$line" in
+                "-A $chain "*)
+                    case "$line" in
+                        *"-j NFQUEUE"*"--queue-num $QNUM"*)
+                            rule="${line#-A $chain }"
+                            if [ -n "$rule" ]; then
+                                # shellcheck disable=SC2086
+                                if iptables -t mangle -D "$chain" $rule 2>/dev/null; then
+                                    removed_total=$((removed_total + 1))
+                                fi
+                            fi
+                            ;;
+                    esac
+                    ;;
+            esac
+        done <<EOF
+$rules
+EOF
+    done
+
+    echo "$removed_total"
+}
