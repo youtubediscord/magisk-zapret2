@@ -343,9 +343,10 @@ fix_permissions() {
 apply_iptables() {
     log_section "Applying iptables rules"
 
-    # Clean up stale/duplicate NFQUEUE rules before adding fresh rules.
+    # Clean up ALL NFQUEUE rules (any queue number) before adding fresh rules.
+    # This handles mode switches (e.g. cmdline qnum=201 -> categories qnum=200).
     local stale_removed
-    stale_removed=$(remove_nfqueue_rules_by_qnum)
+    stale_removed=$(remove_all_nfqueue_rules)
     if [ -n "$stale_removed" ] && [ "$stale_removed" -gt 0 ] 2>/dev/null; then
         log_msg "Removed stale NFQUEUE rules: $stale_removed"
     fi
@@ -518,6 +519,27 @@ log_startup_stderr_errors() {
     fi
 }
 
+prepare_cmdline_core_runtime() {
+    is_custom_cmdline_mode || return 0
+
+    local previous_qnum="$QNUM"
+
+    if sync_cmdline_core_overrides; then
+        if [ -n "$previous_qnum" ] && [ "$QNUM" != "$previous_qnum" ]; then
+            local removed_total=$(remove_nfqueue_rules_by_qnum "$previous_qnum")
+            if [ "$removed_total" -gt 0 ] 2>/dev/null; then
+                log_msg "Removed stale NFQUEUE rules for previous queue: $previous_qnum ($removed_total)"
+            fi
+        fi
+
+        log_msg "Applied cmdline core overrides for runtime rules: QNUM=$QNUM DESYNC_MARK=$DESYNC_MARK NFQWS_UID=${NFQWS_UID:-0:0} LOG_MODE=${LOG_MODE:-none}"
+        return 0
+    fi
+
+    log_error "Could not apply cmdline core overrides before applying iptables"
+    return 1
+}
+
 # Show detailed error information
 show_error_details() {
     if [ -f "$ERROR_LOG" ] && [ -s "$ERROR_LOG" ]; then
@@ -552,6 +574,8 @@ main() {
 
     # Fix permissions
     fix_permissions
+
+    prepare_cmdline_core_runtime
 
     # Apply iptables rules
     apply_iptables

@@ -12,6 +12,7 @@ import androidx.fragment.app.Fragment
 import androidx.fragment.app.setFragmentResult
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.button.MaterialButton
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.topjohnwu.superuser.Shell
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -67,7 +68,13 @@ class ConfigEditorFragment : Fragment() {
         }
 
         buttonSaveRestartCommand.setOnClickListener {
-            saveCommandLine(restartAfterSave = true)
+            viewLifecycleOwner.lifecycleScope.launch {
+                if (isCmdlineModeEnabled()) {
+                    saveCommandLine(restartAfterSave = true)
+                } else {
+                    showRestartChoiceDialog()
+                }
+            }
         }
     }
 
@@ -96,7 +103,7 @@ class ConfigEditorFragment : Fragment() {
         }
     }
 
-    private fun saveCommandLine(restartAfterSave: Boolean) {
+    private fun saveCommandLine(restartAfterSave: Boolean, forceCmdlineMode: Boolean = false) {
         val commandText = normalizeLineEndings(editCommandLine.text?.toString().orEmpty()).trimEnd('\n', '\r')
         if (commandText.isBlank()) {
             Toast.makeText(requireContext(), "Command line is empty", Toast.LENGTH_SHORT).show()
@@ -112,11 +119,13 @@ class ConfigEditorFragment : Fragment() {
                     return@withContext Pair(false, false)
                 }
 
-                if (!syncCmdlineMode(configFile)) {
-                    return@withContext Pair(false, false)
-                }
-                if (!syncCmdlineMode(userConfigFile)) {
-                    return@withContext Pair(false, false)
+                if (forceCmdlineMode) {
+                    if (!syncCmdlineMode(configFile)) {
+                        return@withContext Pair(false, false)
+                    }
+                    if (!syncCmdlineMode(userConfigFile)) {
+                        return@withContext Pair(false, false)
+                    }
                 }
 
                 if (!restartAfterSave) {
@@ -134,19 +143,71 @@ class ConfigEditorFragment : Fragment() {
                     Toast.makeText(requireContext(), "Failed to save command line", Toast.LENGTH_SHORT).show()
                 }
                 restartAfterSave && restarted -> {
-                    Toast.makeText(requireContext(), "Saved and restarted", Toast.LENGTH_SHORT).show()
+                    val message = if (forceCmdlineMode) {
+                        "Command line saved and service restarted in cmdline mode"
+                    } else {
+                        "Command line saved and service restarted"
+                    }
+                    Toast.makeText(requireContext(), message, Toast.LENGTH_SHORT).show()
                     setFragmentResult(LogsFragment.SERVICE_RESTARTED_KEY, bundleOf())
                 }
                 restartAfterSave -> {
-                    Toast.makeText(requireContext(), "Saved, restart failed", Toast.LENGTH_SHORT).show()
+                    val message = if (forceCmdlineMode) {
+                        "Saved, but restart failed in cmdline mode"
+                    } else {
+                        "Saved, but service restart failed"
+                    }
+                    Toast.makeText(requireContext(), message, Toast.LENGTH_SHORT).show()
                 }
                 else -> {
-                    Toast.makeText(requireContext(), "Command line saved", Toast.LENGTH_SHORT).show()
+                    val message = if (forceCmdlineMode) {
+                        "Command line saved for cmdline mode"
+                    } else {
+                        "Command line saved"
+                    }
+                    Toast.makeText(requireContext(), message, Toast.LENGTH_SHORT).show()
                 }
             }
 
             setActionsEnabled(true)
         }
+    }
+
+    private fun showRestartChoiceDialog() {
+        MaterialAlertDialogBuilder(requireContext())
+            .setTitle("Command line restart mode")
+            .setMessage("Current preset mode is not cmdline. Restart will use current strategy mode. Enable raw cmdline mode and restart?\n\nThis is an advanced option that requires manual command-line settings.")
+            .setNegativeButton("Restart with current mode") { _, _ ->
+                saveCommandLine(restartAfterSave = true)
+            }
+            .setPositiveButton("Enable cmdline mode") { _, _ ->
+                saveCommandLine(restartAfterSave = true, forceCmdlineMode = true)
+            }
+            .setNeutralButton("Cancel", null)
+            .show()
+    }
+
+    private suspend fun isCmdlineModeEnabled(): Boolean {
+        val userMode = withContext(Dispatchers.IO) { readConfigValue(userConfigFile, "PRESET_MODE") }
+        val fallbackMode = withContext(Dispatchers.IO) { readConfigValue(configFile, "PRESET_MODE") }
+        val mode = (userMode ?: fallbackMode ?: "categories").lowercase()
+        return mode == "cmdline" || mode == "manual" || mode == "raw"
+    }
+
+    private fun readConfigValue(filePath: String, key: String): String? {
+        val result = Shell.cmd("cat '$filePath' 2>/dev/null").exec()
+        if (!result.isSuccess) return null
+
+        val pattern = Regex("(?i)^\\s*${Regex.escape(key)}\\s*=\\s*(?:\\\"([^\\\"]*)\\\"|'([^']*)'|([^\\s#]*))")
+        return result.out.joinToString("\n").lineSequence()
+            .map { it.trim() }
+            .firstOrNull { pattern.matches(it) }
+            ?.let { line ->
+                pattern.find(line)?.let { match ->
+                    (match.groups[1]?.value ?: match.groups[2]?.value ?: match.groups[3]?.value)
+                        ?.trim()
+                }
+            }
     }
 
     private fun syncCmdlineMode(targetFile: String): Boolean {
