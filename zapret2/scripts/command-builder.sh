@@ -673,13 +673,9 @@ build_options() {
         if build_preset_file_options; then
             used_preset_mode=1
 
-            # If preset has no Lua init lines, add built-in defaults.
+            # In preset mode Lua init comes only from the preset file.
             if [ "${PRESET_HAS_LUA:-0}" -ne 1 ]; then
-                local lua_opts_fallback=$(build_lua_opts)
-                if [ -n "$lua_opts_fallback" ]; then
-                    OPTS="$OPTS$lua_opts_fallback"
-                    log_msg "Preset has no --lua-init, using built-in Lua init"
-                fi
+                log_msg "WARNING: Preset has no valid --lua-init lines"
             fi
 
             # If preset has no blob lines, add blobs.txt defaults.
