@@ -247,6 +247,41 @@ is_custom_cmdline_mode() {
     esac
 }
 
+# Read custom cmdline file and return normalized one-line options string.
+normalize_custom_cmdline_file() {
+    local file_path="$1"
+    local cr
+    local line=""
+    local normalized=""
+
+    cr=$(printf '\r')
+
+    while IFS= read -r line || [ -n "$line" ]; do
+        line="${line%$cr}"
+
+        # Trim spaces/tabs and skip empty/comment lines
+        line="$(printf '%s\n' "$line" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
+        [ -z "$line" ] && continue
+        case "$line" in
+            "#"*|";"*)
+                continue
+                ;;
+        esac
+
+        # Keep user-friendly multiline syntax and optional continuation backslashes
+        line="$(printf '%s\n' "$line" | sed 's/[[:space:]]*\\$//')"
+        [ -z "$line" ] && continue
+
+        if [ -z "$normalized" ]; then
+            normalized="$line"
+        else
+            normalized="$normalized $line"
+        fi
+    done < "$file_path"
+
+    printf '%s' "$normalized"
+}
+
 # Resolve CUSTOM_CMDLINE_FILE to absolute path.
 resolve_custom_cmdline_file_path() {
     local cmdline_file="$1"
@@ -280,7 +315,7 @@ build_custom_cmdline_options() {
         return 1
     fi
 
-    raw_args=$(tr '\r\n' '  ' < "$resolved_file" | sed 's/[[:space:]][[:space:]]*/ /g; s/^ //; s/ $//')
+    raw_args="$(normalize_custom_cmdline_file "$resolved_file")"
 
     if [ -z "$raw_args" ]; then
         log_error "Custom cmdline file is empty: $resolved_file"
