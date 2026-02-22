@@ -37,10 +37,19 @@ log_msg() {
     echo "[INFO] $(date '+%Y-%m-%d %H:%M:%S') $msg" >> "$LOGFILE"
 }
 
+# Log error message to Android system log (logcat)
+log_system_error() {
+    local msg="$1"
+    if command -v log >/dev/null 2>&1; then
+        log -p e -t Zapret2 "$msg" 2>/dev/null
+    fi
+}
+
 # Log error message
 log_error() {
     local msg="$1"
     echo "[ERROR] $(date '+%Y-%m-%d %H:%M:%S') $msg" >> "$LOGFILE"
+    log_system_error "$msg"
 }
 
 # Log debug message (only if debug mode enabled)
@@ -426,9 +435,11 @@ start_nfqws2() {
         # Quick check - nfqws2 starts in milliseconds
         sleep 0.2
 
-        # Parse and log startup output (skip in fast restart mode)
+        # Parse and log startup output
         if [ "$FAST_RESTART" != "1" ]; then
             parse_startup_output
+        else
+            log_startup_stderr_errors
         fi
 
         # Check if process is running
@@ -482,16 +493,18 @@ parse_startup_output() {
     if [ -f "$ERROR_LOG" ] && [ -s "$ERROR_LOG" ]; then
         log_msg "=== nfqws2 stderr ==="
         while IFS= read -r line; do
-            case "$line" in
-                *error*|*Error*|*ERROR*|*fail*|*Fail*|*FAIL*|*cannot*|*Cannot*)
-                    log_error "  $line"
-                    ;;
-                *)
-                    log_msg "  $line"
-                    ;;
-            esac
+            [ -n "$line" ] && log_error "nfqws2 stderr: $line"
         done < "$ERROR_LOG"
         log_msg "=== end stderr ==="
+    fi
+}
+
+# Log nfqws2 startup stderr in fast restart mode.
+log_startup_stderr_errors() {
+    if [ -f "$ERROR_LOG" ] && [ -s "$ERROR_LOG" ]; then
+        while IFS= read -r line; do
+            [ -n "$line" ] && log_error "nfqws2 stderr: $line"
+        done < "$ERROR_LOG"
     fi
 }
 

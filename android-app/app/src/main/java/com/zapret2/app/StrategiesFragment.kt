@@ -81,10 +81,11 @@ class StrategiesFragment : Fragment() {
     // Paths
     private val MODDIR = "/data/adb/modules/zapret2"
     private val CONFIG = "$MODDIR/zapret2/config.sh"
+    private val USER_CONFIG = "/data/local/tmp/zapret2-user.conf"
     private val RESTART_SCRIPT = "$MODDIR/zapret2/scripts/zapret-restart.sh"
 
-    // Category key to categories.txt mapping
-    // UI key -> category name in categories.txt (first column before |)
+    // Category key to categories.ini mapping
+    // UI key -> category name in categories.ini
     private val categoryKeyMap = mapOf(
         "youtube_tcp" to "youtube",
         "youtube_quic" to "youtube_udp",
@@ -433,13 +434,18 @@ class StrategiesFragment : Fragment() {
                 }
             }
 
-            // Load PKT_OUT/PKT_COUNT and LOG_MODE from config.sh (not in categories.ini)
-            val config = withContext(Dispatchers.IO) {
-                Shell.cmd("cat $CONFIG 2>/dev/null").exec().out.joinToString("\n")
+            // Load PKT_OUT/PKT_COUNT and LOG_MODE from config files (not in categories.ini)
+            // Runtime precedence: user config overrides module config.
+            val (moduleConfig, userConfig) = withContext(Dispatchers.IO) {
+                val modConfig = Shell.cmd("cat $CONFIG 2>/dev/null").exec().out.joinToString("\n")
+                val usrConfig = Shell.cmd("cat $USER_CONFIG 2>/dev/null").exec().out.joinToString("\n")
+                Pair(modConfig, usrConfig)
             }
 
-            val pktValue = parseConfigValue(config, "PKT_OUT")
-                ?: parseConfigValue(config, "PKT_COUNT")
+            val pktValue = parseConfigValue(userConfig, "PKT_OUT")
+                ?: parseConfigValue(userConfig, "PKT_COUNT")
+                ?: parseConfigValue(moduleConfig, "PKT_OUT")
+                ?: parseConfigValue(moduleConfig, "PKT_COUNT")
             pktValue?.let { value ->
                 // Store the value directly (e.g., "5", "10")
                 if (value in pktCountOptions) {
@@ -448,7 +454,9 @@ class StrategiesFragment : Fragment() {
                 }
             }
 
-            parseConfigValue(config, "LOG_MODE")?.let { value ->
+            val logModeValue = parseConfigValue(userConfig, "LOG_MODE")
+                ?: parseConfigValue(moduleConfig, "LOG_MODE")
+            logModeValue?.let { value ->
                 // Store the value directly (e.g., "none", "android", "file", "syslog")
                 if (value in debugModeValues) {
                     selections["debug"] = value
@@ -499,7 +507,11 @@ class StrategiesFragment : Fragment() {
 
             val (configSuccess, restartSuccess) = withContext(Dispatchers.IO) {
                 // Read current config
-                val currentConfig = Shell.cmd("cat $CONFIG 2>/dev/null").exec().out.joinToString("\n")
+                val configReadResult = Shell.cmd("cat $CONFIG 2>/dev/null").exec()
+                val currentConfig = configReadResult.out.joinToString("\n")
+                if (!configReadResult.isSuccess || currentConfig.isBlank()) {
+                    return@withContext Pair(false, false)
+                }
 
                 // Update PKT_OUT/PKT_COUNT and LOG_MODE in config
                 var newConfig = currentConfig
@@ -526,6 +538,43 @@ class StrategiesFragment : Fragment() {
                 val saveResult = Shell.cmd("echo '$escaped' > $CONFIG").exec()
 
                 if (!saveResult.isSuccess) {
+                    return@withContext Pair(false, false)
+                }
+
+                // Keep user config synced because runtime loads it after module config.
+                val hasPktOut = Shell.cmd("grep -q '^PKT_OUT=' $USER_CONFIG 2>/dev/null && echo 1 || echo 0").exec()
+                    .out.firstOrNull()?.trim() == "1"
+                val savePktOutResult = if (hasPktOut) {
+                    Shell.cmd("sed -i 's/^PKT_OUT=.*/PKT_OUT=$pktCount/' $USER_CONFIG").exec()
+                } else {
+                    Shell.cmd("echo 'PKT_OUT=$pktCount' >> $USER_CONFIG").exec()
+                }
+
+                if (!savePktOutResult.isSuccess) {
+                    return@withContext Pair(false, false)
+                }
+
+                val hasLogMode = Shell.cmd("grep -q '^LOG_MODE=' $USER_CONFIG 2>/dev/null && echo 1 || echo 0").exec()
+                    .out.firstOrNull()?.trim() == "1"
+                val saveLogModeResult = if (hasLogMode) {
+                    Shell.cmd("sed -i 's/^LOG_MODE=.*/LOG_MODE=$debugMode/' $USER_CONFIG").exec()
+                } else {
+                    Shell.cmd("echo 'LOG_MODE=$debugMode' >> $USER_CONFIG").exec()
+                }
+
+                if (!saveLogModeResult.isSuccess) {
+                    return@withContext Pair(false, false)
+                }
+
+                val hasPresetMode = Shell.cmd("grep -q '^PRESET_MODE=' $USER_CONFIG 2>/dev/null && echo 1 || echo 0").exec()
+                    .out.firstOrNull()?.trim() == "1"
+                val savePresetModeResult = if (hasPresetMode) {
+                    Shell.cmd("sed -i 's/^PRESET_MODE=.*/PRESET_MODE=categories/' $USER_CONFIG").exec()
+                } else {
+                    Shell.cmd("echo 'PRESET_MODE=categories' >> $USER_CONFIG").exec()
+                }
+
+                if (!savePresetModeResult.isSuccess) {
                     return@withContext Pair(false, false)
                 }
 
