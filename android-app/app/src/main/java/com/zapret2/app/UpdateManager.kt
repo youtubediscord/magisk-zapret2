@@ -307,8 +307,11 @@ class UpdateManager(private val context: Context) {
                 Shell.cmd("chmod 755 $modDir/zapret2/scripts/*.sh").exec()
                 Shell.cmd("chmod 755 $modDir/service.sh").exec()
 
-                // 4. Restart the service
-                Shell.cmd("$modDir/zapret2/scripts/zapret-start.sh &").exec()
+                // 4. Restart the service (always use fast restart path)
+                val restartResult = Shell.cmd("sh $modDir/zapret2/scripts/zapret-restart.sh").exec()
+                if (!restartResult.isSuccess) {
+                    return@withContext Pair(false, false)
+                }
 
                 // Hot update successful - no reboot needed
                 Pair(true, false)

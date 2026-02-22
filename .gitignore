@@ -1,2 +1,5 @@
 CLAUDE.md
 .gitignorenul
+/.claude
+AGENTS.md
+.env
