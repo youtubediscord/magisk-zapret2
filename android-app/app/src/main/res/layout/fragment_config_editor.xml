@@ -10,31 +10,31 @@
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Config file"
-        android:textColor="#808080"
-        android:textSize="12sp"
-        android:layout_marginBottom="6dp" />
-
-    <Spinner
-        android:id="@+id/spinnerConfigFile"
-        android:layout_width="match_parent"
-        android:layout_height="40dp"
-        android:background="@drawable/setting_row_background"
-        android:paddingHorizontal="12dp"
-        android:popupBackground="#2D2D2D" />
+        android:text="nfqws2 command line"
+        android:textColor="#FFFFFF"
+        android:textSize="14sp"
+        android:textStyle="bold" />
 
     <TextView
-        android:id="@+id/textConfigPath"
+        android:id="@+id/textCommandFilePath"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="/data/adb/modules/zapret2/zapret2/config.sh"
+        android:layout_marginTop="6dp"
+        android:text="/data/adb/modules/zapret2/zapret2/cmdline.txt"
         android:textColor="#808080"
-        android:textSize="11sp"
-        android:layout_marginTop="8dp"
-        android:layout_marginBottom="8dp" />
+        android:textSize="11sp" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:layout_marginBottom="10dp"
+        android:text="Edit nfqws2 options passed at startup. You can paste full command with nfqws2 path or only options."
+        android:textColor="#808080"
+        android:textSize="11sp" />
 
     <EditText
-        android:id="@+id/editConfigContent"
+        android:id="@+id/editCommandLine"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
@@ -48,7 +48,7 @@
         android:overScrollMode="ifContentScrolls"
         android:scrollbars="vertical"
         android:padding="12dp"
-        android:hint="File content" />
+        android:hint="--new --filter-tcp=443 --payload=tls_client_hello ..." />
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -57,7 +57,7 @@
         android:layout_marginTop="12dp">
 
         <com.google.android.material.button.MaterialButton
-            android:id="@+id/buttonReloadConfig"
+            android:id="@+id/buttonReloadCommand"
             style="@style/Widget.Zapret2.Button"
             android:layout_width="0dp"
             android:layout_height="40dp"
@@ -74,7 +74,7 @@
             app:iconPadding="4dp" />
 
         <com.google.android.material.button.MaterialButton
-            android:id="@+id/buttonSaveConfig"
+            android:id="@+id/buttonSaveCommand"
             style="@style/Widget.Zapret2.Button"
             android:layout_width="0dp"
             android:layout_height="40dp"
@@ -91,7 +91,7 @@
             app:iconPadding="4dp" />
 
         <com.google.android.material.button.MaterialButton
-            android:id="@+id/buttonSaveRestartConfig"
+            android:id="@+id/buttonSaveRestartCommand"
             style="@style/Widget.Zapret2.Button"
             android:layout_width="0dp"
             android:layout_height="40dp"

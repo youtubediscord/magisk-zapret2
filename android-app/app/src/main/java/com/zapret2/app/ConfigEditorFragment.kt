@@ -4,10 +4,7 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.AdapterView
-import android.widget.ArrayAdapter
 import android.widget.EditText
-import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
 import androidx.core.os.bundleOf
@@ -22,27 +19,18 @@ import kotlinx.coroutines.withContext
 
 class ConfigEditorFragment : Fragment() {
 
-    private data class EditableFile(
-        val displayName: String,
-        val path: String
-    )
+    private lateinit var textCommandFilePath: TextView
+    private lateinit var editCommandLine: EditText
+    private lateinit var buttonReloadCommand: MaterialButton
+    private lateinit var buttonSaveCommand: MaterialButton
+    private lateinit var buttonSaveRestartCommand: MaterialButton
 
-    private lateinit var spinnerConfigFile: Spinner
-    private lateinit var textConfigPath: TextView
-    private lateinit var editConfigContent: EditText
-    private lateinit var buttonReloadConfig: MaterialButton
-    private lateinit var buttonSaveConfig: MaterialButton
-    private lateinit var buttonSaveRestartConfig: MaterialButton
-
-    private val restartScript = "/data/adb/modules/zapret2/zapret2/scripts/zapret-restart.sh"
-
-    private val editableFiles = listOf(
-        EditableFile("config.sh", "/data/adb/modules/zapret2/zapret2/config.sh"),
-        EditableFile("categories.ini", "/data/adb/modules/zapret2/zapret2/categories.ini"),
-        EditableFile("strategies-tcp.ini", "/data/adb/modules/zapret2/zapret2/strategies-tcp.ini"),
-        EditableFile("strategies-udp.ini", "/data/adb/modules/zapret2/zapret2/strategies-udp.ini"),
-        EditableFile("strategies-stun.ini", "/data/adb/modules/zapret2/zapret2/strategies-stun.ini")
-    )
+    private val moduleDir = "/data/adb/modules/zapret2"
+    private val configFile = "$moduleDir/zapret2/config.sh"
+    private val userConfigFile = "/data/local/tmp/zapret2-user.conf"
+    private val commandFile = "$moduleDir/zapret2/cmdline.txt"
+    private val runtimeCmdlineFile = "/data/local/tmp/nfqws2-cmdline.txt"
+    private val restartScript = "$moduleDir/zapret2/scripts/zapret-restart.sh"
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -55,90 +43,79 @@ class ConfigEditorFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         initViews(view)
-        setupFileSelector()
         setupButtons()
+        loadCommandLine()
     }
 
     private fun initViews(view: View) {
-        spinnerConfigFile = view.findViewById(R.id.spinnerConfigFile)
-        textConfigPath = view.findViewById(R.id.textConfigPath)
-        editConfigContent = view.findViewById(R.id.editConfigContent)
-        buttonReloadConfig = view.findViewById(R.id.buttonReloadConfig)
-        buttonSaveConfig = view.findViewById(R.id.buttonSaveConfig)
-        buttonSaveRestartConfig = view.findViewById(R.id.buttonSaveRestartConfig)
-    }
+        textCommandFilePath = view.findViewById(R.id.textCommandFilePath)
+        editCommandLine = view.findViewById(R.id.editCommandLine)
+        buttonReloadCommand = view.findViewById(R.id.buttonReloadCommand)
+        buttonSaveCommand = view.findViewById(R.id.buttonSaveCommand)
+        buttonSaveRestartCommand = view.findViewById(R.id.buttonSaveRestartCommand)
 
-    private fun setupFileSelector() {
-        val adapter = ArrayAdapter(
-            requireContext(),
-            R.layout.spinner_item,
-            editableFiles.map { it.displayName }
-        )
-        adapter.setDropDownViewResource(R.layout.spinner_dropdown_item)
-        spinnerConfigFile.adapter = adapter
-
-        spinnerConfigFile.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
-                val selectedFile = getSelectedFile() ?: return
-                textConfigPath.text = selectedFile.path
-                loadCurrentFile()
-            }
-
-            override fun onNothingSelected(parent: AdapterView<*>?) = Unit
-        }
+        textCommandFilePath.text = commandFile
     }
 
     private fun setupButtons() {
-        buttonReloadConfig.setOnClickListener {
-            loadCurrentFile()
+        buttonReloadCommand.setOnClickListener {
+            loadCommandLine()
         }
 
-        buttonSaveConfig.setOnClickListener {
-            saveCurrentFile(restartAfterSave = false)
+        buttonSaveCommand.setOnClickListener {
+            saveCommandLine(restartAfterSave = false)
         }
 
-        buttonSaveRestartConfig.setOnClickListener {
-            saveCurrentFile(restartAfterSave = true)
+        buttonSaveRestartCommand.setOnClickListener {
+            saveCommandLine(restartAfterSave = true)
         }
     }
 
-    private fun loadCurrentFile() {
-        val selectedFile = getSelectedFile() ?: return
-
+    private fun loadCommandLine() {
         viewLifecycleOwner.lifecycleScope.launch {
             setActionsEnabled(false)
 
-            val content = withContext(Dispatchers.IO) {
-                val result = Shell.cmd("cat \"${selectedFile.path}\" 2>/dev/null").exec()
-                if (result.isSuccess) {
-                    result.out.joinToString("\n")
+            val commandLine = withContext(Dispatchers.IO) {
+                val manualResult = Shell.cmd("cat \"$commandFile\" 2>/dev/null").exec()
+                if (manualResult.isSuccess && manualResult.out.isNotEmpty()) {
+                    manualResult.out.joinToString("\n").trimEnd()
                 } else {
-                    null
+                    val runtimeResult = Shell.cmd("cat \"$runtimeCmdlineFile\" 2>/dev/null").exec()
+                    if (runtimeResult.isSuccess && runtimeResult.out.isNotEmpty()) {
+                        stripBinaryPrefix(runtimeResult.out.joinToString(" ").trim())
+                    } else {
+                        ""
+                    }
                 }
             }
 
             if (!isAdded) return@launch
 
-            if (content != null) {
-                editConfigContent.setText(content)
-            } else {
-                Toast.makeText(requireContext(), "Failed to read ${selectedFile.displayName}", Toast.LENGTH_SHORT).show()
-            }
-
+            editCommandLine.setText(commandLine)
             setActionsEnabled(true)
         }
     }
 
-    private fun saveCurrentFile(restartAfterSave: Boolean) {
-        val selectedFile = getSelectedFile() ?: return
-        val text = editConfigContent.text?.toString().orEmpty().replace("\r\n", "\n")
+    private fun saveCommandLine(restartAfterSave: Boolean) {
+        val commandText = editCommandLine.text?.toString().orEmpty().replace("\r\n", "\n").trim()
+        if (commandText.isBlank()) {
+            Toast.makeText(requireContext(), "Command line is empty", Toast.LENGTH_SHORT).show()
+            return
+        }
 
         viewLifecycleOwner.lifecycleScope.launch {
             setActionsEnabled(false)
 
             val (saved, restarted) = withContext(Dispatchers.IO) {
-                val writeResult = Shell.cmd(buildSafeWriteCommand(selectedFile.path, text)).exec()
+                val writeResult = Shell.cmd(buildSafeWriteCommand(commandFile, commandText)).exec()
                 if (!writeResult.isSuccess) {
+                    return@withContext Pair(false, false)
+                }
+
+                if (!syncCmdlineMode(configFile)) {
+                    return@withContext Pair(false, false)
+                }
+                if (!syncCmdlineMode(userConfigFile)) {
                     return@withContext Pair(false, false)
                 }
 
@@ -154,7 +131,7 @@ class ConfigEditorFragment : Fragment() {
 
             when {
                 !saved -> {
-                    Toast.makeText(requireContext(), "Failed to save ${selectedFile.displayName}", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(requireContext(), "Failed to save command line", Toast.LENGTH_SHORT).show()
                 }
                 restartAfterSave && restarted -> {
                     Toast.makeText(requireContext(), "Saved and restarted", Toast.LENGTH_SHORT).show()
@@ -164,7 +141,7 @@ class ConfigEditorFragment : Fragment() {
                     Toast.makeText(requireContext(), "Saved, restart failed", Toast.LENGTH_SHORT).show()
                 }
                 else -> {
-                    Toast.makeText(requireContext(), "Saved ${selectedFile.displayName}", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(requireContext(), "Command line saved", Toast.LENGTH_SHORT).show()
                 }
             }
 
@@ -172,8 +149,50 @@ class ConfigEditorFragment : Fragment() {
         }
     }
 
+    private fun syncCmdlineMode(targetFile: String): Boolean {
+        if (!upsertConfigValue(targetFile, "PRESET_MODE", "cmdline")) {
+            return false
+        }
+        if (!upsertConfigValue(targetFile, "CUSTOM_CMDLINE_FILE", commandFile)) {
+            return false
+        }
+        return true
+    }
+
+    private fun upsertConfigValue(filePath: String, key: String, value: String): Boolean {
+        val escapedPath = filePath.replace("\"", "\\\"")
+        val hasValue = Shell.cmd("grep -q '^$key=' \"$escapedPath\" 2>/dev/null && echo 1 || echo 0").exec()
+            .out.firstOrNull()?.trim() == "1"
+
+        val result = if (hasValue) {
+            val escapedValueForSed = value
+                .replace("\\", "\\\\")
+                .replace("|", "\\|")
+                .replace("&", "\\&")
+                .replace("\"", "\\\"")
+            Shell.cmd("sed -i 's|^$key=.*|$key=\"$escapedValueForSed\"|' \"$escapedPath\"").exec()
+        } else {
+            val line = "$key=\"$value\"".replace("'", "'\\''")
+            Shell.cmd("echo '$line' >> \"$escapedPath\"").exec()
+        }
+
+        return result.isSuccess
+    }
+
+    private fun stripBinaryPrefix(cmdline: String): String {
+        val trimmed = cmdline.trim()
+        if (trimmed.isEmpty()) return ""
+
+        val firstToken = trimmed.substringBefore(' ')
+        return if (firstToken == "nfqws2" || firstToken.endsWith("/nfqws2")) {
+            trimmed.removePrefix(firstToken).trimStart()
+        } else {
+            trimmed
+        }
+    }
+
     private fun buildSafeWriteCommand(path: String, content: String): String {
-        var delimiter = "__ZAPRET_EDITOR_EOF__"
+        var delimiter = "__ZAPRET_CMDLINE_EOF__"
         while (content.contains(delimiter)) {
             delimiter += "_X"
         }
@@ -190,17 +209,10 @@ class ConfigEditorFragment : Fragment() {
         }
     }
 
-    private fun getSelectedFile(): EditableFile? {
-        val position = spinnerConfigFile.selectedItemPosition
-        if (position !in editableFiles.indices) return null
-        return editableFiles[position]
-    }
-
     private fun setActionsEnabled(enabled: Boolean) {
-        spinnerConfigFile.isEnabled = enabled
-        buttonReloadConfig.isEnabled = enabled
-        buttonSaveConfig.isEnabled = enabled
-        buttonSaveRestartConfig.isEnabled = enabled
-        editConfigContent.isEnabled = enabled
+        editCommandLine.isEnabled = enabled
+        buttonReloadCommand.isEnabled = enabled
+        buttonSaveCommand.isEnabled = enabled
+        buttonSaveRestartCommand.isEnabled = enabled
     }
 }

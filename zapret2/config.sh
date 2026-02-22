@@ -23,10 +23,15 @@ STRATEGY_PRESET=syndata_multisplit_tls_google_700
 # Runtime mode:
 # - categories: build command from categories.ini + strategies-*.ini
 # - file: load full command blocks from presets/*.txt (Windows-style preset files)
+# - cmdline: load raw nfqws2 options from CUSTOM_CMDLINE_FILE
 PRESET_MODE=categories
 
 # Preset file name in zapret2/presets/ (used when PRESET_MODE=file)
 PRESET_FILE="Default.txt"
+
+# Raw nfqws2 options file (used when PRESET_MODE=cmdline)
+# Relative paths are resolved from zapret2/ directory
+CUSTOM_CMDLINE_FILE="cmdline.txt"
 
 # UID:GID for nfqws2.
 # NOTE: nfqws2 has internal default 2147483647:2147483647 when --uid is not passed,

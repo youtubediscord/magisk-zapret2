@@ -15,8 +15,6 @@
 --ipcache-lifetime=8400
 --ipcache-hostname=1
 
---wf-tcp-out=80,443-65535
---wf-udp-out=444-65535
 
 --blob=quic_google:@bin/quic_initial_www_google_com.bin
 --blob=tls7:@bin/tls_clienthello_7.bin
