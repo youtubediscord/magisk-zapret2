@@ -19,11 +19,25 @@ jobs:
       version_tag: ${{ steps.version.outputs.version_tag }}
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Generate version from CI run
         id: version
         run: |
+          if [ ! -f version.series ]; then
+            echo "version.series file is missing"
+            exit 1
+          fi
+
+          VERSION_SERIES=$(tr -d '[:space:]' < version.series)
+          if [[ ! "$VERSION_SERIES" =~ ^[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid version series '$VERSION_SERIES' in version.series"
+            exit 1
+          fi
+
           VERSION_CODE=$(( 100000 + ${{ github.run_number }} * 100 + ${{ github.run_attempt }} ))
-          VERSION="1.8.${VERSION_CODE}"
+          VERSION="${VERSION_SERIES}.${VERSION_CODE}"
           VERSION_TAG="v${VERSION}"
 
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
