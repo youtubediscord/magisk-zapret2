@@ -96,6 +96,7 @@ set_default_config() {
     STRATEGY_PRESET="youtube"
     PRESET_MODE="categories"
     PRESET_FILE="Default.txt"
+    CUSTOM_CMDLINE_FILE="$ZAPRET_DIR/cmdline.txt"
 
     # UID:GID for nfqws2 sandbox (explicit to avoid upstream 2147483647 default)
     NFQWS_UID="0:0"
@@ -152,6 +153,14 @@ load_config() {
         else
             log_msg "WARNING: Preset file not found: $preset_path"
         fi
+    elif [ "$PRESET_MODE" = "cmdline" ] || [ "$PRESET_MODE" = "manual" ] || [ "$PRESET_MODE" = "raw" ]; then
+        local cmdline_path
+        cmdline_path="$(resolve_custom_cmdline_file_path "${CUSTOM_CMDLINE_FILE:-$ZAPRET_DIR/cmdline.txt}")"
+        if [ -f "$cmdline_path" ]; then
+            log_msg "Found custom cmdline file: $cmdline_path"
+        else
+            log_msg "WARNING: Custom cmdline file not found: $cmdline_path"
+        fi
     fi
 
     # Log current configuration
@@ -161,6 +170,7 @@ load_config() {
     log_debug "STRATEGY_PRESET=$STRATEGY_PRESET"
     log_debug "PRESET_MODE=$PRESET_MODE"
     log_debug "PRESET_FILE=$PRESET_FILE"
+    log_debug "CUSTOM_CMDLINE_FILE=${CUSTOM_CMDLINE_FILE:-$ZAPRET_DIR/cmdline.txt}"
     log_debug "NFQWS_UID=${NFQWS_UID:-<root>}"
     log_debug "HOSTLIST_MODE=$HOSTLIST_MODE"
     log_debug "PKT_OUT=$PKT_OUT"

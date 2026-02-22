@@ -133,7 +133,7 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
     }
 
     private fun updateToolbarTitle(position: Int) {
-        val titles = arrayOf("Control", "Strategies", "Presets", "Editor", "Hostlists", "Logs", "About")
+        val titles = arrayOf("Control", "Strategies", "Presets", "Cmdline", "Hostlists", "Logs", "About")
         if (position in titles.indices) {
             supportActionBar?.title = titles[position]
         }

@@ -15,12 +15,7 @@
 --ipcache-lifetime=8400
 --ipcache-hostname=1
 
---wf-tcp-out=80,443,1080,2053,2083,2087,2096,8443
---wf-udp-out=443-65535
 
---wf-raw-part=@windivert.filter/windivert_part.discord_media.txt
---wf-raw-part=@windivert.filter/windivert_part.stun.txt
---wf-raw-part=@windivert.filter/windivert_part.wireguard.txt
 
 --blob=tls_google:@bin/tls_clienthello_www_google_com.bin
 --blob=tls1:@bin/tls_clienthello_1.bin

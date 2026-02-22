@@ -232,8 +232,80 @@ build_debug_opts() {
 }
 
 ##########################################################################################
-# PRESET FILE BUILDERS
+# RAW CMDLINE / PRESET FILE BUILDERS
 ##########################################################################################
+
+# Returns 0 when PRESET_MODE requests raw command-line loading.
+is_custom_cmdline_mode() {
+    case "${PRESET_MODE:-categories}" in
+        cmdline|manual|raw)
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+# Resolve CUSTOM_CMDLINE_FILE to absolute path.
+resolve_custom_cmdline_file_path() {
+    local cmdline_file="$1"
+
+    case "$cmdline_file" in
+        /*)
+            echo "$cmdline_file"
+            ;;
+        *)
+            echo "$ZAPRET_DIR/$cmdline_file"
+            ;;
+    esac
+}
+
+# Build options from raw nfqws2 options file.
+# Modifies global: OPTS
+build_custom_cmdline_options() {
+    local cmdline_file="${CUSTOM_CMDLINE_FILE:-$ZAPRET_DIR/cmdline.txt}"
+    local resolved_file=""
+    local raw_args=""
+    local first_word=""
+
+    resolved_file="$(resolve_custom_cmdline_file_path "$cmdline_file")"
+
+    if [ ! -f "$resolved_file" ]; then
+        log_error "Custom cmdline file not found: $resolved_file"
+        return 1
+    fi
+    if [ ! -r "$resolved_file" ]; then
+        log_error "Custom cmdline file is not readable: $resolved_file"
+        return 1
+    fi
+
+    raw_args=$(tr '\r\n' '  ' < "$resolved_file" | sed 's/[[:space:]][[:space:]]*/ /g; s/^ //; s/ $//')
+
+    if [ -z "$raw_args" ]; then
+        log_error "Custom cmdline file is empty: $resolved_file"
+        return 1
+    fi
+
+    first_word="${raw_args%% *}"
+    case "$first_word" in
+        */nfqws2|nfqws2)
+            raw_args="${raw_args#"$first_word"}"
+            while [ "${raw_args# }" != "$raw_args" ]; do
+                raw_args="${raw_args# }"
+            done
+            ;;
+    esac
+
+    if [ -z "$raw_args" ]; then
+        log_error "Custom cmdline has no nfqws2 options: $resolved_file"
+        return 1
+    fi
+
+    OPTS="$OPTS $raw_args"
+    log_msg "Loaded raw nfqws2 options from $resolved_file"
+    return 0
+}
 
 # Returns 0 when PRESET_MODE requests file-based preset loading.
 is_preset_file_mode() {
@@ -330,7 +402,7 @@ build_preset_file_options() {
 
         # Accept only options known to work in Android nfqws2 mode
         case "$line" in
-            --new|--lua-init=*|--blob=*|--ctrack-disable=*|--ipcache-lifetime=*|--ipcache-hostname|--ipcache-hostname=*|--filter-tcp=*|--filter-udp=*|--filter-l7=*|--hostlist=*|--hostlist-domains=*|--hostlist-exclude=*|--ipset=*|--ipset-exclude=*|--out-range=*|--payload=*|--lua-desync=*)
+            --new|--lua-init=*|--blob=*|--ctrack-disable=*|--ipcache-lifetime=*|--ipcache-hostname|--ipcache-hostname=*|--filter-l3=*|--filter-tcp=*|--filter-udp=*|--filter-l7=*|--hostlist=*|--hostlist-domains=*|--hostlist-exclude=*|--ipset=*|--ipset-exclude=*|--out-range=*|--payload=*|--lua-desync=*)
                 ;;
             *)
                 log_debug "Skipping unsupported preset option: $line"
@@ -740,9 +812,21 @@ build_options() {
         OPTS="$OPTS $debug_opts"
     fi
 
+    local used_cmdline_mode=0
     local used_preset_mode=0
 
-    if is_preset_file_mode; then
+    if is_custom_cmdline_mode; then
+        log_msg "Mode: Raw command-line configuration"
+        log_msg "Command file: ${CUSTOM_CMDLINE_FILE:-$ZAPRET_DIR/cmdline.txt}"
+
+        if build_custom_cmdline_options; then
+            used_cmdline_mode=1
+        else
+            log_error "Raw command-line mode failed, falling back to categories.ini"
+        fi
+    fi
+
+    if [ "$used_cmdline_mode" -eq 0 ] && is_preset_file_mode; then
         log_msg "Mode: Preset file configuration"
         log_msg "Preset file: ${PRESET_FILE:-Default.txt}"
 
@@ -767,7 +851,7 @@ build_options() {
         fi
     fi
 
-    if [ "$used_preset_mode" -eq 0 ]; then
+    if [ "$used_cmdline_mode" -eq 0 ] && [ "$used_preset_mode" -eq 0 ]; then
         # Add Lua init options
         local lua_opts=$(build_lua_opts)
         if [ -n "$lua_opts" ]; then
