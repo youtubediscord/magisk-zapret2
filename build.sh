@@ -8,6 +8,17 @@ set -e
 VERSION="${1:-}"
 OUTPUT_DIR="${2:-dist}"
 
+if [ ! -f "version.series" ]; then
+    echo "ERROR: version.series file is missing"
+    exit 1
+fi
+
+VERSION_SERIES=$(tr -d '[:space:]' < version.series)
+if [[ ! "$VERSION_SERIES" =~ ^[0-9]+\.[0-9]+$ ]]; then
+    echo "ERROR: invalid version.series value '$VERSION_SERIES' (expected MAJOR.MINOR)"
+    exit 1
+fi
+
 if [ -n "$VERSION" ]; then
     VERSION="${VERSION#v}"
     VERSION_CODE=$(printf '%s' "$VERSION" | tr -cd '0-9' | head -c 9)
@@ -20,7 +31,7 @@ else
         COMMIT_COUNT=1
     fi
     VERSION_CODE=$((100000 + COMMIT_COUNT))
-    VERSION="1.8.${VERSION_CODE}"
+    VERSION="${VERSION_SERIES}.${VERSION_CODE}"
 fi
 
 echo "Building Zapret2 Magisk Module v$VERSION"
