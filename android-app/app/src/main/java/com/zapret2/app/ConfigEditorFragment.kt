@@ -78,11 +78,11 @@ class ConfigEditorFragment : Fragment() {
             val commandLine = withContext(Dispatchers.IO) {
                 val manualResult = Shell.cmd("cat \"$commandFile\" 2>/dev/null").exec()
                 if (manualResult.isSuccess && manualResult.out.isNotEmpty()) {
-                    manualResult.out.joinToString("\n").trimEnd()
+                    formatCommandForEditor(manualResult.out.joinToString("\n"))
                 } else {
                     val runtimeResult = Shell.cmd("cat \"$runtimeCmdlineFile\" 2>/dev/null").exec()
                     if (runtimeResult.isSuccess && runtimeResult.out.isNotEmpty()) {
-                        stripBinaryPrefix(runtimeResult.out.joinToString(" ").trim())
+                        formatCommandForEditor(runtimeResult.out.joinToString("\n"))
                     } else {
                         ""
                     }
@@ -97,7 +97,7 @@ class ConfigEditorFragment : Fragment() {
     }
 
     private fun saveCommandLine(restartAfterSave: Boolean) {
-        val commandText = editCommandLine.text?.toString().orEmpty().replace("\r\n", "\n").trim()
+        val commandText = normalizeLineEndings(editCommandLine.text?.toString().orEmpty()).trimEnd('\n', '\r')
         if (commandText.isBlank()) {
             Toast.makeText(requireContext(), "Command line is empty", Toast.LENGTH_SHORT).show()
             return
@@ -180,14 +180,33 @@ class ConfigEditorFragment : Fragment() {
     }
 
     private fun stripBinaryPrefix(cmdline: String): String {
-        val trimmed = cmdline.trim()
+        val trimmed = normalizeLineEndings(cmdline).trimStart()
         if (trimmed.isEmpty()) return ""
 
-        val firstToken = trimmed.substringBefore(' ')
+        val firstWhitespaceIndex = trimmed.indexOfFirst { it.isWhitespace() }
+        val firstToken = if (firstWhitespaceIndex < 0) trimmed else trimmed.substring(0, firstWhitespaceIndex)
+        val commandRest = if (firstWhitespaceIndex < 0) "" else trimmed.substring(firstWhitespaceIndex).trimStart()
+
         return if (firstToken == "nfqws2" || firstToken.endsWith("/nfqws2")) {
-            trimmed.removePrefix(firstToken).trimStart()
+            commandRest
         } else {
             trimmed
+        }
+    }
+
+    private fun normalizeLineEndings(text: String): String {
+        return text.replace("\r\n", "\n").replace('\r', '\n')
+    }
+
+    private fun formatCommandForEditor(rawCommandLine: String): String {
+        val stripped = stripBinaryPrefix(rawCommandLine)
+        if (stripped.isBlank()) return ""
+
+        val normalized = normalizeLineEndings(stripped).trim()
+        return if (normalized.contains('\n')) {
+            normalized.replace(Regex("\\n[ \t]+"), "\n").trim()
+        } else {
+            normalized.replace(" --", "\n--")
         }
     }
 

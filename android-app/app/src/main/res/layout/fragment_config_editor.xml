@@ -29,7 +29,7 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="6dp"
         android:layout_marginBottom="10dp"
-        android:text="Edit nfqws2 options passed at startup. You can paste full command with nfqws2 path or only options."
+        android:text="Edit nfqws2 options passed at startup. You can use one option per line for readability."
         android:textColor="#808080"
         android:textSize="11sp" />
 
