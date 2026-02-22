@@ -677,8 +677,16 @@ build_category_options() {
 build_options() {
     log_section "Building nfqws2 options"
 
-    # Base options with uid for privilege drop (1=system, 3003=inet)
-    OPTS="--qnum=$QNUM --fwmark=$DESYNC_MARK --uid=1:3003"
+    # Base options
+    OPTS="--qnum=$QNUM --fwmark=$DESYNC_MARK"
+
+    # Optional privilege drop (1=system, 3003=inet)
+    local effective_uid="${NFQWS_UID-}"
+    if [ -n "$effective_uid" ]; then
+        OPTS="$OPTS --uid=$effective_uid"
+    else
+        log_msg "Privilege drop disabled: nfqws2 will run as root"
+    fi
 
     # IP cache for better performance
     OPTS="$OPTS --ipcache-lifetime=84600 --ipcache-hostname=1"
