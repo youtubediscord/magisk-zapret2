@@ -410,6 +410,12 @@ build_category_filter() {
     local filter_opts=""
 
     case "$filter_mode" in
+        hostlist-domains)
+            if [ -n "$filter_file" ]; then
+                filter_opts="--hostlist-domains=$filter_file"
+                log_debug "Using hostlist-domains: $filter_file"
+            fi
+            ;;
         hostlist)
             if [ -n "$filter_file" ] && is_readable_file "$LISTS_DIR/$filter_file"; then
                 filter_opts="--hostlist=$LISTS_DIR/$filter_file"
@@ -441,13 +447,13 @@ build_category_filter() {
 }
 
 # Build options for a single category
-# Arguments: category, protocol, filter_mode, hostlist, strategy_name
+# Arguments: category, protocol, filter_mode, filter_value, strategy_name
 # Modifies global: OPTS, first
 build_category_options_single() {
     local category="$1"
     local protocol="$2"
     local filter_mode="$3"
-    local hostlist="$4"
+    local filter_value="$4"
     local strategy_name="$5"
 
     # Skip if strategy_name is empty
@@ -466,8 +472,8 @@ build_category_options_single() {
             # No proto_filter needed - --payload in strategy does the filtering
             local full_filter=""
 
-            # Add hostlist/ipset if specified (usually none for STUN)
-            local filter_opts=$(build_category_filter "$filter_mode" "$hostlist")
+            # Add filtering options if specified (usually none for STUN)
+            local filter_opts=$(build_category_filter "$filter_mode" "$filter_value")
             if [ -n "$filter_opts" ]; then
                 full_filter="$filter_opts"
             fi
@@ -480,8 +486,8 @@ build_category_options_single() {
             proto_filter="--filter-udp=443,1400,50000-51000"
             local full_filter="--out-range=-n$PKT_OUT $proto_filter"
 
-            # Add hostlist/ipset if specified
-            local filter_opts=$(build_category_filter "$filter_mode" "$hostlist")
+            # Add filtering options if specified
+            local filter_opts=$(build_category_filter "$filter_mode" "$filter_value")
             if [ -n "$filter_opts" ]; then
                 full_filter="$full_filter $filter_opts"
             fi
@@ -494,8 +500,8 @@ build_category_options_single() {
             proto_filter="--filter-tcp=80,443"
             local full_filter="--out-range=-n$PKT_OUT $proto_filter"
 
-            # Add hostlist/ipset if specified
-            local filter_opts=$(build_category_filter "$filter_mode" "$hostlist")
+            # Add filtering options if specified
+            local filter_opts=$(build_category_filter "$filter_mode" "$filter_value")
             if [ -n "$filter_opts" ]; then
                 full_filter="$full_filter $filter_opts"
             fi
@@ -530,8 +536,9 @@ process_category_section() {
     local protocol="$2"
     local hostlist="$3"
     local ipset="$4"
-    local filter_mode="$5"
-    local strategy="$6"
+    local hostlist_domains="$5"
+    local filter_mode="$6"
+    local strategy="$7"
     local filter_file=""
     local effective_filter_mode="$filter_mode"
 
@@ -540,7 +547,9 @@ process_category_section() {
     [ "$strategy" = "disabled" ] && return
 
     if [ -z "$effective_filter_mode" ]; then
-        if [ -n "$hostlist" ]; then
+        if [ -n "$hostlist_domains" ]; then
+            effective_filter_mode="hostlist-domains"
+        elif [ -n "$hostlist" ]; then
             effective_filter_mode="hostlist"
         elif [ -n "$ipset" ]; then
             effective_filter_mode="ipset"
@@ -550,6 +559,9 @@ process_category_section() {
     fi
 
     case "$effective_filter_mode" in
+        hostlist-domains)
+            filter_file="$hostlist_domains"
+            ;;
         ipset)
             filter_file="$ipset"
             ;;
@@ -566,13 +578,14 @@ process_category_section() {
 
 # Parse categories.txt INI file and build options for each category
 # Modifies global: OPTS, first
-# New format supports: hostlist, ipset, filter_mode fields
+# New format supports: hostlist, ipset, hostlist-domains, filter_mode fields
 parse_categories() {
     local ini_file="$CATEGORIES_FILE"
     local current_section=""
     local protocol="tcp"
     local hostlist=""
     local ipset=""
+    local hostlist_domains=""
     local filter_mode=""
     local strategy=""
     local line=""
@@ -596,13 +609,14 @@ parse_categories() {
                 continue
                 ;;
             "["*"]")
-                process_category_section "$current_section" "$protocol" "$hostlist" "$ipset" "$filter_mode" "$strategy"
+                process_category_section "$current_section" "$protocol" "$hostlist" "$ipset" "$hostlist_domains" "$filter_mode" "$strategy"
 
                 current_section="${line#[}"
                 current_section="${current_section%]}"
                 protocol="tcp"
                 hostlist=""
                 ipset=""
+                hostlist_domains=""
                 filter_mode=""
                 strategy=""
                 log_debug "Found section: $current_section"
@@ -622,6 +636,9 @@ parse_categories() {
                     ipset)
                         ipset="$value"
                         ;;
+                    hostlist-domains|hostlist_domains)
+                        hostlist_domains="$value"
+                        ;;
                     filter_mode)
                         filter_mode="$value"
                         ;;
@@ -633,7 +650,7 @@ parse_categories() {
         esac
     done < "$ini_file"
 
-    process_category_section "$current_section" "$protocol" "$hostlist" "$ipset" "$filter_mode" "$strategy"
+    process_category_section "$current_section" "$protocol" "$hostlist" "$ipset" "$hostlist_domains" "$filter_mode" "$strategy"
     return 0
 }
 
