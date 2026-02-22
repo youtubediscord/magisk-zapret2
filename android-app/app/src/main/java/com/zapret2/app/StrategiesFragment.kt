@@ -295,7 +295,7 @@ class StrategiesFragment : Fragment() {
         }
         rowDebug.setOnClickListener {
             showStrategyPicker("debug", "Debug Mode", "Log destination", R.drawable.ic_settings,
-                selections["debug"] ?: "none", StrategyPickerBottomSheet.TYPE_DEBUG)
+                selections["debug"] ?: "android", StrategyPickerBottomSheet.TYPE_DEBUG)
         }
     }
 
@@ -503,7 +503,7 @@ class StrategiesFragment : Fragment() {
 
             // Save PKT_OUT/PKT_COUNT and LOG_MODE to config.sh
             val pktCount = selections["pkt_count"] ?: "5"
-            val debugMode = selections["debug"] ?: "none"
+            val debugMode = selections["debug"] ?: "android"
 
             val (configSuccess, restartSuccess) = withContext(Dispatchers.IO) {
                 // Read current config

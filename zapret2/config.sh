@@ -39,3 +39,6 @@ CUSTOM_CMDLINE_FILE="cmdline.txt"
 # Recommended on Android: 0:0 (avoids hostlist permission issues).
 # Alternative hardened mode: 1:3003
 NFQWS_UID="0:0"
+
+# Logging mode: android, file, syslog, none
+LOG_MODE=android

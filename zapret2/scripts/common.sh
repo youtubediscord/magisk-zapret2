@@ -49,73 +49,77 @@ CATEGORIES_FILE="$ZAPRET_DIR/categories.ini"
 [ -f "$USER_CONFIG" ] && . "$USER_CONFIG"
 
 # Remove all NFQUEUE rules for the configured queue from mangle OUTPUT/INPUT.
-# This is resilient to config changes and cleans up stale duplicate rules.
+# Handles both IPv4 (iptables) and IPv6 (ip6tables).
 remove_nfqueue_rules_by_qnum() {
-    local chain line rule
+    local chain line rule ipt
     local removed_total=0
     local rules
     local queue_num="${1:-$QNUM}"
 
     [ -n "$queue_num" ] || return 0
 
-    for chain in OUTPUT INPUT; do
-        rules="$(iptables -t mangle -S "$chain" 2>/dev/null)"
-        [ -z "$rules" ] && continue
+    for ipt in iptables ip6tables; do
+        for chain in OUTPUT INPUT; do
+            rules="$($ipt -t mangle -S "$chain" 2>/dev/null)"
+            [ -z "$rules" ] && continue
 
-        while IFS= read -r line; do
-            case "$line" in
-                "-A $chain "*)
-                    case "$line" in
-                        *"-j NFQUEUE"*"--queue-num $queue_num"*)
-                            rule="${line#-A $chain }"
-                            if [ -n "$rule" ]; then
-                                # shellcheck disable=SC2086
-                                if iptables -t mangle -D "$chain" $rule 2>/dev/null; then
-                                    removed_total=$((removed_total + 1))
+            while IFS= read -r line; do
+                case "$line" in
+                    "-A $chain "*)
+                        case "$line" in
+                            *"-j NFQUEUE"*"--queue-num $queue_num"*)
+                                rule="${line#-A $chain }"
+                                if [ -n "$rule" ]; then
+                                    # shellcheck disable=SC2086
+                                    if $ipt -t mangle -D "$chain" $rule 2>/dev/null; then
+                                        removed_total=$((removed_total + 1))
+                                    fi
                                 fi
-                            fi
-                            ;;
-                    esac
-                    ;;
-            esac
-        done <<EOF
+                                ;;
+                        esac
+                        ;;
+                esac
+            done <<EOF
 $rules
 EOF
+        done
     done
 
     echo "$removed_total"
 }
 
 # Remove ALL NFQUEUE rules from mangle OUTPUT/INPUT regardless of queue number.
-# Used during startup to ensure no stale rules remain from previous mode/qnum.
+# Handles both IPv4 and IPv6. Used during startup to clean stale rules.
 remove_all_nfqueue_rules() {
-    local chain line rule
+    local chain line rule ipt
     local removed_total=0
     local rules
 
-    for chain in OUTPUT INPUT; do
-        rules="$(iptables -t mangle -S "$chain" 2>/dev/null)"
-        [ -z "$rules" ] && continue
+    for ipt in iptables ip6tables; do
+        for chain in OUTPUT INPUT; do
+            rules="$($ipt -t mangle -S "$chain" 2>/dev/null)"
+            [ -z "$rules" ] && continue
 
-        while IFS= read -r line; do
-            case "$line" in
-                "-A $chain "*)
-                    case "$line" in
-                        *"-j NFQUEUE"*"--queue-bypass"*)
-                            rule="${line#-A $chain }"
-                            if [ -n "$rule" ]; then
-                                # shellcheck disable=SC2086
-                                if iptables -t mangle -D "$chain" $rule 2>/dev/null; then
-                                    removed_total=$((removed_total + 1))
+            while IFS= read -r line; do
+                case "$line" in
+                    "-A $chain "*)
+                        case "$line" in
+                            *"-j NFQUEUE"*"--queue-bypass"*)
+                                rule="${line#-A $chain }"
+                                if [ -n "$rule" ]; then
+                                    # shellcheck disable=SC2086
+                                    if $ipt -t mangle -D "$chain" $rule 2>/dev/null; then
+                                        removed_total=$((removed_total + 1))
+                                    fi
                                 fi
-                            fi
-                            ;;
-                    esac
-                    ;;
-            esac
-        done <<EOF
+                                ;;
+                        esac
+                        ;;
+                esac
+            done <<EOF
 $rules
 EOF
+        done
     done
 
     echo "$removed_total"

@@ -52,11 +52,18 @@ fi
 
 echo ""
 
-# Check iptables rules
+# Check iptables/ip6tables rules
 echo "iptables mangle OUTPUT rules:"
 iptables -t mangle -L OUTPUT -n --line-numbers 2>/dev/null | grep -E "NFQUEUE|dpt:" | head -5
 if [ $? -ne 0 ]; then
     echo "  (none or iptables error)"
+fi
+
+echo ""
+echo "ip6tables mangle OUTPUT rules:"
+ip6tables -t mangle -L OUTPUT -n --line-numbers 2>/dev/null | grep -E "NFQUEUE|dpt:" | head -5
+if [ $? -ne 0 ]; then
+    echo "  (none or ip6tables error)"
 fi
 
 echo ""
@@ -65,6 +72,13 @@ echo "iptables mangle INPUT rules:"
 iptables -t mangle -L INPUT -n --line-numbers 2>/dev/null | grep -E "NFQUEUE|spt:" | head -5
 if [ $? -ne 0 ]; then
     echo "  (none or iptables error)"
+fi
+
+echo ""
+echo "ip6tables mangle INPUT rules:"
+ip6tables -t mangle -L INPUT -n --line-numbers 2>/dev/null | grep -E "NFQUEUE|spt:" | head -5
+if [ $? -ne 0 ]; then
+    echo "  (none or ip6tables error)"
 fi
 
 echo ""
