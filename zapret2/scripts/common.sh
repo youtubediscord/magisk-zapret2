@@ -54,6 +54,9 @@ remove_nfqueue_rules_by_qnum() {
     local chain line rule
     local removed_total=0
     local rules
+    local queue_num="${1:-$QNUM}"
+
+    [ -n "$queue_num" ] || return 0
 
     for chain in OUTPUT INPUT; do
         rules="$(iptables -t mangle -S "$chain" 2>/dev/null)"
@@ -63,7 +66,42 @@ remove_nfqueue_rules_by_qnum() {
             case "$line" in
                 "-A $chain "*)
                     case "$line" in
-                        *"-j NFQUEUE"*"--queue-num $QNUM"*)
+                        *"-j NFQUEUE"*"--queue-num $queue_num"*)
+                            rule="${line#-A $chain }"
+                            if [ -n "$rule" ]; then
+                                # shellcheck disable=SC2086
+                                if iptables -t mangle -D "$chain" $rule 2>/dev/null; then
+                                    removed_total=$((removed_total + 1))
+                                fi
+                            fi
+                            ;;
+                    esac
+                    ;;
+            esac
+        done <<EOF
+$rules
+EOF
+    done
+
+    echo "$removed_total"
+}
+
+# Remove ALL NFQUEUE rules from mangle OUTPUT/INPUT regardless of queue number.
+# Used during startup to ensure no stale rules remain from previous mode/qnum.
+remove_all_nfqueue_rules() {
+    local chain line rule
+    local removed_total=0
+    local rules
+
+    for chain in OUTPUT INPUT; do
+        rules="$(iptables -t mangle -S "$chain" 2>/dev/null)"
+        [ -z "$rules" ] && continue
+
+        while IFS= read -r line; do
+            case "$line" in
+                "-A $chain "*)
+                    case "$line" in
+                        *"-j NFQUEUE"*"--queue-bypass"*)
                             rule="${line#-A $chain }"
                             if [ -n "$rule" ]; then
                                 # shellcheck disable=SC2086
