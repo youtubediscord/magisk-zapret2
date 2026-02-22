@@ -83,7 +83,7 @@
 --blob=hex_00:0x00
 
 --filter-tcp=80,443
---hostlist=lists/youtube.txt
+--ipset=lists/ipset-youtube.txt
 --out-range=-d8
 --lua-desync=multisplit:pos=2,midsld-2:seqovl=1:seqovl_pattern=tls7
 
@@ -93,7 +93,7 @@
 --ipset=lists/ipset-youtube.txt
 --out-range=-n8
 --payload=all
---lua-desync=fake:repeats=6:blob=fake_default_quic
+--lua-desync=fake:blob=quic_google:ip_autottl=-2,3-20:ip6_autottl=-2,3-20:payload=all:repeats=10
 
 --new
 
