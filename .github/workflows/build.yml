@@ -5,19 +5,37 @@ on:
     branches:
       - main
   workflow_dispatch:
-    inputs:
-      version:
-        description: 'Version (e.g., 1.0.0)'
-        required: true
-        default: '1.0.0'
 
 permissions:
   contents: write
 
 jobs:
+  prepare-version:
+    name: Prepare Version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      version_code: ${{ steps.version.outputs.version_code }}
+      version_tag: ${{ steps.version.outputs.version_tag }}
+
+    steps:
+      - name: Generate version from CI run
+        id: version
+        run: |
+          VERSION_CODE=$(( 100000 + ${{ github.run_number }} * 100 + ${{ github.run_attempt }} ))
+          VERSION="1.8.${VERSION_CODE}"
+          VERSION_TAG="v${VERSION}"
+
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "version_code=${VERSION_CODE}" >> "$GITHUB_OUTPUT"
+          echo "version_tag=${VERSION_TAG}" >> "$GITHUB_OUTPUT"
+
+          echo "Using ${VERSION_TAG} (versionCode=${VERSION_CODE})"
+
   build-apk:
     name: Build Android APK
     runs-on: ubuntu-latest
+    needs: prepare-version
 
     steps:
       - name: Checkout
@@ -82,18 +100,10 @@ jobs:
           path: android-app/keystore.jks
           retention-days: 1
 
-      - name: Set version from module.prop
+      - name: Set version from CI metadata
         run: |
-          # Get version from module.prop (source of truth)
-          VERSION=$(grep "^version=" ../module.prop | cut -d= -f2 | tr -d 'v')
-          VERSION_CODE=$(grep "^versionCode=" ../module.prop | cut -d= -f2)
-
-          # Override with manual input if provided
-          if [ -n "${{ github.event.inputs.version }}" ]; then
-            VERSION="${{ github.event.inputs.version }}"
-            VERSION="${VERSION#v}"
-            VERSION_CODE=$(echo $VERSION | tr -d '.' | head -c 6)
-          fi
+          VERSION="${{ needs.prepare-version.outputs.version }}"
+          VERSION_CODE="${{ needs.prepare-version.outputs.version_code }}"
 
           echo "Setting version to $VERSION (code: $VERSION_CODE)"
 
@@ -238,7 +248,7 @@ jobs:
   package-module:
     name: Package Magisk Module
     runs-on: ubuntu-latest
-    needs: [build-nfqws2, build-apk]
+    needs: [prepare-version, build-nfqws2, build-apk]
 
     steps:
       - name: Checkout
@@ -257,6 +267,9 @@ jobs:
 
       - name: Prepare module
         run: |
+          VERSION="${{ needs.prepare-version.outputs.version }}"
+          VERSION_CODE="${{ needs.prepare-version.outputs.version_code }}"
+
           # Create bin directories (ARM only, no x86 emulator support)
           mkdir -p zapret2/bin/arm64-v8a
           mkdir -p zapret2/bin/armeabi-v7a
@@ -265,14 +278,10 @@ jobs:
           cp binaries/nfqws2-arm64-v8a/nfqws2 zapret2/bin/arm64-v8a/ || true
           cp binaries/nfqws2-armeabi-v7a/nfqws2 zapret2/bin/armeabi-v7a/ || true
 
-          # Version already set in module.prop, just override if manual input
-          if [ -n "${{ github.event.inputs.version }}" ]; then
-            VERSION="${{ github.event.inputs.version }}"
-            VERSION="${VERSION#v}"
-            VERSION_CODE=$(echo $VERSION | tr -d '.' | head -c 6)
-            sed -i "s/^version=.*/version=v${VERSION}/" module.prop
-            sed -i "s/^versionCode=.*/versionCode=${VERSION_CODE}/" module.prop
-          fi
+          # Set module version from CI metadata
+          sed -i "s/^version=.*/version=v${VERSION}/" module.prop
+          sed -i "s/^versionCode=.*/versionCode=${VERSION_CODE}/" module.prop
+          sed -i "s|^updateJson=.*|updateJson=https://github.com/youtubediscord/magisk-zapret2/releases/latest/download/update.json|" module.prop
 
           # Make scripts executable
           chmod +x customize.sh service.sh uninstall.sh action.sh 2>/dev/null || true
@@ -280,16 +289,17 @@ jobs:
 
       - name: Create ZIP
         run: |
-          # Get version from module.prop (source of truth)
-          VERSION=$(grep "^version=" module.prop | cut -d= -f2 | tr -d 'v')
+          VERSION="${{ needs.prepare-version.outputs.version }}"
+          VERSION_TAG="${{ needs.prepare-version.outputs.version_tag }}"
+          VERSION_CODE="${{ needs.prepare-version.outputs.version_code }}"
+          ZIP_NAME="zapret2-magisk-${VERSION_TAG}.zip"
 
-          # Update update.json with current version
-          VERSION_CODE=$(grep "^versionCode=" module.prop | cut -d= -f2)
-          sed -i "s/\"version\": \"v[^\"]*\"/\"version\": \"v${VERSION}\"/" update.json
+          # Update update.json with current version and direct asset URL
+          sed -i "s/\"version\": \"v[^\"]*\"/\"version\": \"${VERSION_TAG}\"/" update.json
           sed -i "s/\"versionCode\": [0-9]*/\"versionCode\": ${VERSION_CODE}/" update.json
-          sed -i "s/zapret2-magisk-v[^\"]*\.zip/zapret2-magisk-v${VERSION}.zip/" update.json
+          sed -i "s|\"zipUrl\": \"[^\"]*\"|\"zipUrl\": \"https://github.com/youtubediscord/magisk-zapret2/releases/download/${VERSION_TAG}/${ZIP_NAME}\"|" update.json
 
-          zip -r zapret2-magisk-v${VERSION}.zip \
+          zip -r ${ZIP_NAME} \
             META-INF \
             module.prop \
             customize.sh \
@@ -302,7 +312,7 @@ jobs:
             -x ".github/*"
 
           # Rename APK with version
-          cp apk-artifact/app-release.apk zapret2-control-v${VERSION}.apk
+          cp apk-artifact/app-release.apk zapret2-control-${VERSION_TAG}.apk
 
       - name: Upload module
         uses: actions/upload-artifact@v4
@@ -318,29 +328,15 @@ jobs:
 
       - name: Create Tag and Release
         run: |
-          VERSION=$(grep "^version=" module.prop | cut -d= -f2)
+          VERSION_TAG="${{ needs.prepare-version.outputs.version_tag }}"
 
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-          # Delete existing release if exists
-          gh release delete "$VERSION" --yes 2>/dev/null || true
-
-          # Delete remote tag if exists
-          git push origin ":refs/tags/$VERSION" 2>/dev/null || true
-
-          # Delete local tag if exists
-          git tag -d "$VERSION" 2>/dev/null || true
-
-          # Create and push new tag
-          git tag -a "$VERSION" -m "Release $VERSION"
-          git push origin "$VERSION"
-
-          # Create release
-          gh release create "$VERSION" \
-            --title "Zapret2 $VERSION" \
+          # Create release (tag is created automatically if missing)
+          gh release create "$VERSION_TAG" \
+            --target "$GITHUB_SHA" \
+            --title "Zapret2 $VERSION_TAG" \
             --generate-notes \
             zapret2-magisk-*.zip \
-            zapret2-control-*.apk
+            zapret2-control-*.apk \
+            update.json
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
