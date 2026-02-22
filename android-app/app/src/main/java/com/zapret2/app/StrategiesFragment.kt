@@ -22,6 +22,7 @@ class StrategiesFragment : Fragment() {
     // Row views
     private lateinit var rowYoutubeTcp: LinearLayout
     private lateinit var rowYoutubeQuic: LinearLayout
+    private lateinit var rowGoogleVideoTcp: LinearLayout
     private lateinit var rowTwitch: LinearLayout
     private lateinit var rowDiscordTcp: LinearLayout
     private lateinit var rowDiscordQuic: LinearLayout
@@ -48,6 +49,7 @@ class StrategiesFragment : Fragment() {
     // Value TextViews
     private lateinit var textYoutubeTcpValue: TextView
     private lateinit var textYoutubeQuicValue: TextView
+    private lateinit var textGoogleVideoTcpValue: TextView
     private lateinit var textTwitchValue: TextView
     private lateinit var textDiscordTcpValue: TextView
     private lateinit var textDiscordQuicValue: TextView
@@ -86,6 +88,7 @@ class StrategiesFragment : Fragment() {
     private val categoryKeyMap = mapOf(
         "youtube_tcp" to "youtube",
         "youtube_quic" to "youtube_udp",
+        "googlevideo_tcp" to "googlevideo_tcp",
         "twitch" to "twitch_tcp",
         "discord_tcp" to "discord_tcp",
         "discord_quic" to "discord_udp",
@@ -108,6 +111,7 @@ class StrategiesFragment : Fragment() {
     private val isTcpCategory = mapOf(
         "youtube_tcp" to true,
         "youtube_quic" to false,
+        "googlevideo_tcp" to true,
         "twitch" to true,
         "discord_tcp" to true,
         "discord_quic" to false,
@@ -150,6 +154,7 @@ class StrategiesFragment : Fragment() {
         // Rows
         rowYoutubeTcp = view.findViewById(R.id.rowYoutubeTcp)
         rowYoutubeQuic = view.findViewById(R.id.rowYoutubeQuic)
+        rowGoogleVideoTcp = view.findViewById(R.id.rowGoogleVideoTcp)
         rowTwitch = view.findViewById(R.id.rowTwitch)
         rowDiscordTcp = view.findViewById(R.id.rowDiscordTcp)
         rowDiscordQuic = view.findViewById(R.id.rowDiscordQuic)
@@ -176,6 +181,7 @@ class StrategiesFragment : Fragment() {
         // Value texts
         textYoutubeTcpValue = view.findViewById(R.id.textYoutubeTcpValue)
         textYoutubeQuicValue = view.findViewById(R.id.textYoutubeQuicValue)
+        textGoogleVideoTcpValue = view.findViewById(R.id.textGoogleVideoTcpValue)
         textTwitchValue = view.findViewById(R.id.textTwitchValue)
         textDiscordTcpValue = view.findViewById(R.id.textDiscordTcpValue)
         textDiscordQuicValue = view.findViewById(R.id.textDiscordQuicValue)
@@ -205,6 +211,10 @@ class StrategiesFragment : Fragment() {
         rowYoutubeQuic.setOnClickListener {
             showStrategyPicker("youtube_quic", "YouTube QUIC", "UDP 443", R.drawable.ic_video,
                 selections["youtube_quic"] ?: "disabled", StrategyPickerBottomSheet.TYPE_UDP)
+        }
+        rowGoogleVideoTcp.setOnClickListener {
+            showStrategyPicker("googlevideo_tcp", "GoogleVideo TCP", "TCP 443", R.drawable.ic_video,
+                selections["googlevideo_tcp"] ?: "disabled", StrategyPickerBottomSheet.TYPE_TCP)
         }
         rowTwitch.setOnClickListener {
             showStrategyPicker("twitch", "Twitch", "TCP 443", R.drawable.ic_video,
@@ -374,6 +384,7 @@ class StrategiesFragment : Fragment() {
         when (key) {
             "youtube_tcp" -> textYoutubeTcpValue.text = shortName
             "youtube_quic" -> textYoutubeQuicValue.text = shortName
+            "googlevideo_tcp" -> textGoogleVideoTcpValue.text = shortName
             "twitch" -> textTwitchValue.text = shortName
             "discord_tcp" -> textDiscordTcpValue.text = shortName
             "discord_quic" -> textDiscordQuicValue.text = shortName
