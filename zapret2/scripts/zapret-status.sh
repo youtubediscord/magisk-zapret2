@@ -86,9 +86,16 @@ echo ""
 # Check NFQUEUE
 echo "NFQUEUE status:"
 if [ -f /proc/net/netfilter/nf_queue ]; then
-    cat /proc/net/netfilter/nf_queue 2>/dev/null | head -5
+    echo "  source: /proc/net/netfilter/nf_queue"
+    head -5 /proc/net/netfilter/nf_queue 2>/dev/null
+elif [ -f /proc/net/netfilter/nfnetlink_queue ]; then
+    echo "  source: /proc/net/netfilter/nfnetlink_queue"
+    head -5 /proc/net/netfilter/nfnetlink_queue 2>/dev/null
+elif grep -qs NFQUEUE /proc/net/ip_tables_targets /proc/net/ip6_tables_targets; then
+    echo "  NFQUEUE target found in iptables"
+    echo "  (queue proc entry is not exposed by this kernel)"
 else
-    echo "  NFQUEUE not available in kernel"
+    echo "  NFQUEUE not detected in kernel"
 fi
 
 echo ""

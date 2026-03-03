@@ -101,11 +101,20 @@ chmod -R 0644 "$MODPATH/zapret2/lists/"*.txt 2>/dev/null || true
 # Check kernel requirements
 ui_print "- Checking kernel requirements..."
 
-# Check for NFQUEUE support
-if [ -f /proc/net/netfilter/nf_queue ]; then
+# Check for NFQUEUE support (legacy + modern indicators)
+NFQUEUE_SUPPORTED=0
+
+if [ -f /proc/net/netfilter/nf_queue ] || [ -f /proc/net/netfilter/nfnetlink_queue ]; then
+    NFQUEUE_SUPPORTED=1
+elif grep -qs NFQUEUE /proc/net/ip_tables_targets /proc/net/ip6_tables_targets; then
+    NFQUEUE_SUPPORTED=1
+fi
+
+if [ "$NFQUEUE_SUPPORTED" -eq 1 ]; then
     ui_print "  [OK] NFQUEUE support found"
 else
-    ui_print "  [!] NFQUEUE might not be supported"
+    ui_print "  [!] NFQUEUE support not detected"
+    ui_print "      Checked: nf_queue, nfnetlink_queue, ip_tables_targets"
     ui_print "      Module may not work on this kernel"
 fi
 
