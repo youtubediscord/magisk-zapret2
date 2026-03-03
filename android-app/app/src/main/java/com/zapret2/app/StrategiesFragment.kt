@@ -175,19 +175,40 @@ class StrategiesFragment : Fragment() {
 
         val subtitle = "$protocol - $filterTarget"
 
-        val iconInfo = when (type) {
-            StrategyPickerBottomSheet.TYPE_UDP -> Pair(R.drawable.ic_message, 0xFF03A9F4.toInt())
-            StrategyPickerBottomSheet.TYPE_VOICE -> Pair(R.drawable.ic_message, 0xFF9B59B6.toInt())
-            else -> Pair(R.drawable.ic_apps, 0xFF4CAF50.toInt())
-        }
+        val iconInfo = resolveCategoryVisual(categoryKey, type)
 
         return CategoryUiMeta(
-            title = formatCategoryTitle(categoryKey),
+            title = formatCategoryTitle(categoryKey, config.protocol),
             subtitle = subtitle,
             type = type,
             iconRes = iconInfo.first,
             iconTint = iconInfo.second
         )
+    }
+
+    private fun resolveCategoryVisual(categoryKey: String, type: String): Pair<Int, Int> {
+        val key = categoryKey.lowercase()
+        return when {
+            key.contains("youtube") -> Pair(R.drawable.ic_video, 0xFFFF0000.toInt())
+            key.contains("googlevideo") -> Pair(R.drawable.ic_video, 0xFFE53935.toInt())
+            key.contains("twitch") -> Pair(R.drawable.ic_video, 0xFF9146FF.toInt())
+            key.contains("discord") -> Pair(R.drawable.ic_message, 0xFF5865F2.toInt())
+            key.contains("telegram") -> Pair(R.drawable.ic_message, 0xFF0088CC.toInt())
+            key.contains("whatsapp") -> Pair(R.drawable.ic_message, 0xFF25D366.toInt())
+            key.contains("voice") || type == StrategyPickerBottomSheet.TYPE_VOICE -> Pair(
+                R.drawable.ic_message,
+                0xFF9B59B6.toInt()
+            )
+
+            key.contains("facebook") -> Pair(R.drawable.ic_social, 0xFF1877F2.toInt())
+            key.contains("instagram") -> Pair(R.drawable.ic_social, 0xFFE4405F.toInt())
+            key.contains("twitter") -> Pair(R.drawable.ic_social, 0xFF1DA1F2.toInt())
+            key.contains("github") -> Pair(R.drawable.ic_apps, 0xFFFFFFFF.toInt())
+            key.contains("soundcloud") -> Pair(R.drawable.ic_apps, 0xFFFF5500.toInt())
+            key.contains("steam") -> Pair(R.drawable.ic_apps, 0xFF66C0F4.toInt())
+            type == StrategyPickerBottomSheet.TYPE_UDP -> Pair(R.drawable.ic_message, 0xFF03A9F4.toInt())
+            else -> Pair(R.drawable.ic_apps, 0xFF4CAF50.toInt())
+        }
     }
 
     private fun pickerTypeFromProtocol(protocol: String): String {
@@ -206,16 +227,37 @@ class StrategiesFragment : Fragment() {
         }
     }
 
-    private fun formatCategoryTitle(categoryKey: String): String {
-        return categoryKey.split("_")
+    private fun formatCategoryTitle(categoryKey: String, protocol: String): String {
+        val protocolToken = when (protocol.lowercase()) {
+            "udp" -> "udp"
+            "stun" -> "stun"
+            else -> "tcp"
+        }
+
+        val tokens = categoryKey.split("_").toMutableList()
+        if (tokens.size > 1 && tokens.last().lowercase() == protocolToken) {
+            tokens.removeAt(tokens.lastIndex)
+        }
+
+        return tokens
             .joinToString(" ") { token ->
                 when (token.lowercase()) {
+                    "youtube" -> "YouTube"
+                    "googlevideo" -> "GoogleVideo"
+                    "whatsapp" -> "WhatsApp"
+                    "github" -> "GitHub"
+                    "anydesk" -> "AnyDesk"
+                    "cloudflare" -> "Cloudflare"
+                    "warp" -> "WARP"
+                    "claude" -> "Claude"
+                    "chatgpt" -> "ChatGPT"
                     "tcp" -> "TCP"
                     "udp" -> "UDP"
                     "stun" -> "STUN"
                     "http" -> "HTTP"
                     "https" -> "HTTPS"
                     "ipset" -> "IPSet"
+                    "ovh" -> "OVH"
                     else -> token.replaceFirstChar {
                         if (it.isLowerCase()) it.titlecase() else it.toString()
                     }
