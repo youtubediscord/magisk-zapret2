@@ -46,7 +46,8 @@ object StrategyRepository {
         val protocol: String,     // "tcp", "udp", or "stun"
         val hostlistFile: String, // Hostlist filename (e.g., "youtube.txt")
         val ipsetFile: String,    // IP set filename (e.g., "ipset-youtube.txt")
-        val filterMode: String,   // "ipset", "hostlist", or "none"
+        val hostlistDomains: String, // Inline domains (e.g., "googlevideo.com")
+        val filterMode: String,   // "ipset", "hostlist", "hostlist-domains", or "none"
         val strategy: String      // Strategy name (e.g., "syndata_multisplit_tls_google_700" or "disabled")
     ) {
         // Backward compatibility properties
@@ -182,6 +183,7 @@ object StrategyRepository {
             var protocol = "tcp"
             var hostlistFile = ""
             var ipsetFile = ""
+            var hostlistDomains = ""
             var filterMode = "none"
             var strategy = "disabled"
 
@@ -200,6 +202,7 @@ object StrategyRepository {
                             protocol = protocol,
                             hostlistFile = hostlistFile,
                             ipsetFile = ipsetFile,
+                            hostlistDomains = hostlistDomains,
                             filterMode = filterMode,
                             strategy = strategy
                         )
@@ -209,13 +212,14 @@ object StrategyRepository {
                     protocol = "tcp"
                     hostlistFile = ""
                     ipsetFile = ""
+                    hostlistDomains = ""
                     filterMode = "none"
                     strategy = "disabled"
                     continue
                 }
 
                 // Key=value pairs
-                val keyValueMatch = Regex("""^([a-z_]+)=(.*)$""").find(trimmed)
+                val keyValueMatch = Regex("""^([a-zA-Z0-9_-]+)=(.*)$""").find(trimmed)
                 if (keyValueMatch != null) {
                     val key = keyValueMatch.groupValues[1]
                     val value = keyValueMatch.groupValues[2]
@@ -223,6 +227,7 @@ object StrategyRepository {
                         "protocol" -> protocol = value.ifEmpty { "tcp" }
                         "hostlist" -> hostlistFile = value
                         "ipset" -> ipsetFile = value
+                        "hostlist-domains" -> hostlistDomains = value
                         "filter_mode" -> filterMode = value.ifEmpty { "none" }
                         "strategy" -> strategy = value.ifEmpty { "disabled" }
                     }
@@ -236,6 +241,7 @@ object StrategyRepository {
                     protocol = protocol,
                     hostlistFile = hostlistFile,
                     ipsetFile = ipsetFile,
+                    hostlistDomains = hostlistDomains,
                     filterMode = filterMode,
                     strategy = strategy
                 )
@@ -314,7 +320,7 @@ object StrategyRepository {
      * Update filter_mode for a category in categories.ini.
      *
      * @param categoryKey The category key (e.g., "youtube")
-     * @param newFilterMode The filter mode ("ipset", "hostlist", or "none")
+     * @param newFilterMode The filter mode ("ipset", "hostlist", "hostlist-domains", or "none")
      */
     suspend fun updateCategoryFilterMode(categoryKey: String, newFilterMode: String): Boolean {
         return withContext(Dispatchers.IO) {
@@ -363,7 +369,7 @@ object StrategyRepository {
      * Reduces many shell commands to just 2 (one read, one write).
      *
      * @param strategyUpdates Map of category key to strategy name (e.g., "youtube" to "syndata_multisplit_tls_google_700")
-     * @param filterModeUpdates Optional map of category key to filter mode ("ipset", "hostlist", or "none")
+     * @param filterModeUpdates Optional map of category key to filter mode ("ipset", "hostlist", "hostlist-domains", or "none")
      */
     suspend fun updateAllCategoryStrategies(
         strategyUpdates: Map<String, String>,
