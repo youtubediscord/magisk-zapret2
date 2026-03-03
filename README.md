@@ -124,10 +124,13 @@
 ### ❌ Модуль не запускается
 
 Ваше ядро может не поддерживать NFQUEUE. Проверьте в терминале:
+```bash
+su -c "[ -f /proc/net/netfilter/nfnetlink_queue ] && echo nfnetlink_queue:ok || echo nfnetlink_queue:missing"
+su -c "[ -f /proc/net/netfilter/nf_queue ] && echo nf_queue:ok || echo nf_queue:missing"
+su -c "grep -q NFQUEUE /proc/net/ip_tables_targets 2>/dev/null && echo iptables_target:ok || echo iptables_target:missing"
 ```
-su -c "ls /proc/net/netfilter/nf_queue"
-```
-Если файла нет — нужно другое ядро.
+На современных Android-ядрах файл `/proc/net/netfilter/nf_queue` может отсутствовать — это нормально.
+Проблема вероятна только если нет `NFQUEUE` target в iptables и очередь не видна в `nfnetlink_queue`.
 
 ### ❌ Конфликт с AdGuard / NetGuard / AFWall+
 
