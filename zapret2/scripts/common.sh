@@ -58,7 +58,7 @@ set_core_config_defaults() {
     PRESET_FILE="Default.txt"
     CUSTOM_CMDLINE_FILE="$ZAPRET_DIR/cmdline.txt"
     NFQWS_UID="0:0"
-    LOG_MODE="android"
+    LOG_MODE="none"
 }
 
 load_legacy_core_config_overrides() {

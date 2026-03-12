@@ -56,7 +56,7 @@ object RuntimeConfigStore {
     )
 
     suspend fun runtimeConfigExists(): Boolean = withContext(Dispatchers.IO) {
-        fileExists(runtimeConfigPath)
+        readRuntimeConfigContent(regenerateIfNeeded = false) != null
     }
 
     suspend fun ensureRuntimeConfig(): Boolean = withContext(Dispatchers.IO) {
@@ -84,8 +84,8 @@ object RuntimeConfigStore {
             return@withContext null
         }
 
-        val values = if (ensureRuntimeConfigInternal()) {
-            readFile(runtimeConfigPath)?.let { parseSectionValues(it, "core") }.orEmpty()
+        val values = readRuntimeConfigContent()?.let {
+            parseSectionValues(it, "core")
         } else {
             emptyMap()
         }
@@ -132,10 +132,6 @@ object RuntimeConfigStore {
             return@withContext true
         }
 
-        if (!ensureRuntimeConfigInternal()) {
-            return@withContext false
-        }
-
         val normalized = linkedMapOf<String, String>()
         values.forEach { (key, value) ->
             val normalizedKey = normalizeKey(key)
@@ -153,7 +149,7 @@ object RuntimeConfigStore {
             return@withContext false
         }
 
-        val currentContent = readFile(runtimeConfigPath) ?: return@withContext false
+        val currentContent = readRuntimeConfigContent() ?: return@withContext false
         val updatedContent = upsertSectionValues(currentContent, "core", normalized, normalizedRemoveKeys)
         writeFileAtomically(runtimeConfigPath, updatedContent)
     }
@@ -173,30 +169,15 @@ object RuntimeConfigStore {
     }
 
     private fun ensureRuntimeConfigInternal(): Boolean {
-        if (fileExists(runtimeConfigPath)) {
-            return true
-        }
-
-        val command = "sh \"${escapeForDoubleQuotes(migrateScriptPath)}\" \"${escapeForDoubleQuotes(runtimeConfigPath)}\""
-        val result = Shell.cmd(command).exec()
-        return result.isSuccess && fileExists(runtimeConfigPath)
+        return readRuntimeConfigContent() != null
     }
 
     private fun readCoreResultInternal(): CoreReadResult {
-        readFile(runtimeConfigPath)?.let { content ->
+        readRuntimeConfigContent()?.let { content ->
             return CoreReadResult(
                 values = parseSectionValues(content, "core"),
                 usesRuntimeConfig = true
             )
-        }
-
-        if (!fileExists(runtimeConfigPath) && ensureRuntimeConfigInternal()) {
-            readFile(runtimeConfigPath)?.let { content ->
-                return CoreReadResult(
-                    values = parseSectionValues(content, "core"),
-                    usesRuntimeConfig = true
-                )
-            }
         }
 
         return CoreReadResult(
@@ -214,11 +195,6 @@ object RuntimeConfigStore {
             ?: readShellConfigValue(moduleConfigPath, key)
     }
 
-    private fun fileExists(path: String): Boolean {
-        val command = "[ -f \"${escapeForDoubleQuotes(path)}\" ]"
-        return Shell.cmd(command).exec().isSuccess
-    }
-
     private fun readShellConfigValue(path: String, key: String): String? {
         val content = readFile(path) ?: return null
         return parseShellConfig(content)[key]
@@ -228,6 +204,21 @@ object RuntimeConfigStore {
         val command = "cat \"${escapeForDoubleQuotes(path)}\" 2>/dev/null"
         val result = Shell.cmd(command).exec()
         return if (result.isSuccess) result.out.joinToString("\n") else null
+    }
+
+    private fun readRuntimeConfigContent(regenerateIfNeeded: Boolean = true): String? {
+        readFile(runtimeConfigPath)?.let { return it }
+        if (!regenerateIfNeeded) {
+            return null
+        }
+
+        val command = "sh \"${escapeForDoubleQuotes(migrateScriptPath)}\" \"${escapeForDoubleQuotes(runtimeConfigPath)}\""
+        val result = Shell.cmd(command).exec()
+        if (!result.isSuccess) {
+            return null
+        }
+
+        return readFile(runtimeConfigPath)
     }
 
     private fun writeFileAtomically(path: String, content: String): Boolean {
@@ -252,7 +243,12 @@ object RuntimeConfigStore {
             append(delimiter)
         }
 
-        return Shell.cmd(command).exec().isSuccess
+        if (!Shell.cmd(command).exec().isSuccess) {
+            return false
+        }
+
+        val persistedContent = readFile(path) ?: return false
+        return normalizeLineEndings(persistedContent).trimEnd('\n') == normalizedContent.trimEnd('\n')
     }
 
     private fun parseSectionValues(content: String, sectionName: String): Map<String, String> {

@@ -24,6 +24,9 @@ class UpdateManager(private val context: Context) {
         private const val CONNECT_TIMEOUT = 15000
         private const val READ_TIMEOUT = 30000
         private const val BUFFER_SIZE = 8192
+        private const val MODULE_DIR = "/data/adb/modules/zapret2"
+        private const val RUNTIME_CONFIG_PATH = "$MODULE_DIR/zapret2/runtime.ini"
+        private const val RUNTIME_CONFIG_BACKUP_PATH = "/data/local/tmp/zapret2-runtime.ini.bak"
     }
 
     /**
@@ -282,7 +285,8 @@ class UpdateManager(private val context: Context) {
                 return@withContext Pair(false, false)
             }
 
-            val modDir = "/data/adb/modules/zapret2"
+            val modDir = MODULE_DIR
+            val quotedModuleFile = shellQuote(moduleFile.absolutePath)
 
             // Check if module is already installed
             val moduleExists = Shell.cmd("[ -d $modDir ] && echo 1 || echo 0").exec()
@@ -293,21 +297,46 @@ class UpdateManager(private val context: Context) {
                 // 1. Stop the service
                 Shell.cmd("$modDir/zapret2/scripts/zapret-stop.sh 2>/dev/null || true").exec()
 
-                // 2. Extract new files over existing module
-                val extractResult = Shell.cmd(
-                    "unzip -o ${moduleFile.absolutePath} -d $modDir -x 'META-INF/*'"
+                // 2. Preserve runtime core state across raw unzip updates
+                val backupResult = Shell.cmd(
+                    "rm -f ${shellQuote(RUNTIME_CONFIG_BACKUP_PATH)} && " +
+                        "if [ -f ${shellQuote(RUNTIME_CONFIG_PATH)} ]; then " +
+                        "cp ${shellQuote(RUNTIME_CONFIG_PATH)} ${shellQuote(RUNTIME_CONFIG_BACKUP_PATH)}; " +
+                        "fi"
                 ).exec()
 
-                if (!extractResult.isSuccess) {
+                if (!backupResult.isSuccess) {
                     return@withContext Pair(false, false)
                 }
 
-                // 3. Fix permissions
+                // 3. Extract new files over existing module
+                val extractResult = Shell.cmd(
+                    "unzip -o $quotedModuleFile -d $modDir -x 'META-INF/*'"
+                ).exec()
+
+                if (!extractResult.isSuccess) {
+                    Shell.cmd("rm -f ${shellQuote(RUNTIME_CONFIG_BACKUP_PATH)}").exec()
+                    return@withContext Pair(false, false)
+                }
+
+                // 4. Restore runtime core state if it existed before update
+                val restoreResult = Shell.cmd(
+                    "if [ -f ${shellQuote(RUNTIME_CONFIG_BACKUP_PATH)} ]; then " +
+                        "cp ${shellQuote(RUNTIME_CONFIG_BACKUP_PATH)} ${shellQuote(RUNTIME_CONFIG_PATH)} && " +
+                        "rm -f ${shellQuote(RUNTIME_CONFIG_BACKUP_PATH)}; " +
+                        "fi"
+                ).exec()
+
+                if (!restoreResult.isSuccess) {
+                    return@withContext Pair(false, false)
+                }
+
+                // 5. Fix permissions
                 Shell.cmd("chmod 755 $modDir/zapret2/nfqws2").exec()
                 Shell.cmd("chmod 755 $modDir/zapret2/scripts/*.sh").exec()
                 Shell.cmd("chmod 755 $modDir/service.sh").exec()
 
-                // 4. Restart the service (always use fast restart path)
+                // 6. Restart the service (always use fast restart path)
                 val restartResult = Shell.cmd("sh $modDir/zapret2/scripts/zapret-restart.sh").exec()
                 if (!restartResult.isSuccess) {
                     return@withContext Pair(false, false)
@@ -322,7 +351,7 @@ class UpdateManager(private val context: Context) {
                     return@withContext Pair(false, false)
                 }
 
-                val result = Shell.cmd("magisk --install-module ${moduleFile.absolutePath}").exec()
+                val result = Shell.cmd("magisk --install-module $quotedModuleFile").exec()
                 // First install requires reboot
                 Pair(result.isSuccess, true)
             }
@@ -389,5 +418,9 @@ class UpdateManager(private val context: Context) {
                 file.delete()
             }
         }
+    }
+
+    private fun shellQuote(value: String): String {
+        return "'" + value.replace("'", "'\\''") + "'"
     }
 }

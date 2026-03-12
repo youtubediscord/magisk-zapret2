@@ -32,10 +32,15 @@ ui_print "- Installing Zapret2 for $ARCH_DIR"
 
 # Backup user settings before extraction (for updates)
 USER_CATEGORIES_INI_BAK="/data/local/tmp/zapret2-categories.ini.bak"
+USER_RUNTIME_INI_BAK="/data/local/tmp/zapret2-runtime.ini.bak"
 EXISTING_MODPATH="/data/adb/modules/zapret2"
 if [ -f "$EXISTING_MODPATH/zapret2/categories.ini" ]; then
     ui_print "- Backing up user strategy settings..."
     cp "$EXISTING_MODPATH/zapret2/categories.ini" "$USER_CATEGORIES_INI_BAK"
+fi
+if [ -f "$EXISTING_MODPATH/zapret2/runtime.ini" ]; then
+    ui_print "- Backing up user runtime settings..."
+    cp "$EXISTING_MODPATH/zapret2/runtime.ini" "$USER_RUNTIME_INI_BAK"
 fi
 
 # Create directories
@@ -56,6 +61,14 @@ if [ -f "$USER_CATEGORIES_INI_BAK" ]; then
     cp "$USER_CATEGORIES_INI_BAK" "$MODPATH/zapret2/categories.ini"
     rm -f "$USER_CATEGORIES_INI_BAK"
     ui_print "  [OK] Strategy settings preserved"
+fi
+
+# Restore user runtime settings if backup exists
+if [ -f "$USER_RUNTIME_INI_BAK" ]; then
+    ui_print "- Restoring user runtime settings..."
+    cp "$USER_RUNTIME_INI_BAK" "$MODPATH/zapret2/runtime.ini"
+    rm -f "$USER_RUNTIME_INI_BAK"
+    ui_print "  [OK] Runtime settings preserved"
 fi
 
 # Copy architecture-specific binary
@@ -146,6 +159,7 @@ ui_print "   zapret2-restart - Restart (fast by default)"
 ui_print "   zapret2-status  - Status"
 ui_print ""
 ui_print " Config files:"
+ui_print "   Runtime:    $MODPATH/zapret2/runtime.ini"
 ui_print "   Categories: $MODPATH/zapret2/categories.ini"
 ui_print "   TCP:        $MODPATH/zapret2/strategies-tcp.ini"
 ui_print "   UDP:        $MODPATH/zapret2/strategies-udp.ini"

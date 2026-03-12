@@ -22,7 +22,7 @@ set_default_config() {
     PRESET_FILE="Default.txt"
     CUSTOM_CMDLINE_FILE="cmdline.txt"
     NFQWS_UID="0:0"
-    LOG_MODE="android"
+    LOG_MODE="none"
 }
 
 append_categories() {
@@ -63,7 +63,7 @@ preset_mode=${PRESET_MODE:-categories}
 preset_file=${PRESET_FILE:-Default.txt}
 custom_cmdline_file=${CUSTOM_CMDLINE_FILE:-cmdline.txt}
 nfqws_uid=${NFQWS_UID:-0:0}
-log_mode=${LOG_MODE:-android}
+log_mode=${LOG_MODE:-none}
 legacy_config_path=$CONFIG
 legacy_user_config_path=$USER_CONFIG
 legacy_categories_path=$CATEGORIES_FILE

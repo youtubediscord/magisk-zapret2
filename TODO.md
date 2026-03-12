@@ -6,3 +6,4 @@
 - [ ] Decide category-state migration: either move category selection state into `runtime.ini` or keep `categories.ini` intentionally as a separate state file.
 - [ ] Finish the chosen category path end-to-end in both shell and app code, then drop obsolete bridging logic.
 - [ ] Re-run focused device/upgrade checks after cleanup: missing-file regeneration, preset/cmdline switching, and reboot persistence.
+- [completed] Preserve `runtime.ini` across installs/updates and make repo/migration log defaults quiet (`log_mode=none`) unless an existing legacy value explicitly overrides it.

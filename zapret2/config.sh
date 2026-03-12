@@ -41,4 +41,4 @@ CUSTOM_CMDLINE_FILE="cmdline.txt"
 NFQWS_UID="0:0"
 
 # Logging mode: android, file, syslog, none
-LOG_MODE=android
+LOG_MODE=none
