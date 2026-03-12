@@ -1,9 +1,7 @@
-## Runtime Config Refactor Plan
+## Legacy Bootstrap Final Cleanup
 
-- [completed] Debug-overhead testing is done; refactor validation can now focus on config correctness instead of extra instrumentation.
-- [completed] Shell/app `runtime.ini` migration is largely in place: `runtime.ini` is the main `[core]` source and app flows mostly use `RuntimeConfigStore`.
-- [in progress] Clean up legacy drift: remove remaining compatibility reads, fallback paths, and mixed `config.sh` / `categories.ini` assumptions that still shadow `runtime.ini`.
-- [ ] Decide category-state migration: either move category selection state into `runtime.ini` or keep `categories.ini` intentionally as a separate state file.
-- [ ] Finish the chosen category path end-to-end in both shell and app code, then drop obsolete bridging logic.
-- [ ] Re-run focused device/upgrade checks after cleanup: missing-file regeneration, preset/cmdline switching, and reboot persistence.
-- [completed] Preserve `runtime.ini` across installs/updates and make repo/migration log defaults quiet (`log_mode=none`) unless an existing legacy value explicitly overrides it.
+- [completed] `runtime.ini` is the sole core runtime source; legacy bootstrap fallback should stay removed.
+- [completed] `categories.ini` remains explicit category-state and should not absorb runtime config.
+- [in progress] Run on-device verification for restart, reboot, reinstall, and app/module update flows.
+- [ ] Confirm missing or partial `runtime.ini` self-heals cleanly on device without reviving legacy values.
+- [ ] Do a final sweep for any residual legacy cleanup in shell/app paths found during verification.

@@ -53,6 +53,19 @@ fi
 
 echo ""
 
+echo "Core config source: $CORE_CONFIG_SOURCE_PATH"
+echo "Runtime config status: $RUNTIME_CONFIG_STATUS"
+if [ "$BOOTSTRAP_FALLBACK_USED" = "1" ]; then
+    echo "Bootstrap fallback: USED"
+    echo "Bootstrap inputs: $BOOTSTRAP_INPUT_SOURCES"
+    [ -n "$RUNTIME_CONFIG_REASON" ] && echo "Fallback reason: runtime.ini is $RUNTIME_CONFIG_REASON"
+    [ -n "$RUNTIME_CONFIG_ERROR" ] && echo "Regeneration error: $RUNTIME_CONFIG_ERROR"
+else
+    echo "Bootstrap fallback: not used"
+fi
+echo "Category state source: $CATEGORIES_FILE"
+echo ""
+
 echo "Effective core config:"
 echo "  AUTOSTART=$AUTOSTART"
 echo "  QNUM=$QNUM"

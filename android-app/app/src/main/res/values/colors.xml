@@ -27,6 +27,7 @@
     <color name="status_running">#107C10</color>
     <color name="status_stopped">#888888</color>
     <color name="status_error">#D13438</color>
+    <color name="status_warning">#FFA000</color>
 
     <!-- Text colors -->
     <color name="text_primary">#FFFFFF</color>

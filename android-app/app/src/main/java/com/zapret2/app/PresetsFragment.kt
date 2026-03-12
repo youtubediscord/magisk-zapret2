@@ -47,7 +47,6 @@ class PresetsFragment : Fragment() {
     private lateinit var loadingText: TextView
 
     private val modDir = "/data/adb/modules/zapret2"
-    private val configFile = "$modDir/zapret2/config.sh"
     private val presetsDir = "$modDir/zapret2/presets"
     private val restartScript = "$modDir/zapret2/scripts/zapret-restart.sh"
 
@@ -436,27 +435,18 @@ class PresetsFragment : Fragment() {
     }
 
     private suspend fun loadActiveSelection(): ActiveSelection {
-        val coreReadResult = RuntimeConfigStore.readCoreResult()
-        val runtimeCore = coreReadResult.values
-        val configText = if (!coreReadResult.usesRuntimeConfig) {
-            withContext(Dispatchers.IO) { readFileText(configFile) }
-        } else {
-            null
-        }
+        val runtimeCore = RuntimeConfigStore.readCore()
 
         val mode = (runtimeCore["preset_mode"]
-            ?: parseConfigValue(configText, "PRESET_MODE")
             ?: "categories")
             .ifEmpty { "categories" }
             .lowercase()
 
         val presetFile = (runtimeCore["preset_file"]
-            ?: parseConfigValue(configText, "PRESET_FILE")
             ?: "")
             .trim()
 
         val cmdlineFile = (runtimeCore["custom_cmdline_file"]
-            ?: parseConfigValue(configText, "CUSTOM_CMDLINE_FILE")
             ?: "cmdline.txt")
             .trim()
 
@@ -476,21 +466,4 @@ class PresetsFragment : Fragment() {
         )
     }
 
-    private fun readFileText(filePath: String): String? {
-        val result = Shell.cmd("cat '$filePath' 2>/dev/null").exec()
-        if (!result.isSuccess) {
-            return null
-        }
-
-        return result.out.joinToString("\n")
-    }
-
-    private fun parseConfigValue(config: String?, key: String): String? {
-        if (config.isNullOrBlank()) {
-            return null
-        }
-
-        val regex = Regex("""(?m)^$key\s*=\s*["']?([^"'\n]*)["']?""")
-        return regex.find(config)?.groupValues?.get(1)?.trim()
-    }
 }

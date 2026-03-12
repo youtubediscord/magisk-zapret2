@@ -32,8 +32,6 @@ class ConfigEditorFragment : Fragment() {
     private lateinit var buttonSaveRestartCommand: MaterialButton
 
     private val moduleDir = "/data/adb/modules/zapret2"
-    private val configFile = "$moduleDir/zapret2/config.sh"
-    private val userConfigFile = "/data/local/tmp/zapret2-user.conf"
     private val commandFile = "$moduleDir/zapret2/cmdline.txt"
     private val commandFileName = "cmdline.txt"
     private val runtimeCmdlineFile = "/data/local/tmp/nfqws2-cmdline.txt"
@@ -204,30 +202,14 @@ class ConfigEditorFragment : Fragment() {
     }
 
     private suspend fun loadCmdlineSourceState(): CmdlineSourceState {
-        val coreReadResult = RuntimeConfigStore.readCoreResult()
-        val runtimeCore = coreReadResult.values
-        val useLegacyFallback = !coreReadResult.usesRuntimeConfig
-        val configText = if (useLegacyFallback) {
-            withContext(Dispatchers.IO) { readFileText(configFile) }
-        } else {
-            null
-        }
-        val userConfigText = if (useLegacyFallback) {
-            withContext(Dispatchers.IO) { readFileText(userConfigFile) }
-        } else {
-            null
-        }
+        val runtimeCore = RuntimeConfigStore.readCore()
 
         val mode = (runtimeCore["preset_mode"]
-            ?: if (useLegacyFallback) parseConfigValue(configText, "PRESET_MODE") else null
-            ?: if (useLegacyFallback) parseConfigValue(userConfigText, "PRESET_MODE") else null
             ?: "categories")
             .orEmpty()
             .ifEmpty { "categories" }
 
         val cmdlineFile = (runtimeCore["custom_cmdline_file"]
-            ?: if (useLegacyFallback) parseConfigValue(configText, "CUSTOM_CMDLINE_FILE") else null
-            ?: if (useLegacyFallback) parseConfigValue(userConfigText, "CUSTOM_CMDLINE_FILE") else null
             ?: commandFileName)
             .orEmpty()
             .ifEmpty { commandFileName }
@@ -291,32 +273,6 @@ class ConfigEditorFragment : Fragment() {
             append("\n")
             append(delimiter)
         }
-    }
-
-    private fun readFileText(filePath: String): String? {
-        val result = Shell.cmd("cat '$filePath' 2>/dev/null").exec()
-        if (!result.isSuccess) {
-            return null
-        }
-
-        return result.out.joinToString("\n")
-    }
-
-    private fun parseConfigValue(config: String?, key: String): String? {
-        if (config.isNullOrBlank()) {
-            return null
-        }
-
-        val pattern = Regex("(?i)^\\s*${Regex.escape(key)}\\s*=\\s*(?:\"([^\"]*)\"|'([^']*)'|([^\\s#]*))")
-        return config.lineSequence()
-            .map { it.trim() }
-            .firstOrNull { pattern.matches(it) }
-            ?.let { line ->
-                pattern.find(line)?.let { match ->
-                    (match.groups[1]?.value ?: match.groups[2]?.value ?: match.groups[3]?.value)
-                        ?.trim()
-                }
-            }
     }
 
     private fun setActionsEnabled(enabled: Boolean) {

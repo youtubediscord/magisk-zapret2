@@ -59,8 +59,6 @@ class StrategiesFragment : Fragment() {
 
     // Paths
     private val MODDIR = "/data/adb/modules/zapret2"
-    private val CONFIG = "$MODDIR/zapret2/config.sh"
-    private val USER_CONFIG = "/data/local/tmp/zapret2-user.conf"
     private val RESTART_SCRIPT = "$MODDIR/zapret2/scripts/zapret-restart.sh"
 
     private val debugModeValues = arrayOf("none", "android", "file", "syslog")
@@ -387,49 +385,24 @@ class StrategiesFragment : Fragment() {
                 updateValueText(categoryKey, strategyName, type)
             }
 
-            val (coreReadResult, moduleConfig, userConfig) = withContext(Dispatchers.IO) {
-                val runtimeValues = RuntimeConfigStore.readCoreResult()
-                if (runtimeValues.usesRuntimeConfig) {
-                    Triple(runtimeValues, null, null)
-                } else {
-                    val modConfig = Shell.cmd("cat $CONFIG 2>/dev/null").exec().out.joinToString("\n")
-                    val usrConfig = Shell.cmd("cat $USER_CONFIG 2>/dev/null").exec().out.joinToString("\n")
-                    Triple(runtimeValues, modConfig, usrConfig)
-                }
+            val runtimeCore = withContext(Dispatchers.IO) {
+                RuntimeConfigStore.readCore()
             }
-
-            val runtimeCore = coreReadResult.values
 
             val pktValue = runtimeCore["pkt_out"]
                 ?: runtimeCore["pkt_count"]
-                ?: parseConfigValue(userConfig, "PKT_OUT")
-                ?: parseConfigValue(userConfig, "PKT_COUNT")
-                ?: parseConfigValue(moduleConfig, "PKT_OUT")
-                ?: parseConfigValue(moduleConfig, "PKT_COUNT")
                 ?: "5"
             if (pktValue in pktCountOptions) {
                 selections["pkt_count"] = pktValue
                 updateValueText("pkt_count", pktValue, StrategyPickerBottomSheet.TYPE_PKT_COUNT)
             }
 
-            val logModeValue = runtimeCore["log_mode"]
-                ?: parseConfigValue(userConfig, "LOG_MODE")
-                ?: parseConfigValue(moduleConfig, "LOG_MODE")
-                ?: "android"
+            val logModeValue = runtimeCore["log_mode"] ?: "android"
             if (logModeValue in debugModeValues) {
                 selections["debug"] = logModeValue
                 updateValueText("debug", logModeValue, StrategyPickerBottomSheet.TYPE_DEBUG)
             }
         }
-    }
-
-    private fun parseConfigValue(config: String?, key: String): String? {
-        if (config.isNullOrBlank()) {
-            return null
-        }
-
-        val regex = Regex("""$key=["']?([^"'\n]*)["']?""")
-        return regex.find(config)?.groupValues?.get(1)?.trim()
     }
 
     private fun showLoading(text: String = "Restarting service...") {

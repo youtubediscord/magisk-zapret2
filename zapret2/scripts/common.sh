@@ -34,9 +34,83 @@ UDP_STRATEGIES_INI="$ZAPRET_DIR/strategies-udp.ini"
 STUN_STRATEGIES_INI="$ZAPRET_DIR/strategies-stun.ini"
 CATEGORIES_FILE="$ZAPRET_DIR/categories.ini"
 CORE_CONFIG_SOURCE="defaults"
+CORE_CONFIG_SOURCE_PATH="built-in defaults"
+BOOTSTRAP_FALLBACK_USED=0
+BOOTSTRAP_INPUT_SOURCES=""
+RUNTIME_CONFIG_STATUS="unknown"
+RUNTIME_CONFIG_REASON=""
+RUNTIME_CONFIG_ERROR=""
 
 runtime_config_exists() {
     [ -f "$RUNTIME_CONFIG" ] && [ -r "$RUNTIME_CONFIG" ]
+}
+
+runtime_config_state_reason() {
+    if [ -e "$RUNTIME_CONFIG" ]; then
+        echo "unreadable"
+    else
+        echo "missing"
+    fi
+}
+
+ensure_runtime_core_config() {
+    RUNTIME_CONFIG_STATUS="loaded"
+    RUNTIME_CONFIG_REASON=""
+    RUNTIME_CONFIG_ERROR=""
+
+    if runtime_config_exists; then
+        return 0
+    fi
+
+    RUNTIME_CONFIG_REASON="$(runtime_config_state_reason)"
+
+    if [ ! -f "$RUNTIME_MIGRATE_SCRIPT" ]; then
+        RUNTIME_CONFIG_STATUS="legacy-fallback"
+        RUNTIME_CONFIG_ERROR="runtime migration helper not found: $RUNTIME_MIGRATE_SCRIPT"
+        return 1
+    fi
+
+    RUNTIME_CONFIG_ERROR="$(/system/bin/sh "$RUNTIME_MIGRATE_SCRIPT" "$RUNTIME_CONFIG" 2>&1)"
+    if [ $? -eq 0 ] && runtime_config_exists; then
+        RUNTIME_CONFIG_STATUS="regenerated"
+        return 0
+    fi
+
+    if [ -z "$RUNTIME_CONFIG_ERROR" ]; then
+        RUNTIME_CONFIG_ERROR="runtime.ini regeneration failed for an unknown reason"
+    fi
+
+    RUNTIME_CONFIG_STATUS="legacy-fallback"
+    return 1
+}
+
+runtime_config_status_message() {
+    case "$RUNTIME_CONFIG_STATUS" in
+        loaded)
+            echo "runtime.ini is present and authoritative: $RUNTIME_CONFIG"
+            ;;
+        regenerated)
+            echo "runtime.ini was regenerated from bootstrap inputs because it was $RUNTIME_CONFIG_REASON: $RUNTIME_CONFIG"
+            ;;
+        legacy-fallback)
+            echo "runtime.ini is unavailable ($RUNTIME_CONFIG_REASON); using conservative bootstrap fallback"
+            ;;
+        *)
+            echo "Runtime config status: $RUNTIME_CONFIG_STATUS"
+            ;;
+    esac
+}
+
+core_config_source_message() {
+    echo "Core config source: $CORE_CONFIG_SOURCE_PATH"
+}
+
+bootstrap_fallback_message() {
+    if [ "$BOOTSTRAP_FALLBACK_USED" = "1" ]; then
+        echo "Bootstrap fallback used: yes ($BOOTSTRAP_INPUT_SOURCES)"
+    else
+        echo "Bootstrap fallback used: no"
+    fi
 }
 
 trim_config_value() {
@@ -160,21 +234,33 @@ apply_runtime_core_overrides() {
 
 load_effective_core_config() {
     set_core_config_defaults
+    CORE_CONFIG_SOURCE="defaults"
+    CORE_CONFIG_SOURCE_PATH="built-in defaults"
+    BOOTSTRAP_FALLBACK_USED=0
+    BOOTSTRAP_INPUT_SOURCES="$CONFIG, $USER_CONFIG"
 
-    if runtime_config_exists; then
+    if ensure_runtime_core_config; then
         apply_runtime_core_overrides >/dev/null 2>&1 || true
         CORE_CONFIG_SOURCE="runtime.ini"
+        CORE_CONFIG_SOURCE_PATH="$RUNTIME_CONFIG"
         return 0
     fi
 
     load_legacy_core_config_overrides
+    BOOTSTRAP_FALLBACK_USED=1
 
-    if [ -f "$USER_CONFIG" ]; then
-        CORE_CONFIG_SOURCE="legacy-user"
+    if [ -f "$CONFIG" ] && [ -f "$USER_CONFIG" ]; then
+        CORE_CONFIG_SOURCE="bootstrap-fallback"
+        CORE_CONFIG_SOURCE_PATH="$CONFIG + $USER_CONFIG"
+    elif [ -f "$USER_CONFIG" ]; then
+        CORE_CONFIG_SOURCE="bootstrap-fallback"
+        CORE_CONFIG_SOURCE_PATH="$USER_CONFIG"
     elif [ -f "$CONFIG" ]; then
-        CORE_CONFIG_SOURCE="legacy-config"
+        CORE_CONFIG_SOURCE="bootstrap-fallback"
+        CORE_CONFIG_SOURCE_PATH="$CONFIG"
     else
         CORE_CONFIG_SOURCE="defaults"
+        CORE_CONFIG_SOURCE_PATH="built-in defaults"
     fi
 }
 
