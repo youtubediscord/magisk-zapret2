@@ -228,12 +228,14 @@ class ConfigEditorFragment : Fragment() {
             ?: if (useLegacyFallback) parseConfigValue(configText, "PRESET_MODE") else null
             ?: if (useLegacyFallback) parseConfigValue(userConfigText, "PRESET_MODE") else null
             ?: "categories")
+            .orEmpty()
             .ifEmpty { "categories" }
 
         val cmdlineFile = (runtimeCore["custom_cmdline_file"]
             ?: if (useLegacyFallback) parseConfigValue(configText, "CUSTOM_CMDLINE_FILE") else null
             ?: if (useLegacyFallback) parseConfigValue(userConfigText, "CUSTOM_CMDLINE_FILE") else null
             ?: commandFileName)
+            .orEmpty()
             .ifEmpty { commandFileName }
 
         return CmdlineSourceState(mode = mode, cmdlineFile = cmdlineFile)
