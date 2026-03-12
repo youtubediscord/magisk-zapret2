@@ -26,6 +26,10 @@
             android:icon="@drawable/ic_hostlist"
             android:title="Hosts Editor" />
         <item
+            android:id="@+id/nav_dns_manager"
+            android:icon="@drawable/ic_wifi"
+            android:title="DNS" />
+        <item
             android:id="@+id/nav_logs"
             android:icon="@drawable/ic_logs"
             android:title="Logs" />
