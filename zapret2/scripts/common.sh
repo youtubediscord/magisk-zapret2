@@ -17,18 +17,8 @@ PERM_STAMP_FILE="/data/local/tmp/zapret2-perms.stamp"
 
 # User overrides (persistent across module updates)
 USER_CONFIG="/data/local/tmp/zapret2-user.conf"
-
-# NFQUEUE settings (defaults, can be overridden by config.sh)
-QNUM="${QNUM:-200}"
-DESYNC_MARK="${DESYNC_MARK:-0x40000000}"
-
-# Port configuration
-PORTS_TCP="${PORTS_TCP:-80,443}"
-PORTS_UDP="${PORTS_UDP:-443}"
-
-# Packet limits
-PKT_OUT="${PKT_OUT:-20}"
-PKT_IN="${PKT_IN:-10}"
+RUNTIME_CONFIG="$ZAPRET_DIR/runtime.ini"
+RUNTIME_MIGRATE_SCRIPT="$SCRIPT_DIR/runtime-migrate.sh"
 
 # Core paths
 NFQWS2="$ZAPRET_DIR/nfqws2"
@@ -44,9 +34,142 @@ UDP_STRATEGIES_INI="$ZAPRET_DIR/strategies-udp.ini"
 STUN_STRATEGIES_INI="$ZAPRET_DIR/strategies-stun.ini"
 CATEGORIES_FILE="$ZAPRET_DIR/categories.ini"
 
-# Load user config (overrides defaults above)
-[ -f "$CONFIG" ] && . "$CONFIG"
-[ -f "$USER_CONFIG" ] && . "$USER_CONFIG"
+runtime_config_exists() {
+    [ -f "$RUNTIME_CONFIG" ] && [ -r "$RUNTIME_CONFIG" ]
+}
+
+trim_config_value() {
+    printf '%s' "$1" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//'
+}
+
+set_core_config_defaults() {
+    AUTOSTART=1
+    WIFI_ONLY=0
+    DEBUG=0
+    QNUM=200
+    DESYNC_MARK=0x40000000
+    PORTS_TCP="80,443"
+    PORTS_UDP="443"
+    PKT_OUT=20
+    PKT_IN=10
+    STRATEGY_PRESET="youtube"
+    PRESET_MODE="categories"
+    PRESET_FILE="Default.txt"
+    CUSTOM_CMDLINE_FILE="$ZAPRET_DIR/cmdline.txt"
+    NFQWS_UID="0:0"
+    LOG_MODE="android"
+}
+
+load_legacy_core_config_overrides() {
+    [ -f "$CONFIG" ] && . "$CONFIG"
+    [ -f "$USER_CONFIG" ] && . "$USER_CONFIG"
+}
+
+apply_runtime_core_overrides() {
+    runtime_config_exists || return 1
+
+    local current_section=""
+    local line=""
+    local cr
+    local key
+    local value
+
+    cr=$(printf '\r')
+
+    while IFS= read -r line || [ -n "$line" ]; do
+        line="${line%"$cr"}"
+
+        case "$line" in
+            ""|"#"*|";"*)
+                continue
+                ;;
+            "["*"]")
+                current_section="${line#[}"
+                current_section="${current_section%]}"
+                current_section="$(trim_config_value "$current_section")"
+                continue
+                ;;
+        esac
+
+        [ "$current_section" = "core" ] || continue
+
+        case "$line" in
+            *=*)
+                key="${line%%=*}"
+                value="${line#*=}"
+                key="$(trim_config_value "$key")"
+                value="$(trim_config_value "$value")"
+                ;;
+            *)
+                continue
+                ;;
+        esac
+
+        case "$key" in
+            autostart)
+                AUTOSTART="$value"
+                ;;
+            wifi_only)
+                WIFI_ONLY="$value"
+                ;;
+            debug)
+                DEBUG="$value"
+                ;;
+            qnum)
+                QNUM="$value"
+                ;;
+            desync_mark)
+                DESYNC_MARK="$value"
+                ;;
+            ports_tcp)
+                PORTS_TCP="$value"
+                ;;
+            ports_udp)
+                PORTS_UDP="$value"
+                ;;
+            pkt_out)
+                PKT_OUT="$value"
+                ;;
+            pkt_in)
+                PKT_IN="$value"
+                ;;
+            strategy_preset)
+                STRATEGY_PRESET="$value"
+                ;;
+            preset_mode)
+                PRESET_MODE="$value"
+                ;;
+            preset_file)
+                PRESET_FILE="$value"
+                ;;
+            custom_cmdline_file)
+                CUSTOM_CMDLINE_FILE="$value"
+                ;;
+            nfqws_uid)
+                NFQWS_UID="$value"
+                ;;
+            log_mode)
+                LOG_MODE="$value"
+                ;;
+        esac
+    done < "$RUNTIME_CONFIG"
+
+    return 0
+}
+
+load_effective_core_config() {
+    set_core_config_defaults
+    load_legacy_core_config_overrides
+    apply_runtime_core_overrides >/dev/null 2>&1 || true
+}
+
+shell_config_sets_key() {
+    local file_path="$1"
+    local key="$2"
+
+    [ -f "$file_path" ] || return 1
+    grep -Eq "^[[:space:]]*${key}=" "$file_path" 2>/dev/null
+}
 
 # Remove all NFQUEUE rules for the configured queue from mangle OUTPUT/INPUT.
 # Handles both IPv4 (iptables) and IPv6 (ip6tables).

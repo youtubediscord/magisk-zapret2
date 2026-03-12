@@ -20,6 +20,11 @@ import kotlinx.coroutines.withContext
 
 class ConfigEditorFragment : Fragment() {
 
+    private data class CmdlineSourceState(
+        val mode: String,
+        val cmdlineFile: String
+    )
+
     private lateinit var textCommandFilePath: TextView
     private lateinit var editCommandLine: EditText
     private lateinit var buttonReloadCommand: MaterialButton
@@ -29,7 +34,9 @@ class ConfigEditorFragment : Fragment() {
     private val moduleDir = "/data/adb/modules/zapret2"
     private val configFile = "$moduleDir/zapret2/config.sh"
     private val userConfigFile = "/data/local/tmp/zapret2-user.conf"
+    private val runtimeConfigFile = "$moduleDir/zapret2/runtime.ini"
     private val commandFile = "$moduleDir/zapret2/cmdline.txt"
+    private val commandFileName = "cmdline.txt"
     private val runtimeCmdlineFile = "/data/local/tmp/nfqws2-cmdline.txt"
     private val restartScript = "$moduleDir/zapret2/scripts/zapret-restart.sh"
 
@@ -70,7 +77,7 @@ class ConfigEditorFragment : Fragment() {
         buttonSaveRestartCommand.setOnClickListener {
             viewLifecycleOwner.lifecycleScope.launch {
                 if (isCmdlineModeEnabled()) {
-                    saveCommandLine(restartAfterSave = true)
+                    saveCommandLine(restartAfterSave = true, syncCmdlineSource = true)
                 } else {
                     showRestartChoiceDialog()
                 }
@@ -103,7 +110,11 @@ class ConfigEditorFragment : Fragment() {
         }
     }
 
-    private fun saveCommandLine(restartAfterSave: Boolean, forceCmdlineMode: Boolean = false) {
+    private fun saveCommandLine(
+        restartAfterSave: Boolean,
+        forceCmdlineMode: Boolean = false,
+        syncCmdlineSource: Boolean = false
+    ) {
         val commandText = normalizeLineEndings(editCommandLine.text?.toString().orEmpty()).trimEnd('\n', '\r')
         if (commandText.isBlank()) {
             Toast.makeText(requireContext(), "Command line is empty", Toast.LENGTH_SHORT).show()
@@ -119,11 +130,8 @@ class ConfigEditorFragment : Fragment() {
                     return@withContext Pair(false, false)
                 }
 
-                if (forceCmdlineMode) {
-                    if (!syncCmdlineMode(configFile)) {
-                        return@withContext Pair(false, false)
-                    }
-                    if (!syncCmdlineMode(userConfigFile)) {
+                if (forceCmdlineMode || syncCmdlineSource) {
+                    if (!syncCmdlineMode()) {
                         return@withContext Pair(false, false)
                     }
                 }
@@ -178,66 +186,66 @@ class ConfigEditorFragment : Fragment() {
             .setTitle("Command line restart mode")
             .setMessage("Current preset mode is not cmdline. Restart will use current strategy mode. Enable raw cmdline mode and restart?\n\nThis is an advanced option that requires manual command-line settings.")
             .setNegativeButton("Restart with current mode") { _, _ ->
-                saveCommandLine(restartAfterSave = true)
+                saveCommandLine(restartAfterSave = true, syncCmdlineSource = false)
             }
             .setPositiveButton("Enable cmdline mode") { _, _ ->
-                saveCommandLine(restartAfterSave = true, forceCmdlineMode = true)
+                saveCommandLine(
+                    restartAfterSave = true,
+                    forceCmdlineMode = true,
+                    syncCmdlineSource = true
+                )
             }
             .setNeutralButton("Cancel", null)
             .show()
     }
 
     private suspend fun isCmdlineModeEnabled(): Boolean {
-        val userMode = withContext(Dispatchers.IO) { readConfigValue(userConfigFile, "PRESET_MODE") }
-        val fallbackMode = withContext(Dispatchers.IO) { readConfigValue(configFile, "PRESET_MODE") }
-        val mode = (userMode ?: fallbackMode ?: "categories").lowercase()
+        val mode = loadCmdlineSourceState().mode.lowercase()
         return mode == "cmdline" || mode == "manual" || mode == "raw"
     }
 
-    private fun readConfigValue(filePath: String, key: String): String? {
-        val result = Shell.cmd("cat '$filePath' 2>/dev/null").exec()
-        if (!result.isSuccess) return null
-
-        val pattern = Regex("(?i)^\\s*${Regex.escape(key)}\\s*=\\s*(?:\\\"([^\\\"]*)\\\"|'([^']*)'|([^\\s#]*))")
-        return result.out.joinToString("\n").lineSequence()
-            .map { it.trim() }
-            .firstOrNull { pattern.matches(it) }
-            ?.let { line ->
-                pattern.find(line)?.let { match ->
-                    (match.groups[1]?.value ?: match.groups[2]?.value ?: match.groups[3]?.value)
-                        ?.trim()
-                }
-            }
-    }
-
-    private fun syncCmdlineMode(targetFile: String): Boolean {
-        if (!upsertConfigValue(targetFile, "PRESET_MODE", "cmdline")) {
-            return false
-        }
-        if (!upsertConfigValue(targetFile, "CUSTOM_CMDLINE_FILE", commandFile)) {
-            return false
-        }
-        return true
-    }
-
-    private fun upsertConfigValue(filePath: String, key: String, value: String): Boolean {
-        val escapedPath = filePath.replace("\"", "\\\"")
-        val hasValue = Shell.cmd("grep -q '^$key=' \"$escapedPath\" 2>/dev/null && echo 1 || echo 0").exec()
-            .out.firstOrNull()?.trim() == "1"
-
-        val result = if (hasValue) {
-            val escapedValueForSed = value
-                .replace("\\", "\\\\")
-                .replace("|", "\\|")
-                .replace("&", "\\&")
-                .replace("\"", "\\\"")
-            Shell.cmd("sed -i 's|^$key=.*|$key=\"$escapedValueForSed\"|' \"$escapedPath\"").exec()
+    private suspend fun loadCmdlineSourceState(): CmdlineSourceState {
+        val runtimeConfigText = withContext(Dispatchers.IO) { readFileText(runtimeConfigFile) }
+        val runtimeCore = if (runtimeConfigText != null) {
+            RuntimeConfigStore.readCore()
         } else {
-            val line = "$key=\"$value\"".replace("'", "'\\''")
-            Shell.cmd("echo '$line' >> \"$escapedPath\"").exec()
+            emptyMap()
         }
 
-        return result.isSuccess
+        val useLegacyFallback = runtimeConfigText == null
+        val configText = if (useLegacyFallback) {
+            withContext(Dispatchers.IO) { readFileText(configFile) }
+        } else {
+            null
+        }
+        val userConfigText = if (useLegacyFallback) {
+            withContext(Dispatchers.IO) { readFileText(userConfigFile) }
+        } else {
+            null
+        }
+
+        val mode = (runtimeCore["preset_mode"]
+            ?: if (useLegacyFallback) parseConfigValue(configText, "PRESET_MODE") else null
+            ?: if (useLegacyFallback) parseConfigValue(userConfigText, "PRESET_MODE") else null
+            ?: "categories")
+            .ifEmpty { "categories" }
+
+        val cmdlineFile = (runtimeCore["custom_cmdline_file"]
+            ?: if (useLegacyFallback) parseConfigValue(configText, "CUSTOM_CMDLINE_FILE") else null
+            ?: if (useLegacyFallback) parseConfigValue(userConfigText, "CUSTOM_CMDLINE_FILE") else null
+            ?: commandFileName)
+            .ifEmpty { commandFileName }
+
+        return CmdlineSourceState(mode = mode, cmdlineFile = cmdlineFile)
+    }
+
+    private suspend fun syncCmdlineMode(): Boolean {
+        return RuntimeConfigStore.setActiveModeValues(
+            RuntimeConfigStore.CoreSettingsUpdate(
+                presetMode = "cmdline",
+                customCmdlineFile = commandFileName
+            )
+        )
     }
 
     private fun stripBinaryPrefix(cmdline: String): String {
@@ -287,6 +295,32 @@ class ConfigEditorFragment : Fragment() {
             append("\n")
             append(delimiter)
         }
+    }
+
+    private fun readFileText(filePath: String): String? {
+        val result = Shell.cmd("cat '$filePath' 2>/dev/null").exec()
+        if (!result.isSuccess) {
+            return null
+        }
+
+        return result.out.joinToString("\n")
+    }
+
+    private fun parseConfigValue(config: String?, key: String): String? {
+        if (config.isNullOrBlank()) {
+            return null
+        }
+
+        val pattern = Regex("(?i)^\\s*${Regex.escape(key)}\\s*=\\s*(?:\"([^\"]*)\"|'([^']*)'|([^\\s#]*))")
+        return config.lineSequence()
+            .map { it.trim() }
+            .firstOrNull { pattern.matches(it) }
+            ?.let { line ->
+                pattern.find(line)?.let { match ->
+                    (match.groups[1]?.value ?: match.groups[2]?.value ?: match.groups[3]?.value)
+                        ?.trim()
+                }
+            }
     }
 
     private fun setActionsEnabled(enabled: Boolean) {

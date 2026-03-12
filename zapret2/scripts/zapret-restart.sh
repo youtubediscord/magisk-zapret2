@@ -6,6 +6,7 @@
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 . "$SCRIPT_DIR/common.sh"
+load_effective_core_config
 
 # 1. Quick kill nfqws2
 if [ -f "$PIDFILE" ]; then

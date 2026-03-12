@@ -387,13 +387,16 @@ class StrategiesFragment : Fragment() {
                 updateValueText(categoryKey, strategyName, type)
             }
 
-            val (moduleConfig, userConfig) = withContext(Dispatchers.IO) {
+            val (runtimeCore, moduleConfig, userConfig) = withContext(Dispatchers.IO) {
+                val runtimeValues = RuntimeConfigStore.readCore()
                 val modConfig = Shell.cmd("cat $CONFIG 2>/dev/null").exec().out.joinToString("\n")
                 val usrConfig = Shell.cmd("cat $USER_CONFIG 2>/dev/null").exec().out.joinToString("\n")
-                Pair(modConfig, usrConfig)
+                Triple(runtimeValues, modConfig, usrConfig)
             }
 
-            val pktValue = parseConfigValue(userConfig, "PKT_OUT")
+            val pktValue = runtimeCore["pkt_out"]
+                ?: runtimeCore["pkt_count"]
+                ?: parseConfigValue(userConfig, "PKT_OUT")
                 ?: parseConfigValue(userConfig, "PKT_COUNT")
                 ?: parseConfigValue(moduleConfig, "PKT_OUT")
                 ?: parseConfigValue(moduleConfig, "PKT_COUNT")
@@ -404,7 +407,8 @@ class StrategiesFragment : Fragment() {
                 }
             }
 
-            val logModeValue = parseConfigValue(userConfig, "LOG_MODE")
+            val logModeValue = runtimeCore["log_mode"]
+                ?: parseConfigValue(userConfig, "LOG_MODE")
                 ?: parseConfigValue(moduleConfig, "LOG_MODE")
             logModeValue?.let { value ->
                 if (value in debugModeValues) {
@@ -450,67 +454,15 @@ class StrategiesFragment : Fragment() {
             val debugMode = selections["debug"] ?: "android"
 
             val (configSuccess, restartSuccess) = withContext(Dispatchers.IO) {
-                val configReadResult = Shell.cmd("cat $CONFIG 2>/dev/null").exec()
-                val currentConfig = configReadResult.out.joinToString("\n")
-                if (!configReadResult.isSuccess || currentConfig.isBlank()) {
-                    return@withContext Pair(false, false)
-                }
-
-                var newConfig = currentConfig
-                    .replace(Regex("""PKT_OUT=["']?\d+["']?"""), "PKT_OUT=\"$pktCount\"")
-                    .replace(Regex("""PKT_COUNT=["']?\d+["']?"""), "PKT_COUNT=\"$pktCount\"")
-                    .replace(Regex("""LOG_MODE=["']?\w+["']?"""), "LOG_MODE=\"$debugMode\"")
-                    .replace(Regex("""PRESET_MODE=["']?[^"'\n]+["']?"""), "PRESET_MODE=\"categories\"")
-
-                if (!newConfig.contains("PKT_OUT=")) {
-                    newConfig += "\nPKT_OUT=\"$pktCount\""
-                }
-                if (!newConfig.contains("PKT_COUNT=")) {
-                    newConfig += "\nPKT_COUNT=\"$pktCount\""
-                }
-                if (!newConfig.contains("LOG_MODE=")) {
-                    newConfig += "\nLOG_MODE=\"$debugMode\""
-                }
-                if (!newConfig.contains("PRESET_MODE=")) {
-                    newConfig += "\nPRESET_MODE=\"categories\""
-                }
-
-                val escaped = newConfig.replace("'", "'\\''")
-                val saveResult = Shell.cmd("echo '$escaped' > $CONFIG").exec()
-                if (!saveResult.isSuccess) {
-                    return@withContext Pair(false, false)
-                }
-
-                val hasPktOut = Shell.cmd("grep -q '^PKT_OUT=' $USER_CONFIG 2>/dev/null && echo 1 || echo 0").exec()
-                    .out.firstOrNull()?.trim() == "1"
-                val savePktOutResult = if (hasPktOut) {
-                    Shell.cmd("sed -i 's/^PKT_OUT=.*/PKT_OUT=$pktCount/' $USER_CONFIG").exec()
-                } else {
-                    Shell.cmd("echo 'PKT_OUT=$pktCount' >> $USER_CONFIG").exec()
-                }
-                if (!savePktOutResult.isSuccess) {
-                    return@withContext Pair(false, false)
-                }
-
-                val hasLogMode = Shell.cmd("grep -q '^LOG_MODE=' $USER_CONFIG 2>/dev/null && echo 1 || echo 0").exec()
-                    .out.firstOrNull()?.trim() == "1"
-                val saveLogModeResult = if (hasLogMode) {
-                    Shell.cmd("sed -i 's/^LOG_MODE=.*/LOG_MODE=$debugMode/' $USER_CONFIG").exec()
-                } else {
-                    Shell.cmd("echo 'LOG_MODE=$debugMode' >> $USER_CONFIG").exec()
-                }
-                if (!saveLogModeResult.isSuccess) {
-                    return@withContext Pair(false, false)
-                }
-
-                val hasPresetMode = Shell.cmd("grep -q '^PRESET_MODE=' $USER_CONFIG 2>/dev/null && echo 1 || echo 0").exec()
-                    .out.firstOrNull()?.trim() == "1"
-                val savePresetModeResult = if (hasPresetMode) {
-                    Shell.cmd("sed -i 's/^PRESET_MODE=.*/PRESET_MODE=categories/' $USER_CONFIG").exec()
-                } else {
-                    Shell.cmd("echo 'PRESET_MODE=categories' >> $USER_CONFIG").exec()
-                }
-                if (!savePresetModeResult.isSuccess) {
+                val runtimeUpdated = RuntimeConfigStore.updateCoreSettings(
+                    update = RuntimeConfigStore.CoreSettingsUpdate(
+                        presetMode = "categories",
+                        logMode = debugMode,
+                        pktOut = pktCount.toIntOrNull()
+                    ),
+                    removeKeys = setOf("pkt_count")
+                )
+                if (!runtimeUpdated) {
                     return@withContext Pair(false, false)
                 }
 

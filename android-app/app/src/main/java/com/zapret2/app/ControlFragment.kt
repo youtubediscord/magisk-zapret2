@@ -86,6 +86,7 @@ class ControlFragment : Fragment() {
     // PKT current values
     private var pktOutValue: Int = PKT_OUT_DEFAULT
     private var pktInValue: Int = PKT_IN_DEFAULT
+    private var isLoadingCoreConfig = false
 
     // QUIC Warning Banner
     private lateinit var bannerQuicWarning: LinearLayout
@@ -112,10 +113,14 @@ class ControlFragment : Fragment() {
 
     // Paths
     private val MODDIR = "/data/adb/modules/zapret2"
-    private val CONFIG = "$MODDIR/zapret2/config.sh"
-    private val USER_CONFIG = "/data/local/tmp/zapret2-user.conf"  // Persistent user config
     private val SCRIPTS = "$MODDIR/zapret2/scripts"
-    private val PIDFILE = "/data/local/tmp/nfqws2.pid"
+
+    private data class CoreSettings(
+        val autostart: Boolean = true,
+        val wifiOnly: Boolean = false,
+        val pktOut: Int = 20,
+        val pktIn: Int = 10
+    )
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -273,11 +278,13 @@ class ControlFragment : Fragment() {
         }
 
         switchAutostart.setOnCheckedChangeListener { _, isChecked ->
+            if (isLoadingCoreConfig) return@setOnCheckedChangeListener
             textAutostartValue.text = if (isChecked) "On" else "Off"
             saveAutostart(isChecked)
         }
 
         switchWifiOnly.setOnCheckedChangeListener { _, isChecked ->
+            if (isLoadingCoreConfig) return@setOnCheckedChangeListener
             textWifiOnlyValue.text = if (isChecked) "On" else "Off"
             saveWifiOnly(isChecked)
         }
@@ -429,46 +436,21 @@ class ControlFragment : Fragment() {
 
     private fun loadConfig() {
         viewLifecycleOwner.lifecycleScope.launch {
-            // Load both module config and user config
-            val (moduleConfig, userConfig) = withContext(Dispatchers.IO) {
-                val modConfig = Shell.cmd("cat $CONFIG 2>/dev/null").exec().out.joinToString("\n")
-                val usrConfig = Shell.cmd("cat $USER_CONFIG 2>/dev/null").exec().out.joinToString("\n")
-                Pair(modConfig, usrConfig)
-            }
+            val coreSettings = readCoreSettings()
 
-            // Parse AUTOSTART (user config overrides module config)
-            val autostartValue = parseConfigValue(userConfig, "AUTOSTART")
-                ?: parseConfigValue(moduleConfig, "AUTOSTART")
-            val isAutostartEnabled = autostartValue == "1"
-            switchAutostart.isChecked = isAutostartEnabled
-            textAutostartValue.text = if (isAutostartEnabled) "On" else "Off"
+            isLoadingCoreConfig = true
+            switchAutostart.isChecked = coreSettings.autostart
+            switchWifiOnly.isChecked = coreSettings.wifiOnly
+            isLoadingCoreConfig = false
 
-            // Parse WIFI_ONLY (user config overrides module config)
-            val wifiOnlyValue = parseConfigValue(userConfig, "WIFI_ONLY")
-                ?: parseConfigValue(moduleConfig, "WIFI_ONLY")
-            val isWifiOnlyEnabled = wifiOnlyValue == "1"
-            switchWifiOnly.isChecked = isWifiOnlyEnabled
-            textWifiOnlyValue.text = if (isWifiOnlyEnabled) "On" else "Off"
+            textAutostartValue.text = if (coreSettings.autostart) "On" else "Off"
+            textWifiOnlyValue.text = if (coreSettings.wifiOnly) "On" else "Off"
 
-            // Parse PKT_OUT (user config overrides module config)
-            val pktOutStr = parseConfigValue(userConfig, "PKT_OUT")
-                ?: parseConfigValue(moduleConfig, "PKT_OUT")
-            pktOutValue = pktOutStr?.toIntOrNull() ?: PKT_OUT_DEFAULT
-            pktOutValue = pktOutValue.coerceIn(PKT_MIN, PKT_MAX)
+            pktOutValue = coreSettings.pktOut.coerceIn(PKT_MIN, PKT_MAX)
+            pktInValue = coreSettings.pktIn.coerceIn(PKT_MIN, PKT_MAX)
             textPktOutValue.text = pktOutValue.toString()
-
-            // Parse PKT_IN (user config overrides module config)
-            val pktInStr = parseConfigValue(userConfig, "PKT_IN")
-                ?: parseConfigValue(moduleConfig, "PKT_IN")
-            pktInValue = pktInStr?.toIntOrNull() ?: PKT_IN_DEFAULT
-            pktInValue = pktInValue.coerceIn(PKT_MIN, PKT_MAX)
             textPktInValue.text = pktInValue.toString()
         }
-    }
-
-    private fun parseConfigValue(config: String, key: String): String? {
-        val regex = Regex("""$key=["']?([^"'\n]*)["']?""")
-        return regex.find(config)?.groupValues?.get(1)?.trim()
     }
 
     /**
@@ -677,17 +659,7 @@ class ControlFragment : Fragment() {
         viewLifecycleOwner.lifecycleScope.launch {
             val ctx = context ?: return@launch
             val value = if (enabled) "1" else "0"
-            withContext(Dispatchers.IO) {
-                // Save to user config (persistent across module updates)
-                val hasValue = Shell.cmd("grep -q '^AUTOSTART=' $USER_CONFIG 2>/dev/null && echo 1 || echo 0").exec()
-                    .out.firstOrNull()?.trim() == "1"
-
-                if (hasValue) {
-                    Shell.cmd("sed -i 's/^AUTOSTART=.*/AUTOSTART=$value/' $USER_CONFIG").exec()
-                } else {
-                    Shell.cmd("echo 'AUTOSTART=$value' >> $USER_CONFIG").exec()
-                }
-            }
+            persistCoreValue("autostart", value)
             if (!isAdded) return@launch
             Toast.makeText(
                 ctx,
@@ -701,17 +673,7 @@ class ControlFragment : Fragment() {
         viewLifecycleOwner.lifecycleScope.launch {
             val ctx = context ?: return@launch
             val value = if (enabled) "1" else "0"
-            withContext(Dispatchers.IO) {
-                // Save to user config (persistent across module updates)
-                val hasValue = Shell.cmd("grep -q '^WIFI_ONLY=' $USER_CONFIG 2>/dev/null && echo 1 || echo 0").exec()
-                    .out.firstOrNull()?.trim() == "1"
-
-                if (hasValue) {
-                    Shell.cmd("sed -i 's/^WIFI_ONLY=.*/WIFI_ONLY=$value/' $USER_CONFIG").exec()
-                } else {
-                    Shell.cmd("echo 'WIFI_ONLY=$value' >> $USER_CONFIG").exec()
-                }
-            }
+            persistCoreValue("wifi_only", value)
             if (!isAdded) return@launch
             Toast.makeText(
                 ctx,
@@ -723,34 +685,73 @@ class ControlFragment : Fragment() {
 
     private fun savePktOut(value: Int) {
         viewLifecycleOwner.lifecycleScope.launch {
-            withContext(Dispatchers.IO) {
-                // Save to user config (persistent across module updates)
-                val hasValue = Shell.cmd("grep -q '^PKT_OUT=' $USER_CONFIG 2>/dev/null && echo 1 || echo 0").exec()
-                    .out.firstOrNull()?.trim() == "1"
-
-                if (hasValue) {
-                    Shell.cmd("sed -i 's/^PKT_OUT=.*/PKT_OUT=$value/' $USER_CONFIG").exec()
-                } else {
-                    Shell.cmd("echo 'PKT_OUT=$value' >> $USER_CONFIG").exec()
-                }
-            }
+            persistCoreValue("pkt_out", value.toString())
         }
     }
 
     private fun savePktIn(value: Int) {
         viewLifecycleOwner.lifecycleScope.launch {
-            withContext(Dispatchers.IO) {
-                // Save to user config (persistent across module updates)
-                val hasValue = Shell.cmd("grep -q '^PKT_IN=' $USER_CONFIG 2>/dev/null && echo 1 || echo 0").exec()
-                    .out.firstOrNull()?.trim() == "1"
-
-                if (hasValue) {
-                    Shell.cmd("sed -i 's/^PKT_IN=.*/PKT_IN=$value/' $USER_CONFIG").exec()
-                } else {
-                    Shell.cmd("echo 'PKT_IN=$value' >> $USER_CONFIG").exec()
-                }
-            }
+            persistCoreValue("pkt_in", value.toString())
         }
+    }
+
+    private suspend fun readCoreSettings(): CoreSettings = withContext(Dispatchers.IO) {
+        val runtimeCoreValues = RuntimeConfigStore.readCore()
+        val legacyValues = if (runtimeCoreValues.isEmpty()) {
+            val moduleValues = readShellConfigFile("$MODDIR/zapret2/config.sh")
+            val userValues = readShellConfigFile("/data/local/tmp/zapret2-user.conf")
+            mapOf(
+                "AUTOSTART" to (userValues["AUTOSTART"] ?: moduleValues["AUTOSTART"] ?: "1"),
+                "WIFI_ONLY" to (userValues["WIFI_ONLY"] ?: moduleValues["WIFI_ONLY"] ?: "0"),
+                "PKT_OUT" to (userValues["PKT_OUT"] ?: moduleValues["PKT_OUT"] ?: PKT_OUT_DEFAULT.toString()),
+                "PKT_IN" to (userValues["PKT_IN"] ?: moduleValues["PKT_IN"] ?: PKT_IN_DEFAULT.toString())
+            )
+        } else {
+            emptyMap()
+        }
+
+        fun runtimeValue(key: String): String? = runtimeCoreValues[key]?.takeIf { it.isNotEmpty() }
+        fun legacyValue(key: String): String? = legacyValues[key]?.takeIf { it.isNotEmpty() }
+
+        CoreSettings(
+            autostart = (runtimeValue("autostart") ?: legacyValue("AUTOSTART") ?: "1") == "1",
+            wifiOnly = (runtimeValue("wifi_only") ?: legacyValue("WIFI_ONLY") ?: "0") == "1",
+            pktOut = (runtimeValue("pkt_out") ?: legacyValue("PKT_OUT") ?: PKT_OUT_DEFAULT.toString()).toIntOrNull()
+                ?: PKT_OUT_DEFAULT,
+            pktIn = (runtimeValue("pkt_in") ?: legacyValue("PKT_IN") ?: PKT_IN_DEFAULT.toString()).toIntOrNull()
+                ?: PKT_IN_DEFAULT
+        )
+    }
+
+    private suspend fun persistCoreValue(runtimeKey: String, value: String): Boolean =
+        withContext(Dispatchers.IO) {
+            RuntimeConfigStore.upsertCoreValue(runtimeKey, value)
+        }
+
+    private fun readShellConfigFile(path: String): Map<String, String> {
+        val result = Shell.cmd("cat \"${escapeForDoubleQuotes(path)}\" 2>/dev/null").exec()
+        if (!result.isSuccess) {
+            return emptyMap()
+        }
+
+        return parseShellConfig(result.out.joinToString("\n"))
+    }
+
+    private fun parseShellConfig(config: String): Map<String, String> {
+        if (config.isBlank()) return emptyMap()
+
+        val values = mutableMapOf<String, String>()
+        config.lineSequence().forEach { line ->
+            val trimmed = line.trim()
+            if (trimmed.isEmpty() || trimmed.startsWith("#")) return@forEach
+            val match = Regex("""^([A-Z0-9_]+)=[\"']?([^\"'\n]*)[\"']?$""").find(trimmed) ?: return@forEach
+            values[match.groupValues[1]] = match.groupValues[2].trim()
+        }
+        return values
+    }
+
+    private fun escapeForDoubleQuotes(value: String): String {
+        return value.replace("\\", "\\\\").replace("\"", "\\\"")
     }
 
     private enum class Status { RUNNING, STOPPED, ERROR }
