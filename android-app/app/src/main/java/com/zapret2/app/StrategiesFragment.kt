@@ -387,12 +387,18 @@ class StrategiesFragment : Fragment() {
                 updateValueText(categoryKey, strategyName, type)
             }
 
-            val (runtimeCore, moduleConfig, userConfig) = withContext(Dispatchers.IO) {
-                val runtimeValues = RuntimeConfigStore.readCore()
-                val modConfig = Shell.cmd("cat $CONFIG 2>/dev/null").exec().out.joinToString("\n")
-                val usrConfig = Shell.cmd("cat $USER_CONFIG 2>/dev/null").exec().out.joinToString("\n")
-                Triple(runtimeValues, modConfig, usrConfig)
+            val (coreReadResult, moduleConfig, userConfig) = withContext(Dispatchers.IO) {
+                val runtimeValues = RuntimeConfigStore.readCoreResult()
+                if (runtimeValues.usesRuntimeConfig) {
+                    Triple(runtimeValues, null, null)
+                } else {
+                    val modConfig = Shell.cmd("cat $CONFIG 2>/dev/null").exec().out.joinToString("\n")
+                    val usrConfig = Shell.cmd("cat $USER_CONFIG 2>/dev/null").exec().out.joinToString("\n")
+                    Triple(runtimeValues, modConfig, usrConfig)
+                }
             }
+
+            val runtimeCore = coreReadResult.values
 
             val pktValue = runtimeCore["pkt_out"]
                 ?: runtimeCore["pkt_count"]
@@ -400,26 +406,28 @@ class StrategiesFragment : Fragment() {
                 ?: parseConfigValue(userConfig, "PKT_COUNT")
                 ?: parseConfigValue(moduleConfig, "PKT_OUT")
                 ?: parseConfigValue(moduleConfig, "PKT_COUNT")
-            pktValue?.let { value ->
-                if (value in pktCountOptions) {
-                    selections["pkt_count"] = value
-                    updateValueText("pkt_count", value, StrategyPickerBottomSheet.TYPE_PKT_COUNT)
-                }
+                ?: "5"
+            if (pktValue in pktCountOptions) {
+                selections["pkt_count"] = pktValue
+                updateValueText("pkt_count", pktValue, StrategyPickerBottomSheet.TYPE_PKT_COUNT)
             }
 
             val logModeValue = runtimeCore["log_mode"]
                 ?: parseConfigValue(userConfig, "LOG_MODE")
                 ?: parseConfigValue(moduleConfig, "LOG_MODE")
-            logModeValue?.let { value ->
-                if (value in debugModeValues) {
-                    selections["debug"] = value
-                    updateValueText("debug", value, StrategyPickerBottomSheet.TYPE_DEBUG)
-                }
+                ?: "android"
+            if (logModeValue in debugModeValues) {
+                selections["debug"] = logModeValue
+                updateValueText("debug", logModeValue, StrategyPickerBottomSheet.TYPE_DEBUG)
             }
         }
     }
 
-    private fun parseConfigValue(config: String, key: String): String? {
+    private fun parseConfigValue(config: String?, key: String): String? {
+        if (config.isNullOrBlank()) {
+            return null
+        }
+
         val regex = Regex("""$key=["']?([^"'\n]*)["']?""")
         return regex.find(config)?.groupValues?.get(1)?.trim()
     }

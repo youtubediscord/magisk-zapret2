@@ -48,7 +48,6 @@ class PresetsFragment : Fragment() {
 
     private val modDir = "/data/adb/modules/zapret2"
     private val configFile = "$modDir/zapret2/config.sh"
-    private val runtimeConfigFile = "$modDir/zapret2/runtime.ini"
     private val presetsDir = "$modDir/zapret2/presets"
     private val restartScript = "$modDir/zapret2/scripts/zapret-restart.sh"
 
@@ -437,9 +436,9 @@ class PresetsFragment : Fragment() {
     }
 
     private suspend fun loadActiveSelection(): ActiveSelection {
-        val runtimeCore = RuntimeConfigStore.readCore()
-        val runtimeConfigText = withContext(Dispatchers.IO) { readFileText(runtimeConfigFile) }
-        val configText = if (runtimeConfigText == null) {
+        val coreReadResult = RuntimeConfigStore.readCoreResult()
+        val runtimeCore = coreReadResult.values
+        val configText = if (!coreReadResult.usesRuntimeConfig) {
             withContext(Dispatchers.IO) { readFileText(configFile) }
         } else {
             null

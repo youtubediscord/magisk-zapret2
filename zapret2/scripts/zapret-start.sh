@@ -5,7 +5,7 @@
 #
 # This script starts the nfqws2 DPI bypass daemon with configured strategies.
 # It handles:
-#   - Configuration loading from config.sh
+#   - Configuration loading from runtime.ini or legacy fallback
 #   - Permission fixing for dropped privileges
 #   - iptables rule application
 #   - Strategy building (preset-based or category-based)
@@ -102,61 +102,44 @@ load_config() {
     # Set defaults first
     set_default_config
 
-    # Load module config if exists (default values)
-    if [ -f "$CONFIG" ]; then
-        log_msg "Loaded module config from $CONFIG"
-    else
-        log_msg "Using default configuration (no config.sh found)"
-    fi
-
-    # Load user config if exists (overrides module config)
-    # This file persists across module updates
-    if [ -f "$USER_CONFIG" ]; then
-        log_msg "Loaded user config from $USER_CONFIG"
-    fi
-
-    load_legacy_core_config_overrides
-
     if runtime_config_exists; then
         apply_runtime_core_overrides
-        log_msg "Applied runtime [core] overrides from $RUNTIME_CONFIG"
+        log_msg "Loaded authoritative runtime [core] config from $RUNTIME_CONFIG"
+        log_msg "Ignoring legacy core values from $CONFIG and $USER_CONFIG while runtime.ini exists"
         log_msg "Category sections still load from legacy categories.ini"
     else
-        log_msg "runtime.ini not found, using legacy runtime sources only"
-    fi
+        if [ -f "$CONFIG" ]; then
+            log_msg "Loaded module config from $CONFIG"
+        else
+            log_msg "Using default configuration (no config.sh found)"
+        fi
 
-    if [ -f "$USER_CONFIG" ]; then
-        log_legacy_conflict "Legacy user overrides are active from $USER_CONFIG until all runtime state is fully migrated"
-    fi
+        if [ -f "$USER_CONFIG" ]; then
+            log_msg "Loaded user config from $USER_CONFIG"
+            log_msg "runtime.ini not found, using legacy user overrides for core runtime values"
+        else
+            log_msg "runtime.ini not found, using legacy runtime sources only"
+        fi
 
-    if shell_config_sets_key "$CONFIG" "PRESET_MODE" && shell_config_sets_key "$USER_CONFIG" "PRESET_MODE"; then
-        log_legacy_conflict "PRESET_MODE is defined in both $CONFIG and $USER_CONFIG; effective mode depends on shell source order"
-    fi
+        load_legacy_core_config_overrides
 
-    if shell_config_sets_key "$CONFIG" "CUSTOM_CMDLINE_FILE" && shell_config_sets_key "$USER_CONFIG" "CUSTOM_CMDLINE_FILE"; then
-        log_legacy_conflict "CUSTOM_CMDLINE_FILE is defined in both $CONFIG and $USER_CONFIG; effective cmdline source depends on shell source order"
-    fi
+        if shell_config_sets_key "$CONFIG" "PRESET_MODE" && shell_config_sets_key "$USER_CONFIG" "PRESET_MODE"; then
+            log_legacy_conflict "PRESET_MODE is defined in both $CONFIG and $USER_CONFIG; effective mode depends on shell source order"
+        fi
 
-    if runtime_config_exists && shell_config_sets_key "$CONFIG" "PRESET_MODE"; then
-        log_legacy_conflict "runtime.ini [core] overrides legacy PRESET_MODE from $CONFIG for runtime behavior"
-    fi
+        if shell_config_sets_key "$CONFIG" "CUSTOM_CMDLINE_FILE" && shell_config_sets_key "$USER_CONFIG" "CUSTOM_CMDLINE_FILE"; then
+            log_legacy_conflict "CUSTOM_CMDLINE_FILE is defined in both $CONFIG and $USER_CONFIG; effective cmdline source depends on shell source order"
+        fi
 
-    if runtime_config_exists && shell_config_sets_key "$USER_CONFIG" "PRESET_MODE"; then
-        log_legacy_conflict "runtime.ini [core] overrides legacy PRESET_MODE from $USER_CONFIG for runtime behavior"
+        case "$PRESET_MODE" in
+            file|preset|txt)
+                log_legacy_conflict "Legacy preset-file mode is active (PRESET_MODE=$PRESET_MODE, PRESET_FILE=${PRESET_FILE:-Default.txt}); runtime.ini migration is not active yet"
+                ;;
+            cmdline|manual|raw)
+                log_legacy_conflict "Legacy raw-cmdline mode is active (PRESET_MODE=$PRESET_MODE, CUSTOM_CMDLINE_FILE=${CUSTOM_CMDLINE_FILE:-$ZAPRET_DIR/cmdline.txt}); runtime.ini migration is not active yet"
+                ;;
+        esac
     fi
-
-    if runtime_config_exists && shell_config_sets_key "$USER_CONFIG" "CUSTOM_CMDLINE_FILE"; then
-        log_legacy_conflict "runtime.ini [core] overrides legacy CUSTOM_CMDLINE_FILE from $USER_CONFIG for runtime behavior"
-    fi
-
-    case "$PRESET_MODE" in
-        file|preset|txt)
-            log_legacy_conflict "Legacy preset-file mode is active (PRESET_MODE=$PRESET_MODE, PRESET_FILE=${PRESET_FILE:-Default.txt}); runtime.ini categories are not driving startup yet"
-            ;;
-        cmdline|manual|raw)
-            log_legacy_conflict "Legacy raw-cmdline mode is active (PRESET_MODE=$PRESET_MODE, CUSTOM_CMDLINE_FILE=${CUSTOM_CMDLINE_FILE:-$ZAPRET_DIR/cmdline.txt}); runtime.ini does not override raw mode yet"
-            ;;
-    esac
 
     # Verify strategy INI files exist
     for ini_file in "$TCP_STRATEGIES_INI" "$UDP_STRATEGIES_INI" "$STUN_STRATEGIES_INI"; do

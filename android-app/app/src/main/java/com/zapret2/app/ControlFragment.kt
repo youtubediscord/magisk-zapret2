@@ -696,8 +696,9 @@ class ControlFragment : Fragment() {
     }
 
     private suspend fun readCoreSettings(): CoreSettings = withContext(Dispatchers.IO) {
-        val runtimeCoreValues = RuntimeConfigStore.readCore()
-        val legacyValues = if (runtimeCoreValues.isEmpty()) {
+        val coreReadResult = RuntimeConfigStore.readCoreResult()
+        val runtimeCoreValues = coreReadResult.values
+        val legacyValues = if (!coreReadResult.usesRuntimeConfig) {
             val moduleValues = readShellConfigFile("$MODDIR/zapret2/config.sh")
             val userValues = readShellConfigFile("/data/local/tmp/zapret2-user.conf")
             mapOf(

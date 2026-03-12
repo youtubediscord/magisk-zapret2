@@ -50,6 +50,11 @@ object RuntimeConfigStore {
         }
     }
 
+    data class CoreReadResult(
+        val values: Map<String, String>,
+        val usesRuntimeConfig: Boolean
+    )
+
     suspend fun runtimeConfigExists(): Boolean = withContext(Dispatchers.IO) {
         fileExists(runtimeConfigPath)
     }
@@ -59,21 +64,19 @@ object RuntimeConfigStore {
     }
 
     suspend fun readCore(): Map<String, String> = withContext(Dispatchers.IO) {
-        if (!ensureRuntimeConfigInternal()) {
-            return@withContext emptyMap()
-        }
-
-        val content = readFile(runtimeConfigPath) ?: return@withContext emptyMap()
-        parseSectionValues(content, "core")
+        readCoreResultInternal().values
     }
 
     fun readCoreBlocking(): Map<String, String> {
-        if (!ensureRuntimeConfigInternal()) {
-            return emptyMap()
-        }
+        return readCoreResultInternal().values
+    }
 
-        val content = readFile(runtimeConfigPath) ?: return emptyMap()
-        return parseSectionValues(content, "core")
+    suspend fun readCoreResult(): CoreReadResult = withContext(Dispatchers.IO) {
+        readCoreResultInternal()
+    }
+
+    fun readCoreResultBlocking(): CoreReadResult {
+        return readCoreResultInternal()
     }
 
     suspend fun readCoreValue(key: String): String? = withContext(Dispatchers.IO) {
@@ -103,10 +106,14 @@ object RuntimeConfigStore {
         legacyKey: String,
         defaultValue: String? = null
     ): String? {
-        return readCoreValueBlocking(runtimeKey)
-            ?.takeIf { it.isNotEmpty() }
-            ?: readLegacyShellValue(legacyKey)
-            ?: defaultValue
+        val result = readCoreResultInternal()
+        if (result.usesRuntimeConfig) {
+            return result.values[normalizeKey(runtimeKey)]
+                ?.takeIf { it.isNotEmpty() }
+                ?: defaultValue
+        }
+
+        return readLegacyShellValue(legacyKey) ?: defaultValue
     }
 
     suspend fun upsertCoreValue(
@@ -173,6 +180,29 @@ object RuntimeConfigStore {
         val command = "sh \"${escapeForDoubleQuotes(migrateScriptPath)}\" \"${escapeForDoubleQuotes(runtimeConfigPath)}\""
         val result = Shell.cmd(command).exec()
         return result.isSuccess && fileExists(runtimeConfigPath)
+    }
+
+    private fun readCoreResultInternal(): CoreReadResult {
+        readFile(runtimeConfigPath)?.let { content ->
+            return CoreReadResult(
+                values = parseSectionValues(content, "core"),
+                usesRuntimeConfig = true
+            )
+        }
+
+        if (!fileExists(runtimeConfigPath) && ensureRuntimeConfigInternal()) {
+            readFile(runtimeConfigPath)?.let { content ->
+                return CoreReadResult(
+                    values = parseSectionValues(content, "core"),
+                    usesRuntimeConfig = true
+                )
+            }
+        }
+
+        return CoreReadResult(
+            values = emptyMap(),
+            usesRuntimeConfig = false
+        )
     }
 
     private fun readLegacyShellValue(key: String): String? {

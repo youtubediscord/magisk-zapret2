@@ -34,7 +34,6 @@ class ConfigEditorFragment : Fragment() {
     private val moduleDir = "/data/adb/modules/zapret2"
     private val configFile = "$moduleDir/zapret2/config.sh"
     private val userConfigFile = "/data/local/tmp/zapret2-user.conf"
-    private val runtimeConfigFile = "$moduleDir/zapret2/runtime.ini"
     private val commandFile = "$moduleDir/zapret2/cmdline.txt"
     private val commandFileName = "cmdline.txt"
     private val runtimeCmdlineFile = "/data/local/tmp/nfqws2-cmdline.txt"
@@ -205,14 +204,9 @@ class ConfigEditorFragment : Fragment() {
     }
 
     private suspend fun loadCmdlineSourceState(): CmdlineSourceState {
-        val runtimeConfigText = withContext(Dispatchers.IO) { readFileText(runtimeConfigFile) }
-        val runtimeCore = if (runtimeConfigText != null) {
-            RuntimeConfigStore.readCore()
-        } else {
-            emptyMap()
-        }
-
-        val useLegacyFallback = runtimeConfigText == null
+        val coreReadResult = RuntimeConfigStore.readCoreResult()
+        val runtimeCore = coreReadResult.values
+        val useLegacyFallback = !coreReadResult.usesRuntimeConfig
         val configText = if (useLegacyFallback) {
             withContext(Dispatchers.IO) { readFileText(configFile) }
         } else {
