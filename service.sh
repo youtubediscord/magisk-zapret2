@@ -52,7 +52,7 @@ if [ "$AUTOSTART" = "1" ]; then
     log "Autostart enabled, launching zapret2..."
     "$ZAPRET_DIR/scripts/zapret-start.sh"
 else
-    log "Autostart disabled in config"
+    log "Autostart disabled in effective core config ($CORE_CONFIG_SOURCE)"
 fi
 
 log "=== Zapret2 service script finished ==="

@@ -33,6 +33,7 @@ TCP_STRATEGIES_INI="$ZAPRET_DIR/strategies-tcp.ini"
 UDP_STRATEGIES_INI="$ZAPRET_DIR/strategies-udp.ini"
 STUN_STRATEGIES_INI="$ZAPRET_DIR/strategies-stun.ini"
 CATEGORIES_FILE="$ZAPRET_DIR/categories.ini"
+CORE_CONFIG_SOURCE="defaults"
 
 runtime_config_exists() {
     [ -f "$RUNTIME_CONFIG" ] && [ -r "$RUNTIME_CONFIG" ]
@@ -159,8 +160,22 @@ apply_runtime_core_overrides() {
 
 load_effective_core_config() {
     set_core_config_defaults
+
+    if runtime_config_exists; then
+        apply_runtime_core_overrides >/dev/null 2>&1 || true
+        CORE_CONFIG_SOURCE="runtime.ini"
+        return 0
+    fi
+
     load_legacy_core_config_overrides
-    apply_runtime_core_overrides >/dev/null 2>&1 || true
+
+    if [ -f "$USER_CONFIG" ]; then
+        CORE_CONFIG_SOURCE="legacy-user"
+    elif [ -f "$CONFIG" ]; then
+        CORE_CONFIG_SOURCE="legacy-config"
+    else
+        CORE_CONFIG_SOURCE="defaults"
+    fi
 }
 
 shell_config_sets_key() {
