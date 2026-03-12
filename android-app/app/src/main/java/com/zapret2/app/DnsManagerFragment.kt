@@ -43,7 +43,8 @@ class DnsManagerFragment : Fragment() {
     // Guard flag to prevent checkbox listener loops
     private var isUpdatingSelectAll = false
 
-    private val hostsFile = "/system/etc/hosts"
+    private val hostsReadPath = "/system/etc/hosts"
+    private val hostsWritePath = "/data/adb/modules/zapret2/system/etc/hosts"
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -254,7 +255,7 @@ class DnsManagerFragment : Fragment() {
             val success = withContext(Dispatchers.IO) {
                 try {
                     // Read current hosts file
-                    val currentResult = Shell.cmd("cat \"$hostsFile\" 2>/dev/null").exec()
+                    val currentResult = Shell.cmd("cat \"$hostsReadPath\" 2>/dev/null").exec()
                     val currentHosts = if (currentResult.isSuccess) {
                         currentResult.out.joinToString("\n")
                     } else {
@@ -272,8 +273,8 @@ class DnsManagerFragment : Fragment() {
                     // Merge
                     val merged = HostsIniParser.smartMerge(currentHosts, block)
 
-                    // Write via cache file + root copy (handles large content safely)
-                    if (!writeHostsFile(hostsFile, merged, cacheDir)) return@withContext false
+                    // Write to Magisk overlay path (Magic Mount overlays onto /system/etc/hosts)
+                    if (!writeHostsFile(hostsWritePath, merged, cacheDir)) return@withContext false
 
                     // Save state to runtime.ini
                     RuntimeConfigStore.upsertDnsManagerValues(
@@ -310,14 +311,14 @@ class DnsManagerFragment : Fragment() {
 
             val success = withContext(Dispatchers.IO) {
                 try {
-                    val currentResult = Shell.cmd("cat \"$hostsFile\" 2>/dev/null").exec()
+                    val currentResult = Shell.cmd("cat \"$hostsReadPath\" 2>/dev/null").exec()
                     val currentHosts = if (currentResult.isSuccess) {
                         currentResult.out.joinToString("\n")
                     } else {
                         ""
                     }
                     val cleaned = HostsIniParser.removeZapretBlock(currentHosts)
-                    writeHostsFile(hostsFile, cleaned, cacheDir)
+                    writeHostsFile(hostsWritePath, cleaned, cacheDir)
                 } catch (e: Exception) {
                     false
                 }
@@ -337,37 +338,57 @@ class DnsManagerFragment : Fragment() {
 
     /**
      * Write content to a file via root shell, handling large content safely.
-     * Writes to app cache first (no root needed, no size limit), then copies
+     * Writes to app cache first (no root needed, no size limit), marks it
+     * world-readable to bypass SELinux app_data_file restrictions, then copies
      * to the target path via root shell with atomic mv to avoid partial writes.
+     *
+     * For Magisk overlay paths, also attempts to apply immediately to
+     * /system/etc/hosts via remount for instant effect without reboot.
      */
     private fun writeHostsFile(path: String, content: String, cacheDir: java.io.File): Boolean {
         val normalized = content.replace("\r\n", "\n").replace("\r", "\n")
             .trimEnd('\n') + "\n"
 
-        // Write to app's cache directory (no root needed, no size limit)
-        val tmpFile = java.io.File(cacheDir, "hosts_tmp_${System.currentTimeMillis()}")
+        // Ensure parent directory exists for the overlay path
+        val parentDir = path.substringBeforeLast('/')
+        Shell.cmd("mkdir -p \"$parentDir\"").exec()
+
+        // Write to app cache first (Java I/O, no size limits)
+        val tmpFile = java.io.File(cacheDir, "zapret2_hosts_${System.currentTimeMillis()}")
         try {
-            tmpFile.writeText(normalized)
+            tmpFile.writeText(normalized, Charsets.UTF_8)
         } catch (e: Exception) {
             tmpFile.delete()
             return false
         }
 
-        val tmpDevicePath = tmpFile.absolutePath
-        val destTmp = "$path.zapret-tmp"
+        // Make world-readable so root shell can access regardless of SELinux context
+        tmpFile.setReadable(true, false)
 
-        // Copy from app cache to tmp path via root, then atomic mv
-        val result = Shell.cmd(
-            "cp \"$tmpDevicePath\" \"$destTmp\" && mv \"$destTmp\" \"$path\""
-        ).exec()
+        val src = tmpFile.absolutePath
+        val destTmp = "$path.tmp"
+
+        // Copy via root, then atomic mv
+        val success = Shell.cmd("cp \"$src\" \"$destTmp\" && mv \"$destTmp\" \"$path\"").exec().isSuccess
 
         // Cleanup
         tmpFile.delete()
-        if (!result.isSuccess) {
+        if (!success) {
             Shell.cmd("rm -f \"$destTmp\"").exec()
+            return false
         }
 
-        return result.isSuccess
+        // Try to apply immediately to /system/etc/hosts for instant effect
+        // (may fail on read-only /system, that's OK -- reboot will pick up from overlay)
+        if (path != "/system/etc/hosts") {
+            Shell.cmd(
+                "mount -o rw,remount / 2>/dev/null; " +
+                "cp \"$path\" /system/etc/hosts 2>/dev/null; " +
+                "mount -o ro,remount / 2>/dev/null"
+            ).exec()
+        }
+
+        return true
     }
 
     private fun showLoading(text: String) {
