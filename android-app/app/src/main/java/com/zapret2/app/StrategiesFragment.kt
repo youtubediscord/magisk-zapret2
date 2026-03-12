@@ -110,7 +110,7 @@ class StrategiesFragment : Fragment() {
                 "Debug Mode",
                 "Log destination",
                 R.drawable.ic_settings,
-                selections["debug"] ?: "android",
+                selections["debug"] ?: "none",
                 StrategyPickerBottomSheet.TYPE_DEBUG
             )
         }
@@ -397,7 +397,7 @@ class StrategiesFragment : Fragment() {
                 updateValueText("pkt_count", pktValue, StrategyPickerBottomSheet.TYPE_PKT_COUNT)
             }
 
-            val logModeValue = runtimeCore["log_mode"] ?: "android"
+            val logModeValue = runtimeCore["log_mode"] ?: "none"
             if (logModeValue in debugModeValues) {
                 selections["debug"] = logModeValue
                 updateValueText("debug", logModeValue, StrategyPickerBottomSheet.TYPE_DEBUG)
@@ -432,7 +432,7 @@ class StrategiesFragment : Fragment() {
             )
 
             val pktCount = selections["pkt_count"] ?: "5"
-            val debugMode = selections["debug"] ?: "android"
+            val debugMode = selections["debug"] ?: "none"
 
             val (configSuccess, restartSuccess) = withContext(Dispatchers.IO) {
                 val runtimeUpdated = RuntimeConfigStore.updateCoreSettings(

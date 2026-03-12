@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="#202020"
+    android:padding="16dp">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Hosts File"
+        android:textColor="#FFFFFF"
+        android:textSize="14sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/textHostsFilePath"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:text="/system/etc/hosts"
+        android:textColor="#808080"
+        android:textSize="11sp" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:layout_marginBottom="10dp"
+        android:text="Edit the system hosts file. Each line should be in format: IP hostname"
+        android:textColor="#808080"
+        android:textSize="11sp" />
+
+    <EditText
+        android:id="@+id/editHostsContent"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:background="#1A1A1A"
+        android:textColor="#FFFFFF"
+        android:textColorHint="#808080"
+        android:fontFamily="monospace"
+        android:textSize="12sp"
+        android:gravity="top|start"
+        android:inputType="textMultiLine|textNoSuggestions|textVisiblePassword"
+        android:overScrollMode="ifContentScrolls"
+        android:scrollbars="vertical"
+        android:padding="12dp"
+        android:hint="127.0.0.1 localhost" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginTop="12dp">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/buttonReloadHosts"
+            style="@style/Widget.Zapret2.Button"
+            android:layout_width="0dp"
+            android:layout_height="40dp"
+            android:layout_weight="1"
+            android:layout_marginEnd="6dp"
+            android:text="Reload"
+            android:textSize="12sp"
+            android:textColor="#FFFFFF"
+            android:backgroundTint="#383838"
+            app:icon="@drawable/ic_refresh"
+            app:iconGravity="textStart"
+            app:iconTint="#FFFFFF"
+            app:iconSize="18dp"
+            app:iconPadding="4dp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/buttonSaveHosts"
+            style="@style/Widget.Zapret2.Button"
+            android:layout_width="0dp"
+            android:layout_height="40dp"
+            android:layout_weight="1"
+            android:layout_marginStart="6dp"
+            android:text="Save"
+            android:textSize="12sp"
+            android:textColor="#FFFFFF"
+            android:backgroundTint="#0078D4"
+            app:icon="@drawable/ic_save"
+            app:iconGravity="textStart"
+            app:iconTint="#FFFFFF"
+            app:iconSize="18dp"
+            app:iconPadding="4dp" />
+
+    </LinearLayout>
+
+</LinearLayout>
