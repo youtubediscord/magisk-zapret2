@@ -133,7 +133,7 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
     }
 
     private fun updateToolbarTitle(position: Int) {
-        val titles = arrayOf("Control", "Strategies", "Presets", "Cmdline", "Hostlists", "Logs", "About")
+        val titles = arrayOf("Control", "Strategies", "Presets", "Cmdline", "Hostlists", "Hosts Editor", "Logs", "About")
         if (position in titles.indices) {
             supportActionBar?.title = titles[position]
         }
@@ -148,8 +148,9 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
             R.id.nav_presets -> pager.setCurrentItem(2, true)
             R.id.nav_editor -> pager.setCurrentItem(3, true)
             R.id.nav_hostlists -> pager.setCurrentItem(4, true)
-            R.id.nav_logs -> pager.setCurrentItem(5, true)
-            R.id.nav_about -> pager.setCurrentItem(6, true)
+            R.id.nav_hosts_editor -> pager.setCurrentItem(5, true)
+            R.id.nav_logs -> pager.setCurrentItem(6, true)
+            R.id.nav_about -> pager.setCurrentItem(7, true)
             else -> return false
         }
 
