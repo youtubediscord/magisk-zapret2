@@ -86,9 +86,7 @@ object RuntimeConfigStore {
 
         val values = readRuntimeConfigContent()?.let {
             parseSectionValues(it, "core")
-        } else {
-            emptyMap()
-        }
+        } ?: emptyMap()
 
         values[normalizeKey(key)]
     }
