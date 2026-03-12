@@ -5,7 +5,7 @@
 #
 # This script starts the nfqws2 DPI bypass daemon with configured strategies.
 # It handles:
-#   - Configuration loading from runtime.ini or legacy fallback
+#   - Configuration loading from runtime.ini, with bootstrap fallback only on regeneration failure
 #   - Permission fixing for dropped privileges
 #   - iptables rule application
 #   - Strategy building (preset-based or category-based)
@@ -102,26 +102,17 @@ load_config() {
     # Set defaults first
     set_default_config
 
-    if runtime_config_exists; then
-        apply_runtime_core_overrides
-        log_msg "Loaded authoritative runtime [core] config from $RUNTIME_CONFIG"
-        log_msg "Ignoring legacy core values from $CONFIG and $USER_CONFIG while runtime.ini exists"
-        log_msg "Category sections still load from legacy categories.ini"
-    else
-        if [ -f "$CONFIG" ]; then
-            log_msg "Loaded module config from $CONFIG"
-        else
-            log_msg "Using default configuration (no config.sh found)"
-        fi
+    load_effective_core_config
 
-        if [ -f "$USER_CONFIG" ]; then
-            log_msg "Loaded user config from $USER_CONFIG"
-            log_msg "runtime.ini not found, using legacy user overrides for core runtime values"
-        else
-            log_msg "runtime.ini not found, using legacy runtime sources only"
-        fi
+    log_msg "$(runtime_config_status_message)"
+    log_msg "$(core_config_source_message)"
+    log_msg "$(bootstrap_fallback_message)"
+    log_msg "Category state source: $CATEGORIES_FILE"
 
-        load_legacy_core_config_overrides
+    if [ "$BOOTSTRAP_FALLBACK_USED" = "1" ]; then
+        if [ -n "$RUNTIME_CONFIG_ERROR" ]; then
+            log_error "runtime.ini regeneration failed: $RUNTIME_CONFIG_ERROR"
+        fi
 
         if shell_config_sets_key "$CONFIG" "PRESET_MODE" && shell_config_sets_key "$USER_CONFIG" "PRESET_MODE"; then
             log_legacy_conflict "PRESET_MODE is defined in both $CONFIG and $USER_CONFIG; effective mode depends on shell source order"
@@ -133,12 +124,14 @@ load_config() {
 
         case "$PRESET_MODE" in
             file|preset|txt)
-                log_legacy_conflict "Legacy preset-file mode is active (PRESET_MODE=$PRESET_MODE, PRESET_FILE=${PRESET_FILE:-Default.txt}); runtime.ini migration is not active yet"
+                log_legacy_conflict "Legacy preset-file mode is active (PRESET_MODE=$PRESET_MODE, PRESET_FILE=${PRESET_FILE:-Default.txt}); runtime.ini bootstrap regeneration is unavailable"
                 ;;
             cmdline|manual|raw)
-                log_legacy_conflict "Legacy raw-cmdline mode is active (PRESET_MODE=$PRESET_MODE, CUSTOM_CMDLINE_FILE=${CUSTOM_CMDLINE_FILE:-$ZAPRET_DIR/cmdline.txt}); runtime.ini migration is not active yet"
+                log_legacy_conflict "Legacy raw-cmdline mode is active (PRESET_MODE=$PRESET_MODE, CUSTOM_CMDLINE_FILE=${CUSTOM_CMDLINE_FILE:-$ZAPRET_DIR/cmdline.txt}); runtime.ini bootstrap regeneration is unavailable"
                 ;;
         esac
+    else
+        log_msg "Bootstrap shell inputs are migration-only while runtime.ini is available: $CONFIG, $USER_CONFIG"
     fi
 
     # Verify strategy INI files exist
@@ -192,7 +185,21 @@ check_already_running() {
         local pid=$(cat "$PIDFILE")
         if [ -d "/proc/$pid" ]; then
             log_msg "Already running with PID $pid"
-            echo "Zapret2 is already running (PID: $pid)"
+
+            # Check if iptables rules are still in place
+            local ipt_count=0
+            ipt_count=$(iptables -t mangle -L OUTPUT -n 2>/dev/null | grep -c NFQUEUE || true)
+            ipt_count=$((ipt_count + $(ip6tables -t mangle -L OUTPUT -n 2>/dev/null | grep -c NFQUEUE || true)))
+
+            if [ "$ipt_count" -eq 0 ]; then
+                log_msg "WARNING: nfqws2 running but iptables rules missing! Re-applying..."
+                echo "Zapret2 is already running (PID: $pid) - restoring iptables rules"
+                load_config
+                apply_iptables
+            else
+                echo "Zapret2 is already running (PID: $pid)"
+            fi
+
             return 0
         else
             # Stale PID file, remove it
@@ -201,6 +208,25 @@ check_already_running() {
         fi
     fi
     return 1
+}
+
+# Kill any orphan/stale nfqws/nfqws2 processes from previous runs
+kill_stale_nfqws() {
+    local pids
+    pids=$(pgrep -f 'nfqws' 2>/dev/null)
+    if [ -n "$pids" ]; then
+        log_msg "Killing stale nfqws processes: $pids"
+        kill $pids 2>/dev/null
+        sleep 0.1
+        # Force kill survivors
+        for p in $pids; do
+            if [ -d "/proc/$p" ]; then
+                kill -9 $p 2>/dev/null
+                log_msg "Force-killed stale process: $p"
+            fi
+        done
+    fi
+    rm -f "$PIDFILE"
 }
 
 # Verify nfqws2 binary exists and is executable
@@ -359,11 +385,24 @@ apply_iptables() {
     # Enable liberal TCP tracking (important for RST with wrong ACK)
     sysctl -w net.netfilter.nf_conntrack_tcp_be_liberal=1 2>/dev/null
 
+    # Track success/failure for each rule
+    local rules_ok=0
+    local rules_fail=0
+    local fail_details=""
+
     # Apply rules for both IPv4 and IPv6
     local ipt
     for ipt in iptables ip6tables; do
         local label="IPv4"
         [ "$ipt" = "ip6tables" ] && label="IPv6"
+
+        # Check if iptables binary is available
+        if ! command -v $ipt >/dev/null 2>&1; then
+            log_error "$ipt binary not found"
+            fail_details="${fail_details}${label}: binary not found\n"
+            rules_fail=$((rules_fail + 4))
+            continue
+        fi
 
         # OUTPUT chain - outgoing TCP
         if $ipt -t mangle -A OUTPUT \
@@ -372,8 +411,11 @@ apply_iptables() {
             -m mark ! --mark $DESYNC_MARK/$DESYNC_MARK \
             -j NFQUEUE --queue-num $QNUM --queue-bypass 2>/dev/null; then
             log_msg "Added $label TCP OUTPUT rule (ports: $PORTS_TCP)"
+            rules_ok=$((rules_ok + 1))
         else
             log_error "Failed to add $label TCP OUTPUT rule"
+            fail_details="${fail_details}${label} TCP OUTPUT: failed\n"
+            rules_fail=$((rules_fail + 1))
         fi
 
         # OUTPUT chain - outgoing UDP (QUIC)
@@ -383,8 +425,11 @@ apply_iptables() {
             -m mark ! --mark $DESYNC_MARK/$DESYNC_MARK \
             -j NFQUEUE --queue-num $QNUM --queue-bypass 2>/dev/null; then
             log_msg "Added $label UDP OUTPUT rule (ports: $PORTS_UDP)"
+            rules_ok=$((rules_ok + 1))
         else
             log_error "Failed to add $label UDP OUTPUT rule"
+            fail_details="${fail_details}${label} UDP OUTPUT: failed\n"
+            rules_fail=$((rules_fail + 1))
         fi
 
         # INPUT chain - incoming TCP (for autohostlist detection)
@@ -393,6 +438,11 @@ apply_iptables() {
             -m connbytes --connbytes 1:$PKT_IN --connbytes-dir=reply --connbytes-mode=packets \
             -j NFQUEUE --queue-num $QNUM --queue-bypass 2>/dev/null; then
             log_msg "Added $label TCP INPUT rule"
+            rules_ok=$((rules_ok + 1))
+        else
+            log_error "Failed to add $label TCP INPUT rule"
+            fail_details="${fail_details}${label} TCP INPUT: failed\n"
+            rules_fail=$((rules_fail + 1))
         fi
 
         # INPUT chain - incoming UDP
@@ -401,10 +451,39 @@ apply_iptables() {
             -m connbytes --connbytes 1:$PKT_IN --connbytes-dir=reply --connbytes-mode=packets \
             -j NFQUEUE --queue-num $QNUM --queue-bypass 2>/dev/null; then
             log_msg "Added $label UDP INPUT rule"
+            rules_ok=$((rules_ok + 1))
+        else
+            log_error "Failed to add $label UDP INPUT rule"
+            fail_details="${fail_details}${label} UDP INPUT: failed\n"
+            rules_fail=$((rules_fail + 1))
         fi
     done
 
-    log_msg "iptables rules applied (IPv4 + IPv6)"
+    # Write iptables status file for the Android app to read
+    local status_file="$ZAPRET_DIR/iptables-status"
+    {
+        echo "timestamp=$(date '+%Y-%m-%d %H:%M:%S')"
+        echo "rules_ok=$rules_ok"
+        echo "rules_fail=$rules_fail"
+        echo "rules_total=$((rules_ok + rules_fail))"
+        if [ "$rules_fail" -gt 0 ]; then
+            echo "status=partial"
+            echo "errors=$(printf '%s' "$fail_details" | tr '\n' '|' | sed 's/|$//')"
+        else
+            echo "status=ok"
+            echo "errors="
+        fi
+    } > "$status_file" 2>/dev/null
+    chmod 644 "$status_file" 2>/dev/null
+
+    if [ "$rules_fail" -gt 0 ] && [ "$rules_ok" -eq 0 ]; then
+        log_error "ALL iptables rules failed ($rules_fail failures). nfqws2 will not receive traffic!"
+        log_msg "iptables rules FAILED (0/$((rules_ok + rules_fail)) applied)"
+    elif [ "$rules_fail" -gt 0 ]; then
+        log_msg "iptables rules PARTIALLY applied ($rules_ok ok, $rules_fail failed)"
+    else
+        log_msg "iptables rules applied successfully ($rules_ok rules, IPv4 + IPv6)"
+    fi
 }
 
 ##########################################################################################
@@ -569,6 +648,9 @@ main() {
     if check_already_running; then
         exit 0
     fi
+
+    # Kill any stale nfqws/nfqws2 processes from old runs
+    kill_stale_nfqws
 
     # Check binary
     if ! check_binary; then

@@ -25,30 +25,19 @@ set_default_config() {
     LOG_MODE="none"
 }
 
-append_categories() {
-    local output_file="$1"
-
-    if [ ! -f "$CATEGORIES_FILE" ]; then
-        printf '\n# Legacy categories.ini was not found during migration.\n' >> "$output_file"
-        return 0
-    fi
-
-    printf '\n# Embedded category sections migrated from legacy categories.ini\n' >> "$output_file"
-    awk '{ sub(/\r$/, ""); print }' "$CATEGORIES_FILE" >> "$output_file"
-}
-
 write_runtime_ini() {
     local output_file="$1"
 
     cat > "$output_file" <<EOF
 # Zapret2 runtime configuration
-# Phase 1 canonical target for merged runtime state.
-# Current runtime still falls back to legacy shell sources when needed.
+# runtime.ini is the authoritative live source for [core] runtime values.
+# config.sh and /data/local/tmp/zapret2-user.conf are bootstrap inputs only.
+# categories.ini remains the active category-state source.
 
 [core]
 schema_version=1
 config_format=runtime-v1
-runtime_source=legacy-migration
+runtime_source=bootstrap-migration
 autostart=${AUTOSTART:-1}
 wifi_only=${WIFI_ONLY:-0}
 debug=${DEBUG:-0}
@@ -64,12 +53,10 @@ preset_file=${PRESET_FILE:-Default.txt}
 custom_cmdline_file=${CUSTOM_CMDLINE_FILE:-cmdline.txt}
 nfqws_uid=${NFQWS_UID:-0:0}
 log_mode=${LOG_MODE:-none}
-legacy_config_path=$CONFIG
-legacy_user_config_path=$USER_CONFIG
-legacy_categories_path=$CATEGORIES_FILE
+bootstrap_config_path=$CONFIG
+bootstrap_user_config_path=$USER_CONFIG
+categories_state_path=$CATEGORIES_FILE
 EOF
-
-    append_categories "$output_file"
 }
 
 main() {
@@ -104,7 +91,7 @@ main() {
         echo "Merged user overrides from: $USER_CONFIG"
     fi
     if [ -f "$CATEGORIES_FILE" ]; then
-        echo "Embedded category sections from: $CATEGORIES_FILE"
+        echo "Category state remains external at: $CATEGORIES_FILE"
     fi
 }
 

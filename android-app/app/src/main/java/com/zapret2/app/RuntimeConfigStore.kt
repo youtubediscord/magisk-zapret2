@@ -7,10 +7,8 @@ import kotlinx.coroutines.withContext
 object RuntimeConfigStore {
 
     private const val moduleDir = "/data/adb/modules/zapret2"
-    private const val moduleConfigPath = "$moduleDir/zapret2/config.sh"
     private const val runtimeConfigPath = "$moduleDir/zapret2/runtime.ini"
     private const val migrateScriptPath = "$moduleDir/zapret2/scripts/runtime-migrate.sh"
-    private const val legacyUserConfigPath = "/data/local/tmp/zapret2-user.conf"
 
     data class CoreSettingsUpdate(
         val presetMode: String? = null,
@@ -99,21 +97,6 @@ object RuntimeConfigStore {
         return readCoreBlocking()[normalizeKey(key)]
     }
 
-    fun readCoreValueCompatBlocking(
-        runtimeKey: String,
-        legacyKey: String,
-        defaultValue: String? = null
-    ): String? {
-        val result = readCoreResultInternal()
-        if (result.usesRuntimeConfig) {
-            return result.values[normalizeKey(runtimeKey)]
-                ?.takeIf { it.isNotEmpty() }
-                ?: defaultValue
-        }
-
-        return readLegacyShellValue(legacyKey) ?: defaultValue
-    }
-
     suspend fun upsertCoreValue(
         key: String,
         value: String,
@@ -182,20 +165,6 @@ object RuntimeConfigStore {
             values = emptyMap(),
             usesRuntimeConfig = false
         )
-    }
-
-    private fun readLegacyShellValue(key: String): String? {
-        if (key.isBlank()) {
-            return null
-        }
-
-        return readShellConfigValue(legacyUserConfigPath, key)
-            ?: readShellConfigValue(moduleConfigPath, key)
-    }
-
-    private fun readShellConfigValue(path: String, key: String): String? {
-        val content = readFile(path) ?: return null
-        return parseShellConfig(content)[key]
     }
 
     private fun readFile(path: String): String? {
@@ -281,27 +250,6 @@ object RuntimeConfigStore {
 
             val rawValue = line.substring(separatorIndex + 1).trim()
             values[key] = decodeIniValue(rawValue)
-        }
-
-        return values
-    }
-
-    private fun parseShellConfig(content: String): Map<String, String> {
-        if (content.isBlank()) {
-            return emptyMap()
-        }
-
-        val values = linkedMapOf<String, String>()
-        val pattern = Regex("""^([A-Z0-9_]+)=[\"']?([^\"'\n]*)[\"']?$""")
-
-        normalizeLineEndings(content).lineSequence().forEach { rawLine ->
-            val line = rawLine.trim()
-            if (line.isEmpty() || line.startsWith("#")) {
-                return@forEach
-            }
-
-            val match = pattern.find(line) ?: return@forEach
-            values[match.groupValues[1]] = match.groupValues[2].trim()
         }
 
         return values

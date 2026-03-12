@@ -58,13 +58,26 @@ class NetworkStatsManager(context: Context) {
     }
 
     /**
+     * Data class containing iptables diagnostic details from status file
+     */
+    data class IptablesDetail(
+        val rulesOk: Int = 0,
+        val rulesFail: Int = 0,
+        val rulesTotal: Int = 0,
+        val status: String = "unknown",  // "ok", "partial", "unknown"
+        val errors: List<String> = emptyList(),
+        val timestamp: String = ""
+    )
+
+    /**
      * Data class containing network statistics
      */
     data class NetworkStats(
         val networkType: NetworkType,
         val wifiSsid: String?,
         val iptablesActive: Boolean,
-        val nfqueueRulesCount: Int
+        val nfqueueRulesCount: Int,
+        val iptablesDetail: IptablesDetail = IptablesDetail()
     )
 
     /**
@@ -197,6 +210,36 @@ class NetworkStatsManager(context: Context) {
     }
 
     /**
+     * Reads iptables diagnostic status from the status file written by zapret-start.sh
+     */
+    suspend fun getIptablesDetail(): IptablesDetail = withContext(Dispatchers.IO) {
+        try {
+            val result = Shell.cmd("cat /data/adb/modules/zapret2/zapret2/iptables-status 2>/dev/null || true").exec()
+            if (!result.isSuccess || result.out.isEmpty()) return@withContext IptablesDetail()
+
+            val map = mutableMapOf<String, String>()
+            for (line in result.out) {
+                val idx = line.indexOf('=')
+                if (idx > 0) {
+                    map[line.substring(0, idx).trim()] = line.substring(idx + 1).trim()
+                }
+            }
+
+            IptablesDetail(
+                rulesOk = map["rules_ok"]?.toIntOrNull() ?: 0,
+                rulesFail = map["rules_fail"]?.toIntOrNull() ?: 0,
+                rulesTotal = map["rules_total"]?.toIntOrNull() ?: 0,
+                status = map["status"] ?: "unknown",
+                errors = map["errors"]?.split("|")?.filter { it.isNotBlank() } ?: emptyList(),
+                timestamp = map["timestamp"] ?: ""
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "Error reading iptables status", e)
+            IptablesDetail()
+        }
+    }
+
+    /**
      * Gets all network statistics at once
      * Must be called from IO dispatcher
      */
@@ -205,12 +248,14 @@ class NetworkStatsManager(context: Context) {
         val wifiSsid = if (networkType == NetworkType.WIFI) getWifiSsid() else null
         val iptablesActive = checkIptablesActive()
         val nfqueueRulesCount = getNfqueueRulesCount()
+        val iptablesDetail = getIptablesDetail()
 
         NetworkStats(
             networkType = networkType,
             wifiSsid = wifiSsid,
             iptablesActive = iptablesActive,
-            nfqueueRulesCount = nfqueueRulesCount
+            nfqueueRulesCount = nfqueueRulesCount,
+            iptablesDetail = iptablesDetail
         )
     }
 
@@ -307,7 +352,8 @@ class NetworkStatsManager(context: Context) {
                     networkType = getNetworkType(),
                     wifiSsid = getWifiSsid(),
                     iptablesActive = false, // Will be updated by caller
-                    nfqueueRulesCount = 0   // Will be updated by caller
+                    nfqueueRulesCount = 0,  // Will be updated by caller
+                    iptablesDetail = IptablesDetail()
                 )
                 listener.onNetworkChanged(quickStats)
             } catch (e: Exception) {

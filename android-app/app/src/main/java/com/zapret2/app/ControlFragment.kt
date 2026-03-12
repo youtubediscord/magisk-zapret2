@@ -696,30 +696,16 @@ class ControlFragment : Fragment() {
     }
 
     private suspend fun readCoreSettings(): CoreSettings = withContext(Dispatchers.IO) {
-        val coreReadResult = RuntimeConfigStore.readCoreResult()
-        val runtimeCoreValues = coreReadResult.values
-        val legacyValues = if (!coreReadResult.usesRuntimeConfig) {
-            val moduleValues = readShellConfigFile("$MODDIR/zapret2/config.sh")
-            val userValues = readShellConfigFile("/data/local/tmp/zapret2-user.conf")
-            mapOf(
-                "AUTOSTART" to (userValues["AUTOSTART"] ?: moduleValues["AUTOSTART"] ?: "1"),
-                "WIFI_ONLY" to (userValues["WIFI_ONLY"] ?: moduleValues["WIFI_ONLY"] ?: "0"),
-                "PKT_OUT" to (userValues["PKT_OUT"] ?: moduleValues["PKT_OUT"] ?: PKT_OUT_DEFAULT.toString()),
-                "PKT_IN" to (userValues["PKT_IN"] ?: moduleValues["PKT_IN"] ?: PKT_IN_DEFAULT.toString())
-            )
-        } else {
-            emptyMap()
-        }
+        val runtimeCoreValues = RuntimeConfigStore.readCore()
 
         fun runtimeValue(key: String): String? = runtimeCoreValues[key]?.takeIf { it.isNotEmpty() }
-        fun legacyValue(key: String): String? = legacyValues[key]?.takeIf { it.isNotEmpty() }
 
         CoreSettings(
-            autostart = (runtimeValue("autostart") ?: legacyValue("AUTOSTART") ?: "1") == "1",
-            wifiOnly = (runtimeValue("wifi_only") ?: legacyValue("WIFI_ONLY") ?: "0") == "1",
-            pktOut = (runtimeValue("pkt_out") ?: legacyValue("PKT_OUT") ?: PKT_OUT_DEFAULT.toString()).toIntOrNull()
+            autostart = (runtimeValue("autostart") ?: "1") == "1",
+            wifiOnly = (runtimeValue("wifi_only") ?: "0") == "1",
+            pktOut = (runtimeValue("pkt_out") ?: PKT_OUT_DEFAULT.toString()).toIntOrNull()
                 ?: PKT_OUT_DEFAULT,
-            pktIn = (runtimeValue("pkt_in") ?: legacyValue("PKT_IN") ?: PKT_IN_DEFAULT.toString()).toIntOrNull()
+            pktIn = (runtimeValue("pkt_in") ?: PKT_IN_DEFAULT.toString()).toIntOrNull()
                 ?: PKT_IN_DEFAULT
         )
     }
@@ -728,32 +714,6 @@ class ControlFragment : Fragment() {
         withContext(Dispatchers.IO) {
             RuntimeConfigStore.upsertCoreValue(runtimeKey, value)
         }
-
-    private fun readShellConfigFile(path: String): Map<String, String> {
-        val result = Shell.cmd("cat \"${escapeForDoubleQuotes(path)}\" 2>/dev/null").exec()
-        if (!result.isSuccess) {
-            return emptyMap()
-        }
-
-        return parseShellConfig(result.out.joinToString("\n"))
-    }
-
-    private fun parseShellConfig(config: String): Map<String, String> {
-        if (config.isBlank()) return emptyMap()
-
-        val values = mutableMapOf<String, String>()
-        config.lineSequence().forEach { line ->
-            val trimmed = line.trim()
-            if (trimmed.isEmpty() || trimmed.startsWith("#")) return@forEach
-            val match = Regex("""^([A-Z0-9_]+)=[\"']?([^\"'\n]*)[\"']?$""").find(trimmed) ?: return@forEach
-            values[match.groupValues[1]] = match.groupValues[2].trim()
-        }
-        return values
-    }
-
-    private fun escapeForDoubleQuotes(value: String): String {
-        return value.replace("\\", "\\\\").replace("\"", "\\\"")
-    }
 
     private enum class Status { RUNNING, STOPPED, ERROR }
 
@@ -1163,19 +1123,61 @@ class ControlFragment : Fragment() {
                 rowWifiName.visibility = View.GONE
             }
 
-            // Update iptables status
+            // Update iptables status with error codes
+            val detail = stats.iptablesDetail
+            val errorColor = ContextCompat.getColor(ctx, R.color.status_error)
+            val warnColor = ContextCompat.getColor(ctx, R.color.status_warning)
+            val okColor = ContextCompat.getColor(ctx, R.color.status_running)
+
             if (stats.iptablesActive) {
-                textIptablesStatus.text = "Active"
-                textIptablesStatus.setTextColor(ContextCompat.getColor(ctx, R.color.status_running))
+                if (detail.rulesFail > 0) {
+                    // ERR_IPT_PARTIAL: some rules failed
+                    textIptablesStatus.text = "ERR_IPT_PARTIAL (${detail.rulesOk}/${detail.rulesTotal})"
+                    textIptablesStatus.setTextColor(warnColor)
+                } else if (detail.rulesTotal > 0) {
+                    textIptablesStatus.text = "Active (${detail.rulesOk}/${detail.rulesTotal})"
+                    textIptablesStatus.setTextColor(okColor)
+                } else {
+                    textIptablesStatus.text = "Active"
+                    textIptablesStatus.setTextColor(okColor)
+                }
             } else {
-                textIptablesStatus.text = "Inactive"
-                textIptablesStatus.setTextColor(ContextCompat.getColor(ctx, R.color.text_secondary))
+                // iptables inactive = always an error when service should be running
+                if (detail.rulesFail > 0 && detail.rulesOk == 0) {
+                    // ERR_IPT_ALLFAIL: all rules failed to apply
+                    textIptablesStatus.text = "ERR_IPT_ALLFAIL (0/${detail.rulesTotal})"
+                    textIptablesStatus.setTextColor(errorColor)
+                } else if (isRunning) {
+                    // ERR_IPT_LOST: process running but rules gone (flushed by system/other module)
+                    textIptablesStatus.text = "ERR_IPT_LOST"
+                    textIptablesStatus.setTextColor(errorColor)
+                } else if (detail.status == "unknown" && detail.rulesTotal == 0) {
+                    // ERR_IPT_NOFILE: no status file = script never wrote iptables status
+                    textIptablesStatus.text = "Inactive"
+                    textIptablesStatus.setTextColor(ContextCompat.getColor(ctx, R.color.text_secondary))
+                } else {
+                    // ERR_IPT_FAIL: generic failure
+                    textIptablesStatus.text = "ERR_IPT_FAIL"
+                    textIptablesStatus.setTextColor(errorColor)
+                }
             }
 
-            // Update NFQUEUE rules count
-            textNfqueueRulesCount.text = stats.nfqueueRulesCount.toString()
-            val rulesColorRes = if (stats.nfqueueRulesCount > 0) R.color.status_running else R.color.text_secondary
-            textNfqueueRulesCount.setTextColor(ContextCompat.getColor(ctx, rulesColorRes))
+            // Update NFQUEUE rules count with error detail
+            if (stats.nfqueueRulesCount > 0) {
+                textNfqueueRulesCount.text = stats.nfqueueRulesCount.toString()
+                textNfqueueRulesCount.setTextColor(okColor)
+            } else if (isRunning) {
+                // Process running but no NFQUEUE rules = error
+                val errMsg = if (detail.errors.isNotEmpty()) detail.errors.first() else "no rules"
+                textNfqueueRulesCount.text = "ERR: 0 — $errMsg"
+                textNfqueueRulesCount.setTextColor(errorColor)
+            } else if (detail.errors.isNotEmpty()) {
+                textNfqueueRulesCount.text = "0 — ${detail.errors.first()}"
+                textNfqueueRulesCount.setTextColor(errorColor)
+            } else {
+                textNfqueueRulesCount.text = "0"
+                textNfqueueRulesCount.setTextColor(ContextCompat.getColor(ctx, R.color.text_secondary))
+            }
         }
     }
 

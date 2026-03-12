@@ -331,12 +331,18 @@ class UpdateManager(private val context: Context) {
                     return@withContext Pair(false, false)
                 }
 
-                // 5. Fix permissions
+                // 5. Make sure runtime.ini exists before restart so startup stays runtime-first
+                if (!RuntimeConfigStore.ensureRuntimeConfig()) {
+                    Shell.cmd("rm -f ${shellQuote(RUNTIME_CONFIG_BACKUP_PATH)}").exec()
+                    return@withContext Pair(false, false)
+                }
+
+                // 6. Fix permissions
                 Shell.cmd("chmod 755 $modDir/zapret2/nfqws2").exec()
                 Shell.cmd("chmod 755 $modDir/zapret2/scripts/*.sh").exec()
                 Shell.cmd("chmod 755 $modDir/service.sh").exec()
 
-                // 6. Restart the service (always use fast restart path)
+                // 7. Restart the service (always use fast restart path)
                 val restartResult = Shell.cmd("sh $modDir/zapret2/scripts/zapret-restart.sh").exec()
                 if (!restartResult.isSuccess) {
                     return@withContext Pair(false, false)
