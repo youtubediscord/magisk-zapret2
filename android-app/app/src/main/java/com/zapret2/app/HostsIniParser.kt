@@ -209,7 +209,7 @@ object HostsIniParser {
         }
 
         lines.add(MARKER_END)
-        return lines.joinToString("\n")
+        return lines.joinToString("\n") + "\n"
     }
 
     /**
@@ -224,7 +224,8 @@ object HostsIniParser {
         if (beginIdx >= 0 && endIdx >= 0 && endIdx > beginIdx) {
             val before = currentHosts.substring(0, beginIdx)
             val after = currentHosts.substring(endIdx + MARKER_END.length)
-            return before + block + after
+            val result = before + block + after
+            return if (result.endsWith("\n")) result else "$result\n"
         }
 
         // No existing block -- append

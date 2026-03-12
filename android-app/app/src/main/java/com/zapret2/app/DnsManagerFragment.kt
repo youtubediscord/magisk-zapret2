@@ -246,6 +246,7 @@ class DnsManagerFragment : Fragment() {
 
     private fun applyDns() {
         val data = hostsData ?: return
+        val cacheDir = requireContext().cacheDir
 
         viewLifecycleOwner.lifecycleScope.launch {
             showLoading("Applying DNS...")
@@ -271,9 +272,8 @@ class DnsManagerFragment : Fragment() {
                     // Merge
                     val merged = HostsIniParser.smartMerge(currentHosts, block)
 
-                    // Write via root shell
-                    val writeResult = Shell.cmd(buildSafeWriteCommand(hostsFile, merged)).exec()
-                    if (!writeResult.isSuccess) return@withContext false
+                    // Write via cache file + root copy (handles large content safely)
+                    if (!writeHostsFile(hostsFile, merged, cacheDir)) return@withContext false
 
                     // Save state to runtime.ini
                     RuntimeConfigStore.upsertDnsManagerValues(
@@ -303,6 +303,8 @@ class DnsManagerFragment : Fragment() {
     }
 
     private fun resetDns() {
+        val cacheDir = requireContext().cacheDir
+
         viewLifecycleOwner.lifecycleScope.launch {
             showLoading("Resetting DNS...")
 
@@ -315,8 +317,7 @@ class DnsManagerFragment : Fragment() {
                         ""
                     }
                     val cleaned = HostsIniParser.removeZapretBlock(currentHosts)
-                    val writeResult = Shell.cmd(buildSafeWriteCommand(hostsFile, cleaned)).exec()
-                    writeResult.isSuccess
+                    writeHostsFile(hostsFile, cleaned, cacheDir)
                 } catch (e: Exception) {
                     false
                 }
@@ -334,21 +335,39 @@ class DnsManagerFragment : Fragment() {
         }
     }
 
-    private fun buildSafeWriteCommand(path: String, content: String): String {
-        var delimiter = "__ZAPRET_DNS_EOF__"
-        while (content.contains(delimiter)) {
-            delimiter += "_X"
+    /**
+     * Write content to a file via root shell, handling large content safely.
+     * Writes to app cache first (no root needed, no size limit), then copies
+     * to the target path via root shell with atomic mv to avoid partial writes.
+     */
+    private fun writeHostsFile(path: String, content: String, cacheDir: java.io.File): Boolean {
+        val normalized = content.replace("\r\n", "\n").replace("\r", "\n")
+            .trimEnd('\n') + "\n"
+
+        // Write to app's cache directory (no root needed, no size limit)
+        val tmpFile = java.io.File(cacheDir, "hosts_tmp_${System.currentTimeMillis()}")
+        try {
+            tmpFile.writeText(normalized)
+        } catch (e: Exception) {
+            tmpFile.delete()
+            return false
         }
-        return buildString {
-            append("cat <<'")
-            append(delimiter)
-            append("' > \"")
-            append(path)
-            append("\"\n")
-            append(content)
-            append("\n")
-            append(delimiter)
+
+        val tmpDevicePath = tmpFile.absolutePath
+        val destTmp = "$path.zapret-tmp"
+
+        // Copy from app cache to tmp path via root, then atomic mv
+        val result = Shell.cmd(
+            "cp \"$tmpDevicePath\" \"$destTmp\" && mv \"$destTmp\" \"$path\""
+        ).exec()
+
+        // Cleanup
+        tmpFile.delete()
+        if (!result.isSuccess) {
+            Shell.cmd("rm -f \"$destTmp\"").exec()
         }
+
+        return result.isSuccess
     }
 
     private fun showLoading(text: String) {
