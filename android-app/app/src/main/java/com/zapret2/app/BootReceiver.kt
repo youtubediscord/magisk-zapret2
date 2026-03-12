@@ -9,11 +9,10 @@ class BootReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action == Intent.ACTION_BOOT_COMPLETED) {
-            // Check if autostart is enabled in config
-            Shell.cmd(
-                "grep -q 'AUTOSTART=1' /data/adb/modules/zapret2/zapret2/config.sh && " +
-                "sh /data/adb/modules/zapret2/zapret2/scripts/zapret-start.sh"
-            ).submit()
+            val autostart = RuntimeConfigStore.readCoreValueCompatBlocking("autostart", "AUTOSTART", "1")
+            if (autostart == "1") {
+                Shell.cmd("sh /data/adb/modules/zapret2/zapret2/scripts/zapret-start.sh").submit()
+            }
         }
     }
 }

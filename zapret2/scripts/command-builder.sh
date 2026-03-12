@@ -416,22 +416,15 @@ collect_option_values() {
 # Validate critical core options that must not be duplicated in raw mode.
 # Duplicates usually indicate conflicting --qnum/--uid/--fwmark/--debug values.
 
-# Read the last value for an option from an option list.
-read_cmdline_option_value() {
-    local opts="$1"
-    local option_name="$2"
-
-    collect_option_values "$opts" "$option_name" | tail -n 1
-}
-
-# Sync base variables (QNUM/DESYNC_MARK/NFQWS_UID/LOG_MODE) with custom cmdline values.
+# Validate raw cmdline source while keeping runtime [core] authoritative.
 sync_cmdline_core_overrides() {
     is_custom_cmdline_mode || return 0
 
     local cmdline_file="${CUSTOM_CMDLINE_FILE:-$ZAPRET_DIR/cmdline.txt}"
     local resolved_file=""
     local raw_args=""
-    local value=""
+    local warned_keys=""
+    local option_name
 
     resolved_file="$(resolve_custom_cmdline_file_path "$cmdline_file")"
     [ -f "$resolved_file" ] || return 1
@@ -440,28 +433,21 @@ sync_cmdline_core_overrides() {
     raw_args="$(normalize_custom_cmdline_file "$resolved_file")"
     [ -n "$raw_args" ] || return 1
 
-    value="$(read_cmdline_option_value "$raw_args" "qnum")"
-    [ -n "$value" ] && QNUM="$value"
+    for option_name in qnum fwmark uid debug; do
+        if [ -n "$(collect_option_values "$raw_args" "$option_name")" ]; then
+            if [ -z "$warned_keys" ]; then
+                warned_keys="$option_name"
+            else
+                warned_keys="$warned_keys,$option_name"
+            fi
+        fi
+    done
 
-    value="$(read_cmdline_option_value "$raw_args" "fwmark")"
-    [ -n "$value" ] && DESYNC_MARK="$value"
+    if [ -n "$warned_keys" ]; then
+        log_msg "Ignoring raw cmdline core options ($warned_keys); runtime [core] remains authoritative"
+    fi
 
-    value="$(read_cmdline_option_value "$raw_args" "uid")"
-    [ -n "$value" ] && NFQWS_UID="$value"
-
-    value="$(read_cmdline_option_value "$raw_args" "debug")"
-    case "$value" in
-        android|file|syslog|none)
-            LOG_MODE="$value"
-            ;;
-        "")
-            ;;
-        *)
-            log_debug "Ignoring unsupported --debug value in cmdline file: $value"
-            ;;
-    esac
-
-    log_msg "Applied cmdline core overrides: QNUM=$QNUM DESYNC_MARK=$DESYNC_MARK NFQWS_UID=${NFQWS_UID:-0:0} LOG_MODE=${LOG_MODE:-none}"
+    return 0
 }
 
 validate_cmdline_core_options() {
@@ -1082,9 +1068,14 @@ build_category_options() {
 build_options() {
     log_section "Building nfqws2 options"
 
+    if runtime_config_exists; then
+        log_msg "Detected runtime config: $RUNTIME_CONFIG"
+        log_msg "Using runtime.ini [core] for core runtime values; category building still uses categories.ini"
+    fi
+
     if is_custom_cmdline_mode; then
         if ! sync_cmdline_core_overrides; then
-            log_error "Core override sync from cmdline failed; fallback mode settings may be used"
+            log_error "Raw cmdline source validation failed; startup will rely on runtime [core] plus builder fallback handling"
         fi
     fi
 

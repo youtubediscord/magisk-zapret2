@@ -29,6 +29,12 @@ class PresetsFragment : Fragment() {
         val displayName: String
     )
 
+    private data class ActiveSelection(
+        val mode: String,
+        val presetFile: String,
+        val cmdlineFile: String
+    )
+
     private lateinit var textActiveModeValue: TextView
     private lateinit var textActivePresetValue: TextView
     private lateinit var textPresetsPath: TextView
@@ -42,11 +48,13 @@ class PresetsFragment : Fragment() {
 
     private val modDir = "/data/adb/modules/zapret2"
     private val configFile = "$modDir/zapret2/config.sh"
+    private val runtimeConfigFile = "$modDir/zapret2/runtime.ini"
     private val presetsDir = "$modDir/zapret2/presets"
     private val restartScript = "$modDir/zapret2/scripts/zapret-restart.sh"
 
     private var activeMode: String = "categories"
     private var activePresetFile: String = ""
+    private var activeCmdlineFile: String = "cmdline.txt"
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -90,12 +98,11 @@ class PresetsFragment : Fragment() {
         viewLifecycleOwner.lifecycleScope.launch {
             showLoading("Loading presets...")
 
-            val configText = withContext(Dispatchers.IO) {
-                Shell.cmd("cat $configFile 2>/dev/null").exec().out.joinToString("\n")
-            }
+            val activeSelection = loadActiveSelection()
 
-            activeMode = parseConfigValue(configText, "PRESET_MODE")?.ifEmpty { "categories" } ?: "categories"
-            activePresetFile = parseConfigValue(configText, "PRESET_FILE")?.ifEmpty { "" } ?: ""
+            activeMode = activeSelection.mode
+            activePresetFile = activeSelection.presetFile
+            activeCmdlineFile = activeSelection.cmdlineFile
 
             updateActiveInfo()
             val presets = loadPresetEntries()
@@ -128,17 +135,22 @@ class PresetsFragment : Fragment() {
     private fun updateActiveInfo() {
         textActiveModeValue.text = when (activeMode) {
             "file", "preset", "txt" -> "Preset file mode"
+            "cmdline", "manual", "raw" -> "Cmdline mode"
             else -> "Categories mode"
         }
 
-        if (activeMode == "file" || activeMode == "preset" || activeMode == "txt") {
-            textActivePresetValue.text = if (activePresetFile.isNotBlank()) {
+        textActivePresetValue.text = when (activeMode) {
+            "file", "preset", "txt" -> if (activePresetFile.isNotBlank()) {
                 activePresetFile
             } else {
                 "(not set)"
             }
-        } else {
-            textActivePresetValue.text = "categories.ini + strategies-*.ini"
+            "cmdline", "manual", "raw" -> if (activeCmdlineFile.isNotBlank()) {
+                activeCmdlineFile
+            } else {
+                "cmdline.txt"
+            }
+            else -> "categories.ini + strategies-*.ini"
         }
 
         textPresetsPath.text = presetsDir
@@ -202,15 +214,8 @@ class PresetsFragment : Fragment() {
             showLoading("Applying $fileName...")
             setActionsEnabled(false)
 
-            val (configSaved, restartSuccess) = withContext(Dispatchers.IO) {
-                val currentConfig = Shell.cmd("cat $configFile 2>/dev/null").exec().out.joinToString("\n")
-                var newConfig = currentConfig
-                newConfig = upsertConfigValue(newConfig, "PRESET_MODE", "file")
-                newConfig = upsertConfigValue(newConfig, "PRESET_FILE", fileName)
-
-                val escaped = newConfig.replace("'", "'\\''")
-                val saveResult = Shell.cmd("echo '$escaped' > $configFile").exec()
-                if (!saveResult.isSuccess) {
+            val (stateSaved, restartSuccess) = withContext(Dispatchers.IO) {
+                if (!persistActiveSelection(mode = "file", presetFile = fileName)) {
                     return@withContext Pair(false, false)
                 }
 
@@ -224,14 +229,14 @@ class PresetsFragment : Fragment() {
             if (!isAdded) return@launch
 
             when {
-                configSaved && restartSuccess -> {
+                stateSaved && restartSuccess -> {
                     context?.let {
                         Toast.makeText(it, "$fileName applied", Toast.LENGTH_SHORT).show()
                     }
                     setFragmentResult(LogsFragment.SERVICE_RESTARTED_KEY, bundleOf())
                     refreshAll()
                 }
-                configSaved -> {
+                stateSaved -> {
                     context?.let {
                         Toast.makeText(it, "Preset selected, restart failed", Toast.LENGTH_SHORT).show()
                     }
@@ -253,13 +258,8 @@ class PresetsFragment : Fragment() {
             showLoading("Switching to categories mode...")
             setActionsEnabled(false)
 
-            val (configSaved, restartSuccess) = withContext(Dispatchers.IO) {
-                val currentConfig = Shell.cmd("cat $configFile 2>/dev/null").exec().out.joinToString("\n")
-                val newConfig = upsertConfigValue(currentConfig, "PRESET_MODE", "categories")
-
-                val escaped = newConfig.replace("'", "'\\''")
-                val saveResult = Shell.cmd("echo '$escaped' > $configFile").exec()
-                if (!saveResult.isSuccess) {
+            val (stateSaved, restartSuccess) = withContext(Dispatchers.IO) {
+                if (!persistActiveSelection(mode = "categories")) {
                     return@withContext Pair(false, false)
                 }
 
@@ -273,14 +273,14 @@ class PresetsFragment : Fragment() {
             if (!isAdded) return@launch
 
             when {
-                configSaved && restartSuccess -> {
+                stateSaved && restartSuccess -> {
                     context?.let {
                         Toast.makeText(it, "Categories mode enabled", Toast.LENGTH_SHORT).show()
                     }
                     setFragmentResult(LogsFragment.SERVICE_RESTARTED_KEY, bundleOf())
                     refreshAll()
                 }
-                configSaved -> {
+                stateSaved -> {
                     context?.let {
                         Toast.makeText(it, "Mode switched, restart failed", Toast.LENGTH_SHORT).show()
                     }
@@ -381,14 +381,7 @@ class PresetsFragment : Fragment() {
                     return@withContext Pair(true, true)
                 }
 
-                val currentConfig = Shell.cmd("cat $configFile 2>/dev/null").exec().out.joinToString("\n")
-                var newConfig = currentConfig
-                newConfig = upsertConfigValue(newConfig, "PRESET_MODE", "file")
-                newConfig = upsertConfigValue(newConfig, "PRESET_FILE", fileName)
-
-                val escapedConfig = newConfig.replace("'", "'\\''")
-                val saveConfigResult = Shell.cmd("echo '$escapedConfig' > $configFile").exec()
-                if (!saveConfigResult.isSuccess) {
+                if (!persistActiveSelection(mode = "file", presetFile = fileName)) {
                     return@withContext Pair(false, false)
                 }
 
@@ -443,20 +436,62 @@ class PresetsFragment : Fragment() {
         loadingOverlay.visibility = View.GONE
     }
 
-    private fun parseConfigValue(config: String, key: String): String? {
-        val regex = Regex("""(?m)^$key\s*=\s*["']?([^"'\n]*)["']?""")
-        return regex.find(config)?.groupValues?.get(1)?.trim()
-    }
-
-    private fun upsertConfigValue(config: String, key: String, value: String): String {
-        val line = "$key=\"$value\""
-        val regex = Regex("""(?m)^$key\s*=.*$""")
-
-        if (regex.containsMatchIn(config)) {
-            return config.replace(regex, line)
+    private suspend fun loadActiveSelection(): ActiveSelection {
+        val runtimeCore = RuntimeConfigStore.readCore()
+        val runtimeConfigText = withContext(Dispatchers.IO) { readFileText(runtimeConfigFile) }
+        val configText = if (runtimeConfigText == null) {
+            withContext(Dispatchers.IO) { readFileText(configFile) }
+        } else {
+            null
         }
 
-        val trimmed = config.trimEnd()
-        return if (trimmed.isEmpty()) line else "$trimmed\n$line"
+        val mode = (runtimeCore["preset_mode"]
+            ?: parseConfigValue(configText, "PRESET_MODE")
+            ?: "categories")
+            .ifEmpty { "categories" }
+            .lowercase()
+
+        val presetFile = (runtimeCore["preset_file"]
+            ?: parseConfigValue(configText, "PRESET_FILE")
+            ?: "")
+            .trim()
+
+        val cmdlineFile = (runtimeCore["custom_cmdline_file"]
+            ?: parseConfigValue(configText, "CUSTOM_CMDLINE_FILE")
+            ?: "cmdline.txt")
+            .trim()
+
+        return ActiveSelection(
+            mode = mode,
+            presetFile = presetFile,
+            cmdlineFile = cmdlineFile.ifEmpty { "cmdline.txt" }
+        )
+    }
+
+    private suspend fun persistActiveSelection(mode: String, presetFile: String? = null): Boolean {
+        return RuntimeConfigStore.setActiveModeValues(
+            RuntimeConfigStore.CoreSettingsUpdate(
+                presetMode = mode,
+                presetFile = presetFile
+            )
+        )
+    }
+
+    private fun readFileText(filePath: String): String? {
+        val result = Shell.cmd("cat '$filePath' 2>/dev/null").exec()
+        if (!result.isSuccess) {
+            return null
+        }
+
+        return result.out.joinToString("\n")
+    }
+
+    private fun parseConfigValue(config: String?, key: String): String? {
+        if (config.isNullOrBlank()) {
+            return null
+        }
+
+        val regex = Regex("""(?m)^$key\s*=\s*["']?([^"'\n]*)["']?""")
+        return regex.find(config)?.groupValues?.get(1)?.trim()
     }
 }

@@ -43,14 +43,10 @@ fi
 
 # Check if autostart is enabled
 ZAPRET_DIR="$MODDIR/zapret2"
-CONFIG="$ZAPRET_DIR/config.sh"
+SCRIPT_DIR="$ZAPRET_DIR/scripts"
 
-if [ -f "$CONFIG" ]; then
-    . "$CONFIG"
-fi
-
-# Default autostart to enabled
-AUTOSTART=${AUTOSTART:-1}
+. "$SCRIPT_DIR/common.sh"
+load_effective_core_config
 
 if [ "$AUTOSTART" = "1" ]; then
     log "Autostart enabled, launching zapret2..."

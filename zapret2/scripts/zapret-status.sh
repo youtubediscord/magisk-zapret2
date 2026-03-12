@@ -5,6 +5,7 @@
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 . "$SCRIPT_DIR/common.sh"
+load_effective_core_config
 
 echo "=========================================="
 echo " Zapret2 Status"
@@ -50,6 +51,16 @@ else
     fi
 fi
 
+echo ""
+
+echo "Effective core config:"
+echo "  AUTOSTART=$AUTOSTART"
+echo "  QNUM=$QNUM"
+echo "  DESYNC_MARK=$DESYNC_MARK"
+echo "  PORTS_TCP=$PORTS_TCP"
+echo "  PORTS_UDP=$PORTS_UDP"
+echo "  PRESET_MODE=$PRESET_MODE"
+echo "  CUSTOM_CMDLINE_FILE=$CUSTOM_CMDLINE_FILE"
 echo ""
 
 # Check iptables/ip6tables rules

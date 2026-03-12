@@ -68,6 +68,11 @@ log_section() {
     log_msg "========================================"
 }
 
+log_legacy_conflict() {
+    local msg="$1"
+    log_error "LEGACY CONFLICT: $msg"
+}
+
 ##########################################################################################
 # LOAD COMMAND BUILDER
 ##########################################################################################
@@ -80,30 +85,7 @@ log_section() {
 ##########################################################################################
 
 set_default_config() {
-    # NFQUEUE settings
-    QNUM=200
-    DESYNC_MARK=0x40000000
-
-    # Port configuration
-    PORTS_TCP="80,443"
-    PORTS_UDP="443"
-
-    # Packet interception limits
-    PKT_OUT=20
-    PKT_IN=10
-
-    # Strategy configuration
-    STRATEGY_PRESET="youtube"
-    PRESET_MODE="categories"
-    PRESET_FILE="Default.txt"
-    CUSTOM_CMDLINE_FILE="$ZAPRET_DIR/cmdline.txt"
-
-    # UID:GID for nfqws2 sandbox (explicit to avoid upstream 2147483647 default)
-    NFQWS_UID="0:0"
-
-    # Logging
-    LOG_MODE="android"
-    DEBUG=0
+    set_core_config_defaults
 
     # Hostlist/Ipset mode: none, hostlist, ipset
     HOSTLIST_MODE="none"
@@ -122,7 +104,6 @@ load_config() {
 
     # Load module config if exists (default values)
     if [ -f "$CONFIG" ]; then
-        . "$CONFIG"
         log_msg "Loaded module config from $CONFIG"
     else
         log_msg "Using default configuration (no config.sh found)"
@@ -130,11 +111,52 @@ load_config() {
 
     # Load user config if exists (overrides module config)
     # This file persists across module updates
-    USER_CONFIG="/data/local/tmp/zapret2-user.conf"
     if [ -f "$USER_CONFIG" ]; then
-        . "$USER_CONFIG"
         log_msg "Loaded user config from $USER_CONFIG"
     fi
+
+    load_legacy_core_config_overrides
+
+    if runtime_config_exists; then
+        apply_runtime_core_overrides
+        log_msg "Applied runtime [core] overrides from $RUNTIME_CONFIG"
+        log_msg "Category sections still load from legacy categories.ini"
+    else
+        log_msg "runtime.ini not found, using legacy runtime sources only"
+    fi
+
+    if [ -f "$USER_CONFIG" ]; then
+        log_legacy_conflict "Legacy user overrides are active from $USER_CONFIG until all runtime state is fully migrated"
+    fi
+
+    if shell_config_sets_key "$CONFIG" "PRESET_MODE" && shell_config_sets_key "$USER_CONFIG" "PRESET_MODE"; then
+        log_legacy_conflict "PRESET_MODE is defined in both $CONFIG and $USER_CONFIG; effective mode depends on shell source order"
+    fi
+
+    if shell_config_sets_key "$CONFIG" "CUSTOM_CMDLINE_FILE" && shell_config_sets_key "$USER_CONFIG" "CUSTOM_CMDLINE_FILE"; then
+        log_legacy_conflict "CUSTOM_CMDLINE_FILE is defined in both $CONFIG and $USER_CONFIG; effective cmdline source depends on shell source order"
+    fi
+
+    if runtime_config_exists && shell_config_sets_key "$CONFIG" "PRESET_MODE"; then
+        log_legacy_conflict "runtime.ini [core] overrides legacy PRESET_MODE from $CONFIG for runtime behavior"
+    fi
+
+    if runtime_config_exists && shell_config_sets_key "$USER_CONFIG" "PRESET_MODE"; then
+        log_legacy_conflict "runtime.ini [core] overrides legacy PRESET_MODE from $USER_CONFIG for runtime behavior"
+    fi
+
+    if runtime_config_exists && shell_config_sets_key "$USER_CONFIG" "CUSTOM_CMDLINE_FILE"; then
+        log_legacy_conflict "runtime.ini [core] overrides legacy CUSTOM_CMDLINE_FILE from $USER_CONFIG for runtime behavior"
+    fi
+
+    case "$PRESET_MODE" in
+        file|preset|txt)
+            log_legacy_conflict "Legacy preset-file mode is active (PRESET_MODE=$PRESET_MODE, PRESET_FILE=${PRESET_FILE:-Default.txt}); runtime.ini categories are not driving startup yet"
+            ;;
+        cmdline|manual|raw)
+            log_legacy_conflict "Legacy raw-cmdline mode is active (PRESET_MODE=$PRESET_MODE, CUSTOM_CMDLINE_FILE=${CUSTOM_CMDLINE_FILE:-$ZAPRET_DIR/cmdline.txt}); runtime.ini does not override raw mode yet"
+            ;;
+    esac
 
     # Verify strategy INI files exist
     for ini_file in "$TCP_STRATEGIES_INI" "$UDP_STRATEGIES_INI" "$STUN_STRATEGIES_INI"; do
@@ -529,21 +551,12 @@ log_startup_stderr_errors() {
 prepare_cmdline_core_runtime() {
     is_custom_cmdline_mode || return 0
 
-    local previous_qnum="$QNUM"
-
     if sync_cmdline_core_overrides; then
-        if [ -n "$previous_qnum" ] && [ "$QNUM" != "$previous_qnum" ]; then
-            local removed_total=$(remove_nfqueue_rules_by_qnum "$previous_qnum")
-            if [ "$removed_total" -gt 0 ] 2>/dev/null; then
-                log_msg "Removed stale NFQUEUE rules for previous queue: $previous_qnum ($removed_total)"
-            fi
-        fi
-
-        log_msg "Applied cmdline core overrides for runtime rules: QNUM=$QNUM DESYNC_MARK=$DESYNC_MARK NFQWS_UID=${NFQWS_UID:-0:0} LOG_MODE=${LOG_MODE:-none}"
+        log_msg "Raw cmdline mode validated with runtime [core] values: QNUM=$QNUM DESYNC_MARK=$DESYNC_MARK NFQWS_UID=${NFQWS_UID:-0:0} LOG_MODE=${LOG_MODE:-none}"
         return 0
     fi
 
-    log_error "Could not apply cmdline core overrides before applying iptables"
+    log_error "Could not validate raw cmdline source before applying iptables"
     return 1
 }
 
