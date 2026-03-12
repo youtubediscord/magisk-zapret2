@@ -374,98 +374,202 @@ fix_permissions() {
 apply_iptables() {
     log_section "Applying iptables rules"
 
-    # Clean up ALL NFQUEUE rules (any queue number) before adding fresh rules.
-    # This handles mode switches (e.g. cmdline qnum=201 -> categories qnum=200).
+    # Clean up ALL NFQUEUE rules before adding fresh rules
     local stale_removed
     stale_removed=$(remove_all_nfqueue_rules)
     if [ -n "$stale_removed" ] && [ "$stale_removed" -gt 0 ] 2>/dev/null; then
         log_msg "Removed stale NFQUEUE rules: $stale_removed"
     fi
 
-    # Enable liberal TCP tracking (important for RST with wrong ACK)
     sysctl -w net.netfilter.nf_conntrack_tcp_be_liberal=1 2>/dev/null
 
-    # Track success/failure for each rule
-    local rules_ok=0
-    local rules_fail=0
-    local fail_details=""
+    # ===== PROBE KERNEL CAPABILITIES =====
+    local cap_nfqueue=1 cap_queue_bypass=1 cap_connbytes=1 cap_multiport=1 cap_mark=1
+    local diag_parts=""
 
-    # Apply rules for both IPv4 and IPv6
-    local ipt
-    for ipt in iptables ip6tables; do
-        local label="IPv4"
-        [ "$ipt" = "ip6tables" ] && label="IPv6"
-
-        # Check if iptables binary is available
-        if ! command -v $ipt >/dev/null 2>&1; then
-            log_error "$ipt binary not found"
-            fail_details="${fail_details}${label}: binary not found\n"
-            rules_fail=$((rules_fail + 4))
-            continue
-        fi
-
-        # OUTPUT chain - outgoing TCP
-        if $ipt -t mangle -A OUTPUT \
-            -p tcp -m multiport --dports $PORTS_TCP \
-            -m connbytes --connbytes 1:$PKT_OUT --connbytes-dir=original --connbytes-mode=packets \
-            -m mark ! --mark $DESYNC_MARK/$DESYNC_MARK \
-            -j NFQUEUE --queue-num $QNUM --queue-bypass 2>/dev/null; then
-            log_msg "Added $label TCP OUTPUT rule (ports: $PORTS_TCP)"
-            rules_ok=$((rules_ok + 1))
+    # Probe 1: NFQUEUE with --queue-bypass
+    if iptables -t mangle -A OUTPUT -p tcp --dport 1 -j NFQUEUE --queue-num 65534 --queue-bypass 2>/dev/null; then
+        iptables -t mangle -D OUTPUT -p tcp --dport 1 -j NFQUEUE --queue-num 65534 --queue-bypass 2>/dev/null
+    else
+        # Try NFQUEUE without --queue-bypass
+        if iptables -t mangle -A OUTPUT -p tcp --dport 1 -j NFQUEUE --queue-num 65534 2>/dev/null; then
+            iptables -t mangle -D OUTPUT -p tcp --dport 1 -j NFQUEUE --queue-num 65534 2>/dev/null
+            cap_queue_bypass=0
+            diag_parts="${diag_parts}queue-bypass: no; "
+            log_msg "queue-bypass not supported, using NFQUEUE without it"
         else
-            log_error "Failed to add $label TCP OUTPUT rule"
-            fail_details="${fail_details}${label} TCP OUTPUT: failed\n"
-            rules_fail=$((rules_fail + 1))
+            cap_nfqueue=0
+            diag_parts="${diag_parts}NFQUEUE: no; "
+            log_error "Kernel does not support NFQUEUE target"
         fi
+    fi
 
-        # OUTPUT chain - outgoing UDP (QUIC)
-        if $ipt -t mangle -A OUTPUT \
-            -p udp -m multiport --dports $PORTS_UDP \
-            -m connbytes --connbytes 1:$PKT_OUT --connbytes-dir=original --connbytes-mode=packets \
-            -m mark ! --mark $DESYNC_MARK/$DESYNC_MARK \
-            -j NFQUEUE --queue-num $QNUM --queue-bypass 2>/dev/null; then
-            log_msg "Added $label UDP OUTPUT rule (ports: $PORTS_UDP)"
-            rules_ok=$((rules_ok + 1))
+    # Probe 2: connbytes
+    if [ "$cap_nfqueue" = "1" ]; then
+        if iptables -t mangle -A OUTPUT -p tcp --dport 1 -m connbytes --connbytes 1:1 --connbytes-dir=original --connbytes-mode=packets -j ACCEPT 2>/dev/null; then
+            iptables -t mangle -D OUTPUT -p tcp --dport 1 -m connbytes --connbytes 1:1 --connbytes-dir=original --connbytes-mode=packets -j ACCEPT 2>/dev/null
         else
-            log_error "Failed to add $label UDP OUTPUT rule"
-            fail_details="${fail_details}${label} UDP OUTPUT: failed\n"
-            rules_fail=$((rules_fail + 1))
+            cap_connbytes=0
+            diag_parts="${diag_parts}connbytes: no; "
+            log_msg "connbytes not supported, applying rules without packet limit"
         fi
+    fi
 
-        # INPUT chain - incoming TCP (for autohostlist detection)
-        if $ipt -t mangle -A INPUT \
-            -p tcp -m multiport --sports $PORTS_TCP \
-            -m connbytes --connbytes 1:$PKT_IN --connbytes-dir=reply --connbytes-mode=packets \
-            -j NFQUEUE --queue-num $QNUM --queue-bypass 2>/dev/null; then
-            log_msg "Added $label TCP INPUT rule"
-            rules_ok=$((rules_ok + 1))
+    # Probe 3: multiport
+    if [ "$cap_nfqueue" = "1" ]; then
+        if iptables -t mangle -A OUTPUT -p tcp -m multiport --dports 80,443 -j ACCEPT 2>/dev/null; then
+            iptables -t mangle -D OUTPUT -p tcp -m multiport --dports 80,443 -j ACCEPT 2>/dev/null
         else
-            log_error "Failed to add $label TCP INPUT rule"
-            fail_details="${fail_details}${label} TCP INPUT: failed\n"
-            rules_fail=$((rules_fail + 1))
+            cap_multiport=0
+            diag_parts="${diag_parts}multiport: no; "
+            log_msg "multiport not supported, using individual port rules"
         fi
+    fi
 
-        # INPUT chain - incoming UDP
-        if $ipt -t mangle -A INPUT \
-            -p udp -m multiport --sports $PORTS_UDP \
-            -m connbytes --connbytes 1:$PKT_IN --connbytes-dir=reply --connbytes-mode=packets \
-            -j NFQUEUE --queue-num $QNUM --queue-bypass 2>/dev/null; then
-            log_msg "Added $label UDP INPUT rule"
-            rules_ok=$((rules_ok + 1))
+    # Probe 4: mark match
+    if [ "$cap_nfqueue" = "1" ]; then
+        if iptables -t mangle -A OUTPUT -p tcp --dport 1 -m mark --mark 0x40000000/0x40000000 -j ACCEPT 2>/dev/null; then
+            iptables -t mangle -D OUTPUT -p tcp --dport 1 -m mark --mark 0x40000000/0x40000000 -j ACCEPT 2>/dev/null
         else
-            log_error "Failed to add $label UDP INPUT rule"
-            fail_details="${fail_details}${label} UDP INPUT: failed\n"
-            rules_fail=$((rules_fail + 1))
+            cap_mark=0
+            diag_parts="${diag_parts}mark: no; "
+            log_msg "mark match not supported, applying rules without desync mark filter"
         fi
-    done
+    fi
 
-    # Write iptables status file for the Android app to read
+    # ===== BUILD AND APPLY RULES =====
+    local rules_ok=0 rules_fail=0 fail_details="" fallback_mode=0
+
+    if [ "$cap_nfqueue" = "0" ]; then
+        rules_fail=8
+        fail_details="NFQUEUE not supported by kernel"
+    else
+        # Set fallback flag if any capability is missing
+        [ "$cap_connbytes" = "0" ] || [ "$cap_multiport" = "0" ] || [ "$cap_mark" = "0" ] || [ "$cap_queue_bypass" = "0" ] && fallback_mode=1
+
+        # Build NFQUEUE target string
+        local nfq_target="-j NFQUEUE --queue-num $QNUM"
+        [ "$cap_queue_bypass" = "1" ] && nfq_target="$nfq_target --queue-bypass"
+
+        local mode_tag=""
+        [ "$fallback_mode" = "1" ] && mode_tag=" [fallback]"
+
+        for ipt in iptables ip6tables; do
+            local label="IPv4"
+            [ "$ipt" = "ip6tables" ] && label="IPv6"
+
+            # Check binary exists
+            if ! command -v $ipt >/dev/null 2>&1; then
+                log_msg "$label: binary not found, skipping"
+                continue
+            fi
+
+            # Check mangle table works
+            if ! $ipt -t mangle -L OUTPUT -n >/dev/null 2>&1; then
+                log_msg "$label mangle table not supported, skipping"
+                continue
+            fi
+
+            # Build port lists: with multiport = single entry "80,443", without = separate "80" "443"
+            local tcp_out_ports udp_out_ports tcp_in_ports udp_in_ports
+            if [ "$cap_multiport" = "1" ]; then
+                tcp_out_ports="$PORTS_TCP"
+                udp_out_ports="$PORTS_UDP"
+                tcp_in_ports="$PORTS_TCP"
+                udp_in_ports="$PORTS_UDP"
+            else
+                tcp_out_ports=$(echo "$PORTS_TCP" | tr ',' ' ')
+                udp_out_ports=$(echo "$PORTS_UDP" | tr ',' ' ')
+                tcp_in_ports=$(echo "$PORTS_TCP" | tr ',' ' ')
+                udp_in_ports=$(echo "$PORTS_UDP" | tr ',' ' ')
+            fi
+
+            # --- OUTPUT TCP ---
+            for ports in $tcp_out_ports; do
+                local pmatch
+                [ "$cap_multiport" = "1" ] && pmatch="-m multiport --dports $ports" || pmatch="--dport $ports"
+                local extra=""
+                [ "$cap_connbytes" = "1" ] && extra="$extra -m connbytes --connbytes 1:$PKT_OUT --connbytes-dir=original --connbytes-mode=packets"
+                [ "$cap_mark" = "1" ] && extra="$extra -m mark ! --mark $DESYNC_MARK/$DESYNC_MARK"
+
+                if $ipt -t mangle -A OUTPUT -p tcp $pmatch $extra $nfq_target 2>/dev/null; then
+                    log_msg "Added $label TCP OUTPUT (ports: $ports)$mode_tag"
+                    rules_ok=$((rules_ok + 1))
+                else
+                    log_error "Failed to add $label TCP OUTPUT (ports: $ports)"
+                    fail_details="${fail_details}${label} TCP OUT($ports): failed\n"
+                    rules_fail=$((rules_fail + 1))
+                fi
+            done
+
+            # --- OUTPUT UDP ---
+            for ports in $udp_out_ports; do
+                local pmatch
+                [ "$cap_multiport" = "1" ] && pmatch="-m multiport --dports $ports" || pmatch="--dport $ports"
+                local extra=""
+                [ "$cap_connbytes" = "1" ] && extra="$extra -m connbytes --connbytes 1:$PKT_OUT --connbytes-dir=original --connbytes-mode=packets"
+                [ "$cap_mark" = "1" ] && extra="$extra -m mark ! --mark $DESYNC_MARK/$DESYNC_MARK"
+
+                if $ipt -t mangle -A OUTPUT -p udp $pmatch $extra $nfq_target 2>/dev/null; then
+                    log_msg "Added $label UDP OUTPUT (ports: $ports)$mode_tag"
+                    rules_ok=$((rules_ok + 1))
+                else
+                    log_error "Failed to add $label UDP OUTPUT (ports: $ports)"
+                    fail_details="${fail_details}${label} UDP OUT($ports): failed\n"
+                    rules_fail=$((rules_fail + 1))
+                fi
+            done
+
+            # --- INPUT TCP ---
+            for ports in $tcp_in_ports; do
+                local pmatch
+                [ "$cap_multiport" = "1" ] && pmatch="-m multiport --sports $ports" || pmatch="--sport $ports"
+                local extra=""
+                [ "$cap_connbytes" = "1" ] && extra="$extra -m connbytes --connbytes 1:$PKT_IN --connbytes-dir=reply --connbytes-mode=packets"
+
+                if $ipt -t mangle -A INPUT -p tcp $pmatch $extra $nfq_target 2>/dev/null; then
+                    log_msg "Added $label TCP INPUT (ports: $ports)$mode_tag"
+                    rules_ok=$((rules_ok + 1))
+                else
+                    log_error "Failed to add $label TCP INPUT (ports: $ports)"
+                    fail_details="${fail_details}${label} TCP IN($ports): failed\n"
+                    rules_fail=$((rules_fail + 1))
+                fi
+            done
+
+            # --- INPUT UDP ---
+            for ports in $udp_in_ports; do
+                local pmatch
+                [ "$cap_multiport" = "1" ] && pmatch="-m multiport --sports $ports" || pmatch="--sport $ports"
+                local extra=""
+                [ "$cap_connbytes" = "1" ] && extra="$extra -m connbytes --connbytes 1:$PKT_IN --connbytes-dir=reply --connbytes-mode=packets"
+
+                if $ipt -t mangle -A INPUT -p udp $pmatch $extra $nfq_target 2>/dev/null; then
+                    log_msg "Added $label UDP INPUT (ports: $ports)$mode_tag"
+                    rules_ok=$((rules_ok + 1))
+                else
+                    log_error "Failed to add $label UDP INPUT (ports: $ports)"
+                    fail_details="${fail_details}${label} UDP IN($ports): failed\n"
+                    rules_fail=$((rules_fail + 1))
+                fi
+            done
+        done
+    fi
+
+    # ===== WRITE STATUS FILE =====
     local status_file="$ZAPRET_DIR/iptables-status"
     {
         echo "timestamp=$(date '+%Y-%m-%d %H:%M:%S')"
         echo "rules_ok=$rules_ok"
         echo "rules_fail=$rules_fail"
         echo "rules_total=$((rules_ok + rules_fail))"
+        echo "nfqueue_supported=$cap_nfqueue"
+        echo "queue_bypass_supported=$cap_queue_bypass"
+        echo "connbytes_supported=$cap_connbytes"
+        echo "multiport_supported=$cap_multiport"
+        echo "mark_supported=$cap_mark"
+        echo "fallback_mode=$fallback_mode"
+        echo "diagnostics=${diag_parts%%; }"
         if [ "$rules_fail" -gt 0 ]; then
             echo "status=partial"
             echo "errors=$(printf '%s' "$fail_details" | tr '\n' '|' | sed 's/|$//')"
@@ -476,13 +580,17 @@ apply_iptables() {
     } > "$status_file" 2>/dev/null
     chmod 644 "$status_file" 2>/dev/null
 
-    if [ "$rules_fail" -gt 0 ] && [ "$rules_ok" -eq 0 ]; then
+    # ===== LOG SUMMARY =====
+    if [ "$cap_nfqueue" = "0" ]; then
+        log_error "NFQUEUE not supported. DPI bypass cannot work on this device."
+    elif [ "$rules_fail" -gt 0 ] && [ "$rules_ok" -eq 0 ]; then
         log_error "ALL iptables rules failed ($rules_fail failures). nfqws2 will not receive traffic!"
-        log_msg "iptables rules FAILED (0/$((rules_ok + rules_fail)) applied)"
     elif [ "$rules_fail" -gt 0 ]; then
         log_msg "iptables rules PARTIALLY applied ($rules_ok ok, $rules_fail failed)"
+    elif [ "$fallback_mode" = "1" ]; then
+        log_msg "iptables rules applied in FALLBACK mode ($rules_ok rules)"
     else
-        log_msg "iptables rules applied successfully ($rules_ok rules, IPv4 + IPv6)"
+        log_msg "iptables rules applied successfully ($rules_ok rules)"
     fi
 }
 

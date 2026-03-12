@@ -15,6 +15,7 @@ import androidx.fragment.app.Fragment
 import androidx.fragment.app.setFragmentResult
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.button.MaterialButton
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.materialswitch.MaterialSwitch
 import com.topjohnwu.superuser.Shell
 import kotlinx.coroutines.*
@@ -1162,6 +1163,11 @@ class ControlFragment : Fragment() {
                 }
             }
 
+            // Make iptables status clickable to show diagnostic dialog
+            textIptablesStatus.setOnClickListener {
+                showIptablesDiagnosticDialog(detail)
+            }
+
             // Update NFQUEUE rules count with error detail
             if (stats.nfqueueRulesCount > 0) {
                 textNfqueueRulesCount.text = stats.nfqueueRulesCount.toString()
@@ -1179,6 +1185,72 @@ class ControlFragment : Fragment() {
                 textNfqueueRulesCount.setTextColor(ContextCompat.getColor(ctx, R.color.text_secondary))
             }
         }
+    }
+
+    private fun showIptablesDiagnosticDialog(detail: NetworkStatsManager.IptablesDetail) {
+        val ctx = context ?: return
+
+        val message = buildString {
+            append("Rules: ${detail.rulesOk} ok / ${detail.rulesFail} failed / ${detail.rulesTotal} total\n\n")
+
+            // Kernel capabilities table
+            append("=== Kernel modules ===\n")
+            append("NFQUEUE: ${if (detail.nfqueueSupported) "OK" else "NOT SUPPORTED"}\n")
+            append("queue-bypass: ${if (detail.queueBypassSupported) "OK" else "NOT SUPPORTED"}\n")
+            append("connbytes: ${if (detail.connbytesSupported) "OK" else "NOT SUPPORTED"}\n")
+            append("multiport: ${if (detail.multiportSupported) "OK" else "NOT SUPPORTED"}\n")
+            append("mark: ${if (detail.markSupported) "OK" else "NOT SUPPORTED"}\n")
+
+            // Fallback mode
+            if (detail.fallbackMode) {
+                append("\nMode: FALLBACK\n")
+                append("Some kernel modules are missing. Rules were applied with reduced functionality. DPI bypass should still work.\n")
+            }
+
+            // Diagnostics from shell
+            if (detail.diagnostics.isNotBlank()) {
+                append("\nDetails: ${detail.diagnostics}\n")
+            }
+
+            // Errors list
+            if (detail.errors.isNotEmpty()) {
+                append("\n=== Failed rules ===\n")
+                detail.errors.forEach { error ->
+                    append("  - $error\n")
+                }
+            }
+
+            // Help text based on situation
+            append("\n=== What to do ===\n")
+            if (!detail.nfqueueSupported) {
+                append("Your kernel does not support NFQUEUE. DPI bypass CANNOT work.\n\n")
+                append("This requires kernel option CONFIG_NETFILTER_NETLINK_QUEUE which is built into the kernel at compile time. It cannot be enabled without flashing a custom kernel that has this option.\n\n")
+                append("Contact your ROM/kernel developer and ask them to enable NFQUEUE support.")
+            } else if (detail.rulesOk > 0 && detail.rulesFail == 0) {
+                append("All rules applied successfully. Everything is working correctly.")
+                if (detail.fallbackMode) {
+                    append("\n\nFallback mode: slightly higher CPU usage is normal. This is not a problem.")
+                }
+            } else if (detail.rulesOk > 0) {
+                append("Some rules failed (usually IPv6). DPI bypass should work for most traffic since IPv4 rules are active.\n\n")
+                append("IPv6 failures are normal on many devices and do not affect functionality.")
+            } else {
+                append("All rules failed. Possible causes:\n")
+                append("- Another module or app conflicts with iptables rules\n")
+                append("- Kernel is missing required netfilter modules\n")
+                append("- SELinux is blocking iptables modifications\n\n")
+                append("Try:\n")
+                append("1. Reboot the device\n")
+                append("2. Disable other VPN/firewall apps (AdGuard, AFWall+, etc.)\n")
+                append("3. Check if your kernel supports netfilter (custom kernels may strip it)")
+            }
+        }
+
+        MaterialAlertDialogBuilder(ctx)
+            .setTitle("iptables Diagnostics")
+            .setMessage(message)
+            .setPositiveButton("OK", null)
+            .show()
     }
 
     // ==================== QUIC Warning Banner ====================

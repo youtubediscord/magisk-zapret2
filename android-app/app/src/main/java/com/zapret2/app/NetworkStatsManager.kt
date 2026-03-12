@@ -66,7 +66,14 @@ class NetworkStatsManager(context: Context) {
         val rulesTotal: Int = 0,
         val status: String = "unknown",  // "ok", "partial", "unknown"
         val errors: List<String> = emptyList(),
-        val timestamp: String = ""
+        val timestamp: String = "",
+        val nfqueueSupported: Boolean = true,
+        val queueBypassSupported: Boolean = true,
+        val connbytesSupported: Boolean = true,
+        val multiportSupported: Boolean = true,
+        val markSupported: Boolean = true,
+        val fallbackMode: Boolean = false,
+        val diagnostics: String = ""
     )
 
     /**
@@ -231,7 +238,14 @@ class NetworkStatsManager(context: Context) {
                 rulesTotal = map["rules_total"]?.toIntOrNull() ?: 0,
                 status = map["status"] ?: "unknown",
                 errors = map["errors"]?.split("|")?.filter { it.isNotBlank() } ?: emptyList(),
-                timestamp = map["timestamp"] ?: ""
+                timestamp = map["timestamp"] ?: "",
+                nfqueueSupported = map["nfqueue_supported"] != "0",
+                queueBypassSupported = map["queue_bypass_supported"] != "0",
+                connbytesSupported = map["connbytes_supported"] != "0",
+                multiportSupported = map["multiport_supported"] != "0",
+                markSupported = map["mark_supported"] != "0",
+                fallbackMode = map["fallback_mode"] == "1",
+                diagnostics = map["diagnostics"] ?: ""
             )
         } catch (e: Exception) {
             Log.e(TAG, "Error reading iptables status", e)
