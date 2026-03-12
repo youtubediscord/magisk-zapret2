@@ -149,6 +149,24 @@ object RuntimeConfigStore {
         return updateCoreSettings(update, removeKeys)
     }
 
+    suspend fun readDnsManager(): Map<String, String> = withContext(Dispatchers.IO) {
+        val content = readRuntimeConfigContent() ?: return@withContext emptyMap()
+        parseSectionValues(content, "dns_manager")
+    }
+
+    suspend fun upsertDnsManagerValues(
+        values: Map<String, String>,
+        removeKeys: Set<String> = emptySet()
+    ): Boolean = withContext(Dispatchers.IO) {
+        if (values.isEmpty() && removeKeys.isEmpty()) {
+            return@withContext true
+        }
+
+        val currentContent = readRuntimeConfigContent() ?: return@withContext false
+        val updatedContent = upsertSectionValues(currentContent, "dns_manager", values, removeKeys)
+        writeFileAtomically(runtimeConfigPath, updatedContent)
+    }
+
     private fun ensureRuntimeConfigInternal(): Boolean {
         return readRuntimeConfigContent() != null
     }
