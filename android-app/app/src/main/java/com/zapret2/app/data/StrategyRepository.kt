@@ -31,6 +31,13 @@ object StrategyRepository {
         val index: Int            // 0-based index (0 = disabled)
     )
 
+    data class StrategyDetail(
+        val id: String,
+        val displayName: String,
+        val description: String,
+        val args: String
+    )
+
     /**
      * Category configuration from INI file.
      * INI format:
@@ -144,6 +151,70 @@ object StrategyRepository {
             stunStrategies = strategies
             strategies
         }
+    }
+
+    /**
+     * Read full strategy details (id, desc, args) from an INI file.
+     * Parses all sections with their key-value pairs.
+     */
+    suspend fun getStrategyDetails(type: String): List<StrategyDetail> = withContext(Dispatchers.IO) {
+        val filePath = when (type) {
+            "tcp" -> TCP_STRATEGIES_FILE
+            "udp" -> UDP_STRATEGIES_FILE
+            "voice", "stun" -> STUN_STRATEGIES_FILE
+            else -> TCP_STRATEGIES_FILE
+        }
+
+        val result = Shell.cmd("cat $filePath 2>/dev/null").exec()
+        if (!result.isSuccess) return@withContext listOf(
+            StrategyDetail("disabled", "Disabled", "No DPI bypass", "")
+        )
+
+        val details = mutableListOf<StrategyDetail>()
+        details.add(StrategyDetail("disabled", "Disabled", "No DPI bypass", ""))
+
+        var currentId = ""
+        var currentDesc = ""
+        var currentArgs = ""
+        val sectionPattern = Regex("""^\[([a-zA-Z0-9_]+)\]$""")
+
+        fun flushSection() {
+            if (currentId.isNotEmpty() && currentId != "default" && currentId != "disabled") {
+                details.add(StrategyDetail(
+                    id = currentId,
+                    displayName = formatDisplayName(currentId),
+                    description = currentDesc,
+                    args = currentArgs
+                ))
+            }
+        }
+
+        for (line in result.out) {
+            val trimmed = line.trim()
+            if (trimmed.isEmpty() || trimmed.startsWith("#")) continue
+
+            val sectionMatch = sectionPattern.find(trimmed)
+            if (sectionMatch != null) {
+                flushSection()
+                currentId = sectionMatch.groupValues[1]
+                currentDesc = ""
+                currentArgs = ""
+                continue
+            }
+
+            val eqIdx = trimmed.indexOf('=')
+            if (eqIdx > 0) {
+                val key = trimmed.substring(0, eqIdx).trim()
+                val value = trimmed.substring(eqIdx + 1).trim()
+                when (key) {
+                    "desc" -> currentDesc = value
+                    "args" -> currentArgs = value
+                }
+            }
+        }
+        flushSection()
+
+        details
     }
 
     /**
@@ -520,6 +591,122 @@ object StrategyRepository {
 
         stunStrategies = strategies
         return strategies
+    }
+
+    /**
+     * Read saved strategy order from runtime.ini [strategy_order] section.
+     * Returns list of IDs in saved order, or null if no custom order exists.
+     */
+    suspend fun getSavedOrder(type: String): List<String>? = withContext(Dispatchers.IO) {
+        val key = when (type) {
+            "udp" -> "udp"
+            "voice", "stun" -> "stun"
+            else -> "tcp"
+        }
+        val content = Shell.cmd("cat $MODDIR/zapret2/runtime.ini 2>/dev/null").exec()
+        if (!content.isSuccess) return@withContext null
+
+        var inSection = false
+        for (line in content.out) {
+            val trimmed = line.trim()
+            if (trimmed == "[strategy_order]") { inSection = true; continue }
+            if (trimmed.startsWith("[") && inSection) break
+            if (inSection && trimmed.startsWith("$key=")) {
+                val value = trimmed.substringAfter("=").trim()
+                if (value.isNotEmpty()) {
+                    return@withContext value.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+                }
+            }
+        }
+        null
+    }
+
+    /**
+     * Save custom strategy order to runtime.ini [strategy_order] section.
+     * Only saves non-disabled strategy IDs (disabled is always first).
+     */
+    suspend fun saveOrder(type: String, ids: List<String>) = withContext(Dispatchers.IO) {
+        val key = when (type) {
+            "udp" -> "udp"
+            "voice", "stun" -> "stun"
+            else -> "tcp"
+        }
+        val filtered = ids.filter { it != "disabled" }
+        val value = filtered.joinToString(",")
+
+        // Read current runtime.ini
+        val runtimePath = "$MODDIR/zapret2/runtime.ini"
+        val result = Shell.cmd("cat \"$runtimePath\" 2>/dev/null").exec()
+        val lines = if (result.isSuccess) result.out.toMutableList() else mutableListOf()
+
+        // Find or create [strategy_order] section
+        var sectionStart = -1
+        var sectionEnd = lines.size
+        var keyLine = -1
+
+        for (i in lines.indices) {
+            val trimmed = lines[i].trim()
+            if (trimmed == "[strategy_order]") {
+                sectionStart = i
+                continue
+            }
+            if (sectionStart >= 0 && trimmed.startsWith("[")) {
+                sectionEnd = i
+                break
+            }
+            if (sectionStart >= 0 && trimmed.startsWith("$key=")) {
+                keyLine = i
+            }
+        }
+
+        if (sectionStart < 0) {
+            // Add new section at end
+            if (lines.isNotEmpty() && lines.last().isNotBlank()) lines.add("")
+            lines.add("[strategy_order]")
+            lines.add("$key=$value")
+        } else if (keyLine >= 0) {
+            // Update existing key
+            lines[keyLine] = "$key=$value"
+        } else {
+            // Add key to existing section
+            lines.add(sectionEnd, "$key=$value")
+        }
+
+        // Write back
+        val content = lines.joinToString("\n")
+        var delimiter = "__ZAPRET_ORDER_EOF__"
+        while (content.contains(delimiter)) delimiter += "_X"
+        Shell.cmd("cat <<'$delimiter' > \"$runtimePath\"\n$content\n$delimiter").exec()
+    }
+
+    /**
+     * Apply saved order to a list of strategy details.
+     * Strategies in saved order come first, new strategies come after.
+     * "disabled" always stays first.
+     */
+    fun applyOrder(details: List<StrategyDetail>, savedOrder: List<String>?): List<StrategyDetail> {
+        if (savedOrder.isNullOrEmpty()) return details
+
+        val disabled = details.firstOrNull { it.id == "disabled" }
+        val rest = details.filter { it.id != "disabled" }
+        val byId = rest.associateBy { it.id }
+
+        val ordered = mutableListOf<StrategyDetail>()
+        if (disabled != null) ordered.add(disabled)
+
+        // Add in saved order
+        for (id in savedOrder) {
+            byId[id]?.let { ordered.add(it) }
+        }
+
+        // Add any new strategies not in saved order
+        for (detail in rest) {
+            if (detail.id !in savedOrder) {
+                ordered.add(detail)
+            }
+        }
+
+        return ordered
     }
 
     /**
