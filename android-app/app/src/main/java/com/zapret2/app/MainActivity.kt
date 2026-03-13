@@ -101,7 +101,7 @@ private fun MainScreen() {
                         .padding(24.dp)
                 ) {
                     Icon(
-                        painter = painterResource(R.mipmap.ic_launcher),
+                        painter = painterResource(R.drawable.ic_launcher),
                         contentDescription = null,
                         tint = AccentLightBlue,
                         modifier = Modifier.size(48.dp)
