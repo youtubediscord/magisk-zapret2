@@ -43,6 +43,7 @@
         android:layout_gravity="start"
         android:background="#2D2D2D"
         android:fitsSystemWindows="true"
+        app:headerLayout="@layout/nav_header"
         app:itemIconTint="@color/nav_item_color"
         app:itemTextColor="@color/nav_item_color"
         app:menu="@menu/nav_drawer" />

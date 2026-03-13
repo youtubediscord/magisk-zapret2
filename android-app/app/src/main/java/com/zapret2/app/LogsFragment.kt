@@ -12,8 +12,8 @@ import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.ScrollView
 import android.widget.TextView
-import android.widget.Toast
 import androidx.fragment.app.Fragment
+import com.google.android.material.snackbar.Snackbar
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
@@ -213,9 +213,7 @@ class LogsFragment : Fragment() {
                     if (rawCmdline.isNotBlank()) {
                         copyToClipboard(rawCmdline, "Command line")
                     } else {
-                        context?.let { ctx ->
-                            Toast.makeText(ctx, "No command to copy", Toast.LENGTH_SHORT).show()
-                        }
+                        view?.let { Snackbar.make(it, "No command to copy", Snackbar.LENGTH_SHORT).show() }
                     }
                 }
                 MainTab.LOGS, MainTab.WARNINGS -> {
@@ -223,9 +221,7 @@ class LogsFragment : Fragment() {
                         val label = if (currentMainTab == MainTab.WARNINGS) "Warnings" else "Logs"
                         copyToClipboard(currentLogs, label)
                     } else {
-                        context?.let { ctx ->
-                            Toast.makeText(ctx, "No logs to copy", Toast.LENGTH_SHORT).show()
-                        }
+                        view?.let { Snackbar.make(it, "No logs to copy", Snackbar.LENGTH_SHORT).show() }
                     }
                 }
             }
@@ -397,14 +393,12 @@ class LogsFragment : Fragment() {
 
             if (!isAdded || view == null) return@launch
 
-            context?.let { ctx ->
-                if (success) {
-                    Toast.makeText(ctx, "Logs cleared", Toast.LENGTH_SHORT).show()
-                    currentLogs = ""
-                    displayLogs("")
-                } else {
-                    Toast.makeText(ctx, "Failed to clear logs", Toast.LENGTH_SHORT).show()
-                }
+            if (success) {
+                view?.let { Snackbar.make(it, "Logs cleared", Snackbar.LENGTH_SHORT).show() }
+                currentLogs = ""
+                displayLogs("")
+            } else {
+                view?.let { Snackbar.make(it, "Failed to clear logs", Snackbar.LENGTH_SHORT).show() }
             }
 
             buttonClearLogs?.isEnabled = true
@@ -412,8 +406,9 @@ class LogsFragment : Fragment() {
     }
 
     private fun startPolling() {
-        // Only poll when on Logs tab
+        // Only poll when on Logs tab and fragment is attached
         if (currentMainTab != MainTab.LOGS && currentMainTab != MainTab.WARNINGS) return
+        if (!isAdded || view == null) return
 
         pollingJob?.cancel()
         pollingJob = viewLifecycleOwner.lifecycleScope.launch {
@@ -504,9 +499,9 @@ class LogsFragment : Fragment() {
             val clipboard = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
             val clip = ClipData.newPlainText(label, text)
             clipboard.setPrimaryClip(clip)
-            Toast.makeText(ctx, "$label copied to clipboard", Toast.LENGTH_SHORT).show()
+            view?.let { Snackbar.make(it, "$label copied to clipboard", Snackbar.LENGTH_SHORT).show() }
         } catch (e: Exception) {
-            Toast.makeText(ctx, "Failed to copy", Toast.LENGTH_SHORT).show()
+            view?.let { Snackbar.make(it, "Failed to copy", Snackbar.LENGTH_SHORT).show() }
         }
     }
 
@@ -526,6 +521,20 @@ class LogsFragment : Fragment() {
         super.onDestroyView()
         pollingJob?.cancel()
         pollingJob = null
+
+        // Null out view references to prevent stale access after view destruction
+        tabLayoutLogs = null
+        cmdlineContainer = null
+        logsContainer = null
+        iconCopyCmdline = null
+        textCmdline = null
+        editLogFilter = null
+        checkAutoScroll = null
+        scrollLogs = null
+        textLogs = null
+        buttonRefresh = null
+        buttonCopyLogs = null
+        buttonClearLogs = null
     }
 
     /**

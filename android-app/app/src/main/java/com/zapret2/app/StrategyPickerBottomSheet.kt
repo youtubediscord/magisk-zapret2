@@ -9,6 +9,7 @@ import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.RadioButton
 import android.widget.TextView
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -139,7 +140,7 @@ class StrategyPickerBottomSheet : BottomSheetDialogFragment() {
         }
 
         val recyclerView = view.findViewById<RecyclerView>(R.id.recyclerStrategies)
-        recyclerView.layoutManager = LinearLayoutManager(requireContext())
+        recyclerView.layoutManager = LinearLayoutManager(context ?: return)
 
         // Load strategies asynchronously for TCP/UDP/Voice
         when (strategyType) {
@@ -156,16 +157,20 @@ class StrategyPickerBottomSheet : BottomSheetDialogFragment() {
      * Update filter mode toggle button states
      */
     private fun updateFilterModeButtons(btnIpset: TextView, btnHostlist: TextView, selectedMode: String) {
+        val ctx = context ?: return
+        val activeColor = ContextCompat.getColor(ctx, R.color.text_primary)
+        val inactiveColor = ContextCompat.getColor(ctx, R.color.text_secondary)
+
         if (selectedMode == "ipset") {
             btnIpset.setBackgroundResource(R.drawable.segmented_button_left_selected)
-            btnIpset.setTextColor(0xFFFFFFFF.toInt())
+            btnIpset.setTextColor(activeColor)
             btnHostlist.setBackgroundResource(R.drawable.segmented_button_right)
-            btnHostlist.setTextColor(0xFF888888.toInt())
+            btnHostlist.setTextColor(inactiveColor)
         } else {
             btnIpset.setBackgroundResource(R.drawable.segmented_button_left)
-            btnIpset.setTextColor(0xFF888888.toInt())
+            btnIpset.setTextColor(inactiveColor)
             btnHostlist.setBackgroundResource(R.drawable.segmented_button_right_selected)
-            btnHostlist.setTextColor(0xFFFFFFFF.toInt())
+            btnHostlist.setTextColor(activeColor)
         }
     }
 
@@ -173,7 +178,7 @@ class StrategyPickerBottomSheet : BottomSheetDialogFragment() {
      * Load TCP/UDP strategies asynchronously and setup adapter
      */
     private fun loadStrategiesAsync(recyclerView: RecyclerView, isTcp: Boolean, currentStrategyName: String, canSwitchFilter: Boolean) {
-        lifecycleScope.launch {
+        viewLifecycleOwner.lifecycleScope.launch {
             val strategyInfoList = if (isTcp) {
                 StrategyRepository.getTcpStrategies()
             } else {
@@ -198,7 +203,7 @@ class StrategyPickerBottomSheet : BottomSheetDialogFragment() {
      * Load STUN strategies asynchronously for voice/video calls
      */
     private fun loadStunStrategiesAsync(recyclerView: RecyclerView, currentStrategyName: String, canSwitchFilter: Boolean) {
-        lifecycleScope.launch {
+        viewLifecycleOwner.lifecycleScope.launch {
             val strategyInfoList = StrategyRepository.getStunStrategies()
 
             // Convert to StrategyItem format

@@ -196,6 +196,8 @@ class HostlistsFragment : Fragment() {
             } else {
                 emptyView?.visibility = View.GONE
                 recyclerView?.visibility = View.VISIBLE
+                recyclerView?.alpha = 0f
+                recyclerView?.animate()?.alpha(1f)?.setDuration(200)?.start()
             }
         }
     }

@@ -7,8 +7,8 @@ import android.view.ViewGroup
 import android.widget.EditText
 import android.widget.ProgressBar
 import android.widget.TextView
-import android.widget.Toast
 import androidx.fragment.app.Fragment
+import com.google.android.material.snackbar.Snackbar
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.button.MaterialButton
 import com.topjohnwu.superuser.Shell
@@ -109,7 +109,7 @@ class HostsEditorFragment : Fragment() {
                 cachedContent = content
                 editHostsContent?.setText(content)
             } else {
-                Toast.makeText(requireContext(), "Failed to read hosts file", Toast.LENGTH_SHORT).show()
+                view?.let { Snackbar.make(it, "Failed to read hosts file", Snackbar.LENGTH_SHORT).show() }
             }
 
             setActionsEnabled(true)
@@ -122,7 +122,7 @@ class HostsEditorFragment : Fragment() {
             .trimEnd('\n') + "\n"
 
         if (content.isBlank()) {
-            Toast.makeText(requireContext(), "Hosts file is empty", Toast.LENGTH_SHORT).show()
+            view?.let { Snackbar.make(it, "Hosts file is empty", Snackbar.LENGTH_SHORT).show() }
             return
         }
 
@@ -141,9 +141,9 @@ class HostsEditorFragment : Fragment() {
 
             if (saved) {
                 cachedContent = content
-                Toast.makeText(requireContext(), "Hosts file saved", Toast.LENGTH_SHORT).show()
+                view?.let { Snackbar.make(it, "Hosts file saved", Snackbar.LENGTH_SHORT).show() }
             } else {
-                Toast.makeText(requireContext(), "Failed to save hosts file", Toast.LENGTH_SHORT).show()
+                view?.let { Snackbar.make(it, "Failed to save hosts file", Snackbar.LENGTH_SHORT).show() }
             }
 
             setActionsEnabled(true)

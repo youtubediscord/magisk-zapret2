@@ -2,7 +2,7 @@
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#202020">
+    android:background="@color/background_primary">
 
     <com.zapret2.app.NestedScrollableHost
         android:layout_width="match_parent"
@@ -26,7 +26,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="Active Runtime Mode"
-                    android:textColor="#888888"
+                    android:textColor="@color/text_secondary"
                     android:textSize="12sp"
                     android:layout_marginStart="4dp"
                     android:layout_marginBottom="12dp" />
@@ -43,7 +43,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="Categories mode"
-                    android:textColor="#FFFFFF"
+                    android:textColor="@color/text_primary"
                     android:textSize="15sp"
                     android:textStyle="bold" />
 
@@ -52,7 +52,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="categories.ini + strategies-*.ini"
-                    android:textColor="#C8C8C8"
+                    android:textColor="@color/text_subtitle_active"
                     android:textSize="12sp"
                     android:layout_marginTop="6dp" />
 
@@ -61,7 +61,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="/data/adb/modules/zapret2/zapret2/presets"
-                    android:textColor="#808080"
+                    android:textColor="@color/text_tertiary"
                     android:textSize="11sp"
                     android:layout_marginTop="6dp" />
 
@@ -80,8 +80,8 @@
                         android:layout_marginEnd="8dp"
                         android:text="Reload"
                         android:textSize="12sp"
-                        android:backgroundTint="#383838"
-                        android:textColor="#FFFFFF" />
+                        android:backgroundTint="@color/surface_variant"
+                        android:textColor="@color/text_primary" />
 
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/buttonUseCategories"
@@ -92,8 +92,8 @@
                         android:layout_marginStart="8dp"
                         android:text="Use Categories"
                         android:textSize="12sp"
-                        android:backgroundTint="#0078D4"
-                        android:textColor="#FFFFFF" />
+                        android:backgroundTint="@color/accent_primary"
+                        android:textColor="@color/text_primary" />
 
                 </LinearLayout>
 
@@ -103,7 +103,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Preset Files"
-                android:textColor="#888888"
+                android:textColor="@color/text_secondary"
                 android:textSize="12sp"
                 android:layout_marginTop="24dp"
                 android:layout_marginBottom="8dp"
@@ -113,7 +113,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="Presets are plain .txt files in module folder. You can edit them directly or from this screen."
-                android:textColor="#808080"
+                android:textColor="@color/text_tertiary"
                 android:textSize="12sp"
                 android:layout_marginBottom="12dp" />
 
@@ -128,7 +128,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="No preset files found"
-                android:textColor="#888888"
+                android:textColor="@color/text_secondary"
                 android:textSize="13sp"
                 android:gravity="center"
                 android:paddingVertical="24dp"
@@ -148,7 +148,7 @@
         android:id="@+id/loadingOverlay"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:background="#CC202020"
+        android:background="@color/overlay_loading"
         android:visibility="gone"
         android:clickable="true"
         android:focusable="true">
@@ -163,14 +163,14 @@
             <ProgressBar
                 android:layout_width="48dp"
                 android:layout_height="48dp"
-                android:indeterminateTint="#0078D4" />
+                android:indeterminateTint="@color/accent_primary" />
 
             <TextView
                 android:id="@+id/loadingText"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Loading..."
-                android:textColor="#FFFFFF"
+                android:textColor="@color/text_primary"
                 android:textSize="14sp"
                 android:layout_marginTop="16dp" />
 

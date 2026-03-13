@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="@color/background_primary"
+    android:paddingStart="20dp"
+    android:paddingEnd="20dp"
+    android:paddingTop="32dp"
+    android:paddingBottom="16dp">
+
+    <!-- Accent line at top -->
+    <View
+        android:layout_width="40dp"
+        android:layout_height="3dp"
+        android:layout_marginBottom="16dp"
+        android:background="@color/accent_primary" />
+
+    <!-- App name -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Zapret2"
+        android:textSize="22sp"
+        android:textColor="@color/text_primary"
+        android:fontFamily="sans-serif-medium" />
+
+    <!-- Subtitle -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="DPI Bypass Module"
+        android:textSize="13sp"
+        android:textColor="@color/text_tertiary"
+        android:layout_marginTop="2dp" />
+
+    <!-- Version -->
+    <TextView
+        android:id="@+id/navHeaderVersion"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="v1.0.0"
+        android:textSize="11sp"
+        android:textColor="@color/text_quaternary"
+        android:layout_marginTop="8dp" />
+
+</LinearLayout>

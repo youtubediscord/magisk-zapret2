@@ -16,7 +16,7 @@
         android:layout_width="24dp"
         android:layout_height="24dp"
         android:src="@drawable/ic_apps"
-        app:tint="#4CAF50" />
+        app:tint="@color/status_success" />
 
     <LinearLayout
         android:layout_width="0dp"
@@ -30,7 +30,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Category"
-            android:textColor="#FFFFFF"
+            android:textColor="@color/text_primary"
             android:textSize="14sp"
             android:maxLines="1"
             android:ellipsize="end" />
@@ -40,7 +40,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="TCP - ipset.txt"
-            android:textColor="#888888"
+            android:textColor="@color/text_secondary"
             android:textSize="11sp"
             android:maxLines="1"
             android:ellipsize="end" />
@@ -52,7 +52,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="Disabled"
-        android:textColor="#888888"
+        android:textColor="@color/text_secondary"
         android:textSize="13sp"
         android:layout_marginEnd="8dp"
         android:maxWidth="140dp"
@@ -63,6 +63,6 @@
         android:layout_width="20dp"
         android:layout_height="20dp"
         android:src="@drawable/ic_chevron_right"
-        app:tint="#888888" />
+        app:tint="@color/text_secondary" />
 
 </LinearLayout>

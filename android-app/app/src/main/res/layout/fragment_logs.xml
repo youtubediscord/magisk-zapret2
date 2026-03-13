@@ -4,21 +4,21 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="#202020">
+    android:background="@color/background_primary">
 
     <!-- Tab Layout: Command / Logs / Errors -->
     <com.google.android.material.tabs.TabLayout
         android:id="@+id/tabLayoutLogs"
         android:layout_width="match_parent"
         android:layout_height="48dp"
-        android:background="#202020"
-        app:tabIndicatorColor="#0078D4"
+        android:background="@color/background_primary"
+        app:tabIndicatorColor="@color/accent_primary"
         app:tabIndicatorHeight="2dp"
-        app:tabSelectedTextColor="#FFFFFF"
-        app:tabTextColor="#808080"
+        app:tabSelectedTextColor="@color/text_primary"
+        app:tabTextColor="@color/text_tertiary"
         app:tabMode="fixed"
         app:tabGravity="fill"
-        app:tabRippleColor="#1A0078D4">
+        app:tabRippleColor="@color/ripple_accent">
 
         <com.google.android.material.tabs.TabItem
             android:layout_width="wrap_content"
@@ -41,7 +41,7 @@
     <View
         android:layout_width="match_parent"
         android:layout_height="1dp"
-        android:background="#404040" />
+        android:background="@color/border_strong" />
 
     <!-- Command Tab Content -->
     <FrameLayout
@@ -61,7 +61,7 @@
                 android:fillViewport="true"
                 android:scrollbars="vertical"
                 android:fadeScrollbars="false"
-                android:background="#1A1A1A"
+                android:background="@color/background_darker"
                 android:layout_marginHorizontal="16dp"
                 android:layout_marginTop="8dp"
                 android:layout_marginBottom="8dp">
@@ -85,7 +85,7 @@
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
                             android:text="Current Command Line"
-                            android:textColor="#FFFFFF"
+                            android:textColor="@color/text_primary"
                             android:textSize="14sp"
                             android:textStyle="bold" />
 
@@ -94,7 +94,7 @@
                             android:layout_width="32dp"
                             android:layout_height="32dp"
                             android:src="@drawable/ic_copy"
-                            app:tint="#808080"
+                            app:tint="@color/text_tertiary"
                             android:padding="4dp"
                             android:background="?android:attr/selectableItemBackgroundBorderless"
                             android:contentDescription="Copy command line" />
@@ -107,7 +107,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="No command line available"
-                        android:textColor="#4EC9B0"
+                        android:textColor="@color/text_command"
                         android:textSize="12sp"
                         android:fontFamily="monospace"
                         android:lineSpacingExtra="4dp"
@@ -138,14 +138,14 @@
             android:gravity="center_vertical"
             android:paddingHorizontal="16dp"
             android:paddingVertical="8dp"
-            android:background="#202020">
+            android:background="@color/background_primary">
 
             <com.google.android.material.textfield.TextInputLayout
                 android:layout_width="0dp"
                 android:layout_height="40dp"
                 android:layout_weight="1"
                 style="@style/Widget.Material3.TextInputLayout.OutlinedBox.Dense"
-                app:boxStrokeColor="#404040"
+                app:boxStrokeColor="@color/border_strong"
                 app:boxStrokeWidth="1dp"
                 app:boxCornerRadiusTopStart="8dp"
                 app:boxCornerRadiusTopEnd="8dp"
@@ -158,8 +158,8 @@
                     android:layout_width="match_parent"
                     android:layout_height="match_parent"
                     android:hint="Filter logs..."
-                    android:textColor="#FFFFFF"
-                    android:textColorHint="#808080"
+                    android:textColor="@color/text_primary"
+                    android:textColorHint="@color/text_tertiary"
                     android:textSize="13sp"
                     android:inputType="text"
                     android:imeOptions="actionSearch"
@@ -174,10 +174,10 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Auto"
-                android:textColor="#808080"
+                android:textColor="@color/text_tertiary"
                 android:textSize="12sp"
                 android:checked="true"
-                app:buttonTint="#0078D4"
+                app:buttonTint="@color/accent_primary"
                 android:layout_marginStart="12dp" />
 
         </LinearLayout>
@@ -195,7 +195,7 @@
                 android:fillViewport="true"
                 android:scrollbars="vertical"
                 android:fadeScrollbars="false"
-                android:background="#1A1A1A"
+                android:background="@color/background_darker"
                 android:layout_marginHorizontal="16dp"
                 android:layout_marginTop="8dp"
                 android:layout_marginBottom="8dp">
@@ -205,7 +205,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="Loading logs..."
-                    android:textColor="#D4D4D4"
+                    android:textColor="@color/text_log"
                     android:textSize="11sp"
                     android:fontFamily="monospace"
                     android:lineSpacingExtra="2dp"
@@ -227,7 +227,7 @@
         android:paddingTop="8dp"
         android:paddingBottom="16dp"
         android:gravity="center"
-        android:background="#202020">
+        android:background="@color/background_primary">
 
         <!-- Refresh Button -->
         <com.google.android.material.button.MaterialButton
@@ -241,12 +241,12 @@
             android:textAllCaps="false"
             style="@style/Widget.Material3.Button.OutlinedButton"
             app:cornerRadius="8dp"
-            app:strokeColor="#404040"
+            app:strokeColor="@color/border_strong"
             app:strokeWidth="1dp"
-            android:textColor="#FFFFFF"
+            android:textColor="@color/text_primary"
             app:icon="@drawable/ic_refresh"
             app:iconGravity="textStart"
-            app:iconTint="#FFFFFF"
+            app:iconTint="@color/text_primary"
             app:iconPadding="4dp"
             app:iconSize="18dp" />
 
@@ -262,12 +262,12 @@
             android:textAllCaps="false"
             style="@style/Widget.Material3.Button.OutlinedButton"
             app:cornerRadius="8dp"
-            app:strokeColor="#404040"
+            app:strokeColor="@color/border_strong"
             app:strokeWidth="1dp"
-            android:textColor="#FFFFFF"
+            android:textColor="@color/text_primary"
             app:icon="@drawable/ic_copy"
             app:iconGravity="textStart"
-            app:iconTint="#FFFFFF"
+            app:iconTint="@color/text_primary"
             app:iconPadding="4dp"
             app:iconSize="18dp" />
 
@@ -283,12 +283,12 @@
             android:textAllCaps="false"
             style="@style/Widget.Material3.Button.OutlinedButton"
             app:cornerRadius="8dp"
-            app:strokeColor="#FF6B6B"
+            app:strokeColor="@color/status_error"
             app:strokeWidth="1dp"
-            android:textColor="#FF6B6B"
+            android:textColor="@color/status_error"
             app:icon="@drawable/ic_delete"
             app:iconGravity="textStart"
-            app:iconTint="#FF6B6B"
+            app:iconTint="@color/status_error"
             app:iconPadding="4dp"
             app:iconSize="18dp" />
 

@@ -3,7 +3,7 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#202020">
+    android:background="@color/background_primary">
 
     <com.zapret2.app.NestedScrollableHost
         android:layout_width="match_parent"
@@ -28,7 +28,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="DNS Preset"
-                android:textColor="#888888"
+                android:textColor="@color/text_secondary"
                 android:textSize="12sp"
                 android:textStyle="bold"
                 android:layout_marginBottom="4dp"
@@ -39,70 +39,80 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Select DNS provider for services"
-                android:textColor="#666666"
+                android:textColor="@color/text_quaternary"
                 android:textSize="11sp"
                 android:layout_marginBottom="12dp"
                 android:layout_marginStart="4dp" />
 
             <!-- DNS Preset selector row - clickable, shows current selection -->
-            <LinearLayout
-                android:id="@+id/rowDnsPreset"
+            <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
-                android:layout_height="56dp"
-                android:orientation="horizontal"
-                android:gravity="center_vertical"
-                android:paddingHorizontal="16dp"
-                android:background="@drawable/setting_row_background"
-                android:clickable="true"
-                android:focusable="true">
-
-                <ImageView
-                    android:layout_width="24dp"
-                    android:layout_height="24dp"
-                    android:src="@drawable/ic_wifi"
-                    app:tint="#0078D4" />
+                android:layout_height="wrap_content"
+                app:cardBackgroundColor="@color/surface_card"
+                app:cardCornerRadius="8dp"
+                app:cardElevation="0dp"
+                app:strokeWidth="0dp">
 
                 <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:layout_marginStart="16dp">
+                    android:id="@+id/rowDnsPreset"
+                    android:layout_width="match_parent"
+                    android:layout_height="56dp"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:paddingHorizontal="16dp"
+                    android:background="@drawable/setting_row_background"
+                    android:clickable="true"
+                    android:focusable="true">
+
+                    <ImageView
+                        android:layout_width="24dp"
+                        android:layout_height="24dp"
+                        android:src="@drawable/ic_wifi"
+                        app:tint="@color/accent_primary" />
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:layout_marginStart="16dp">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="DNS Preset"
+                            android:textColor="@color/text_primary"
+                            android:textSize="14sp" />
+
+                        <TextView
+                            android:id="@+id/textDnsPresetSubtitle"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Tap to change"
+                            android:textColor="@color/text_secondary"
+                            android:textSize="11sp" />
+                    </LinearLayout>
 
                     <TextView
+                        android:id="@+id/textDnsPresetValue"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="DNS Preset"
-                        android:textColor="#FFFFFF"
-                        android:textSize="14sp" />
+                        android:text="Zapret DNS"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="13sp"
+                        android:layout_marginEnd="8dp"
+                        android:maxWidth="160dp"
+                        android:ellipsize="end"
+                        android:singleLine="true" />
 
-                    <TextView
-                        android:id="@+id/textDnsPresetSubtitle"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Tap to change"
-                        android:textColor="#888888"
-                        android:textSize="11sp" />
+                    <ImageView
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:src="@drawable/ic_chevron_right"
+                        app:tint="@color/text_secondary" />
                 </LinearLayout>
 
-                <TextView
-                    android:id="@+id/textDnsPresetValue"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Zapret DNS"
-                    android:textColor="#888888"
-                    android:textSize="13sp"
-                    android:layout_marginEnd="8dp"
-                    android:maxWidth="160dp"
-                    android:ellipsize="end"
-                    android:singleLine="true" />
-
-                <ImageView
-                    android:layout_width="20dp"
-                    android:layout_height="20dp"
-                    android:src="@drawable/ic_chevron_right"
-                    app:tint="#888888" />
-            </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
 
             <!-- 24dp spacer -->
             <View
@@ -123,7 +133,7 @@
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:text="DNS Services"
-                    android:textColor="#888888"
+                    android:textColor="@color/text_secondary"
                     android:textSize="12sp" />
 
                 <CheckBox
@@ -131,9 +141,9 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="Select All"
-                    android:textColor="#888888"
+                    android:textColor="@color/text_secondary"
                     android:textSize="11sp"
-                    android:buttonTint="#0078D4" />
+                    android:buttonTint="@color/accent_primary" />
             </LinearLayout>
 
             <!-- Container for dynamically inflated DNS service rows -->
@@ -162,7 +172,7 @@
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:text="Direct Services"
-                    android:textColor="#888888"
+                    android:textColor="@color/text_secondary"
                     android:textSize="12sp" />
 
                 <CheckBox
@@ -170,9 +180,9 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="Select All"
-                    android:textColor="#888888"
+                    android:textColor="@color/text_secondary"
                     android:textSize="11sp"
-                    android:buttonTint="#0078D4" />
+                    android:buttonTint="@color/accent_primary" />
             </LinearLayout>
 
             <!-- Container for dynamically inflated Direct service rows -->
@@ -188,40 +198,51 @@
                 android:layout_height="16dp" />
 
             <!-- Button row -->
-            <LinearLayout
+            <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical">
+                app:cardBackgroundColor="@color/surface_card"
+                app:cardCornerRadius="8dp"
+                app:cardElevation="0dp"
+                app:strokeWidth="0dp">
 
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/buttonReset"
-                    android:layout_width="0dp"
-                    android:layout_height="48dp"
-                    android:layout_weight="1"
-                    android:text="Reset"
-                    android:textColor="#FFFFFF"
-                    android:layout_marginEnd="8dp"
-                    app:backgroundTint="#383838"
-                    app:cornerRadius="8dp"
-                    app:icon="@drawable/ic_delete"
-                    app:iconTint="#FFFFFF"
-                    app:iconGravity="textStart" />
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:padding="12dp">
 
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/buttonApply"
-                    android:layout_width="0dp"
-                    android:layout_height="48dp"
-                    android:layout_weight="1"
-                    android:text="Apply"
-                    android:textColor="#FFFFFF"
-                    android:layout_marginStart="8dp"
-                    app:backgroundTint="#0078D4"
-                    app:cornerRadius="8dp"
-                    app:icon="@drawable/ic_save"
-                    app:iconTint="#FFFFFF"
-                    app:iconGravity="textStart" />
-            </LinearLayout>
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/buttonReset"
+                        android:layout_width="0dp"
+                        android:layout_height="48dp"
+                        android:layout_weight="1"
+                        android:text="Reset"
+                        android:textColor="@color/text_primary"
+                        android:layout_marginEnd="8dp"
+                        app:backgroundTint="@color/surface_variant"
+                        app:cornerRadius="8dp"
+                        app:icon="@drawable/ic_delete"
+                        app:iconTint="@color/text_primary"
+                        app:iconGravity="textStart" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/buttonApply"
+                        android:layout_width="0dp"
+                        android:layout_height="48dp"
+                        android:layout_weight="1"
+                        android:text="Apply"
+                        android:textColor="@color/text_primary"
+                        android:layout_marginStart="8dp"
+                        app:backgroundTint="@color/accent_primary"
+                        app:cornerRadius="8dp"
+                        app:icon="@drawable/ic_save"
+                        app:iconTint="@color/text_primary"
+                        app:iconGravity="textStart" />
+                </LinearLayout>
+
+            </com.google.android.material.card.MaterialCardView>
 
             <!-- Bottom padding -->
             <View
@@ -238,7 +259,7 @@
         android:id="@+id/loadingOverlay"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:background="#CC202020"
+        android:background="@color/overlay_loading"
         android:visibility="gone"
         android:clickable="true"
         android:focusable="true">
@@ -253,14 +274,14 @@
             <ProgressBar
                 android:layout_width="48dp"
                 android:layout_height="48dp"
-                android:indeterminateTint="#0078D4" />
+                android:indeterminateTint="@color/accent_primary" />
 
             <TextView
                 android:id="@+id/loadingText"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Applying DNS..."
-                android:textColor="#FFFFFF"
+                android:textColor="@color/text_primary"
                 android:textSize="14sp"
                 android:layout_marginTop="16dp" />
         </LinearLayout>

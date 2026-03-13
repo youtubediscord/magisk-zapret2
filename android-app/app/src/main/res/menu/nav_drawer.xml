@@ -1,41 +1,59 @@
 <?xml version="1.0" encoding="utf-8"?>
 <menu xmlns:android="http://schemas.android.com/apk/res/android">
-    <group android:checkableBehavior="single">
-        <item
-            android:id="@+id/nav_control"
+
+    <group android:id="@+id/group_main"
+        android:checkableBehavior="single">
+        <item android:id="@+id/nav_control"
             android:icon="@drawable/ic_control"
             android:title="Control" />
-        <item
-            android:id="@+id/nav_strategies"
+        <item android:id="@+id/nav_strategies"
             android:icon="@drawable/ic_strategies"
             android:title="Strategies" />
-        <item
-            android:id="@+id/nav_presets"
-            android:icon="@drawable/ic_shield"
-            android:title="Presets" />
-        <item
-            android:id="@+id/nav_editor"
-            android:icon="@drawable/ic_strategies"
-            android:title="Cmdline" />
-        <item
-            android:id="@+id/nav_hostlists"
-            android:icon="@drawable/ic_hostlist"
-            android:title="Hostlists" />
-        <item
-            android:id="@+id/nav_hosts_editor"
-            android:icon="@drawable/ic_hostlist"
-            android:title="Hosts Editor" />
-        <item
-            android:id="@+id/nav_dns_manager"
-            android:icon="@drawable/ic_wifi"
-            android:title="DNS" />
-        <item
-            android:id="@+id/nav_logs"
-            android:icon="@drawable/ic_logs"
-            android:title="Logs" />
-        <item
-            android:id="@+id/nav_about"
-            android:icon="@drawable/ic_info"
-            android:title="About" />
     </group>
+
+    <item android:title="Configuration">
+        <menu>
+            <group android:id="@+id/group_config"
+                android:checkableBehavior="single">
+                <item android:id="@+id/nav_presets"
+                    android:icon="@drawable/ic_shield"
+                    android:title="Presets" />
+                <item android:id="@+id/nav_editor"
+                    android:icon="@drawable/ic_strategies"
+                    android:title="Cmdline" />
+                <item android:id="@+id/nav_dns_manager"
+                    android:icon="@drawable/ic_wifi"
+                    android:title="DNS" />
+            </group>
+        </menu>
+    </item>
+
+    <item android:title="Data">
+        <menu>
+            <group android:id="@+id/group_data"
+                android:checkableBehavior="single">
+                <item android:id="@+id/nav_hostlists"
+                    android:icon="@drawable/ic_hostlist"
+                    android:title="Hostlists" />
+                <item android:id="@+id/nav_hosts_editor"
+                    android:icon="@drawable/ic_hostlist"
+                    android:title="Hosts Editor" />
+            </group>
+        </menu>
+    </item>
+
+    <item android:title="System">
+        <menu>
+            <group android:id="@+id/group_system"
+                android:checkableBehavior="single">
+                <item android:id="@+id/nav_logs"
+                    android:icon="@drawable/ic_logs"
+                    android:title="Logs" />
+                <item android:id="@+id/nav_about"
+                    android:icon="@drawable/ic_info"
+                    android:title="About" />
+            </group>
+        </menu>
+    </item>
+
 </menu>

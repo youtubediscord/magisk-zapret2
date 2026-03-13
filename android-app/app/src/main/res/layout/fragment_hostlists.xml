@@ -4,7 +4,7 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#202020">
+    android:background="@color/background_primary">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -22,7 +22,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Hostlists"
-                android:textColor="#FFFFFF"
+                android:textColor="@color/text_primary"
                 android:textSize="24sp"
                 android:textStyle="bold" />
 
@@ -30,7 +30,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Domain lists for filtering"
-                android:textColor="#808080"
+                android:textColor="@color/text_tertiary"
                 android:textSize="14sp"
                 android:layout_marginTop="4dp" />
 
@@ -55,7 +55,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="Total Domains"
-                        android:textColor="#808080"
+                        android:textColor="@color/text_tertiary"
                         android:textSize="12sp" />
 
                     <TextView
@@ -63,7 +63,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="0"
-                        android:textColor="#60CDFF"
+                        android:textColor="@color/accent_light"
                         android:textSize="24sp"
                         android:textStyle="bold"
                         android:layout_marginTop="4dp" />
@@ -84,7 +84,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="Hostlist Files"
-                        android:textColor="#808080"
+                        android:textColor="@color/text_tertiary"
                         android:textSize="12sp" />
 
                     <TextView
@@ -92,7 +92,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="0"
-                        android:textColor="#0078D4"
+                        android:textColor="@color/accent_primary"
                         android:textSize="24sp"
                         android:textStyle="bold"
                         android:layout_marginTop="4dp" />
@@ -107,7 +107,7 @@
         <View
             android:layout_width="match_parent"
             android:layout_height="1dp"
-            android:background="#3D3D3D" />
+            android:background="@color/border" />
 
         <!-- SwipeRefreshLayout with RecyclerView -->
         <com.zapret2.app.NestedScrollableHost
@@ -142,7 +142,7 @@
                         android:layout_height="48dp"
                         android:layout_gravity="center"
                         android:visibility="gone"
-                        android:indeterminateTint="#0078D4" />
+                        android:indeterminateTint="@color/accent_primary" />
 
                     <!-- Empty view -->
                     <LinearLayout
@@ -158,13 +158,13 @@
                             android:layout_width="64dp"
                             android:layout_height="64dp"
                             android:src="@drawable/ic_hostlist"
-                            app:tint="#505050" />
+                            app:tint="@color/text_empty" />
 
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="No hostlist files found"
-                            android:textColor="#808080"
+                            android:textColor="@color/text_tertiary"
                             android:textSize="16sp"
                             android:layout_marginTop="16dp" />
 
@@ -172,7 +172,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="Hostlist files should be in\n/data/adb/modules/zapret2/zapret2/lists/"
-                            android:textColor="#606060"
+                            android:textColor="@color/text_dimmed"
                             android:textSize="13sp"
                             android:textAlignment="center"
                             android:layout_marginTop="8dp" />

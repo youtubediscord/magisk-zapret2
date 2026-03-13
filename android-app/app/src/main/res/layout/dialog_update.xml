@@ -13,7 +13,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="Доступно обновление"
-        android:textColor="#FFFFFF"
+        android:textColor="@color/text_primary"
         android:textSize="20sp"
         android:textStyle="bold"
         android:layout_marginBottom="16dp" />
@@ -31,14 +31,14 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="1.0.0"
-            android:textColor="#808080"
+            android:textColor="@color/text_tertiary"
             android:textSize="16sp" />
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text=" → "
-            android:textColor="#60CDFF"
+            android:textColor="@color/accent_light"
             android:textSize="16sp"
             android:textStyle="bold" />
 
@@ -47,7 +47,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="1.1.0"
-            android:textColor="#0078D4"
+            android:textColor="@color/accent_primary"
             android:textSize="16sp"
             android:textStyle="bold" />
 
@@ -58,7 +58,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="Что нового:"
-        android:textColor="#FFFFFF"
+        android:textColor="@color/text_primary"
         android:textSize="14sp"
         android:textStyle="bold"
         android:layout_marginBottom="8dp" />
@@ -67,7 +67,7 @@
         android:layout_width="match_parent"
         android:layout_height="120dp"
         android:layout_marginBottom="16dp"
-        android:background="#252525"
+        android:background="@color/surface_changelog"
         android:padding="12dp">
 
         <TextView
@@ -75,7 +75,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="Loading changelog..."
-            android:textColor="#B0B0B0"
+            android:textColor="@color/text_changelog"
             android:textSize="13sp"
             android:lineSpacingExtra="4dp" />
 
@@ -87,10 +87,10 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="Обновить APK"
-        android:textColor="#FFFFFF"
+        android:textColor="@color/text_primary"
         android:textSize="14sp"
         android:checked="true"
-        app:buttonTint="#0078D4"
+        app:buttonTint="@color/accent_primary"
         android:paddingStart="8dp" />
 
     <com.google.android.material.checkbox.MaterialCheckBox
@@ -98,10 +98,10 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="Обновить модуль Magisk"
-        android:textColor="#FFFFFF"
+        android:textColor="@color/text_primary"
         android:textSize="14sp"
         android:checked="true"
-        app:buttonTint="#0078D4"
+        app:buttonTint="@color/accent_primary"
         android:paddingStart="8dp"
         android:layout_marginBottom="16dp" />
 
@@ -113,8 +113,8 @@
         android:layout_height="4dp"
         android:max="100"
         android:progress="0"
-        android:progressTint="#0078D4"
-        android:progressBackgroundTint="#383838"
+        android:progressTint="@color/accent_primary"
+        android:progressBackgroundTint="@color/surface_variant"
         android:visibility="invisible"
         android:layout_marginBottom="8dp" />
 
@@ -123,7 +123,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="Скачивание... 0%"
-        android:textColor="#808080"
+        android:textColor="@color/text_tertiary"
         android:textSize="12sp"
         android:visibility="invisible"
         android:layout_marginBottom="16dp" />
@@ -140,10 +140,10 @@
             android:layout_width="wrap_content"
             android:layout_height="48dp"
             android:text="Позже"
-            android:textColor="#FFFFFF"
+            android:textColor="@color/text_primary"
             android:textSize="14sp"
             style="@style/Widget.Material3.Button.TextButton"
-            app:rippleColor="#33FFFFFF"
+            app:rippleColor="@color/ripple_white"
             android:layout_marginEnd="8dp" />
 
         <com.google.android.material.button.MaterialButton
@@ -151,9 +151,9 @@
             android:layout_width="wrap_content"
             android:layout_height="48dp"
             android:text="Обновить"
-            android:textColor="#FFFFFF"
+            android:textColor="@color/text_primary"
             android:textSize="14sp"
-            app:backgroundTint="#0078D4"
+            app:backgroundTint="@color/accent_primary"
             app:cornerRadius="8dp" />
 
     </LinearLayout>
