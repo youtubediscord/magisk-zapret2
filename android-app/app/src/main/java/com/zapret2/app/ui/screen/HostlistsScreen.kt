@@ -3,6 +3,8 @@ package com.zapret2.app.ui.screen
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -18,18 +20,11 @@ import com.zapret2.app.ui.navigation.Screen
 import com.zapret2.app.ui.theme.*
 import com.zapret2.app.viewmodel.*
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HostlistsScreen(navController: NavController, viewModel: HostlistsViewModel = hiltViewModel()) {
     val state by viewModel.uiState.collectAsState()
 
-    val pullRefreshState = rememberPullToRefreshState()
-
-    PullToRefreshBox(
-        isRefreshing = state.isRefreshing,
-        onRefresh = { viewModel.refresh() },
-        state = pullRefreshState
-    ) {
+    Box(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -37,14 +32,17 @@ fun HostlistsScreen(navController: NavController, viewModel: HostlistsViewModel 
         ) {
             item {
                 FluentCard {
-                    Row {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text("Total domains", fontSize = 12.sp, color = TextTertiary)
                             Text(formatNumber(state.totalDomains), fontSize = 18.sp, color = AccentLightBlue)
                         }
-                        Column {
+                        Column(modifier = Modifier.weight(1f)) {
                             Text("Files", fontSize = 12.sp, color = TextTertiary)
                             Text(state.totalFiles.toString(), fontSize = 18.sp, color = TextPrimary)
+                        }
+                        IconButton(onClick = { viewModel.refresh() }) {
+                            Icon(Icons.Default.Refresh, "Refresh", tint = AccentLightBlue)
                         }
                     }
                 }
@@ -69,6 +67,15 @@ fun HostlistsScreen(navController: NavController, viewModel: HostlistsViewModel 
                     onClick = { navController.navigate(Screen.HostlistContent.createRoute(hostlist.path, hostlist.filename, hostlist.domainCount)) }
                 )
             }
+        }
+
+        // Loading indicator at top when refreshing
+        if (state.isRefreshing) {
+            LinearProgressIndicator(
+                modifier = Modifier.fillMaxWidth().align(Alignment.TopCenter),
+                color = AccentLightBlue,
+                trackColor = SurfaceVariant
+            )
         }
     }
 }
