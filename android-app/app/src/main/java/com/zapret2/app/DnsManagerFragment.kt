@@ -118,17 +118,28 @@ class DnsManagerFragment : Fragment() {
 
     private fun loadData() {
         viewLifecycleOwner.lifecycleScope.launch {
-            val data = withContext(Dispatchers.IO) {
+            showLoading("Loading hosts.ini...")
+
+            val parseResult = withContext(Dispatchers.IO) {
                 HostsIniParser.parse()
             }
 
             if (!isAdded) return@launch
 
-            if (data == null) {
-                Toast.makeText(requireContext(), "Failed to parse hosts.ini", Toast.LENGTH_SHORT).show()
+            if (parseResult.data == null) {
+                // Show error with retry - repurpose loading overlay
+                loadingText.text = "Error: ${parseResult.error ?: "Unknown error"}\n\nTap to retry"
+                loadingOverlay.visibility = View.VISIBLE
+                loadingOverlay.setOnClickListener {
+                    loadingOverlay.setOnClickListener(null)
+                    loadData()
+                }
                 return@launch
             }
 
+            hideLoading()
+
+            val data = parseResult.data
             hostsData = data
 
             // Restore saved state from runtime.ini [dns_manager] section
