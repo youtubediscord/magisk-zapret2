@@ -86,7 +86,7 @@ class ControlViewModel @Inject constructor(
                 val root = Shell.cmd("id").exec().isSuccess
                 val module = Shell.cmd("[ -d \"$moduleDir\" ] && echo 1").exec().out.firstOrNull() == "1"
                 val nfqueue = Shell.cmd("[ -f /proc/net/netfilter/nf_queue ] && echo 1 || cat /proc/net/ip_tables_targets 2>/dev/null | grep -q NFQUEUE && echo 1").exec().out.firstOrNull() == "1"
-                Triple(root, module, nfqueue || true) // default to true
+                Triple(root, module, nfqueue)
             }
 
             val coreValues = withContext(Dispatchers.IO) { RuntimeConfigStore.readCore() }
