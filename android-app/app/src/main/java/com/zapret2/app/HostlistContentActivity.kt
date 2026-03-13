@@ -43,9 +43,8 @@ class HostlistContentActivity : AppCompatActivity() {
 
     private var filePath: String = ""
     private var fileName: String = ""
-    private var totalDomainCount: Int = 0
 
-    private val allDomains = mutableListOf<String>()
+    // Stream-based: no allDomains list, only accumulated display items
     private val filteredDomains = mutableListOf<String>()
     private lateinit var adapter: DomainAdapter
 
@@ -56,13 +55,20 @@ class HostlistContentActivity : AppCompatActivity() {
     private var currentPage = 0
     private var isLoading = false
 
+    // Total line count from wc -l (no full file load)
+    private var totalLineCount: Int = 0
+
+    // Search state
+    private var currentSearchQuery: String = ""
+    private var searchResults: List<String>? = null // null = no search active
+    private var searchTotalCount: Int = 0
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_hostlist_content)
 
         filePath = intent.getStringExtra(EXTRA_FILE_PATH) ?: ""
         fileName = intent.getStringExtra(EXTRA_FILE_NAME) ?: ""
-        totalDomainCount = intent.getIntExtra(EXTRA_DOMAIN_COUNT, 0)
 
         if (filePath.isEmpty()) {
             Toast.makeText(this, "Invalid file path", Toast.LENGTH_SHORT).show()
@@ -89,7 +95,7 @@ class HostlistContentActivity : AppCompatActivity() {
 
         // Set title
         textTitle.text = fileName.removeSuffix(".txt")
-        textSubtitle.text = "$totalDomainCount domains"
+        textSubtitle.text = "Loading..."
 
         btnBack.setOnClickListener {
             finish()
@@ -104,6 +110,9 @@ class HostlistContentActivity : AppCompatActivity() {
         adapter = DomainAdapter(filteredDomains)
         recyclerView.layoutManager = LinearLayoutManager(this)
         recyclerView.adapter = adapter
+
+        recyclerView.isVerticalScrollBarEnabled = true
+        recyclerView.isScrollbarFadingEnabled = false
 
         // Infinite scroll
         recyclerView.addOnScrollListener(object : RecyclerView.OnScrollListener() {
@@ -145,21 +154,23 @@ class HostlistContentActivity : AppCompatActivity() {
             progressBar.visibility = View.VISIBLE
             emptyView.visibility = View.GONE
 
-            val domains = withContext(Dispatchers.IO) {
-                loadDomainsFromFile()
+            // Only get line count, don't load content
+            totalLineCount = withContext(Dispatchers.IO) {
+                val result = Shell.cmd("wc -l < \"$filePath\" 2>/dev/null").exec()
+                result.out.firstOrNull()?.trim()?.toIntOrNull() ?: 0
             }
 
-            allDomains.clear()
-            allDomains.addAll(domains)
+            textSubtitle.text = "$totalLineCount domains"
 
             currentPage = 0
             filteredDomains.clear()
+            currentSearchQuery = ""
+            searchResults = null
             loadMoreDomains()
 
             progressBar.visibility = View.GONE
-            updateShowingCount()
 
-            if (allDomains.isEmpty()) {
+            if (totalLineCount == 0) {
                 emptyView.visibility = View.VISIBLE
                 recyclerView.visibility = View.GONE
             } else {
@@ -169,64 +180,84 @@ class HostlistContentActivity : AppCompatActivity() {
         }
     }
 
-    private fun loadDomainsFromFile(): List<String> {
-        val result = Shell.cmd("cat \"$filePath\" 2>/dev/null").exec()
-        if (!result.isSuccess) {
-            return emptyList()
-        }
-
-        return result.out
-            .filter { it.isNotBlank() }
-            .map { it.trim() }
-    }
-
     private fun loadMoreDomains() {
         if (isLoading) return
-
-        val searchQuery = editSearch.text?.toString() ?: ""
-        val source = if (searchQuery.isNotEmpty()) {
-            allDomains.filter { it.contains(searchQuery, ignoreCase = true) }
-        } else {
-            allDomains
-        }
-
-        val startIndex = currentPage * PAGE_SIZE
-        if (startIndex >= source.size) return
-
         isLoading = true
 
-        val endIndex = minOf(startIndex + PAGE_SIZE, source.size)
-        val newItems = source.subList(startIndex, endIndex)
+        lifecycleScope.launch {
+            val newItems = withContext(Dispatchers.IO) {
+                if (currentSearchQuery.isNotEmpty()) {
+                    loadSearchPage()
+                } else {
+                    loadPageFromFile()
+                }
+            }
 
-        filteredDomains.addAll(newItems)
-        adapter.notifyItemRangeInserted(filteredDomains.size - newItems.size, newItems.size)
+            if (newItems.isNotEmpty()) {
+                val insertStart = filteredDomains.size
+                filteredDomains.addAll(newItems)
+                adapter.notifyItemRangeInserted(insertStart, newItems.size)
+                currentPage++
+            }
 
-        currentPage++
-        isLoading = false
+            isLoading = false
+            updateShowingCount()
+        }
+    }
 
-        updateShowingCount()
+    /**
+     * Read a single page of lines from the file using sed.
+     * Only reads PAGE_SIZE lines at a time -- no full file load.
+     */
+    private fun loadPageFromFile(): List<String> {
+        val startLine = currentPage * PAGE_SIZE + 1
+        val endLine = startLine + PAGE_SIZE - 1
+        if (startLine > totalLineCount) return emptyList()
+
+        val result = Shell.cmd("sed -n '${startLine},${endLine}p' \"$filePath\" 2>/dev/null").exec()
+        if (!result.isSuccess) return emptyList()
+        return result.out.filter { it.isNotBlank() }.map { it.trim() }
+    }
+
+    /**
+     * Lazy-load search results via grep on first page request,
+     * then paginate from the cached results list.
+     */
+    private fun loadSearchPage(): List<String> {
+        // On first search page, run grep to get all matching lines
+        if (searchResults == null) {
+            val escapedQuery = currentSearchQuery.replace("'", "'\\''")
+            val result = Shell.cmd("grep -i '$escapedQuery' \"$filePath\" 2>/dev/null").exec()
+            searchResults = if (result.isSuccess) {
+                result.out.filter { it.isNotBlank() }.map { it.trim() }
+            } else {
+                emptyList()
+            }
+            searchTotalCount = searchResults?.size ?: 0
+        }
+
+        val results = searchResults ?: return emptyList()
+        val startIndex = currentPage * PAGE_SIZE
+        if (startIndex >= results.size) return emptyList()
+        val endIndex = minOf(startIndex + PAGE_SIZE, results.size)
+        return results.subList(startIndex, endIndex)
     }
 
     private fun filterDomains(query: String) {
+        currentSearchQuery = query
         currentPage = 0
+        searchResults = null // Reset cached search results
         filteredDomains.clear()
         adapter.notifyDataSetChanged()
         loadMoreDomains()
     }
 
     private fun updateShowingCount() {
-        val searchQuery = editSearch.text?.toString() ?: ""
-        val totalFiltered = if (searchQuery.isNotEmpty()) {
-            allDomains.count { it.contains(searchQuery, ignoreCase = true) }
-        } else {
-            allDomains.size
-        }
-
         val showing = filteredDomains.size
-        textShowingCount.text = if (searchQuery.isNotEmpty()) {
-            "Showing $showing of $totalFiltered matches"
+        if (currentSearchQuery.isNotEmpty()) {
+            textShowingCount.text = "Showing $showing of $searchTotalCount matches"
         } else {
-            "Showing $showing of $totalFiltered"
+            textShowingCount.text = "Showing $showing of $totalLineCount"
         }
     }
 

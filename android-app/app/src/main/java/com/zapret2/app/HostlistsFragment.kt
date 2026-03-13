@@ -201,44 +201,31 @@ class HostlistsFragment : Fragment() {
     }
 
     /**
-     * Load hostlist files from the lists directory
+     * Load hostlist files from the lists directory.
+     * Uses a single shell command to collect all file info at once,
+     * avoiding N+2 shell invocations (was: 2x ls + wc/stat per file).
      */
     private fun loadHostlistFiles(): List<HostlistConfig> {
-        val result = Shell.cmd("ls -la \"$LISTS_DIR\"/*.txt 2>/dev/null").exec()
-        if (!result.isSuccess) {
+        val cmd = """for f in "$LISTS_DIR"/*.txt; do [ -f "${'$'}f" ] && echo "${'$'}(basename "${'$'}f")|${'$'}f|${'$'}(wc -l < "${'$'}f")|${'$'}(stat -c %s "${'$'}f")"; done 2>/dev/null"""
+        val result = Shell.cmd(cmd).exec()
+        if (!result.isSuccess || result.out.isEmpty()) {
             return emptyList()
         }
 
         val files = mutableListOf<HostlistConfig>()
-
-        // Get list of .txt files
-        val listResult = Shell.cmd("ls \"$LISTS_DIR\"/*.txt 2>/dev/null").exec()
-        if (!listResult.isSuccess) {
-            return emptyList()
-        }
-
-        for (filePath in listResult.out) {
-            if (filePath.isBlank()) continue
-
-            val fileName = filePath.substringAfterLast("/")
-
-            // Get domain count (line count)
-            val wcResult = Shell.cmd("wc -l < \"$filePath\" 2>/dev/null").exec()
-            val domainCount = wcResult.out.firstOrNull()?.trim()?.toIntOrNull() ?: 0
-
-            // Get file size
-            val statResult = Shell.cmd("stat -c %s \"$filePath\" 2>/dev/null").exec()
-            val sizeBytes = statResult.out.firstOrNull()?.trim()?.toLongOrNull() ?: 0L
+        for (line in result.out) {
+            if (line.isBlank()) continue
+            val parts = line.split("|")
+            if (parts.size < 4) continue
 
             files.add(HostlistConfig(
-                filename = fileName,
-                path = filePath,
-                domainCount = domainCount,
-                sizeBytes = sizeBytes
+                filename = parts[0],
+                path = parts[1],
+                domainCount = parts[2].trim().toIntOrNull() ?: 0,
+                sizeBytes = parts[3].trim().toLongOrNull() ?: 0L
             ))
         }
 
-        // Sort by domain count descending
         return files.sortedByDescending { it.domainCount }
     }
 

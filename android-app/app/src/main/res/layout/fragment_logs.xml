@@ -51,67 +51,73 @@
         android:layout_weight="1"
         android:visibility="visible">
 
-        <ScrollView
+        <com.zapret2.app.NestedScrollableHost
             android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:fillViewport="true"
-            android:scrollbars="vertical"
-            android:fadeScrollbars="false"
-            android:background="#1A1A1A"
-            android:layout_marginHorizontal="16dp"
-            android:layout_marginTop="8dp"
-            android:layout_marginBottom="8dp">
+            android:layout_height="match_parent">
 
-            <LinearLayout
+            <ScrollView
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="12dp">
+                android:layout_height="match_parent"
+                android:fillViewport="true"
+                android:scrollbars="vertical"
+                android:fadeScrollbars="false"
+                android:background="#1A1A1A"
+                android:layout_marginHorizontal="16dp"
+                android:layout_marginTop="8dp"
+                android:layout_marginBottom="8dp">
 
-                <!-- Command Header -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:layout_marginBottom="12dp">
+                    android:orientation="vertical"
+                    android:padding="12dp">
 
-                    <TextView
-                        android:layout_width="0dp"
+                    <!-- Command Header -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="Current Command Line"
-                        android:textColor="#FFFFFF"
-                        android:textSize="14sp"
-                        android:textStyle="bold" />
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginBottom="12dp">
 
-                    <ImageView
-                        android:id="@+id/iconCopyCmdline"
-                        android:layout_width="32dp"
-                        android:layout_height="32dp"
-                        android:src="@drawable/ic_copy"
-                        app:tint="#808080"
-                        android:padding="4dp"
-                        android:background="?android:attr/selectableItemBackgroundBorderless"
-                        android:contentDescription="Copy command line" />
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="Current Command Line"
+                            android:textColor="#FFFFFF"
+                            android:textSize="14sp"
+                            android:textStyle="bold" />
+
+                        <ImageView
+                            android:id="@+id/iconCopyCmdline"
+                            android:layout_width="32dp"
+                            android:layout_height="32dp"
+                            android:src="@drawable/ic_copy"
+                            app:tint="#808080"
+                            android:padding="4dp"
+                            android:background="?android:attr/selectableItemBackgroundBorderless"
+                            android:contentDescription="Copy command line" />
+
+                    </LinearLayout>
+
+                    <!-- Formatted Command Text -->
+                    <TextView
+                        android:id="@+id/textCmdline"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="No command line available"
+                        android:textColor="#4EC9B0"
+                        android:textSize="12sp"
+                        android:fontFamily="monospace"
+                        android:lineSpacingExtra="4dp"
+                        android:textIsSelectable="true" />
 
                 </LinearLayout>
 
-                <!-- Formatted Command Text -->
-                <TextView
-                    android:id="@+id/textCmdline"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="No command line available"
-                    android:textColor="#4EC9B0"
-                    android:textSize="12sp"
-                    android:fontFamily="monospace"
-                    android:lineSpacingExtra="4dp"
-                    android:textIsSelectable="true" />
+            </ScrollView>
 
-            </LinearLayout>
-
-        </ScrollView>
+        </com.zapret2.app.NestedScrollableHost>
 
     </FrameLayout>
 
@@ -177,32 +183,38 @@
         </LinearLayout>
 
         <!-- Log Content Area -->
-        <ScrollView
-            android:id="@+id/scrollLogs"
+        <com.zapret2.app.NestedScrollableHost
             android:layout_width="match_parent"
             android:layout_height="0dp"
-            android:layout_weight="1"
-            android:fillViewport="true"
-            android:scrollbars="vertical"
-            android:fadeScrollbars="false"
-            android:background="#1A1A1A"
-            android:layout_marginHorizontal="16dp"
-            android:layout_marginTop="8dp"
-            android:layout_marginBottom="8dp">
+            android:layout_weight="1">
 
-            <TextView
-                android:id="@+id/textLogs"
+            <ScrollView
+                android:id="@+id/scrollLogs"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="Loading logs..."
-                android:textColor="#D4D4D4"
-                android:textSize="11sp"
-                android:fontFamily="monospace"
-                android:lineSpacingExtra="2dp"
-                android:padding="12dp"
-                android:textIsSelectable="true" />
+                android:layout_height="match_parent"
+                android:fillViewport="true"
+                android:scrollbars="vertical"
+                android:fadeScrollbars="false"
+                android:background="#1A1A1A"
+                android:layout_marginHorizontal="16dp"
+                android:layout_marginTop="8dp"
+                android:layout_marginBottom="8dp">
 
-        </ScrollView>
+                <TextView
+                    android:id="@+id/textLogs"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Loading logs..."
+                    android:textColor="#D4D4D4"
+                    android:textSize="11sp"
+                    android:fontFamily="monospace"
+                    android:lineSpacingExtra="2dp"
+                    android:padding="12dp"
+                    android:textIsSelectable="true" />
+
+            </ScrollView>
+
+        </com.zapret2.app.NestedScrollableHost>
 
     </LinearLayout>
 
