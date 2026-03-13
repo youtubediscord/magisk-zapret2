@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Android 12+ (API 31) Material You Dynamic Colors -->
+    <!--
+        This app intentionally does NOT use Material You dynamic colors.
+        The Windows 11 Fluent Design Dark theme is a core part of the app's
+        visual identity, with a carefully chosen color palette (#202020 background,
+        #0078D4 accent, #60CDFF light accent). Applying dynamic colors would
+        override these choices and break the consistent Fluent Design look.
+
+        If dynamic color support is desired in the future, it can be enabled
+        per-component using DynamicColors.applyToActivityIfAvailable() or
+        by creating a DynamicColors theme overlay here.
+    -->
+</resources>

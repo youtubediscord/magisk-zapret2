@@ -9,12 +9,12 @@
 
     <!-- Drag Handle -->
     <View
-        android:layout_width="40dp"
+        android:layout_width="32dp"
         android:layout_height="4dp"
         android:layout_gravity="center_horizontal"
-        android:layout_marginTop="12dp"
-        android:layout_marginBottom="16dp"
-        android:background="@drawable/bottom_sheet_handle" />
+        android:layout_marginTop="8dp"
+        android:layout_marginBottom="8dp"
+        android:background="@drawable/drag_handle_background" />
 
     <!-- Title -->
     <LinearLayout
@@ -30,7 +30,7 @@
             android:layout_width="24dp"
             android:layout_height="24dp"
             android:src="@drawable/ic_video"
-            app:tint="#FFFFFF" />
+            app:tint="@color/text_primary" />
 
         <TextView
             android:id="@+id/sheetTitle"
@@ -39,7 +39,7 @@
             android:layout_weight="1"
             android:layout_marginStart="16dp"
             android:text="Select Strategy"
-            android:textColor="#FFFFFF"
+            android:textColor="@color/text_primary"
             android:textSize="18sp"
             android:textStyle="bold" />
 
@@ -53,7 +53,7 @@
         android:paddingHorizontal="24dp"
         android:paddingBottom="16dp"
         android:text="TCP 443"
-        android:textColor="#888888"
+        android:textColor="@color/text_secondary"
         android:textSize="12sp" />
 
     <!-- Filter Mode Toggle (hidden by default, shown when both hostlist and ipset available) -->
@@ -70,7 +70,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Filter Mode"
-            android:textColor="#888888"
+            android:textColor="@color/text_secondary"
             android:textSize="12sp"
             android:paddingBottom="8dp" />
 
@@ -87,7 +87,7 @@
                 android:layout_weight="1"
                 android:gravity="center"
                 android:text="IP Set"
-                android:textColor="#FFFFFF"
+                android:textColor="@color/text_primary"
                 android:textSize="14sp"
                 android:background="@drawable/segmented_button_left_selected" />
 
@@ -98,7 +98,7 @@
                 android:layout_weight="1"
                 android:gravity="center"
                 android:text="Hostlist"
-                android:textColor="#888888"
+                android:textColor="@color/text_secondary"
                 android:textSize="14sp"
                 android:background="@drawable/segmented_button_right" />
 
@@ -110,7 +110,7 @@
     <View
         android:layout_width="match_parent"
         android:layout_height="1dp"
-        android:background="#404040"
+        android:background="@color/border_strong"
         android:layout_marginHorizontal="24dp" />
 
     <!-- Strategy List -->

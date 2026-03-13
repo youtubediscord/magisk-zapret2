@@ -11,7 +11,7 @@
         android:id="@+id/checkService"
         android:layout_width="24dp"
         android:layout_height="24dp"
-        android:buttonTint="#0078D4" />
+        android:buttonTint="@color/accent_primary" />
 
     <LinearLayout
         android:layout_width="0dp"
@@ -24,7 +24,7 @@
             android:id="@+id/textServiceName"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:textColor="#FFFFFF"
+            android:textColor="@color/text_primary"
             android:textSize="14sp"
             android:maxLines="1"
             android:ellipsize="end" />
@@ -33,7 +33,7 @@
             android:id="@+id/textServiceInfo"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:textColor="#888888"
+            android:textColor="@color/text_secondary"
             android:textSize="11sp"
             android:maxLines="1"
             android:ellipsize="end" />

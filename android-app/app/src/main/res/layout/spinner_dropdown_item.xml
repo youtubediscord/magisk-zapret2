@@ -8,5 +8,5 @@
     android:gravity="center_vertical"
     android:maxLines="1"
     android:paddingHorizontal="16dp"
-    android:textColor="#FFFFFF"
+    android:textColor="@color/text_primary"
     android:textSize="14sp" />

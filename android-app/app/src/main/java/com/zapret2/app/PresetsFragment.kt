@@ -1,8 +1,6 @@
 package com.zapret2.app
 
-import android.graphics.Typeface
 import android.os.Bundle
-import android.text.InputType
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -10,8 +8,8 @@ import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
-import android.widget.Toast
 import androidx.core.os.bundleOf
+import com.google.android.material.snackbar.Snackbar
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.setFragmentResult
 import androidx.lifecycle.lifecycleScope
@@ -97,6 +95,7 @@ class PresetsFragment : Fragment() {
             showLoading("Loading presets...")
 
             val activeSelection = loadActiveSelection()
+            if (!isAdded || view == null) return@launch
 
             activeMode = activeSelection.mode
             activePresetFile = activeSelection.presetFile
@@ -104,6 +103,7 @@ class PresetsFragment : Fragment() {
 
             updateActiveInfo()
             val presets = loadPresetEntries()
+            if (!isAdded || view == null) return@launch
             renderPresetList(presets)
 
             hideLoading()
@@ -228,22 +228,16 @@ class PresetsFragment : Fragment() {
 
             when {
                 stateSaved && restartSuccess -> {
-                    context?.let {
-                        Toast.makeText(it, "$fileName applied", Toast.LENGTH_SHORT).show()
-                    }
+                    view?.let { Snackbar.make(it, "$fileName applied", Snackbar.LENGTH_SHORT).show() }
                     setFragmentResult(LogsFragment.SERVICE_RESTARTED_KEY, bundleOf())
                     refreshAll()
                 }
                 stateSaved -> {
-                    context?.let {
-                        Toast.makeText(it, "Preset selected, restart failed", Toast.LENGTH_SHORT).show()
-                    }
+                    view?.let { Snackbar.make(it, "Preset selected, restart failed", Snackbar.LENGTH_SHORT).show() }
                     refreshAll()
                 }
                 else -> {
-                    context?.let {
-                        Toast.makeText(it, "Failed to apply preset", Toast.LENGTH_SHORT).show()
-                    }
+                    view?.let { Snackbar.make(it, "Failed to apply preset", Snackbar.LENGTH_SHORT).show() }
                 }
             }
         }
@@ -272,22 +266,16 @@ class PresetsFragment : Fragment() {
 
             when {
                 stateSaved && restartSuccess -> {
-                    context?.let {
-                        Toast.makeText(it, "Categories mode enabled", Toast.LENGTH_SHORT).show()
-                    }
+                    view?.let { Snackbar.make(it, "Categories mode enabled", Snackbar.LENGTH_SHORT).show() }
                     setFragmentResult(LogsFragment.SERVICE_RESTARTED_KEY, bundleOf())
                     refreshAll()
                 }
                 stateSaved -> {
-                    context?.let {
-                        Toast.makeText(it, "Mode switched, restart failed", Toast.LENGTH_SHORT).show()
-                    }
+                    view?.let { Snackbar.make(it, "Mode switched, restart failed", Snackbar.LENGTH_SHORT).show() }
                     refreshAll()
                 }
                 else -> {
-                    context?.let {
-                        Toast.makeText(it, "Failed to switch mode", Toast.LENGTH_SHORT).show()
-                    }
+                    view?.let { Snackbar.make(it, "Failed to switch mode", Snackbar.LENGTH_SHORT).show() }
                 }
             }
         }
@@ -310,9 +298,7 @@ class PresetsFragment : Fragment() {
             if (!isAdded) return@launch
 
             if (!readResult.first) {
-                context?.let {
-                    Toast.makeText(it, "Failed to read preset", Toast.LENGTH_SHORT).show()
-                }
+                view?.let { Snackbar.make(it, "Failed to read preset", Snackbar.LENGTH_SHORT).show() }
                 return@launch
             }
 
@@ -321,39 +307,22 @@ class PresetsFragment : Fragment() {
     }
 
     private fun showEditorDialog(fileName: String, initialText: String) {
-        val editor = EditText(requireContext()).apply {
-            setText(initialText)
-            setTextColor(0xFFFFFFFF.toInt())
-            setHintTextColor(0xFF808080.toInt())
-            setBackgroundColor(0xFF2D2D2D.toInt())
-            typeface = Typeface.MONOSPACE
-            inputType = InputType.TYPE_CLASS_TEXT or
-                InputType.TYPE_TEXT_FLAG_MULTI_LINE or
-                InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
-            setSingleLine(false)
-            minLines = 12
-            maxLines = 28
-            setPadding(24, 24, 24, 24)
-        }
+        val ctx = context ?: return
 
-        val container = FrameLayout(requireContext()).apply {
-            setPadding(32, 8, 32, 0)
-            addView(editor, FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.WRAP_CONTENT
-            ))
-        }
+        val dialogView = LayoutInflater.from(ctx).inflate(R.layout.dialog_preset_editor, null)
+        val editText = dialogView.findViewById<EditText>(R.id.editPresetContent)
+        editText.setText(initialText)
 
-        MaterialAlertDialogBuilder(requireContext())
+        MaterialAlertDialogBuilder(ctx)
             .setTitle("Edit preset")
             .setMessage(fileName)
-            .setView(container)
+            .setView(dialogView)
             .setNegativeButton("Cancel", null)
             .setPositiveButton("Save") { _, _ ->
-                savePresetText(fileName, editor.text?.toString().orEmpty(), applyAfterSave = false)
+                savePresetText(fileName, editText.text?.toString().orEmpty(), applyAfterSave = false)
             }
             .setNeutralButton("Save + Apply") { _, _ ->
-                savePresetText(fileName, editor.text?.toString().orEmpty(), applyAfterSave = true)
+                savePresetText(fileName, editText.text?.toString().orEmpty(), applyAfterSave = true)
             }
             .show()
     }
@@ -393,27 +362,19 @@ class PresetsFragment : Fragment() {
             if (!isAdded) return@launch
 
             if (!saved) {
-                context?.let {
-                    Toast.makeText(it, "Failed to save preset", Toast.LENGTH_SHORT).show()
-                }
+                view?.let { Snackbar.make(it, "Failed to save preset", Snackbar.LENGTH_SHORT).show() }
                 return@launch
             }
 
             if (applyAfterSave) {
                 if (restartSuccess) {
-                    context?.let {
-                        Toast.makeText(it, "Preset saved and applied", Toast.LENGTH_SHORT).show()
-                    }
+                    view?.let { Snackbar.make(it, "Preset saved and applied", Snackbar.LENGTH_SHORT).show() }
                     setFragmentResult(LogsFragment.SERVICE_RESTARTED_KEY, bundleOf())
                 } else {
-                    context?.let {
-                        Toast.makeText(it, "Preset saved, restart failed", Toast.LENGTH_SHORT).show()
-                    }
+                    view?.let { Snackbar.make(it, "Preset saved, restart failed", Snackbar.LENGTH_SHORT).show() }
                 }
             } else {
-                context?.let {
-                    Toast.makeText(it, "Preset saved", Toast.LENGTH_SHORT).show()
-                }
+                view?.let { Snackbar.make(it, "Preset saved", Snackbar.LENGTH_SHORT).show() }
             }
 
             refreshAll()

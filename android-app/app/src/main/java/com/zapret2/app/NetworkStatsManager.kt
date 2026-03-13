@@ -43,6 +43,10 @@ class NetworkStatsManager(context: Context) {
     // Handler for posting callbacks to main thread
     private val mainHandler = Handler(Looper.getMainLooper())
 
+    // Generation counter to prevent stale callbacks from firing after unregister
+    @Volatile
+    private var listenerGeneration = 0L
+
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var networkChangeListener: NetworkChangeListener? = null
 
@@ -331,6 +335,9 @@ class NetworkStatsManager(context: Context) {
      * Safe to call multiple times
      */
     fun unregisterNetworkChangeListener() {
+        // Increment generation to invalidate any in-flight handler posts
+        listenerGeneration++
+
         val callback = networkCallback
         if (callback != null) {
             try {
@@ -350,15 +357,17 @@ class NetworkStatsManager(context: Context) {
     }
 
     private fun notifyNetworkChange() {
-        // Capture listener reference to avoid race conditions
+        // Capture listener reference and generation to avoid race conditions
         val listener = networkChangeListener ?: return
+        val currentGen = listenerGeneration
 
         // NetworkCallback methods are called on a background thread,
         // so we must post to main thread for safe UI updates
         mainHandler.post {
             try {
-                // Check if listener is still valid (may have been unregistered)
-                if (networkChangeListener == null) return@post
+                // Check if listener is still valid and generation matches
+                // (prevents stale callbacks from firing after unregister)
+                if (networkChangeListener == null || listenerGeneration != currentGen) return@post
 
                 // We need to fetch stats async, so we create a simple stats object
                 // with just network type info for immediate notification

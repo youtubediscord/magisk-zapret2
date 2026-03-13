@@ -4,14 +4,14 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="#202020"
+    android:background="@color/background_primary"
     android:padding="16dp">
 
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="Hosts File"
-        android:textColor="#FFFFFF"
+        android:textColor="@color/text_primary"
         android:textSize="14sp"
         android:textStyle="bold" />
 
@@ -21,7 +21,7 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="6dp"
         android:text="/system/etc/hosts"
-        android:textColor="#808080"
+        android:textColor="@color/text_tertiary"
         android:textSize="11sp" />
 
     <TextView
@@ -30,7 +30,7 @@
         android:layout_marginTop="6dp"
         android:layout_marginBottom="10dp"
         android:text="Edit the system hosts file. Each line should be in format: IP hostname"
-        android:textColor="#808080"
+        android:textColor="@color/text_tertiary"
         android:textSize="11sp" />
 
     <FrameLayout
@@ -38,17 +38,20 @@
         android:layout_height="0dp"
         android:layout_weight="1">
 
-        <com.zapret2.app.NestedScrollableHost
+        <com.google.android.material.textfield.TextInputLayout
             android:layout_width="match_parent"
-            android:layout_height="match_parent">
+            android:layout_height="match_parent"
+            style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+            app:boxStrokeColor="@color/accent_primary"
+            app:hintTextColor="@color/accent_light"
+            android:hint="System hosts file">
 
-            <EditText
+            <com.google.android.material.textfield.TextInputEditText
                 android:id="@+id/editHostsContent"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
-                android:background="#1A1A1A"
-                android:textColor="#FFFFFF"
-                android:textColorHint="#808080"
+                android:textColor="@color/text_primary"
+                android:textColorHint="@color/text_tertiary"
                 android:fontFamily="monospace"
                 android:textSize="12sp"
                 android:gravity="top|start"
@@ -58,7 +61,7 @@
                 android:padding="12dp"
                 android:hint="127.0.0.1 localhost" />
 
-        </com.zapret2.app.NestedScrollableHost>
+        </com.google.android.material.textfield.TextInputLayout>
 
         <ProgressBar
             android:id="@+id/progressBarHosts"
@@ -66,7 +69,7 @@
             android:layout_height="36dp"
             android:layout_gravity="center"
             android:visibility="gone"
-            android:indeterminateTint="#0078D4" />
+            android:indeterminateTint="@color/accent_primary" />
 
     </FrameLayout>
 
@@ -85,11 +88,11 @@
             android:layout_marginEnd="6dp"
             android:text="Reload"
             android:textSize="12sp"
-            android:textColor="#FFFFFF"
-            android:backgroundTint="#383838"
+            android:textColor="@color/text_primary"
+            android:backgroundTint="@color/surface_variant"
             app:icon="@drawable/ic_refresh"
             app:iconGravity="textStart"
-            app:iconTint="#FFFFFF"
+            app:iconTint="@color/text_primary"
             app:iconSize="18dp"
             app:iconPadding="4dp" />
 
@@ -102,11 +105,11 @@
             android:layout_marginStart="6dp"
             android:text="Save"
             android:textSize="12sp"
-            android:textColor="#FFFFFF"
-            android:backgroundTint="#0078D4"
+            android:textColor="@color/text_primary"
+            android:backgroundTint="@color/accent_primary"
             app:icon="@drawable/ic_save"
             app:iconGravity="textStart"
-            app:iconTint="#FFFFFF"
+            app:iconTint="@color/text_primary"
             app:iconSize="18dp"
             app:iconPadding="4dp" />
 

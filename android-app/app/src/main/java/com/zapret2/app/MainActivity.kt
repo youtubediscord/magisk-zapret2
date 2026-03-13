@@ -2,6 +2,8 @@ package com.zapret2.app
 
 import android.os.Bundle
 import android.view.MenuItem
+import android.view.View
+import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.ActionBarDrawerToggle
@@ -12,8 +14,8 @@ import androidx.recyclerview.widget.RecyclerView
 import androidx.viewpager2.widget.ViewPager2
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.navigation.NavigationView
+import androidx.lifecycle.lifecycleScope
 import com.topjohnwu.superuser.Shell
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
@@ -53,7 +55,7 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         initShell()
 
         // Pre-warm root shell so fragments don't wait for initialization
-        CoroutineScope(Dispatchers.IO).launch {
+        lifecycleScope.launch(Dispatchers.IO) {
             try { Shell.getShell() } catch (_: Exception) {}
         }
 
@@ -114,6 +116,10 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
 
         // Set first item as checked by default
         nav.menu.getItem(0)?.isChecked = true
+
+        // Find the nav header version text and set it
+        val headerView = nav.getHeaderView(0)
+        headerView?.findViewById<TextView>(R.id.navHeaderVersion)?.text = "v${BuildConfig.VERSION_NAME}"
     }
 
     private fun setupViewPager() {
@@ -122,6 +128,9 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
 
         val adapter = ViewPagerAdapter(this)
         pager.adapter = adapter
+
+        // Apply depth page transition animation
+        pager.setPageTransformer(DepthPageTransformer())
 
         // Enable swipe between pages
         pager.isUserInputEnabled = true
@@ -144,14 +153,20 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
             // Reflection may fail on some Android versions -- NestedScrollableHost handles it as fallback
         }
 
+        // Map ViewPager positions to navigation menu item IDs
+        val navMenuIds = intArrayOf(
+            R.id.nav_control, R.id.nav_strategies, R.id.nav_presets,
+            R.id.nav_editor, R.id.nav_hostlists, R.id.nav_hosts_editor,
+            R.id.nav_dns_manager, R.id.nav_logs, R.id.nav_about
+        )
+
         // Listen for page changes to sync with navigation drawer
         pager.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
             override fun onPageSelected(position: Int) {
                 super.onPageSelected(position)
-                // Safe access to menu item with bounds check
-                val menuItemCount = nav.menu.size()
-                if (position in 0 until menuItemCount) {
-                    nav.menu.getItem(position)?.isChecked = true
+                // Check the corresponding menu item by ID
+                if (position in navMenuIds.indices) {
+                    nav.setCheckedItem(navMenuIds[position])
                     // Update toolbar title based on selected page
                     updateToolbarTitle(position)
                 }
@@ -193,6 +208,40 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
             return true
         }
         return super.onOptionsItemSelected(item)
+    }
+
+    private class DepthPageTransformer : ViewPager2.PageTransformer {
+        private val MIN_SCALE = 0.85f
+        private val MIN_ALPHA = 0.5f
+
+        override fun transformPage(page: View, position: Float) {
+            page.apply {
+                val pageWidth = width
+                when {
+                    position < -1 -> {
+                        alpha = 0f
+                    }
+                    position <= 0 -> {
+                        alpha = 1f
+                        translationX = 0f
+                        translationZ = 0f
+                        scaleX = 1f
+                        scaleY = 1f
+                    }
+                    position <= 1 -> {
+                        alpha = 1f - position * (1f - MIN_ALPHA)
+                        translationX = pageWidth * -position
+                        translationZ = -1f
+                        val scaleFactor = MIN_SCALE + (1f - MIN_SCALE) * (1f - position)
+                        scaleX = scaleFactor
+                        scaleY = scaleFactor
+                    }
+                    else -> {
+                        alpha = 0f
+                    }
+                }
+            }
+        }
     }
 
     private fun setupBackPressHandler() {

@@ -4,14 +4,14 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="#202020"
+    android:background="@color/background_primary"
     android:padding="16dp">
 
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="nfqws2 command line"
-        android:textColor="#FFFFFF"
+        android:textColor="@color/text_primary"
         android:textSize="14sp"
         android:textStyle="bold" />
 
@@ -21,7 +21,7 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="6dp"
         android:text="/data/adb/modules/zapret2/zapret2/cmdline.txt"
-        android:textColor="#808080"
+        android:textColor="@color/text_tertiary"
         android:textSize="11sp" />
 
     <TextView
@@ -30,21 +30,24 @@
         android:layout_marginTop="6dp"
         android:layout_marginBottom="10dp"
         android:text="Edit nfqws2 options passed at startup. You can use one option per line for readability."
-        android:textColor="#808080"
+        android:textColor="@color/text_tertiary"
         android:textSize="11sp" />
 
-    <com.zapret2.app.NestedScrollableHost
+    <com.google.android.material.textfield.TextInputLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1">
+        android:layout_weight="1"
+        style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+        app:boxStrokeColor="@color/accent_primary"
+        app:hintTextColor="@color/accent_light"
+        android:hint="nfqws2 command line">
 
-        <EditText
+        <com.google.android.material.textfield.TextInputEditText
             android:id="@+id/editCommandLine"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:background="#1A1A1A"
-            android:textColor="#FFFFFF"
-            android:textColorHint="#808080"
+            android:textColor="@color/text_primary"
+            android:textColorHint="@color/text_tertiary"
             android:fontFamily="monospace"
             android:textSize="12sp"
             android:gravity="top|start"
@@ -54,7 +57,7 @@
             android:padding="12dp"
             android:hint="--new --filter-tcp=443 --payload=tls_client_hello ..." />
 
-    </com.zapret2.app.NestedScrollableHost>
+    </com.google.android.material.textfield.TextInputLayout>
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -71,11 +74,11 @@
             android:layout_marginEnd="6dp"
             android:text="Reload"
             android:textSize="12sp"
-            android:textColor="#FFFFFF"
-            android:backgroundTint="#383838"
+            android:textColor="@color/text_primary"
+            android:backgroundTint="@color/surface_variant"
             app:icon="@drawable/ic_refresh"
             app:iconGravity="textStart"
-            app:iconTint="#FFFFFF"
+            app:iconTint="@color/text_primary"
             app:iconSize="18dp"
             app:iconPadding="4dp" />
 
@@ -88,11 +91,11 @@
             android:layout_marginHorizontal="6dp"
             android:text="Save"
             android:textSize="12sp"
-            android:textColor="#FFFFFF"
-            android:backgroundTint="#0078D4"
+            android:textColor="@color/text_primary"
+            android:backgroundTint="@color/accent_primary"
             app:icon="@drawable/ic_save"
             app:iconGravity="textStart"
-            app:iconTint="#FFFFFF"
+            app:iconTint="@color/text_primary"
             app:iconSize="18dp"
             app:iconPadding="4dp" />
 
@@ -105,11 +108,11 @@
             android:layout_marginStart="6dp"
             android:text="Save + Restart"
             android:textSize="12sp"
-            android:textColor="#FFFFFF"
-            android:backgroundTint="#2E8B57"
+            android:textColor="@color/text_primary"
+            android:backgroundTint="@color/button_save_restart"
             app:icon="@drawable/ic_control"
             app:iconGravity="textStart"
-            app:iconTint="#FFFFFF"
+            app:iconTint="@color/text_primary"
             app:iconSize="18dp"
             app:iconPadding="4dp" />
 

@@ -6,8 +6,8 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.EditText
 import android.widget.TextView
-import android.widget.Toast
 import androidx.core.os.bundleOf
+import com.google.android.material.snackbar.Snackbar
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.setFragmentResult
 import androidx.lifecycle.lifecycleScope
@@ -100,7 +100,7 @@ class ConfigEditorFragment : Fragment() {
                 }
             }
 
-            if (!isAdded) return@launch
+            if (!isAdded || view == null) return@launch
 
             editCommandLine.setText(commandLine)
             setActionsEnabled(true)
@@ -114,7 +114,7 @@ class ConfigEditorFragment : Fragment() {
     ) {
         val commandText = normalizeLineEndings(editCommandLine.text?.toString().orEmpty()).trimEnd('\n', '\r')
         if (commandText.isBlank()) {
-            Toast.makeText(requireContext(), "Command line is empty", Toast.LENGTH_SHORT).show()
+            view?.let { Snackbar.make(it, "Command line is empty", Snackbar.LENGTH_SHORT).show() }
             return
         }
 
@@ -141,11 +141,11 @@ class ConfigEditorFragment : Fragment() {
                 Pair(true, restartResult.isSuccess)
             }
 
-            if (!isAdded) return@launch
+            if (!isAdded || view == null) return@launch
 
             when {
                 !saved -> {
-                    Toast.makeText(requireContext(), "Failed to save command line", Toast.LENGTH_SHORT).show()
+                    view?.let { Snackbar.make(it, "Failed to save command line", Snackbar.LENGTH_SHORT).show() }
                 }
                 restartAfterSave && restarted -> {
                     val message = if (forceCmdlineMode) {
@@ -153,7 +153,7 @@ class ConfigEditorFragment : Fragment() {
                     } else {
                         "Command line saved and service restarted"
                     }
-                    Toast.makeText(requireContext(), message, Toast.LENGTH_SHORT).show()
+                    view?.let { Snackbar.make(it, message, Snackbar.LENGTH_SHORT).show() }
                     setFragmentResult(LogsFragment.SERVICE_RESTARTED_KEY, bundleOf())
                 }
                 restartAfterSave -> {
@@ -162,7 +162,7 @@ class ConfigEditorFragment : Fragment() {
                     } else {
                         "Saved, but service restart failed"
                     }
-                    Toast.makeText(requireContext(), message, Toast.LENGTH_SHORT).show()
+                    view?.let { Snackbar.make(it, message, Snackbar.LENGTH_SHORT).show() }
                 }
                 else -> {
                     val message = if (forceCmdlineMode) {
@@ -170,7 +170,7 @@ class ConfigEditorFragment : Fragment() {
                     } else {
                         "Command line saved"
                     }
-                    Toast.makeText(requireContext(), message, Toast.LENGTH_SHORT).show()
+                    view?.let { Snackbar.make(it, message, Snackbar.LENGTH_SHORT).show() }
                 }
             }
 
@@ -179,7 +179,8 @@ class ConfigEditorFragment : Fragment() {
     }
 
     private fun showRestartChoiceDialog() {
-        MaterialAlertDialogBuilder(requireContext())
+        val ctx = context ?: return
+        MaterialAlertDialogBuilder(ctx)
             .setTitle("Command line restart mode")
             .setMessage("Current preset mode is not cmdline. Restart will use current strategy mode. Enable raw cmdline mode and restart?\n\nThis is an advanced option that requires manual command-line settings.")
             .setNegativeButton("Restart with current mode") { _, _ ->

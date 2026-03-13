@@ -26,7 +26,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Preset name"
-                android:textColor="#FFFFFF"
+                android:textColor="@color/text_primary"
                 android:textSize="14sp"
                 android:textStyle="bold" />
 
@@ -35,7 +35,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="file.txt"
-                android:textColor="#808080"
+                android:textColor="@color/text_tertiary"
                 android:textSize="11sp"
                 android:layout_marginTop="2dp" />
 
@@ -46,7 +46,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="ACTIVE"
-            android:textColor="#60CDFF"
+            android:textColor="@color/accent_light"
             android:textSize="11sp"
             android:textStyle="bold"
             android:visibility="gone" />
@@ -68,8 +68,8 @@
             android:layout_marginEnd="8dp"
             android:text="Apply"
             android:textSize="12sp"
-            android:backgroundTint="#0078D4"
-            android:textColor="#FFFFFF" />
+            android:backgroundTint="@color/accent_primary"
+            android:textColor="@color/text_primary" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/buttonEditPreset"
@@ -80,8 +80,8 @@
             android:layout_marginStart="8dp"
             android:text="Edit"
             android:textSize="12sp"
-            android:backgroundTint="#383838"
-            android:textColor="#FFFFFF" />
+            android:backgroundTint="@color/surface_variant"
+            android:textColor="@color/text_primary" />
 
     </LinearLayout>
 
