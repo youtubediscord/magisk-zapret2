@@ -126,8 +126,8 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         // Enable swipe between pages
         pager.isUserInputEnabled = true
 
-        // Keep nearby pages alive to avoid re-creating fragments on every swipe
-        pager.offscreenPageLimit = 2
+        // Keep ALL pages alive — only 9 lightweight fragments, no reason to destroy/recreate
+        pager.offscreenPageLimit = adapter.itemCount
 
         // Reduce ViewPager2 horizontal swipe sensitivity to prevent conflicts with vertical scroll
         try {
