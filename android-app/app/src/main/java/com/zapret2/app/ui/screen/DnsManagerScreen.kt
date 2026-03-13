@@ -1,5 +1,6 @@
 package com.zapret2.app.ui.screen
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -45,7 +46,13 @@ fun DnsManagerScreen(viewModel: DnsManagerViewModel = hiltViewModel()) {
     Box {
         Scaffold(snackbarHost = { SnackbarHost(snackbarHostState) }) { padding ->
             if (state.errorMessage != null) {
-                Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = androidx.compose.ui.Alignment.Center) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(padding)
+                        .clickable { viewModel.loadData() },
+                    contentAlignment = androidx.compose.ui.Alignment.Center
+                ) {
                     Text("Error: ${state.errorMessage}\n\nTap to retry", color = TextSecondary, modifier = Modifier.padding(32.dp))
                 }
             } else {

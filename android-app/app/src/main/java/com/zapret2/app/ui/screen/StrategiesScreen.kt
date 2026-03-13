@@ -70,16 +70,40 @@ fun StrategiesScreen(viewModel: StrategiesViewModel = hiltViewModel()) {
                 item { Spacer(modifier = Modifier.height(12.dp)) }
                 item { SectionHeader("ADVANCED") }
                 item {
-                    SettingRow(title = "PKT_COUNT", value = state.pktCount, onClick = {
-                        // Open PKT_COUNT picker - simplified
-                    })
+                    var showPktPicker by remember { mutableStateOf(false) }
+                    SettingRow(title = "PKT_COUNT", value = state.pktCount, onClick = { showPktPicker = true })
+                    if (showPktPicker) {
+                        val pktOptions = listOf("1", "3", "5", "10", "15", "20")
+                        StrategyPickerSheet(
+                            title = "PKT_COUNT",
+                            subtitle = "Packets to modify",
+                            strategies = pktOptions.map { StrategyItem(it, it) },
+                            selectedId = state.pktCount,
+                            onDismiss = { showPktPicker = false },
+                            onSelected = { id, _ -> viewModel.setPktCount(id); showPktPicker = false }
+                        )
+                    }
                 }
                 item {
+                    var showDebugPicker by remember { mutableStateOf(false) }
                     SettingRow(title = "Debug Mode", value = when (state.debugMode) {
                         "none" -> "None"; "android" -> "Android"; "file" -> "File"; "syslog" -> "Syslog"; else -> "None"
-                    }, onClick = {
-                        // Open debug mode picker - simplified
-                    })
+                    }, onClick = { showDebugPicker = true })
+                    if (showDebugPicker) {
+                        StrategyPickerSheet(
+                            title = "Debug Mode",
+                            subtitle = "Log destination",
+                            strategies = listOf(
+                                StrategyItem("none", "None", "Logging disabled"),
+                                StrategyItem("android", "Android (logcat)", "Output to logcat"),
+                                StrategyItem("file", "File", "Write to file"),
+                                StrategyItem("syslog", "Syslog", "System logger")
+                            ),
+                            selectedId = state.debugMode,
+                            onDismiss = { showDebugPicker = false },
+                            onSelected = { id, _ -> viewModel.setDebugMode(id); showDebugPicker = false }
+                        )
+                    }
                 }
             }
         }
