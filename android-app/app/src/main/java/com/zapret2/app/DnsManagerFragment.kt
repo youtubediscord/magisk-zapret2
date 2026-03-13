@@ -304,9 +304,8 @@ class DnsManagerFragment : Fragment() {
                 }
             }
 
-            hideLoading()
-
             if (!isAdded || view == null) return@launch
+            hideLoading()
 
             view?.let {
                 Snackbar.make(
@@ -340,9 +339,8 @@ class DnsManagerFragment : Fragment() {
                 }
             }
 
-            hideLoading()
-
             if (!isAdded || view == null) return@launch
+            hideLoading()
 
             view?.let {
                 Snackbar.make(

@@ -518,7 +518,6 @@ class LogsFragment : Fragment() {
     }
 
     override fun onDestroyView() {
-        super.onDestroyView()
         pollingJob?.cancel()
         pollingJob = null
 
@@ -535,6 +534,7 @@ class LogsFragment : Fragment() {
         buttonRefresh = null
         buttonCopyLogs = null
         buttonClearLogs = null
+        super.onDestroyView()
     }
 
     /**

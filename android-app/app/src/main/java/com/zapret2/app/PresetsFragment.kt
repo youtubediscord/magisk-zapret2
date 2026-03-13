@@ -33,16 +33,16 @@ class PresetsFragment : Fragment() {
         val cmdlineFile: String
     )
 
-    private lateinit var textActiveModeValue: TextView
-    private lateinit var textActivePresetValue: TextView
-    private lateinit var textPresetsPath: TextView
-    private lateinit var buttonReloadPresets: MaterialButton
-    private lateinit var buttonUseCategories: MaterialButton
-    private lateinit var presetListContainer: LinearLayout
-    private lateinit var textNoPresets: TextView
+    private var textActiveModeValue: TextView? = null
+    private var textActivePresetValue: TextView? = null
+    private var textPresetsPath: TextView? = null
+    private var buttonReloadPresets: MaterialButton? = null
+    private var buttonUseCategories: MaterialButton? = null
+    private var presetListContainer: LinearLayout? = null
+    private var textNoPresets: TextView? = null
 
-    private lateinit var loadingOverlay: FrameLayout
-    private lateinit var loadingText: TextView
+    private var loadingOverlay: FrameLayout? = null
+    private var loadingText: TextView? = null
 
     private val modDir = "/data/adb/modules/zapret2"
     private val presetsDir = "$modDir/zapret2/presets"
@@ -67,6 +67,19 @@ class PresetsFragment : Fragment() {
         refreshAll()
     }
 
+    override fun onDestroyView() {
+        textActiveModeValue = null
+        textActivePresetValue = null
+        textPresetsPath = null
+        buttonReloadPresets = null
+        buttonUseCategories = null
+        presetListContainer = null
+        textNoPresets = null
+        loadingOverlay = null
+        loadingText = null
+        super.onDestroyView()
+    }
+
     private fun initViews(view: View) {
         textActiveModeValue = view.findViewById(R.id.textActiveModeValue)
         textActivePresetValue = view.findViewById(R.id.textActivePresetValue)
@@ -81,11 +94,11 @@ class PresetsFragment : Fragment() {
     }
 
     private fun setupListeners() {
-        buttonReloadPresets.setOnClickListener {
+        buttonReloadPresets?.setOnClickListener {
             refreshAll()
         }
 
-        buttonUseCategories.setOnClickListener {
+        buttonUseCategories?.setOnClickListener {
             switchToCategoriesMode()
         }
     }
@@ -131,13 +144,13 @@ class PresetsFragment : Fragment() {
     }
 
     private fun updateActiveInfo() {
-        textActiveModeValue.text = when (activeMode) {
+        textActiveModeValue?.text = when (activeMode) {
             "file", "preset", "txt" -> "Preset file mode"
             "cmdline", "manual", "raw" -> "Cmdline mode"
             else -> "Categories mode"
         }
 
-        textActivePresetValue.text = when (activeMode) {
+        textActivePresetValue?.text = when (activeMode) {
             "file", "preset", "txt" -> if (activePresetFile.isNotBlank()) {
                 activePresetFile
             } else {
@@ -151,23 +164,27 @@ class PresetsFragment : Fragment() {
             else -> "categories.ini + strategies-*.ini"
         }
 
-        textPresetsPath.text = presetsDir
+        textPresetsPath?.text = presetsDir
     }
 
     private fun renderPresetList(entries: List<PresetEntry>) {
-        presetListContainer.removeAllViews()
+        presetListContainer?.removeAllViews()
 
         if (entries.isEmpty()) {
-            textNoPresets.visibility = View.VISIBLE
+            textNoPresets?.visibility = View.VISIBLE
             return
         }
 
-        textNoPresets.visibility = View.GONE
+        textNoPresets?.visibility = View.GONE
+
+        val container = presetListContainer ?: return
+        val ctx = context ?: return
+        val inflater = LayoutInflater.from(ctx)
 
         entries.forEach { entry ->
-            val row = layoutInflater.inflate(
+            val row = inflater.inflate(
                 R.layout.item_preset_file,
-                presetListContainer,
+                container,
                 false
             )
 
@@ -196,7 +213,7 @@ class PresetsFragment : Fragment() {
                 openPresetEditor(entry.fileName)
             }
 
-            presetListContainer.addView(row)
+            container.addView(row)
         }
     }
 
@@ -206,7 +223,7 @@ class PresetsFragment : Fragment() {
     }
 
     private fun applyPresetFile(fileName: String) {
-        if (loadingOverlay.visibility == View.VISIBLE) return
+        if (loadingOverlay?.visibility == View.VISIBLE) return
 
         viewLifecycleOwner.lifecycleScope.launch {
             showLoading("Applying $fileName...")
@@ -244,7 +261,7 @@ class PresetsFragment : Fragment() {
     }
 
     private fun switchToCategoriesMode() {
-        if (loadingOverlay.visibility == View.VISIBLE) return
+        if (loadingOverlay?.visibility == View.VISIBLE) return
 
         viewLifecycleOwner.lifecycleScope.launch {
             showLoading("Switching to categories mode...")
@@ -282,7 +299,7 @@ class PresetsFragment : Fragment() {
     }
 
     private fun openPresetEditor(fileName: String) {
-        if (loadingOverlay.visibility == View.VISIBLE) return
+        if (loadingOverlay?.visibility == View.VISIBLE) return
 
         viewLifecycleOwner.lifecycleScope.launch {
             showLoading("Loading $fileName...")
@@ -328,7 +345,7 @@ class PresetsFragment : Fragment() {
     }
 
     private fun savePresetText(fileName: String, content: String, applyAfterSave: Boolean) {
-        if (loadingOverlay.visibility == View.VISIBLE) return
+        if (loadingOverlay?.visibility == View.VISIBLE) return
 
         viewLifecycleOwner.lifecycleScope.launch {
             showLoading(if (applyAfterSave) "Saving and applying..." else "Saving preset...")
@@ -337,9 +354,9 @@ class PresetsFragment : Fragment() {
             val (saved, restartSuccess) = withContext(Dispatchers.IO) {
                 val escapedPath = "$presetsDir/$fileName".replace("\"", "\\\"")
                 val normalized = content.replace("\r\n", "\n")
-                val escaped = normalized.replace("'", "'\\''")
 
-                val writeResult = Shell.cmd("echo '$escaped' > \"$escapedPath\"").exec()
+                val writeCmd = buildSafeWriteCommand(escapedPath, normalized)
+                val writeResult = Shell.cmd(writeCmd).exec()
                 if (!writeResult.isSuccess) {
                     return@withContext Pair(false, false)
                 }
@@ -382,17 +399,17 @@ class PresetsFragment : Fragment() {
     }
 
     private fun setActionsEnabled(enabled: Boolean) {
-        buttonReloadPresets.isEnabled = enabled
-        buttonUseCategories.isEnabled = enabled
+        buttonReloadPresets?.isEnabled = enabled
+        buttonUseCategories?.isEnabled = enabled
     }
 
     private fun showLoading(text: String) {
-        loadingText.text = text
-        loadingOverlay.visibility = View.VISIBLE
+        loadingText?.text = text
+        loadingOverlay?.visibility = View.VISIBLE
     }
 
     private fun hideLoading() {
-        loadingOverlay.visibility = View.GONE
+        loadingOverlay?.visibility = View.GONE
     }
 
     private suspend fun loadActiveSelection(): ActiveSelection {
@@ -416,6 +433,23 @@ class PresetsFragment : Fragment() {
             presetFile = presetFile,
             cmdlineFile = cmdlineFile.ifEmpty { "cmdline.txt" }
         )
+    }
+
+    private fun buildSafeWriteCommand(path: String, content: String): String {
+        var delimiter = "__ZAPRET_PRESET_EOF__"
+        while (content.contains(delimiter)) {
+            delimiter += "_X"
+        }
+        return buildString {
+            append("cat <<'")
+            append(delimiter)
+            append("' > \"")
+            append(path)
+            append("\"\n")
+            append(content)
+            append("\n")
+            append(delimiter)
+        }
     }
 
     private suspend fun persistActiveSelection(mode: String, presetFile: String? = null): Boolean {
