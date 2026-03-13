@@ -20,7 +20,12 @@ data class HostlistContentUiState(
     val domains: List<String> = emptyList(),
     val searchQuery: String = "",
     val showingCount: String = "",
-    val isLoading: Boolean = false
+    val isLoading: Boolean = false,
+    // Editor state
+    val isEditing: Boolean = false,
+    val editorContent: String = "",
+    val isSaving: Boolean = false,
+    val hasUnsavedChanges: Boolean = false
 )
 
 @HiltViewModel
@@ -30,6 +35,9 @@ class HostlistContentViewModel @Inject constructor(
 
     private val _uiState = MutableStateFlow(HostlistContentUiState())
     val uiState: StateFlow<HostlistContentUiState> = _uiState.asStateFlow()
+
+    private val _snackbar = MutableSharedFlow<String>(extraBufferCapacity = 5)
+    val snackbar: SharedFlow<String> = _snackbar.asSharedFlow()
 
     private val pageSize = 100
     private var currentPage = 0
@@ -83,6 +91,65 @@ class HostlistContentViewModel @Inject constructor(
             loadMore()
         }
     }
+
+    // --- Editor ---
+
+    fun enterEditMode() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoading = true) }
+            val content = withContext(Dispatchers.IO) {
+                val result = Shell.cmd("cat \"$filePath\" 2>/dev/null").exec()
+                if (result.isSuccess) result.out.joinToString("\n") else null
+            }
+            if (content != null) {
+                _uiState.update { it.copy(isEditing = true, editorContent = content, isLoading = false, hasUnsavedChanges = false) }
+            } else {
+                _uiState.update { it.copy(isLoading = false) }
+                _snackbar.emit("Failed to load file for editing")
+            }
+        }
+    }
+
+    fun exitEditMode() {
+        _uiState.update { it.copy(isEditing = false, editorContent = "", hasUnsavedChanges = false) }
+        // Reload viewer data
+        currentPage = 0
+        searchResults = null
+        _uiState.update { it.copy(domains = emptyList()) }
+        loadInitial()
+    }
+
+    fun updateEditorContent(text: String) {
+        _uiState.update { it.copy(editorContent = text, hasUnsavedChanges = true) }
+    }
+
+    fun saveFile() {
+        val content = _uiState.value.editorContent.replace("\r\n", "\n").trimEnd('\n') + "\n"
+        viewModelScope.launch {
+            _uiState.update { it.copy(isSaving = true) }
+            val success = withContext(Dispatchers.IO) {
+                val cmd = buildSafeWriteCommand(filePath, content)
+                Shell.cmd(cmd).exec().isSuccess
+            }
+            _uiState.update { it.copy(isSaving = false, hasUnsavedChanges = !success) }
+            if (success) {
+                _snackbar.emit("Saved")
+                // Update line count
+                val newTotal = content.lines().count { it.isNotBlank() }
+                _uiState.update { it.copy(totalLines = newTotal) }
+            } else {
+                _snackbar.emit("Failed to save file")
+            }
+        }
+    }
+
+    private fun buildSafeWriteCommand(path: String, content: String): String {
+        var delimiter = "__ZAPRET_HOSTLIST_EOF__"
+        while (content.contains(delimiter)) delimiter += "_X"
+        return "cat <<'$delimiter' > \"$path\"\n$content\n$delimiter"
+    }
+
+    // --- Pagination ---
 
     private fun loadFilePage(): List<String> {
         val start = currentPage * pageSize + 1
