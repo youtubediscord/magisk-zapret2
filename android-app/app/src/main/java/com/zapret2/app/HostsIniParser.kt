@@ -28,14 +28,36 @@ object HostsIniParser {
         INITIAL, DNS_PRESETS, SERVICES_DNS, SERVICES_DIRECT
     }
 
+    data class ParseResult(
+        val data: HostsIniData?,
+        val error: String?
+    )
+
     /**
      * Parse hosts.ini from the device via root shell.
-     * Returns null if the file cannot be read.
+     * Returns ParseResult with either data or an error message.
      */
-    suspend fun parse(): HostsIniData? = withContext(Dispatchers.IO) {
+    suspend fun parse(): ParseResult = withContext(Dispatchers.IO) {
+        // Check if file exists first
+        val existsResult = Shell.cmd("[ -f \"$HOSTS_INI_PATH\" ] && echo YES").exec()
+        if (existsResult.out.firstOrNull() != "YES") {
+            return@withContext ParseResult(null, "File not found: $HOSTS_INI_PATH")
+        }
+
         val result = Shell.cmd("cat \"$HOSTS_INI_PATH\" 2>/dev/null").exec()
-        if (!result.isSuccess || result.out.isEmpty()) return@withContext null
-        parseLines(result.out)
+        if (!result.isSuccess) {
+            return@withContext ParseResult(null, "Shell command failed (exit ${result.code})")
+        }
+        if (result.out.isEmpty()) {
+            return@withContext ParseResult(null, "File is empty")
+        }
+
+        val data = parseLines(result.out)
+        if (data.dnsServices.isEmpty() && data.directServices.isEmpty()) {
+            return@withContext ParseResult(null, "Parsed OK but no services found (${result.out.size} lines, ${data.dnsPresets.size} presets)")
+        }
+
+        ParseResult(data, null)
     }
 
     /**
