@@ -7,7 +7,7 @@
     <ScrollView
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:background="#202020"
+        android:background="@color/background_primary"
         android:fillViewport="true">
 
     <LinearLayout
@@ -35,7 +35,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Zapret2"
-                android:textColor="#FFFFFF"
+                android:textColor="@color/text_primary"
                 android:textSize="28sp"
                 android:textStyle="bold" />
 
@@ -44,7 +44,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="v1.0.0"
-                android:textColor="#808080"
+                android:textColor="@color/text_tertiary"
                 android:textSize="14sp"
                 android:layout_marginTop="4dp" />
 
@@ -52,7 +52,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="DPI Bypass for Android"
-                android:textColor="#808080"
+                android:textColor="@color/text_tertiary"
                 android:textSize="12sp"
                 android:layout_marginTop="8dp" />
 
@@ -63,7 +63,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Community"
-            android:textColor="#888888"
+            android:textColor="@color/text_secondary"
             android:textSize="12sp"
             android:layout_marginBottom="12dp"
             android:layout_marginStart="4dp" />
@@ -90,7 +90,7 @@
                     android:layout_height="24dp"
                     android:layout_gravity="center"
                     android:src="@drawable/ic_telegram"
-                    app:tint="#0088CC" />
+                    app:tint="@color/accent_telegram" />
 
             </FrameLayout>
 
@@ -105,14 +105,14 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="Support Group"
-                    android:textColor="#FFFFFF"
+                    android:textColor="@color/text_primary"
                     android:textSize="14sp" />
 
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@bypassblock"
-                    android:textColor="#0088CC"
+                    android:textColor="@color/accent_telegram"
                     android:textSize="12sp" />
 
             </LinearLayout>
@@ -121,7 +121,7 @@
                 android:layout_width="20dp"
                 android:layout_height="20dp"
                 android:src="@drawable/ic_chevron_right"
-                app:tint="#808080" />
+                app:tint="@color/text_tertiary" />
 
         </LinearLayout>
 
@@ -130,7 +130,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Services"
-            android:textColor="#888888"
+            android:textColor="@color/text_secondary"
             android:textSize="12sp"
             android:layout_marginTop="24dp"
             android:layout_marginBottom="12dp"
@@ -158,7 +158,7 @@
                     android:layout_height="24dp"
                     android:layout_gravity="center"
                     android:src="@drawable/ic_shield"
-                    app:tint="#0078D4" />
+                    app:tint="@color/accent_primary" />
 
             </FrameLayout>
 
@@ -173,14 +173,14 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="VPN Service"
-                    android:textColor="#FFFFFF"
+                    android:textColor="@color/text_primary"
                     android:textSize="14sp" />
 
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="Premium VPN by Zapret team"
-                    android:textColor="#808080"
+                    android:textColor="@color/text_tertiary"
                     android:textSize="12sp" />
 
             </LinearLayout>
@@ -189,7 +189,7 @@
                 android:layout_width="20dp"
                 android:layout_height="20dp"
                 android:src="@drawable/ic_chevron_right"
-                app:tint="#808080" />
+                app:tint="@color/text_tertiary" />
 
         </LinearLayout>
 
@@ -198,7 +198,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Developers"
-            android:textColor="#888888"
+            android:textColor="@color/text_secondary"
             android:textSize="12sp"
             android:layout_marginTop="24dp"
             android:layout_marginBottom="12dp"
@@ -226,7 +226,7 @@
                     android:layout_height="24dp"
                     android:layout_gravity="center"
                     android:src="@drawable/ic_github"
-                    app:tint="#FFFFFF" />
+                    app:tint="@color/text_primary" />
 
             </FrameLayout>
 
@@ -241,14 +241,14 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="bol-van"
-                    android:textColor="#FFFFFF"
+                    android:textColor="@color/text_primary"
                     android:textSize="14sp" />
 
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="zapret / zapret2 author"
-                    android:textColor="#808080"
+                    android:textColor="@color/text_tertiary"
                     android:textSize="12sp" />
 
             </LinearLayout>
@@ -257,7 +257,7 @@
                 android:layout_width="20dp"
                 android:layout_height="20dp"
                 android:src="@drawable/ic_chevron_right"
-                app:tint="#808080" />
+                app:tint="@color/text_tertiary" />
 
         </LinearLayout>
 
@@ -283,7 +283,7 @@
                     android:layout_height="24dp"
                     android:layout_gravity="center"
                     android:src="@drawable/ic_github"
-                    app:tint="#FFFFFF" />
+                    app:tint="@color/text_primary" />
 
             </FrameLayout>
 
@@ -298,14 +298,14 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="youtubediscord"
-                    android:textColor="#FFFFFF"
+                    android:textColor="@color/text_primary"
                     android:textSize="14sp" />
 
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="Magisk module / Android app"
-                    android:textColor="#808080"
+                    android:textColor="@color/text_tertiary"
                     android:textSize="12sp" />
 
             </LinearLayout>
@@ -314,7 +314,7 @@
                 android:layout_width="20dp"
                 android:layout_height="20dp"
                 android:src="@drawable/ic_chevron_right"
-                app:tint="#808080" />
+                app:tint="@color/text_tertiary" />
 
         </LinearLayout>
 
@@ -323,7 +323,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Information"
-            android:textColor="#888888"
+            android:textColor="@color/text_secondary"
             android:textSize="12sp"
             android:layout_marginTop="24dp"
             android:layout_marginBottom="12dp"
@@ -345,7 +345,7 @@
                 android:layout_width="24dp"
                 android:layout_height="24dp"
                 android:src="@drawable/ic_github"
-                app:tint="#FFFFFF" />
+                app:tint="@color/text_primary" />
 
             <TextView
                 android:layout_width="0dp"
@@ -353,14 +353,14 @@
                 android:layout_weight="1"
                 android:layout_marginStart="16dp"
                 android:text="Source Code"
-                android:textColor="#FFFFFF"
+                android:textColor="@color/text_primary"
                 android:textSize="14sp" />
 
             <ImageView
                 android:layout_width="20dp"
                 android:layout_height="20dp"
                 android:src="@drawable/ic_chevron_right"
-                app:tint="#808080" />
+                app:tint="@color/text_tertiary" />
 
         </LinearLayout>
 
@@ -377,7 +377,7 @@
                 android:layout_width="24dp"
                 android:layout_height="24dp"
                 android:src="@drawable/ic_info"
-                app:tint="#FFFFFF" />
+                app:tint="@color/text_primary" />
 
             <TextView
                 android:layout_width="0dp"
@@ -385,14 +385,14 @@
                 android:layout_weight="1"
                 android:layout_marginStart="16dp"
                 android:text="License"
-                android:textColor="#FFFFFF"
+                android:textColor="@color/text_primary"
                 android:textSize="14sp" />
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="MIT"
-                android:textColor="#808080"
+                android:textColor="@color/text_tertiary"
                 android:textSize="14sp" />
 
         </LinearLayout>

@@ -1,15 +1,18 @@
 package com.zapret2.app
 
+import android.animation.ObjectAnimator
+import android.animation.PropertyValuesHolder
 import android.content.Context
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.view.animation.AccelerateDecelerateInterpolator
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
-import android.widget.Toast
 import androidx.core.content.ContextCompat
+import com.google.android.material.snackbar.Snackbar
 import androidx.core.os.bundleOf
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.setFragmentResult
@@ -40,49 +43,49 @@ class ControlFragment : Fragment() {
         private const val KEY_NFQUEUE_CHECKED = "nfqueue_checked"
     }
 
-    // UI Elements
-    private lateinit var viewStatusIndicator: View
-    private lateinit var textStatusTitle: TextView
-    private lateinit var textStatusValue: TextView
-    private lateinit var textUptime: TextView
-    private lateinit var buttonToggle: MaterialButton
-    private lateinit var textToggleHint: TextView
-    private lateinit var rowAutostart: LinearLayout
-    private lateinit var rowWifiOnly: LinearLayout
-    private lateinit var switchAutostart: MaterialSwitch
-    private lateinit var switchWifiOnly: MaterialSwitch
-    private lateinit var textAutostartValue: TextView
-    private lateinit var textWifiOnlyValue: TextView
-    private lateinit var textAppVersion: TextView
-    private lateinit var textModuleVersion: TextView
-    private lateinit var textRootStatus: TextView
-    private lateinit var textNfqueueStatus: TextView
-    private lateinit var buttonUpdateModule: MaterialButton
+    // UI Elements (nullable to avoid crashes after view destruction)
+    private var viewStatusIndicator: View? = null
+    private var textStatusTitle: TextView? = null
+    private var textStatusValue: TextView? = null
+    private var textUptime: TextView? = null
+    private var buttonToggle: MaterialButton? = null
+    private var textToggleHint: TextView? = null
+    private var rowAutostart: LinearLayout? = null
+    private var rowWifiOnly: LinearLayout? = null
+    private var switchAutostart: MaterialSwitch? = null
+    private var switchWifiOnly: MaterialSwitch? = null
+    private var textAutostartValue: TextView? = null
+    private var textWifiOnlyValue: TextView? = null
+    private var textAppVersion: TextView? = null
+    private var textModuleVersion: TextView? = null
+    private var textRootStatus: TextView? = null
+    private var textNfqueueStatus: TextView? = null
+    private var buttonUpdateModule: MaterialButton? = null
 
     // Process Statistics UI Elements
-    private lateinit var textProcessStatsHeader: TextView
-    private lateinit var layoutProcessStats: LinearLayout
-    private lateinit var textMemoryUsage: TextView
-    private lateinit var textCpuUsage: TextView
-    private lateinit var textProcessUptime: TextView
-    private lateinit var textThreadCount: TextView
-    private lateinit var textProcessPid: TextView
+    private var textProcessStatsHeader: TextView? = null
+    private var layoutProcessStats: View? = null
+    private var textMemoryUsage: TextView? = null
+    private var textCpuUsage: TextView? = null
+    private var textProcessUptime: TextView? = null
+    private var textThreadCount: TextView? = null
+    private var textProcessPid: TextView? = null
 
     // Network Stats UI Elements
-    private lateinit var iconNetworkType: ImageView
-    private lateinit var textNetworkType: TextView
-    private lateinit var rowWifiName: LinearLayout
-    private lateinit var textWifiName: TextView
-    private lateinit var textIptablesStatus: TextView
-    private lateinit var textNfqueueRulesCount: TextView
+    private var iconNetworkType: ImageView? = null
+    private var textNetworkType: TextView? = null
+    private var rowWifiName: LinearLayout? = null
+    private var textWifiName: TextView? = null
+    private var textIptablesStatus: TextView? = null
+    private var textNfqueueRulesCount: TextView? = null
 
     // PKT Settings UI Elements
-    private lateinit var textPktOutValue: TextView
-    private lateinit var textPktInValue: TextView
-    private lateinit var buttonPktOutMinus: MaterialButton
-    private lateinit var buttonPktOutPlus: MaterialButton
-    private lateinit var buttonPktInMinus: MaterialButton
-    private lateinit var buttonPktInPlus: MaterialButton
+    private var textPktOutValue: TextView? = null
+    private var textPktInValue: TextView? = null
+    private var buttonPktOutMinus: MaterialButton? = null
+    private var buttonPktOutPlus: MaterialButton? = null
+    private var buttonPktInMinus: MaterialButton? = null
+    private var buttonPktInPlus: MaterialButton? = null
 
     // PKT current values
     private var pktOutValue: Int = PKT_OUT_DEFAULT
@@ -90,11 +93,14 @@ class ControlFragment : Fragment() {
     private var isLoadingCoreConfig = false
 
     // QUIC Warning Banner
-    private lateinit var bannerQuicWarning: LinearLayout
-    private lateinit var buttonDismissQuicBanner: MaterialButton
+    private var bannerQuicWarning: LinearLayout? = null
+    private var buttonDismissQuicBanner: MaterialButton? = null
 
     // Network stats manager
     private var networkStatsManager: NetworkStatsManager? = null
+
+    // Pulse animation for status indicator
+    private var pulseAnimator: ObjectAnimator? = null
 
     // Status tracking
     private var isRunning = false
@@ -139,6 +145,53 @@ class ControlFragment : Fragment() {
 
         // Auto-check for updates on first launch (with 2-second delay)
         scheduleAutoUpdateCheck()
+    }
+
+    override fun onDestroyView() {
+        stopPulseAnimation()
+        statusPollingJob?.cancel()
+        statusPollingJob = null
+        // Null out ALL view references to prevent leaks and crashes
+        viewStatusIndicator = null
+        textStatusTitle = null
+        textStatusValue = null
+        textUptime = null
+        buttonToggle = null
+        textToggleHint = null
+        rowAutostart = null
+        rowWifiOnly = null
+        switchAutostart = null
+        switchWifiOnly = null
+        textAutostartValue = null
+        textWifiOnlyValue = null
+        textAppVersion = null
+        textModuleVersion = null
+        textRootStatus = null
+        textNfqueueStatus = null
+        buttonUpdateModule = null
+        textProcessStatsHeader = null
+        layoutProcessStats = null
+        textMemoryUsage = null
+        textCpuUsage = null
+        textProcessUptime = null
+        textThreadCount = null
+        textProcessPid = null
+        iconNetworkType = null
+        textNetworkType = null
+        rowWifiName = null
+        textWifiName = null
+        textIptablesStatus = null
+        textNfqueueRulesCount = null
+        textPktOutValue = null
+        textPktInValue = null
+        buttonPktOutMinus = null
+        buttonPktOutPlus = null
+        buttonPktInMinus = null
+        buttonPktInPlus = null
+        bannerQuicWarning = null
+        buttonDismissQuicBanner = null
+        networkStatsManager = null
+        super.onDestroyView()
     }
 
     /**
@@ -231,7 +284,7 @@ class ControlFragment : Fragment() {
         textProcessPid = view.findViewById(R.id.textProcessPid)
 
         // Set APK version from BuildConfig (static, doesn't need refresh)
-        textAppVersion.text = "v${BuildConfig.VERSION_NAME}"
+        textAppVersion?.text = "v${BuildConfig.VERSION_NAME}"
 
         // Network Stats views
         iconNetworkType = view.findViewById(R.id.iconNetworkType)
@@ -261,7 +314,7 @@ class ControlFragment : Fragment() {
     }
 
     private fun setupListeners() {
-        buttonToggle.setOnClickListener {
+        buttonToggle?.setOnClickListener {
             if (isRunning) {
                 stopService()
             } else {
@@ -270,60 +323,60 @@ class ControlFragment : Fragment() {
         }
 
         // Row click toggles the switch
-        rowAutostart.setOnClickListener {
-            switchAutostart.toggle()
+        rowAutostart?.setOnClickListener {
+            switchAutostart?.toggle()
         }
 
-        rowWifiOnly.setOnClickListener {
-            switchWifiOnly.toggle()
+        rowWifiOnly?.setOnClickListener {
+            switchWifiOnly?.toggle()
         }
 
-        switchAutostart.setOnCheckedChangeListener { _, isChecked ->
+        switchAutostart?.setOnCheckedChangeListener { _, isChecked ->
             if (isLoadingCoreConfig) return@setOnCheckedChangeListener
-            textAutostartValue.text = if (isChecked) "On" else "Off"
+            textAutostartValue?.text = if (isChecked) "On" else "Off"
             saveAutostart(isChecked)
         }
 
-        switchWifiOnly.setOnCheckedChangeListener { _, isChecked ->
+        switchWifiOnly?.setOnCheckedChangeListener { _, isChecked ->
             if (isLoadingCoreConfig) return@setOnCheckedChangeListener
-            textWifiOnlyValue.text = if (isChecked) "On" else "Off"
+            textWifiOnlyValue?.text = if (isChecked) "On" else "Off"
             saveWifiOnly(isChecked)
         }
 
-        buttonUpdateModule.setOnClickListener {
+        buttonUpdateModule?.setOnClickListener {
             checkForUpdates()
         }
 
         // PKT_OUT controls
-        buttonPktOutMinus.setOnClickListener {
+        buttonPktOutMinus?.setOnClickListener {
             if (pktOutValue > PKT_MIN) {
                 pktOutValue--
-                textPktOutValue.text = pktOutValue.toString()
+                textPktOutValue?.text = pktOutValue.toString()
                 savePktOut(pktOutValue)
             }
         }
 
-        buttonPktOutPlus.setOnClickListener {
+        buttonPktOutPlus?.setOnClickListener {
             if (pktOutValue < PKT_MAX) {
                 pktOutValue++
-                textPktOutValue.text = pktOutValue.toString()
+                textPktOutValue?.text = pktOutValue.toString()
                 savePktOut(pktOutValue)
             }
         }
 
         // PKT_IN controls
-        buttonPktInMinus.setOnClickListener {
+        buttonPktInMinus?.setOnClickListener {
             if (pktInValue > PKT_MIN) {
                 pktInValue--
-                textPktInValue.text = pktInValue.toString()
+                textPktInValue?.text = pktInValue.toString()
                 savePktIn(pktInValue)
             }
         }
 
-        buttonPktInPlus.setOnClickListener {
+        buttonPktInPlus?.setOnClickListener {
             if (pktInValue < PKT_MAX) {
                 pktInValue++
-                textPktInValue.text = pktInValue.toString()
+                textPktInValue?.text = pktInValue.toString()
                 savePktIn(pktInValue)
             }
         }
@@ -331,9 +384,9 @@ class ControlFragment : Fragment() {
 
     private fun checkRootAndModule() {
         viewLifecycleOwner.lifecycleScope.launch {
-            textStatusValue.text = "Checking..."
-            textRootStatus.text = "Checking..."
-            textNfqueueStatus.text = "Checking..."
+            textStatusValue?.text = "Checking..."
+            textRootStatus?.text = "Checking..."
+            textNfqueueStatus?.text = "Checking..."
 
             // Check root access
             val hasRoot = withContext(Dispatchers.IO) {
@@ -344,19 +397,20 @@ class ControlFragment : Fragment() {
                 }
             }
 
+            if (!isAdded || view == null) return@launch
             val ctx = context ?: return@launch
 
             if (!hasRoot) {
-                textStatusValue.text = "Root not available!"
-                textRootStatus.text = "Not granted"
-                textRootStatus.setTextColor(ContextCompat.getColor(ctx, R.color.status_error))
+                textStatusValue?.text = "Root not available!"
+                textRootStatus?.text = "Not granted"
+                textRootStatus?.setTextColor(ContextCompat.getColor(ctx, R.color.status_error))
                 setStatus(Status.ERROR)
                 disableControls()
                 return@launch
             }
 
-            textRootStatus.text = "Granted"
-            textRootStatus.setTextColor(ContextCompat.getColor(ctx, R.color.status_running))
+            textRootStatus?.text = "Granted"
+            textRootStatus?.setTextColor(ContextCompat.getColor(ctx, R.color.status_running))
 
             // Check module exists
             val moduleExists = withContext(Dispatchers.IO) {
@@ -364,8 +418,10 @@ class ControlFragment : Fragment() {
                     .out.firstOrNull() == "1"
             }
 
+            if (!isAdded || view == null) return@launch
+
             if (!moduleExists) {
-                textStatusValue.text = "Module not installed!"
+                textStatusValue?.text = "Module not installed!"
                 setStatus(Status.ERROR)
                 disableControls()
                 return@launch
@@ -377,8 +433,10 @@ class ControlFragment : Fragment() {
                     .out.firstOrNull() == "1"
             }
 
+            if (!isAdded || view == null) return@launch
+
             if (!binaryExists) {
-                textStatusValue.text = "nfqws2 not found!"
+                textStatusValue?.text = "nfqws2 not found!"
                 setStatus(Status.ERROR)
                 return@launch
             }
@@ -404,13 +462,15 @@ class ControlFragment : Fragment() {
                 method1 || method2 || method3 || method4
             }
 
+            if (!isAdded || view == null) return@launch
+
             if (nfqueueSupported) {
-                textNfqueueStatus.text = "Supported"
-                textNfqueueStatus.setTextColor(ContextCompat.getColor(ctx, R.color.status_running))
+                textNfqueueStatus?.text = "Supported"
+                textNfqueueStatus?.setTextColor(ContextCompat.getColor(ctx, R.color.status_running))
             } else {
                 // Even if detection fails, NFQUEUE might still work - show warning instead of error
-                textNfqueueStatus.text = "Unknown (may work)"
-                textNfqueueStatus.setTextColor(ContextCompat.getColor(ctx, R.color.text_secondary))
+                textNfqueueStatus?.text = "Unknown (may work)"
+                textNfqueueStatus?.setTextColor(ContextCompat.getColor(ctx, R.color.text_secondary))
             }
 
             // Load module version
@@ -430,8 +490,9 @@ class ControlFragment : Fragment() {
                 Shell.cmd("grep 'version=' $MODDIR/module.prop | cut -d= -f2").exec()
                     .out.firstOrNull() ?: "Unknown"
             }
+            if (!isAdded || view == null) return@launch
             // version already contains "v" prefix from module.prop
-            textModuleVersion.text = version
+            textModuleVersion?.text = version
         }
     }
 
@@ -439,18 +500,20 @@ class ControlFragment : Fragment() {
         viewLifecycleOwner.lifecycleScope.launch {
             val coreSettings = readCoreSettings()
 
+            if (!isAdded || view == null) return@launch
+
             isLoadingCoreConfig = true
-            switchAutostart.isChecked = coreSettings.autostart
-            switchWifiOnly.isChecked = coreSettings.wifiOnly
+            switchAutostart?.isChecked = coreSettings.autostart
+            switchWifiOnly?.isChecked = coreSettings.wifiOnly
             isLoadingCoreConfig = false
 
-            textAutostartValue.text = if (coreSettings.autostart) "On" else "Off"
-            textWifiOnlyValue.text = if (coreSettings.wifiOnly) "On" else "Off"
+            textAutostartValue?.text = if (coreSettings.autostart) "On" else "Off"
+            textWifiOnlyValue?.text = if (coreSettings.wifiOnly) "On" else "Off"
 
             pktOutValue = coreSettings.pktOut.coerceIn(PKT_MIN, PKT_MAX)
             pktInValue = coreSettings.pktIn.coerceIn(PKT_MIN, PKT_MAX)
-            textPktOutValue.text = pktOutValue.toString()
-            textPktInValue.text = pktInValue.toString()
+            textPktOutValue?.text = pktOutValue.toString()
+            textPktInValue?.text = pktInValue.toString()
         }
     }
 
@@ -482,34 +545,36 @@ class ControlFragment : Fragment() {
 
         if (isRunning) {
             setStatus(Status.RUNNING)
-            textStatusValue.text = "Running"
-            textStatusValue.setTextColor(ContextCompat.getColor(ctx, R.color.status_running))
-            buttonToggle.text = "STOP"
-            buttonToggle.setIconResource(R.drawable.ic_stop)
-            buttonToggle.setBackgroundColor(ContextCompat.getColor(ctx, R.color.status_error))
-            textToggleHint.text = "Tap to stop DPI bypass"
+            textStatusValue?.text = "Running"
+            textStatusValue?.setTextColor(ContextCompat.getColor(ctx, R.color.status_running))
+            buttonToggle?.text = "STOP"
+            buttonToggle?.setIconResource(R.drawable.ic_stop)
+            buttonToggle?.setBackgroundColor(ContextCompat.getColor(ctx, R.color.status_error))
+            textToggleHint?.text = "Tap to stop DPI bypass"
+            startPulseAnimation(viewStatusIndicator)
 
             // Update uptime display
             if (serviceStartTime > 0L) {
                 val uptimeMillis = System.currentTimeMillis() - serviceStartTime
-                textUptime.text = formatUptime(uptimeMillis)
-                textUptime.visibility = View.VISIBLE
+                textUptime?.text = formatUptime(uptimeMillis)
+                textUptime?.visibility = View.VISIBLE
             } else {
-                textUptime.text = ""
-                textUptime.visibility = View.GONE
+                textUptime?.text = ""
+                textUptime?.visibility = View.GONE
             }
         } else {
             setStatus(Status.STOPPED)
-            textStatusValue.text = "Stopped"
-            textStatusValue.setTextColor(ContextCompat.getColor(ctx, R.color.text_secondary))
-            buttonToggle.text = "START"
-            buttonToggle.setIconResource(R.drawable.ic_play)
-            buttonToggle.setBackgroundColor(ContextCompat.getColor(ctx, R.color.accent_blue))
-            textToggleHint.text = "Tap to start DPI bypass"
+            textStatusValue?.text = "Stopped"
+            textStatusValue?.setTextColor(ContextCompat.getColor(ctx, R.color.text_secondary))
+            buttonToggle?.text = "START"
+            buttonToggle?.setIconResource(R.drawable.ic_play)
+            buttonToggle?.setBackgroundColor(ContextCompat.getColor(ctx, R.color.accent_blue))
+            textToggleHint?.text = "Tap to start DPI bypass"
+            stopPulseAnimation()
 
             // Hide uptime when stopped
-            textUptime.text = ""
-            textUptime.visibility = View.GONE
+            textUptime?.text = ""
+            textUptime?.visibility = View.GONE
         }
     }
 
@@ -560,35 +625,35 @@ class ControlFragment : Fragment() {
     private fun updateProcessStats(stats: ProcessStats) {
         if (stats.running) {
             // Show statistics section
-            textProcessStatsHeader.visibility = View.VISIBLE
-            layoutProcessStats.visibility = View.VISIBLE
+            textProcessStatsHeader?.visibility = View.VISIBLE
+            layoutProcessStats?.visibility = View.VISIBLE
 
             // Memory (convert KB to MB with 1 decimal)
             val memoryMb = stats.memoryRssKb / 1024.0
-            textMemoryUsage.text = String.format("%.1f MB", memoryMb)
+            textMemoryUsage?.text = String.format("%.1f MB", memoryMb)
 
             // CPU percentage
-            textCpuUsage.text = String.format("%.1f%%", stats.cpuPercent)
+            textCpuUsage?.text = String.format("%.1f%%", stats.cpuPercent)
 
             // Uptime in HH:MM:SS format
-            textProcessUptime.text = stats.uptimeFormatted.ifEmpty { "--:--:--" }
+            textProcessUptime?.text = stats.uptimeFormatted.ifEmpty { "--:--:--" }
 
             // Thread count
-            textThreadCount.text = if (stats.threads > 0) stats.threads.toString() else "--"
+            textThreadCount?.text = if (stats.threads > 0) stats.threads.toString() else "--"
 
             // Process ID
-            textProcessPid.text = stats.pid ?: "--"
+            textProcessPid?.text = stats.pid ?: "--"
         } else {
             // Hide statistics section when not running
-            textProcessStatsHeader.visibility = View.GONE
-            layoutProcessStats.visibility = View.GONE
+            textProcessStatsHeader?.visibility = View.GONE
+            layoutProcessStats?.visibility = View.GONE
 
             // Reset values
-            textMemoryUsage.text = "-- MB"
-            textCpuUsage.text = "--%"
-            textProcessUptime.text = "--:--:--"
-            textThreadCount.text = "--"
-            textProcessPid.text = "--"
+            textMemoryUsage?.text = "-- MB"
+            textCpuUsage?.text = "--%"
+            textProcessUptime?.text = "--:--:--"
+            textThreadCount?.text = "--"
+            textProcessPid?.text = "--"
         }
     }
 
@@ -596,14 +661,16 @@ class ControlFragment : Fragment() {
         viewLifecycleOwner.lifecycleScope.launch {
             val ctx = context ?: return@launch
 
-            buttonToggle.isEnabled = false
-            textStatusValue.text = "Starting..."
-            textStatusValue.setTextColor(ContextCompat.getColor(ctx, R.color.text_secondary))
-            textUptime.visibility = View.GONE
+            buttonToggle?.isEnabled = false
+            textStatusValue?.text = "Starting..."
+            textStatusValue?.setTextColor(ContextCompat.getColor(ctx, R.color.text_secondary))
+            textUptime?.visibility = View.GONE
 
             val result = withContext(Dispatchers.IO) {
                 Shell.cmd("sh $SCRIPTS/zapret-start.sh 2>&1").exec()
             }
+
+            if (!isAdded || view == null) return@launch
 
             // Record approximate start time (will be refined by checkStatus)
             if (result.isSuccess) {
@@ -611,17 +678,17 @@ class ControlFragment : Fragment() {
             }
 
             checkStatus()
-            buttonToggle.isEnabled = true
+            buttonToggle?.isEnabled = true
 
             if (!isAdded) return@launch
 
             if (result.isSuccess) {
-                Toast.makeText(ctx, "Service started", Toast.LENGTH_SHORT).show()
+                view?.let { Snackbar.make(it, "Service started", Snackbar.LENGTH_SHORT).show() }
                 // Notify LogsFragment to refresh
                 setFragmentResult(LogsFragment.SERVICE_RESTARTED_KEY, bundleOf())
             } else {
                 serviceStartTime = 0L
-                Toast.makeText(ctx, "Start failed", Toast.LENGTH_SHORT).show()
+                view?.let { Snackbar.make(it, "Start failed", Snackbar.LENGTH_SHORT).show() }
             }
         }
     }
@@ -630,57 +697,61 @@ class ControlFragment : Fragment() {
         viewLifecycleOwner.lifecycleScope.launch {
             val ctx = context ?: return@launch
 
-            buttonToggle.isEnabled = false
-            textStatusValue.text = "Stopping..."
-            textStatusValue.setTextColor(ContextCompat.getColor(ctx, R.color.text_secondary))
+            buttonToggle?.isEnabled = false
+            textStatusValue?.text = "Stopping..."
+            textStatusValue?.setTextColor(ContextCompat.getColor(ctx, R.color.text_secondary))
 
             val result = withContext(Dispatchers.IO) {
                 Shell.cmd("sh $SCRIPTS/zapret-stop.sh 2>&1").exec()
             }
 
+            if (!isAdded || view == null) return@launch
+
             // Reset start time immediately
             serviceStartTime = 0L
 
             checkStatus()
-            buttonToggle.isEnabled = true
+            buttonToggle?.isEnabled = true
 
             if (!isAdded) return@launch
 
             if (result.isSuccess) {
-                Toast.makeText(ctx, "Service stopped", Toast.LENGTH_SHORT).show()
+                view?.let { Snackbar.make(it, "Service stopped", Snackbar.LENGTH_SHORT).show() }
                 // Notify LogsFragment to refresh
                 setFragmentResult(LogsFragment.SERVICE_RESTARTED_KEY, bundleOf())
             } else {
-                Toast.makeText(ctx, "Stop failed", Toast.LENGTH_SHORT).show()
+                view?.let { Snackbar.make(it, "Stop failed", Snackbar.LENGTH_SHORT).show() }
             }
         }
     }
 
     private fun saveAutostart(enabled: Boolean) {
         viewLifecycleOwner.lifecycleScope.launch {
-            val ctx = context ?: return@launch
             val value = if (enabled) "1" else "0"
             persistCoreValue("autostart", value)
             if (!isAdded) return@launch
-            Toast.makeText(
-                ctx,
-                if (enabled) "Autostart enabled" else "Autostart disabled",
-                Toast.LENGTH_SHORT
-            ).show()
+            view?.let {
+                Snackbar.make(
+                    it,
+                    if (enabled) "Autostart enabled" else "Autostart disabled",
+                    Snackbar.LENGTH_SHORT
+                ).show()
+            }
         }
     }
 
     private fun saveWifiOnly(enabled: Boolean) {
         viewLifecycleOwner.lifecycleScope.launch {
-            val ctx = context ?: return@launch
             val value = if (enabled) "1" else "0"
             persistCoreValue("wifi_only", value)
             if (!isAdded) return@launch
-            Toast.makeText(
-                ctx,
-                if (enabled) "WiFi-only mode enabled" else "WiFi-only mode disabled",
-                Toast.LENGTH_SHORT
-            ).show()
+            view?.let {
+                Snackbar.make(
+                    it,
+                    if (enabled) "WiFi-only mode enabled" else "WiFi-only mode disabled",
+                    Snackbar.LENGTH_SHORT
+                ).show()
+            }
         }
     }
 
@@ -716,6 +787,26 @@ class ControlFragment : Fragment() {
             RuntimeConfigStore.upsertCoreValue(runtimeKey, value)
         }
 
+    private fun startPulseAnimation(view: View?) {
+        stopPulseAnimation()
+        view ?: return
+        pulseAnimator = ObjectAnimator.ofPropertyValuesHolder(
+            view,
+            PropertyValuesHolder.ofFloat("scaleX", 1.0f, 1.2f, 1.0f),
+            PropertyValuesHolder.ofFloat("scaleY", 1.0f, 1.2f, 1.0f)
+        ).apply {
+            duration = 2000
+            repeatCount = ObjectAnimator.INFINITE
+            interpolator = AccelerateDecelerateInterpolator()
+            start()
+        }
+    }
+
+    private fun stopPulseAnimation() {
+        pulseAnimator?.cancel()
+        pulseAnimator = null
+    }
+
     private enum class Status { RUNNING, STOPPED, ERROR }
 
     private fun setStatus(status: Status) {
@@ -725,26 +816,26 @@ class ControlFragment : Fragment() {
             Status.STOPPED -> R.color.status_stopped
             Status.ERROR -> R.color.status_error
         }
-        viewStatusIndicator.background?.setTint(ContextCompat.getColor(ctx, colorRes))
+        viewStatusIndicator?.background?.setTint(ContextCompat.getColor(ctx, colorRes))
     }
 
     private fun disableControls() {
-        buttonToggle.isEnabled = false
-        switchAutostart.isEnabled = false
-        switchWifiOnly.isEnabled = false
-        rowAutostart.isClickable = false
-        rowWifiOnly.isClickable = false
+        buttonToggle?.isEnabled = false
+        switchAutostart?.isEnabled = false
+        switchWifiOnly?.isEnabled = false
+        rowAutostart?.isClickable = false
+        rowWifiOnly?.isClickable = false
     }
 
     /**
      * Enable controls after root is confirmed.
      */
     private fun enableControls() {
-        buttonToggle.isEnabled = true
-        switchAutostart.isEnabled = true
-        switchWifiOnly.isEnabled = true
-        rowAutostart.isClickable = true
-        rowWifiOnly.isClickable = true
+        buttonToggle?.isEnabled = true
+        switchAutostart?.isEnabled = true
+        switchWifiOnly?.isEnabled = true
+        rowAutostart?.isClickable = true
+        rowWifiOnly?.isClickable = true
     }
 
     /**
@@ -797,12 +888,12 @@ class ControlFragment : Fragment() {
     private fun updateNfqueueStatusUI(supported: Boolean) {
         val ctx = context ?: return
         if (supported) {
-            textNfqueueStatus.text = "Supported"
-            textNfqueueStatus.setTextColor(ContextCompat.getColor(ctx, R.color.status_running))
+            textNfqueueStatus?.text = "Supported"
+            textNfqueueStatus?.setTextColor(ContextCompat.getColor(ctx, R.color.status_running))
         } else {
             // Even if detection fails, NFQUEUE might still work - show warning instead of error
-            textNfqueueStatus.text = "Unknown (may work)"
-            textNfqueueStatus.setTextColor(ContextCompat.getColor(ctx, R.color.text_secondary))
+            textNfqueueStatus?.text = "Unknown (may work)"
+            textNfqueueStatus?.setTextColor(ContextCompat.getColor(ctx, R.color.text_secondary))
         }
     }
 
@@ -810,12 +901,13 @@ class ControlFragment : Fragment() {
      * Hide process statistics section.
      */
     private fun hideProcessStats() {
-        textProcessStatsHeader.visibility = View.GONE
-        layoutProcessStats.visibility = View.GONE
+        textProcessStatsHeader?.visibility = View.GONE
+        layoutProcessStats?.visibility = View.GONE
     }
 
     override fun onResume() {
         super.onResume()
+        if (view == null) return
         // Start status polling every 3 seconds
         startStatusPolling()
         // Register network change listener (only if manager is initialized)
@@ -879,22 +971,23 @@ class ControlFragment : Fragment() {
             }
         }
 
+        if (!isAdded || view == null) return ServiceStatus.ERROR
         val ctx = context ?: return ServiceStatus.ERROR
 
         // Update root status UI dynamically
         if (!hasRoot) {
-            textRootStatus.text = "Not granted"
-            textRootStatus.setTextColor(ContextCompat.getColor(ctx, R.color.status_error))
+            textRootStatus?.text = "Not granted"
+            textRootStatus?.setTextColor(ContextCompat.getColor(ctx, R.color.status_error))
             setStatus(Status.ERROR)
-            textStatusValue.text = "Root lost!"
-            textStatusValue.setTextColor(ContextCompat.getColor(ctx, R.color.status_error))
-            textUptime.visibility = View.GONE
+            textStatusValue?.text = "Root lost!"
+            textStatusValue?.setTextColor(ContextCompat.getColor(ctx, R.color.status_error))
+            textUptime?.visibility = View.GONE
             hideProcessStats()
             disableControls()
             return ServiceStatus.ERROR
         } else {
-            textRootStatus.text = "Granted"
-            textRootStatus.setTextColor(ContextCompat.getColor(ctx, R.color.status_running))
+            textRootStatus?.text = "Granted"
+            textRootStatus?.setTextColor(ContextCompat.getColor(ctx, R.color.status_running))
             enableControls()
         }
 
@@ -902,6 +995,7 @@ class ControlFragment : Fragment() {
         val nfqueueSupported = withContext(Dispatchers.IO) {
             checkNfqueueSupport()
         }
+        if (!isAdded || view == null) return ServiceStatus.ERROR
         updateNfqueueStatusUI(nfqueueSupported)
 
         val stats = withContext(Dispatchers.IO) {
@@ -1003,6 +1097,8 @@ class ControlFragment : Fragment() {
             )
         }
 
+        if (!isAdded || view == null) return ServiceStatus.ERROR
+
         val wasRunning = isRunning
         isRunning = stats.running
         currentPid = stats.pid
@@ -1025,17 +1121,17 @@ class ControlFragment : Fragment() {
 
     private fun checkForUpdates() {
         val ctx = context ?: return
-        buttonUpdateModule.isEnabled = false
-        buttonUpdateModule.text = "Checking..."
+        buttonUpdateModule?.isEnabled = false
+        buttonUpdateModule?.text = "Checking..."
 
         viewLifecycleOwner.lifecycleScope.launch {
             val updateManager = UpdateManager(ctx)
             val result = updateManager.checkForUpdates()
 
-            if (!isAdded) return@launch
+            if (!isAdded || view == null) return@launch
 
-            buttonUpdateModule.isEnabled = true
-            buttonUpdateModule.text = "Check for Updates"
+            buttonUpdateModule?.isEnabled = true
+            buttonUpdateModule?.text = "Check for Updates"
 
             when (result) {
                 is UpdateManager.UpdateResult.Available -> {
@@ -1046,18 +1142,14 @@ class ControlFragment : Fragment() {
                     dialog.show(parentFragmentManager, "update_dialog")
                 }
                 is UpdateManager.UpdateResult.UpToDate -> {
-                    Toast.makeText(
-                        ctx,
-                        "Latest version installed",
-                        Toast.LENGTH_SHORT
-                    ).show()
+                    view?.let {
+                        Snackbar.make(it, "Latest version installed", Snackbar.LENGTH_SHORT).show()
+                    }
                 }
                 is UpdateManager.UpdateResult.Error -> {
-                    Toast.makeText(
-                        ctx,
-                        "Check failed: ${result.message}",
-                        Toast.LENGTH_LONG
-                    ).show()
+                    view?.let {
+                        Snackbar.make(it, "Check failed: ${result.message}", Snackbar.LENGTH_LONG).show()
+                    }
                 }
             }
         }
@@ -1072,8 +1164,12 @@ class ControlFragment : Fragment() {
         networkStatsManager?.registerNetworkChangeListener(object : NetworkStatsManager.NetworkChangeListener {
             override fun onNetworkChanged(stats: NetworkStatsManager.NetworkStats) {
                 // Update network stats on network change
-                viewLifecycleOwner.lifecycleScope.launch {
-                    updateNetworkStats()
+                try {
+                    viewLifecycleOwner.lifecycleScope.launch {
+                        updateNetworkStats()
+                    }
+                } catch (_: IllegalStateException) {
+                    // Fragment view already destroyed
                 }
             }
         })
@@ -1098,15 +1194,15 @@ class ControlFragment : Fragment() {
             }
 
             val ctx = context ?: return@launch
-            if (!isAdded) return@launch
+            if (!isAdded || view == null) return@launch
 
             // Update network type
             val networkTypeString = manager.getNetworkTypeString(stats.networkType)
-            textNetworkType.text = networkTypeString
+            textNetworkType?.text = networkTypeString
 
             // Update icon based on network type
             val iconRes = manager.getNetworkTypeIcon(stats.networkType)
-            iconNetworkType.setImageResource(iconRes)
+            iconNetworkType?.setImageResource(iconRes)
 
             // Set color based on connection status
             val colorRes = when (stats.networkType) {
@@ -1114,14 +1210,14 @@ class ControlFragment : Fragment() {
                 NetworkStatsManager.NetworkType.VPN -> R.color.accent_light_blue
                 else -> R.color.status_running
             }
-            textNetworkType.setTextColor(ContextCompat.getColor(ctx, colorRes))
+            textNetworkType?.setTextColor(ContextCompat.getColor(ctx, colorRes))
 
             // Update WiFi name (show/hide row based on connection type)
             if (stats.networkType == NetworkStatsManager.NetworkType.WIFI && stats.wifiSsid != null) {
-                rowWifiName.visibility = View.VISIBLE
-                textWifiName.text = stats.wifiSsid
+                rowWifiName?.visibility = View.VISIBLE
+                textWifiName?.text = stats.wifiSsid
             } else {
-                rowWifiName.visibility = View.GONE
+                rowWifiName?.visibility = View.GONE
             }
 
             // Update iptables status with error codes
@@ -1133,56 +1229,56 @@ class ControlFragment : Fragment() {
             if (stats.iptablesActive) {
                 if (detail.rulesFail > 0) {
                     // ERR_IPT_PARTIAL: some rules failed
-                    textIptablesStatus.text = "ERR_IPT_PARTIAL (${detail.rulesOk}/${detail.rulesTotal})"
-                    textIptablesStatus.setTextColor(warnColor)
+                    textIptablesStatus?.text = "ERR_IPT_PARTIAL (${detail.rulesOk}/${detail.rulesTotal})"
+                    textIptablesStatus?.setTextColor(warnColor)
                 } else if (detail.rulesTotal > 0) {
-                    textIptablesStatus.text = "Active (${detail.rulesOk}/${detail.rulesTotal})"
-                    textIptablesStatus.setTextColor(okColor)
+                    textIptablesStatus?.text = "Active (${detail.rulesOk}/${detail.rulesTotal})"
+                    textIptablesStatus?.setTextColor(okColor)
                 } else {
-                    textIptablesStatus.text = "Active"
-                    textIptablesStatus.setTextColor(okColor)
+                    textIptablesStatus?.text = "Active"
+                    textIptablesStatus?.setTextColor(okColor)
                 }
             } else {
                 // iptables inactive = always an error when service should be running
                 if (detail.rulesFail > 0 && detail.rulesOk == 0) {
                     // ERR_IPT_ALLFAIL: all rules failed to apply
-                    textIptablesStatus.text = "ERR_IPT_ALLFAIL (0/${detail.rulesTotal})"
-                    textIptablesStatus.setTextColor(errorColor)
+                    textIptablesStatus?.text = "ERR_IPT_ALLFAIL (0/${detail.rulesTotal})"
+                    textIptablesStatus?.setTextColor(errorColor)
                 } else if (isRunning) {
                     // ERR_IPT_LOST: process running but rules gone (flushed by system/other module)
-                    textIptablesStatus.text = "ERR_IPT_LOST"
-                    textIptablesStatus.setTextColor(errorColor)
+                    textIptablesStatus?.text = "ERR_IPT_LOST"
+                    textIptablesStatus?.setTextColor(errorColor)
                 } else if (detail.status == "unknown" && detail.rulesTotal == 0) {
                     // ERR_IPT_NOFILE: no status file = script never wrote iptables status
-                    textIptablesStatus.text = "Inactive"
-                    textIptablesStatus.setTextColor(ContextCompat.getColor(ctx, R.color.text_secondary))
+                    textIptablesStatus?.text = "Inactive"
+                    textIptablesStatus?.setTextColor(ContextCompat.getColor(ctx, R.color.text_secondary))
                 } else {
                     // ERR_IPT_FAIL: generic failure
-                    textIptablesStatus.text = "ERR_IPT_FAIL"
-                    textIptablesStatus.setTextColor(errorColor)
+                    textIptablesStatus?.text = "ERR_IPT_FAIL"
+                    textIptablesStatus?.setTextColor(errorColor)
                 }
             }
 
             // Make iptables status clickable to show diagnostic dialog
-            textIptablesStatus.setOnClickListener {
+            textIptablesStatus?.setOnClickListener {
                 showIptablesDiagnosticDialog(detail)
             }
 
             // Update NFQUEUE rules count with error detail
             if (stats.nfqueueRulesCount > 0) {
-                textNfqueueRulesCount.text = stats.nfqueueRulesCount.toString()
-                textNfqueueRulesCount.setTextColor(okColor)
+                textNfqueueRulesCount?.text = stats.nfqueueRulesCount.toString()
+                textNfqueueRulesCount?.setTextColor(okColor)
             } else if (isRunning) {
                 // Process running but no NFQUEUE rules = error
                 val errMsg = if (detail.errors.isNotEmpty()) detail.errors.first() else "no rules"
-                textNfqueueRulesCount.text = "ERR: 0 — $errMsg"
-                textNfqueueRulesCount.setTextColor(errorColor)
+                textNfqueueRulesCount?.text = "ERR: 0 — $errMsg"
+                textNfqueueRulesCount?.setTextColor(errorColor)
             } else if (detail.errors.isNotEmpty()) {
-                textNfqueueRulesCount.text = "0 — ${detail.errors.first()}"
-                textNfqueueRulesCount.setTextColor(errorColor)
+                textNfqueueRulesCount?.text = "0 — ${detail.errors.first()}"
+                textNfqueueRulesCount?.setTextColor(errorColor)
             } else {
-                textNfqueueRulesCount.text = "0"
-                textNfqueueRulesCount.setTextColor(ContextCompat.getColor(ctx, R.color.text_secondary))
+                textNfqueueRulesCount?.text = "0"
+                textNfqueueRulesCount?.setTextColor(ContextCompat.getColor(ctx, R.color.text_secondary))
             }
         }
     }
@@ -1265,13 +1361,13 @@ class ControlFragment : Fragment() {
         val isDismissed = prefs.getBoolean(KEY_QUIC_BANNER_DISMISSED, false)
 
         if (!isDismissed) {
-            bannerQuicWarning.visibility = View.VISIBLE
+            bannerQuicWarning?.visibility = View.VISIBLE
         } else {
-            bannerQuicWarning.visibility = View.GONE
+            bannerQuicWarning?.visibility = View.GONE
         }
 
         // Set up dismiss button click listener
-        buttonDismissQuicBanner.setOnClickListener {
+        buttonDismissQuicBanner?.setOnClickListener {
             dismissQuicWarningBanner()
         }
     }
@@ -1283,14 +1379,14 @@ class ControlFragment : Fragment() {
         val ctx = context ?: return
 
         // Hide banner with animation
-        bannerQuicWarning.animate()
-            .alpha(0f)
-            .setDuration(200)
-            .withEndAction {
-                bannerQuicWarning.visibility = View.GONE
-                bannerQuicWarning.alpha = 1f
+        bannerQuicWarning?.animate()
+            ?.alpha(0f)
+            ?.setDuration(200)
+            ?.withEndAction {
+                bannerQuicWarning?.visibility = View.GONE
+                bannerQuicWarning?.alpha = 1f
             }
-            .start()
+            ?.start()
 
         // Save dismissed state to SharedPreferences
         val prefs = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)

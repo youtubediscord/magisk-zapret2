@@ -20,7 +20,7 @@
         android:src="@drawable/ic_hostlist"
         android:padding="8dp"
         android:background="@drawable/icon_circle_background"
-        app:tint="#60CDFF" />
+        app:tint="@color/accent_light" />
 
     <!-- File info -->
     <LinearLayout
@@ -35,7 +35,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="youtube"
-            android:textColor="#FFFFFF"
+            android:textColor="@color/text_primary"
             android:textSize="15sp"
             android:textStyle="bold"
             android:maxLines="1"
@@ -46,7 +46,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="1,234 domains"
-            android:textColor="#808080"
+            android:textColor="@color/text_tertiary"
             android:textSize="13sp"
             android:layout_marginTop="2dp" />
 
@@ -58,7 +58,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="12.5 KB"
-        android:textColor="#606060"
+        android:textColor="@color/text_dimmed"
         android:textSize="12sp"
         android:layout_marginEnd="12dp" />
 
@@ -67,6 +67,6 @@
         android:layout_width="20dp"
         android:layout_height="20dp"
         android:src="@drawable/ic_chevron_right"
-        app:tint="#606060" />
+        app:tint="@color/text_dimmed" />
 
 </LinearLayout>

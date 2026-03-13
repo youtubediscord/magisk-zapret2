@@ -7,6 +7,13 @@
     <color name="surface">#2D2D2D</color>
     <color name="surface_variant">#383838</color>
 
+    <!-- Background layers -->
+    <color name="background_primary">#202020</color>
+    <color name="background_darker">#1A1A1A</color>
+    <color name="surface_card">#2D2D2D</color>
+    <color name="surface_changelog">#252525</color>
+    <color name="overlay_loading">#CC202020</color>
+
     <!-- Item backgrounds (semi-transparent white) -->
     <color name="item_background">#08FFFFFF</color>
     <color name="item_background_pressed">#0FFFFFFF</color>
@@ -17,22 +24,51 @@
     <color name="border_light">#505050</color>
     <color name="divider">#404040</color>
 
+    <!-- Borders & Dividers -->
+    <color name="border_strong">#404040</color>
+
     <!-- Accent colors -->
     <color name="accent_blue">#0078D4</color>
     <color name="accent_light_blue">#60CDFF</color>
+
+    <!-- Semantic accent names -->
+    <color name="accent_primary">#0078D4</color>
+    <color name="accent_light">#60CDFF</color>
+    <color name="accent_telegram">#0088CC</color>
+    <color name="text_command">#4EC9B0</color>
+
+    <!-- Ripple colors -->
+    <color name="ripple_accent">#1A0078D4</color>
+    <color name="ripple_white">#33FFFFFF</color>
 
     <!-- Status colors -->
     <color name="status_active">#6CCB5F</color>
     <color name="status_inactive">#888888</color>
     <color name="status_running">#107C10</color>
     <color name="status_stopped">#888888</color>
-    <color name="status_error">#D13438</color>
-    <color name="status_warning">#FFA000</color>
+    <color name="status_error">#FF6B6B</color>
+    <color name="status_warning">#FF9800</color>
+
+    <!-- Semantic status colors -->
+    <color name="status_success">#4CAF50</color>
+    <color name="status_amber">#FFC107</color>
+    <color name="status_purple">#9C27B0</color>
+    <color name="button_save_restart">#2E8B57</color>
 
     <!-- Text colors -->
     <color name="text_primary">#FFFFFF</color>
-    <color name="text_secondary">#80FFFFFF</color>
+    <color name="text_secondary">#888888</color>
     <color name="text_hint">#808080</color>
+
+    <!-- Text hierarchy -->
+    <color name="text_tertiary">#808080</color>
+    <color name="text_quaternary">#666666</color>
+    <color name="text_dimmed">#606060</color>
+    <color name="text_empty">#505050</color>
+    <color name="text_log">#D4D4D4</color>
+    <color name="text_subtitle_active">#C8C8C8</color>
+    <color name="text_secondary_light">#CCCCCC</color>
+    <color name="text_changelog">#B0B0B0</color>
 
     <!-- Button colors -->
     <color name="btn_success">#107C10</color>
@@ -49,6 +85,9 @@
     <color name="instagram_pink">#E4405F</color>
     <color name="twitter_blue">#1DA1F2</color>
     <color name="github_white">#FFFFFF</color>
-    <color name="steam_blue">#1B2838</color>
+    <color name="steam_blue">#66C0F4</color>
     <color name="soundcloud_orange">#FF5500</color>
+    <color name="googlevideo_red">#E53935</color>
+    <color name="twitch_purple">#9146FF</color>
+    <color name="udp_blue">#03A9F4</color>
 </resources>

@@ -7,8 +7,8 @@ import android.view.ViewGroup
 import android.widget.CheckBox
 import android.widget.LinearLayout
 import android.widget.TextView
-import android.widget.Toast
 import androidx.fragment.app.Fragment
+import com.google.android.material.snackbar.Snackbar
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
@@ -124,7 +124,7 @@ class DnsManagerFragment : Fragment() {
                 HostsIniParser.parse()
             }
 
-            if (!isAdded) return@launch
+            if (!isAdded || view == null) return@launch
 
             if (parseResult.data == null) {
                 // Show error with retry - repurpose loading overlay
@@ -147,7 +147,7 @@ class DnsManagerFragment : Fragment() {
                 RuntimeConfigStore.readDnsManager()
             }
 
-            if (!isAdded) return@launch
+            if (!isAdded || view == null) return@launch
 
             selectedPresetIndex = savedState["dns_preset_index"]?.toIntOrNull() ?: 0
             savedState["selected_dns"]
@@ -245,7 +245,8 @@ class DnsManagerFragment : Fragment() {
     private fun showPresetPicker() {
         val presets = hostsData?.dnsPresets ?: return
 
-        MaterialAlertDialogBuilder(requireContext())
+        val ctx = context ?: return
+        MaterialAlertDialogBuilder(ctx)
             .setTitle("DNS Preset")
             .setSingleChoiceItems(presets.toTypedArray(), selectedPresetIndex) { dialog, which ->
                 selectedPresetIndex = which
@@ -258,7 +259,8 @@ class DnsManagerFragment : Fragment() {
 
     private fun applyDns() {
         val data = hostsData ?: return
-        val cacheDir = requireContext().cacheDir
+        val ctx = context ?: return
+        val cacheDir = ctx.cacheDir
 
         viewLifecycleOwner.lifecycleScope.launch {
             showLoading("Applying DNS...")
@@ -304,18 +306,21 @@ class DnsManagerFragment : Fragment() {
 
             hideLoading()
 
-            if (!isAdded) return@launch
+            if (!isAdded || view == null) return@launch
 
-            Toast.makeText(
-                requireContext(),
-                if (success) "DNS applied" else "Failed to apply DNS",
-                Toast.LENGTH_SHORT
-            ).show()
+            view?.let {
+                Snackbar.make(
+                    it,
+                    if (success) "DNS applied" else "Failed to apply DNS",
+                    Snackbar.LENGTH_SHORT
+                ).show()
+            }
         }
     }
 
     private fun resetDns() {
-        val cacheDir = requireContext().cacheDir
+        val ctx = context ?: return
+        val cacheDir = ctx.cacheDir
 
         viewLifecycleOwner.lifecycleScope.launch {
             showLoading("Resetting DNS...")
@@ -337,13 +342,15 @@ class DnsManagerFragment : Fragment() {
 
             hideLoading()
 
-            if (!isAdded) return@launch
+            if (!isAdded || view == null) return@launch
 
-            Toast.makeText(
-                requireContext(),
-                if (success) "DNS reset" else "Failed to reset DNS",
-                Toast.LENGTH_SHORT
-            ).show()
+            view?.let {
+                Snackbar.make(
+                    it,
+                    if (success) "DNS reset" else "Failed to reset DNS",
+                    Snackbar.LENGTH_SHORT
+                ).show()
+            }
         }
     }
 

@@ -8,8 +8,9 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
-import android.widget.Toast
+import androidx.core.content.ContextCompat
 import androidx.core.os.bundleOf
+import com.google.android.material.snackbar.Snackbar
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.setFragmentResult
 import androidx.lifecycle.lifecycleScope
@@ -122,7 +123,8 @@ class StrategiesFragment : Fragment() {
         categoryValueViews.clear()
         categoryMeta.clear()
 
-        val inflater = LayoutInflater.from(requireContext())
+        val ctx = context ?: return
+        val inflater = LayoutInflater.from(ctx)
 
         categories.forEach { (categoryKey, config) ->
             val meta = createCategoryMeta(categoryKey, config)
@@ -185,27 +187,28 @@ class StrategiesFragment : Fragment() {
     }
 
     private fun resolveCategoryVisual(categoryKey: String, type: String): Pair<Int, Int> {
+        val ctx = context ?: return Pair(R.drawable.ic_apps, 0)
         val key = categoryKey.lowercase()
         return when {
-            key.contains("youtube") -> Pair(R.drawable.ic_video, 0xFFFF0000.toInt())
-            key.contains("googlevideo") -> Pair(R.drawable.ic_video, 0xFFE53935.toInt())
-            key.contains("twitch") -> Pair(R.drawable.ic_video, 0xFF9146FF.toInt())
-            key.contains("discord") -> Pair(R.drawable.ic_message, 0xFF5865F2.toInt())
-            key.contains("telegram") -> Pair(R.drawable.ic_message, 0xFF0088CC.toInt())
-            key.contains("whatsapp") -> Pair(R.drawable.ic_message, 0xFF25D366.toInt())
+            key.contains("youtube") -> Pair(R.drawable.ic_video, ContextCompat.getColor(ctx, R.color.youtube_red))
+            key.contains("googlevideo") -> Pair(R.drawable.ic_video, ContextCompat.getColor(ctx, R.color.googlevideo_red))
+            key.contains("twitch") -> Pair(R.drawable.ic_video, ContextCompat.getColor(ctx, R.color.twitch_purple))
+            key.contains("discord") -> Pair(R.drawable.ic_message, ContextCompat.getColor(ctx, R.color.discord_blue))
+            key.contains("telegram") -> Pair(R.drawable.ic_message, ContextCompat.getColor(ctx, R.color.telegram_blue))
+            key.contains("whatsapp") -> Pair(R.drawable.ic_message, ContextCompat.getColor(ctx, R.color.whatsapp_green))
             key.contains("voice") || type == StrategyPickerBottomSheet.TYPE_VOICE -> Pair(
                 R.drawable.ic_message,
-                0xFF9B59B6.toInt()
+                ContextCompat.getColor(ctx, R.color.voice_purple)
             )
 
-            key.contains("facebook") -> Pair(R.drawable.ic_social, 0xFF1877F2.toInt())
-            key.contains("instagram") -> Pair(R.drawable.ic_social, 0xFFE4405F.toInt())
-            key.contains("twitter") -> Pair(R.drawable.ic_social, 0xFF1DA1F2.toInt())
-            key.contains("github") -> Pair(R.drawable.ic_apps, 0xFFFFFFFF.toInt())
-            key.contains("soundcloud") -> Pair(R.drawable.ic_apps, 0xFFFF5500.toInt())
-            key.contains("steam") -> Pair(R.drawable.ic_apps, 0xFF66C0F4.toInt())
-            type == StrategyPickerBottomSheet.TYPE_UDP -> Pair(R.drawable.ic_message, 0xFF03A9F4.toInt())
-            else -> Pair(R.drawable.ic_apps, 0xFF4CAF50.toInt())
+            key.contains("facebook") -> Pair(R.drawable.ic_social, ContextCompat.getColor(ctx, R.color.facebook_blue))
+            key.contains("instagram") -> Pair(R.drawable.ic_social, ContextCompat.getColor(ctx, R.color.instagram_pink))
+            key.contains("twitter") -> Pair(R.drawable.ic_social, ContextCompat.getColor(ctx, R.color.twitter_blue))
+            key.contains("github") -> Pair(R.drawable.ic_apps, ContextCompat.getColor(ctx, R.color.github_white))
+            key.contains("soundcloud") -> Pair(R.drawable.ic_apps, ContextCompat.getColor(ctx, R.color.soundcloud_orange))
+            key.contains("steam") -> Pair(R.drawable.ic_apps, ContextCompat.getColor(ctx, R.color.steam_blue))
+            type == StrategyPickerBottomSheet.TYPE_UDP -> Pair(R.drawable.ic_message, ContextCompat.getColor(ctx, R.color.udp_blue))
+            else -> Pair(R.drawable.ic_apps, ContextCompat.getColor(ctx, R.color.status_success))
         }
     }
 
@@ -286,6 +289,7 @@ class StrategiesFragment : Fragment() {
         )
 
         bottomSheet.setOnStrategyAndFilterSelectedListener { selectedName, newFilterMode ->
+            if (!isAdded) return@setOnStrategyAndFilterSelectedListener
             selections[key] = selectedName
             newFilterMode?.let { filterModes[key] = it }
             updateValueText(key, selectedName, type)
@@ -293,6 +297,7 @@ class StrategiesFragment : Fragment() {
         }
 
         bottomSheet.setOnStrategySelectedListener { selectedName ->
+            if (!isAdded) return@setOnStrategySelectedListener
             if (type == StrategyPickerBottomSheet.TYPE_DEBUG ||
                 type == StrategyPickerBottomSheet.TYPE_PKT_COUNT
             ) {
@@ -385,9 +390,14 @@ class StrategiesFragment : Fragment() {
                 updateValueText(categoryKey, strategyName, type)
             }
 
+            categoriesContainer.alpha = 0f
+            categoriesContainer.animate().alpha(1f).setDuration(200).start()
+
             val runtimeCore = withContext(Dispatchers.IO) {
                 RuntimeConfigStore.readCore()
             }
+
+            if (!isAdded || view == null) return@launch
 
             val pktValue = runtimeCore["pkt_out"]
                 ?: runtimeCore["pkt_count"]
@@ -451,16 +461,22 @@ class StrategiesFragment : Fragment() {
                 Pair(true, restartResult.isSuccess)
             }
 
+            if (!isAdded || view == null) return@launch
+
             hideLoading()
 
             if (allSuccess && configSuccess && restartSuccess) {
-                Toast.makeText(requireContext(), "Applied successfully", Toast.LENGTH_SHORT).show()
+                view?.let { Snackbar.make(it, "Applied successfully", Snackbar.LENGTH_SHORT).show() }
                 setFragmentResult(LogsFragment.SERVICE_RESTARTED_KEY, bundleOf())
             } else if (allSuccess && configSuccess) {
-                Toast.makeText(requireContext(), "Saved, restart failed", Toast.LENGTH_SHORT).show()
+                view?.let { Snackbar.make(it, "Saved, restart failed", Snackbar.LENGTH_SHORT).show() }
             } else {
-                Toast.makeText(requireContext(), "Save failed", Toast.LENGTH_SHORT).show()
+                view?.let { Snackbar.make(it, "Save failed", Snackbar.LENGTH_SHORT).show() }
             }
         }
+    }
+
+    override fun onDestroyView() {
+        super.onDestroyView()
     }
 }

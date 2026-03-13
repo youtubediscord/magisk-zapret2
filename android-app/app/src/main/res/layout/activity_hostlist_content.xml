@@ -5,7 +5,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="#202020"
+    android:background="@color/background_primary"
     android:fitsSystemWindows="true">
 
     <!-- Toolbar -->
@@ -15,7 +15,7 @@
         android:orientation="horizontal"
         android:gravity="center_vertical"
         android:paddingHorizontal="8dp"
-        android:background="#1A1A1A">
+        android:background="@color/background_darker">
 
         <ImageButton
             android:id="@+id/btnBack"
@@ -24,7 +24,7 @@
             android:src="@drawable/ic_arrow_back"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="Back"
-            app:tint="#FFFFFF" />
+            app:tint="@color/text_primary" />
 
         <LinearLayout
             android:layout_width="0dp"
@@ -38,7 +38,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="youtube"
-                android:textColor="#FFFFFF"
+                android:textColor="@color/text_primary"
                 android:textSize="16sp"
                 android:textStyle="bold"
                 android:maxLines="1"
@@ -49,7 +49,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="1,234 domains"
-                android:textColor="#808080"
+                android:textColor="@color/text_tertiary"
                 android:textSize="12sp" />
 
         </LinearLayout>
@@ -62,7 +62,7 @@
         android:layout_height="48dp"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:background="#2D2D2D"
+        android:background="@color/surface_card"
         android:paddingHorizontal="16dp"
         android:layout_margin="12dp">
 
@@ -70,7 +70,7 @@
             android:layout_width="20dp"
             android:layout_height="20dp"
             android:src="@drawable/ic_search"
-            app:tint="#808080" />
+            app:tint="@color/text_tertiary" />
 
         <EditText
             android:id="@+id/editSearch"
@@ -80,8 +80,8 @@
             android:layout_marginStart="12dp"
             android:background="@null"
             android:hint="Search domains..."
-            android:textColor="#FFFFFF"
-            android:textColorHint="#606060"
+            android:textColor="@color/text_primary"
+            android:textColorHint="@color/text_dimmed"
             android:textSize="14sp"
             android:imeOptions="actionSearch"
             android:inputType="text"
@@ -95,7 +95,7 @@
             android:background="?attr/selectableItemBackgroundBorderless"
             android:visibility="gone"
             android:contentDescription="Clear search"
-            app:tint="#808080" />
+            app:tint="@color/text_tertiary" />
 
     </LinearLayout>
 
@@ -105,7 +105,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="Showing 0 of 0"
-        android:textColor="#606060"
+        android:textColor="@color/text_dimmed"
         android:textSize="12sp"
         android:layout_marginHorizontal="16dp"
         android:layout_marginBottom="8dp" />
@@ -134,7 +134,7 @@
             android:layout_height="48dp"
             android:layout_gravity="center"
             android:visibility="gone"
-            android:indeterminateTint="#0078D4" />
+            android:indeterminateTint="@color/accent_primary" />
 
         <!-- Empty view -->
         <LinearLayout
@@ -150,13 +150,13 @@
                 android:layout_width="48dp"
                 android:layout_height="48dp"
                 android:src="@drawable/ic_hostlist"
-                app:tint="#505050" />
+                app:tint="@color/text_empty" />
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="No domains found"
-                android:textColor="#808080"
+                android:textColor="@color/text_tertiary"
                 android:textSize="14sp"
                 android:layout_marginTop="12dp" />
 
