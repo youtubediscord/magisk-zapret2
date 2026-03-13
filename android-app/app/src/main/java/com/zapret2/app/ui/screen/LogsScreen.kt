@@ -69,7 +69,7 @@ fun LogsScreen(viewModel: LogsViewModel = hiltViewModel()) {
                     Text(
                         text = displayLogs.ifBlank { if (state.currentTab == LogTab.WARNINGS) "No warnings found" else "No logs available" },
                         style = MonospaceStyle.copy(fontSize = 11.sp, color = TextLog),
-                        modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp).verticalScroll(scrollState).weight(1f)
+                        modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp).verticalScroll(scrollState)
                     )
 
                     Row(modifier = Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {

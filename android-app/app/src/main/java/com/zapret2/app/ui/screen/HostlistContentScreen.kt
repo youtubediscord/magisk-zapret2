@@ -16,6 +16,8 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import com.zapret2.app.ui.theme.*
 import com.zapret2.app.viewmodel.*
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
 
 @Composable
 fun HostlistContentScreen(navController: NavController, viewModel: HostlistContentViewModel = hiltViewModel()) {
@@ -23,11 +25,18 @@ fun HostlistContentScreen(navController: NavController, viewModel: HostlistConte
     val listState = rememberLazyListState()
 
     // Load more when near end
-    val shouldLoadMore = remember { derivedStateOf {
-        val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
-        lastVisible >= state.domains.size - 10 && state.domains.isNotEmpty()
-    }}
-    LaunchedEffect(shouldLoadMore.value) { if (shouldLoadMore.value) viewModel.loadMore() }
+    val shouldLoadMore = remember {
+        derivedStateOf {
+            val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            lastVisible >= state.domains.size - 10 && state.domains.isNotEmpty()
+        }
+    }
+    LaunchedEffect(listState) {
+        snapshotFlow { shouldLoadMore.value }
+            .distinctUntilChanged()
+            .filter { it }
+            .collect { viewModel.loadMore() }
+    }
 
     Column(modifier = Modifier.fillMaxSize()) {
         // Top bar

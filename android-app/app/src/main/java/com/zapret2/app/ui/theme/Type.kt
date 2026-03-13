@@ -12,43 +12,37 @@ val ZapretTypography = Typography(
     // Title Large - screen titles
     titleLarge = TextStyle(
         fontWeight = FontWeight.Normal,
-        fontSize = 20.sp,
-        color = TextPrimary
+        fontSize = 20.sp
     ),
 
     // Title Medium - section headers in cards
     titleMedium = TextStyle(
         fontWeight = FontWeight.Medium,
-        fontSize = 16.sp,
-        color = TextPrimary
+        fontSize = 16.sp
     ),
 
     // Title Small - row titles
     titleSmall = TextStyle(
         fontWeight = FontWeight.Normal,
-        fontSize = 14.sp,
-        color = TextPrimary
+        fontSize = 14.sp
     ),
 
     // Body Large - main text
     bodyLarge = TextStyle(
         fontWeight = FontWeight.Normal,
-        fontSize = 16.sp,
-        color = TextPrimary
+        fontSize = 16.sp
     ),
 
     // Body Medium - row values
     bodyMedium = TextStyle(
         fontWeight = FontWeight.Normal,
-        fontSize = 14.sp,
-        color = TextSecondary
+        fontSize = 14.sp
     ),
 
     // Body Small - subtitles
     bodySmall = TextStyle(
         fontWeight = FontWeight.Normal,
-        fontSize = 12.sp,
-        color = TextTertiary
+        fontSize = 12.sp
     ),
 
     // Label Large - buttons
@@ -61,15 +55,13 @@ val ZapretTypography = Typography(
     labelMedium = TextStyle(
         fontWeight = FontWeight.Medium,
         fontSize = 12.sp,
-        letterSpacing = 0.8.sp,
-        color = TextSecondary
+        letterSpacing = 0.8.sp
     ),
 
     // Label Small - row subtitles
     labelSmall = TextStyle(
         fontWeight = FontWeight.Normal,
-        fontSize = 11.sp,
-        color = TextTertiary
+        fontSize = 11.sp
     )
 )
 
