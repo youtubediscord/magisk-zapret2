@@ -251,6 +251,8 @@ jobs:
     name: Package Magisk Module
     runs-on: ubuntu-latest
     needs: [prepare-version, build-nfqws2, build-apk]
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout
