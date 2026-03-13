@@ -5,6 +5,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.EditText
+import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.fragment.app.Fragment
@@ -17,12 +18,18 @@ import kotlinx.coroutines.withContext
 
 class HostsEditorFragment : Fragment() {
 
-    private lateinit var textHostsFilePath: TextView
-    private lateinit var editHostsContent: EditText
-    private lateinit var buttonReloadHosts: MaterialButton
-    private lateinit var buttonSaveHosts: MaterialButton
+    private var textHostsFilePath: TextView? = null
+    private var editHostsContent: EditText? = null
+    private var buttonReloadHosts: MaterialButton? = null
+    private var buttonSaveHosts: MaterialButton? = null
+    private var progressBar: ProgressBar? = null
 
     private val hostsFile = "/system/etc/hosts"
+
+    companion object {
+        // Cache content across fragment recreations
+        private var cachedContent: String? = null
+    }
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -36,7 +43,29 @@ class HostsEditorFragment : Fragment() {
         super.onViewCreated(view, savedInstanceState)
         initViews(view)
         setupButtons()
-        loadHostsFile()
+
+        // If we have cached content, show it immediately without shell call
+        val cached = cachedContent
+        if (cached != null) {
+            editHostsContent?.setText(cached)
+        } else {
+            loadHostsFile()
+        }
+    }
+
+    override fun onDestroyView() {
+        // Save current editor content to cache before view is destroyed
+        editHostsContent?.text?.toString()?.let { text ->
+            if (text.isNotBlank()) {
+                cachedContent = text
+            }
+        }
+        textHostsFilePath = null
+        editHostsContent = null
+        buttonReloadHosts = null
+        buttonSaveHosts = null
+        progressBar = null
+        super.onDestroyView()
     }
 
     private fun initViews(view: View) {
@@ -44,14 +73,16 @@ class HostsEditorFragment : Fragment() {
         editHostsContent = view.findViewById(R.id.editHostsContent)
         buttonReloadHosts = view.findViewById(R.id.buttonReloadHosts)
         buttonSaveHosts = view.findViewById(R.id.buttonSaveHosts)
-        textHostsFilePath.text = hostsFile
+        progressBar = view.findViewById(R.id.progressBarHosts)
+        textHostsFilePath?.text = hostsFile
     }
 
     private fun setupButtons() {
-        buttonReloadHosts.setOnClickListener {
+        buttonReloadHosts?.setOnClickListener {
+            cachedContent = null // Force reload from disk
             loadHostsFile()
         }
-        buttonSaveHosts.setOnClickListener {
+        buttonSaveHosts?.setOnClickListener {
             saveHostsFile()
         }
     }
@@ -59,6 +90,7 @@ class HostsEditorFragment : Fragment() {
     private fun loadHostsFile() {
         viewLifecycleOwner.lifecycleScope.launch {
             setActionsEnabled(false)
+            progressBar?.visibility = View.VISIBLE
 
             val content = withContext(Dispatchers.IO) {
                 val result = Shell.cmd("cat \"$hostsFile\" 2>/dev/null").exec()
@@ -71,8 +103,11 @@ class HostsEditorFragment : Fragment() {
 
             if (!isAdded) return@launch
 
+            progressBar?.visibility = View.GONE
+
             if (content != null) {
-                editHostsContent.setText(content)
+                cachedContent = content
+                editHostsContent?.setText(content)
             } else {
                 Toast.makeText(requireContext(), "Failed to read hosts file", Toast.LENGTH_SHORT).show()
             }
@@ -82,7 +117,7 @@ class HostsEditorFragment : Fragment() {
     }
 
     private fun saveHostsFile() {
-        val content = editHostsContent.text?.toString().orEmpty()
+        val content = editHostsContent?.text?.toString().orEmpty()
             .replace("\r\n", "\n").replace('\r', '\n')
             .trimEnd('\n') + "\n"
 
@@ -93,6 +128,7 @@ class HostsEditorFragment : Fragment() {
 
         viewLifecycleOwner.lifecycleScope.launch {
             setActionsEnabled(false)
+            progressBar?.visibility = View.VISIBLE
 
             val saved = withContext(Dispatchers.IO) {
                 val writeResult = Shell.cmd(buildSafeWriteCommand(hostsFile, content)).exec()
@@ -101,7 +137,10 @@ class HostsEditorFragment : Fragment() {
 
             if (!isAdded) return@launch
 
+            progressBar?.visibility = View.GONE
+
             if (saved) {
+                cachedContent = content
                 Toast.makeText(requireContext(), "Hosts file saved", Toast.LENGTH_SHORT).show()
             } else {
                 Toast.makeText(requireContext(), "Failed to save hosts file", Toast.LENGTH_SHORT).show()
@@ -129,8 +168,8 @@ class HostsEditorFragment : Fragment() {
     }
 
     private fun setActionsEnabled(enabled: Boolean) {
-        editHostsContent.isEnabled = enabled
-        buttonReloadHosts.isEnabled = enabled
-        buttonSaveHosts.isEnabled = enabled
+        editHostsContent?.isEnabled = enabled
+        buttonReloadHosts?.isEnabled = enabled
+        buttonSaveHosts?.isEnabled = enabled
     }
 }
