@@ -60,22 +60,10 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
+          cache: 'gradle'
 
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v3
-        with:
-          cache-read-only: false
-
-      - name: Cache Gradle dependencies
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-            android-app/.gradle
-          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
-          restore-keys: |
-            gradle-${{ runner.os }}-
+        uses: gradle/actions/setup-gradle@v4
 
       - name: Create keystore
         id: keystore
@@ -139,7 +127,7 @@ jobs:
           # Retry build up to 3 times (Maven Central sometimes returns 403)
           for i in 1 2 3; do
             echo "Build attempt $i..."
-            if ./gradlew assembleRelease --no-daemon; then
+            if ./gradlew assembleRelease; then
               echo "Build succeeded on attempt $i"
               break
             fi
