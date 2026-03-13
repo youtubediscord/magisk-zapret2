@@ -13,6 +13,9 @@ import androidx.viewpager2.widget.ViewPager2
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.navigation.NavigationView
 import com.topjohnwu.superuser.Shell
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelectedListener {
 
@@ -48,6 +51,11 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
 
         // Initialize Shell safely before UI setup
         initShell()
+
+        // Pre-warm root shell so fragments don't wait for initialization
+        CoroutineScope(Dispatchers.IO).launch {
+            try { Shell.getShell() } catch (_: Exception) {}
+        }
 
         setContentView(R.layout.activity_main)
 
@@ -117,6 +125,9 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
 
         // Enable swipe between pages
         pager.isUserInputEnabled = true
+
+        // Keep nearby pages alive to avoid re-creating fragments on every swipe
+        pager.offscreenPageLimit = 2
 
         // Reduce ViewPager2 horizontal swipe sensitivity to prevent conflicts with vertical scroll
         try {
