@@ -62,7 +62,9 @@ private fun MainScreen() {
     // Find current screen title
     val currentTitle = remember(currentRoute) {
         val allScreens = Screen.mainScreens + Screen.configScreens + Screen.dataScreens + Screen.systemScreens
-        allScreens.find { it.route == currentRoute }?.title ?: "Zapret2"
+        allScreens.find { it.route == currentRoute }?.title
+            ?: if (currentRoute?.startsWith("hostlist_content") == true) "Hostlist"
+            else "Zapret2"
     }
 
     // Back press handling
@@ -99,7 +101,7 @@ private fun MainScreen() {
                         .padding(24.dp)
                 ) {
                     Icon(
-                        painter = painterResource(R.drawable.ic_launcher_foreground),
+                        painter = painterResource(R.mipmap.ic_launcher),
                         contentDescription = null,
                         tint = AccentLightBlue,
                         modifier = Modifier.size(48.dp)

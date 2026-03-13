@@ -81,9 +81,9 @@ class ConfigEditorViewModel @Inject constructor(
     fun showModeDialog() { _uiState.update { it.copy(showModeDialog = true) } }
     fun dismissModeDialog() { _uiState.update { it.copy(showModeDialog = false) } }
 
-    suspend fun isCmdlineMode(): Boolean {
+    suspend fun isCmdlineMode(): Boolean = withContext(Dispatchers.IO) {
         val mode = (RuntimeConfigStore.readCoreValue("preset_mode") ?: "categories").lowercase()
-        return mode in listOf("cmdline", "manual", "raw")
+        mode in listOf("cmdline", "manual", "raw")
     }
 
     private fun formatForEditor(raw: String): String {

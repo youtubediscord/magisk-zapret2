@@ -1,9 +1,11 @@
 package com.zapret2.app.viewmodel
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.topjohnwu.superuser.Shell
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -13,12 +15,15 @@ import javax.inject.Inject
 data class HostsEditorUiState(val content: String = "", val isLoading: Boolean = false, val actionsEnabled: Boolean = true)
 
 @HiltViewModel
-class HostsEditorViewModel @Inject constructor() : ViewModel() {
+class HostsEditorViewModel @Inject constructor(
+    @ApplicationContext private val context: Context
+) : ViewModel() {
     private val _uiState = MutableStateFlow(HostsEditorUiState())
     val uiState: StateFlow<HostsEditorUiState> = _uiState.asStateFlow()
     private val _snackbar = MutableSharedFlow<String>(extraBufferCapacity = 5)
     val snackbar: SharedFlow<String> = _snackbar.asSharedFlow()
     private val hostsFile = "/system/etc/hosts"
+    private val hostsWritePath = "/data/adb/modules/zapret2/system/etc/hosts"
 
     init { loadHosts() }
 
@@ -41,14 +46,21 @@ class HostsEditorViewModel @Inject constructor() : ViewModel() {
             val content = _uiState.value.content.replace("\r\n", "\n").replace("\r", "\n").trimEnd('\n') + "\n"
             if (content.isBlank()) { _snackbar.emit("Hosts file is empty"); return@launch }
             _uiState.update { it.copy(isLoading = true, actionsEnabled = false) }
-            val saved = withContext(Dispatchers.IO) { Shell.cmd(buildSafeWriteCommand(hostsFile, content)).exec().isSuccess }
+            val saved = withContext(Dispatchers.IO) {
+                val parentDir = hostsWritePath.substringBeforeLast('/')
+                Shell.cmd("mkdir -p \"$parentDir\"").exec()
+                val tmpFile = java.io.File(context.cacheDir, "zapret2_hosts_${System.currentTimeMillis()}")
+                try { tmpFile.writeText(content, Charsets.UTF_8) } catch (_: Exception) { tmpFile.delete(); return@withContext false }
+                tmpFile.setReadable(true, false)
+                val success = Shell.cmd("cp \"${tmpFile.absolutePath}\" \"$hostsWritePath.tmp\" && mv \"$hostsWritePath.tmp\" \"$hostsWritePath\"").exec().isSuccess
+                tmpFile.delete()
+                if (!success) { Shell.cmd("rm -f \"$hostsWritePath.tmp\"").exec(); return@withContext false }
+                // Try to apply immediately
+                Shell.cmd("mount -o rw,remount / 2>/dev/null; cp \"$hostsWritePath\" /system/etc/hosts 2>/dev/null; mount -o ro,remount / 2>/dev/null").exec()
+                true
+            }
             _uiState.update { it.copy(isLoading = false, actionsEnabled = true) }
             _snackbar.emit(if (saved) "Hosts file saved" else "Failed to save hosts file")
         }
-    }
-
-    private fun buildSafeWriteCommand(path: String, content: String): String {
-        var d = "__ZAPRET_HOSTS_EOF__"; while (content.contains(d)) d += "_X"
-        return "cat <<'$d' > \"$path\"\n$content\n$d"
     }
 }
