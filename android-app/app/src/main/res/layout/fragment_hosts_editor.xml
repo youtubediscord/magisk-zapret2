@@ -33,22 +33,28 @@
         android:textColor="#808080"
         android:textSize="11sp" />
 
-    <EditText
-        android:id="@+id/editHostsContent"
+    <com.zapret2.app.NestedScrollableHost
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1"
-        android:background="#1A1A1A"
-        android:textColor="#FFFFFF"
-        android:textColorHint="#808080"
-        android:fontFamily="monospace"
-        android:textSize="12sp"
-        android:gravity="top|start"
-        android:inputType="textMultiLine|textNoSuggestions|textVisiblePassword"
-        android:overScrollMode="ifContentScrolls"
-        android:scrollbars="vertical"
-        android:padding="12dp"
-        android:hint="127.0.0.1 localhost" />
+        android:layout_weight="1">
+
+        <EditText
+            android:id="@+id/editHostsContent"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="#1A1A1A"
+            android:textColor="#FFFFFF"
+            android:textColorHint="#808080"
+            android:fontFamily="monospace"
+            android:textSize="12sp"
+            android:gravity="top|start"
+            android:inputType="textMultiLine|textNoSuggestions|textVisiblePassword"
+            android:overScrollMode="ifContentScrolls"
+            android:scrollbars="vertical"
+            android:padding="12dp"
+            android:hint="127.0.0.1 localhost" />
+
+    </com.zapret2.app.NestedScrollableHost>
 
     <LinearLayout
         android:layout_width="match_parent"
