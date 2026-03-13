@@ -8,6 +8,7 @@ import androidx.appcompat.app.ActionBarDrawerToggle
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.GravityCompat
 import androidx.drawerlayout.widget.DrawerLayout
+import androidx.recyclerview.widget.RecyclerView
 import androidx.viewpager2.widget.ViewPager2
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.navigation.NavigationView
@@ -116,6 +117,21 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
 
         // Enable swipe between pages
         pager.isUserInputEnabled = true
+
+        // Reduce ViewPager2 horizontal swipe sensitivity to prevent conflicts with vertical scroll
+        try {
+            val recyclerViewField = ViewPager2::class.java.getDeclaredField("mRecyclerView")
+            recyclerViewField.isAccessible = true
+            val recyclerView = recyclerViewField.get(pager) as? RecyclerView
+            recyclerView?.let { rv ->
+                val touchSlopField = RecyclerView::class.java.getDeclaredField("mTouchSlop")
+                touchSlopField.isAccessible = true
+                val touchSlop = touchSlopField.getInt(rv)
+                touchSlopField.setInt(rv, touchSlop * 3)
+            }
+        } catch (_: Exception) {
+            // Reflection may fail on some Android versions -- NestedScrollableHost handles it as fallback
+        }
 
         // Listen for page changes to sync with navigation drawer
         pager.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {

@@ -5,176 +5,182 @@
     android:layout_height="match_parent"
     android:background="#202020">
 
-    <ScrollView
-        android:id="@+id/scrollView"
+    <com.zapret2.app.NestedScrollableHost
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:fillViewport="true"
-        android:scrollbars="vertical"
-        android:scrollbarAlwaysDrawVerticalTrack="true"
-        android:fadeScrollbars="false">
+        android:layout_height="match_parent">
 
-        <LinearLayout
+        <ScrollView
+            android:id="@+id/scrollView"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:padding="16dp">
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Categories"
-                android:textColor="#888888"
-                android:textSize="12sp"
-                android:layout_marginBottom="4dp"
-                android:layout_marginStart="4dp" />
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Auto-synced with categories.ini"
-                android:textColor="#666666"
-                android:textSize="11sp"
-                android:layout_marginBottom="12dp"
-                android:layout_marginStart="4dp" />
+            android:layout_height="match_parent"
+            android:fillViewport="true"
+            android:scrollbars="vertical"
+            android:scrollbarAlwaysDrawVerticalTrack="true"
+            android:fadeScrollbars="false">
 
             <LinearLayout
-                android:id="@+id/categoriesContainer"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="vertical" />
+                android:orientation="vertical"
+                android:padding="16dp">
 
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Advanced"
-                android:textColor="#888888"
-                android:textSize="12sp"
-                android:layout_marginTop="24dp"
-                android:layout_marginBottom="12dp"
-                android:layout_marginStart="4dp" />
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Categories"
+                    android:textColor="#888888"
+                    android:textSize="12sp"
+                    android:layout_marginBottom="4dp"
+                    android:layout_marginStart="4dp" />
 
-            <LinearLayout
-                android:id="@+id/rowPktCount"
-                android:layout_width="match_parent"
-                android:layout_height="56dp"
-                android:orientation="horizontal"
-                android:gravity="center_vertical"
-                android:paddingHorizontal="16dp"
-                android:background="@drawable/setting_row_background"
-                android:clickable="true"
-                android:focusable="true">
-
-                <ImageView
-                    android:layout_width="24dp"
-                    android:layout_height="24dp"
-                    android:src="@drawable/ic_settings"
-                    app:tint="#FFFFFF" />
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Auto-synced with categories.ini"
+                    android:textColor="#666666"
+                    android:textSize="11sp"
+                    android:layout_marginBottom="12dp"
+                    android:layout_marginStart="4dp" />
 
                 <LinearLayout
-                    android:layout_width="0dp"
+                    android:id="@+id/categoriesContainer"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:layout_marginStart="16dp">
+                    android:orientation="vertical" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Advanced"
+                    android:textColor="#888888"
+                    android:textSize="12sp"
+                    android:layout_marginTop="24dp"
+                    android:layout_marginBottom="12dp"
+                    android:layout_marginStart="4dp" />
+
+                <LinearLayout
+                    android:id="@+id/rowPktCount"
+                    android:layout_width="match_parent"
+                    android:layout_height="56dp"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:paddingHorizontal="16dp"
+                    android:background="@drawable/setting_row_background"
+                    android:clickable="true"
+                    android:focusable="true">
+
+                    <ImageView
+                        android:layout_width="24dp"
+                        android:layout_height="24dp"
+                        android:src="@drawable/ic_settings"
+                        app:tint="#FFFFFF" />
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:layout_marginStart="16dp">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="PKT_COUNT"
+                            android:textColor="#FFFFFF"
+                            android:textSize="14sp" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Number of packets to modify"
+                            android:textColor="#888888"
+                            android:textSize="11sp" />
+
+                    </LinearLayout>
 
                     <TextView
+                        android:id="@+id/textPktCountValue"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="PKT_COUNT"
-                        android:textColor="#FFFFFF"
-                        android:textSize="14sp" />
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Number of packets to modify"
+                        android:text="5"
                         android:textColor="#888888"
-                        android:textSize="11sp" />
+                        android:textSize="14sp"
+                        android:layout_marginEnd="8dp" />
+
+                    <ImageView
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:src="@drawable/ic_chevron_right"
+                        app:tint="#888888" />
 
                 </LinearLayout>
 
-                <TextView
-                    android:id="@+id/textPktCountValue"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="5"
-                    android:textColor="#888888"
-                    android:textSize="14sp"
-                    android:layout_marginEnd="8dp" />
-
-                <ImageView
-                    android:layout_width="20dp"
-                    android:layout_height="20dp"
-                    android:src="@drawable/ic_chevron_right"
-                    app:tint="#888888" />
-
-            </LinearLayout>
-
-            <LinearLayout
-                android:id="@+id/rowDebug"
-                android:layout_width="match_parent"
-                android:layout_height="56dp"
-                android:orientation="horizontal"
-                android:gravity="center_vertical"
-                android:paddingHorizontal="16dp"
-                android:background="@drawable/setting_row_background"
-                android:clickable="true"
-                android:focusable="true">
-
-                <ImageView
-                    android:layout_width="24dp"
-                    android:layout_height="24dp"
-                    android:src="@drawable/ic_settings"
-                    app:tint="#FFFFFF" />
-
                 <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:layout_marginStart="16dp">
+                    android:id="@+id/rowDebug"
+                    android:layout_width="match_parent"
+                    android:layout_height="56dp"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:paddingHorizontal="16dp"
+                    android:background="@drawable/setting_row_background"
+                    android:clickable="true"
+                    android:focusable="true">
+
+                    <ImageView
+                        android:layout_width="24dp"
+                        android:layout_height="24dp"
+                        android:src="@drawable/ic_settings"
+                        app:tint="#FFFFFF" />
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:layout_marginStart="16dp">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Debug Mode"
+                            android:textColor="#FFFFFF"
+                            android:textSize="14sp" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Log output destination"
+                            android:textColor="#888888"
+                            android:textSize="11sp" />
+
+                    </LinearLayout>
 
                     <TextView
+                        android:id="@+id/textDebugValue"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Debug Mode"
-                        android:textColor="#FFFFFF"
-                        android:textSize="14sp" />
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Log output destination"
+                        android:text="None"
                         android:textColor="#888888"
-                        android:textSize="11sp" />
+                        android:textSize="14sp"
+                        android:layout_marginEnd="8dp" />
+
+                    <ImageView
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:src="@drawable/ic_chevron_right"
+                        app:tint="#888888" />
 
                 </LinearLayout>
 
-                <TextView
-                    android:id="@+id/textDebugValue"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="None"
-                    android:textColor="#888888"
-                    android:textSize="14sp"
-                    android:layout_marginEnd="8dp" />
-
-                <ImageView
-                    android:layout_width="20dp"
-                    android:layout_height="20dp"
-                    android:src="@drawable/ic_chevron_right"
-                    app:tint="#888888" />
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="24dp" />
 
             </LinearLayout>
 
-            <View
-                android:layout_width="match_parent"
-                android:layout_height="24dp" />
+        </ScrollView>
 
-        </LinearLayout>
-
-    </ScrollView>
+    </com.zapret2.app.NestedScrollableHost>
 
     <FrameLayout
         android:id="@+id/loadingOverlay"
