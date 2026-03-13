@@ -190,6 +190,7 @@ class ControlFragment : Fragment() {
         buttonPktInPlus = null
         bannerQuicWarning = null
         buttonDismissQuicBanner = null
+        networkStatsManager?.unregisterNetworkChangeListener()
         networkStatsManager = null
         super.onDestroyView()
     }

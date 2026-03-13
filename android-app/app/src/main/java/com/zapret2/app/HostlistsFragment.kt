@@ -9,6 +9,7 @@ import android.view.ViewGroup
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
+import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -97,17 +98,18 @@ class HostlistsFragment : Fragment() {
             hostlistConfigs,
             onItemClick = { config -> openHostlistContent(config) }
         )
-        recyclerView?.layoutManager = LinearLayoutManager(requireContext())
+        recyclerView?.layoutManager = LinearLayoutManager(context ?: return)
         recyclerView?.adapter = adapter
     }
 
     private fun setupSwipeRefresh() {
+        val ctx = context ?: return
         swipeRefresh?.setColorSchemeColors(
-            resources.getColor(R.color.accent_blue, null),
-            resources.getColor(R.color.accent_light_blue, null)
+            ContextCompat.getColor(ctx, R.color.accent_blue),
+            ContextCompat.getColor(ctx, R.color.accent_light_blue)
         )
         swipeRefresh?.setProgressBackgroundColorSchemeColor(
-            resources.getColor(R.color.surface, null)
+            ContextCompat.getColor(ctx, R.color.surface)
         )
         swipeRefresh?.setOnRefreshListener {
             loadData()

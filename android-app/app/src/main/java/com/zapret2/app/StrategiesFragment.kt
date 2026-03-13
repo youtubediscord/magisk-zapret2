@@ -30,19 +30,19 @@ class StrategiesFragment : Fragment() {
     )
 
     // Dynamic category list container
-    private lateinit var categoriesContainer: LinearLayout
+    private var categoriesContainer: LinearLayout? = null
 
     // Advanced rows
-    private lateinit var rowPktCount: LinearLayout
-    private lateinit var rowDebug: LinearLayout
+    private var rowPktCount: LinearLayout? = null
+    private var rowDebug: LinearLayout? = null
 
     // Loading overlay
-    private lateinit var loadingOverlay: FrameLayout
-    private lateinit var loadingText: TextView
+    private var loadingOverlay: FrameLayout? = null
+    private var loadingText: TextView? = null
 
     // Advanced value TextViews
-    private lateinit var textPktCountValue: TextView
-    private lateinit var textDebugValue: TextView
+    private var textPktCountValue: TextView? = null
+    private var textDebugValue: TextView? = null
 
     // Current selections (strategy IDs/names)
     private val selections = mutableMapOf<String, String>()
@@ -94,7 +94,7 @@ class StrategiesFragment : Fragment() {
     }
 
     private fun setupClickListeners() {
-        rowPktCount.setOnClickListener {
+        rowPktCount?.setOnClickListener {
             showStrategyPicker(
                 "pkt_count",
                 "PKT_COUNT",
@@ -105,7 +105,7 @@ class StrategiesFragment : Fragment() {
             )
         }
 
-        rowDebug.setOnClickListener {
+        rowDebug?.setOnClickListener {
             showStrategyPicker(
                 "debug",
                 "Debug Mode",
@@ -118,7 +118,7 @@ class StrategiesFragment : Fragment() {
     }
 
     private fun buildCategoryRows(categories: Map<String, StrategyRepository.CategoryConfig>) {
-        categoriesContainer.removeAllViews()
+        categoriesContainer?.removeAllViews()
         categoryOrder.clear()
         categoryValueViews.clear()
         categoryMeta.clear()
@@ -126,12 +126,14 @@ class StrategiesFragment : Fragment() {
         val ctx = context ?: return
         val inflater = LayoutInflater.from(ctx)
 
+        val container = categoriesContainer ?: return
+
         categories.forEach { (categoryKey, config) ->
             val meta = createCategoryMeta(categoryKey, config)
             categoryMeta[categoryKey] = meta
             categoryOrder.add(categoryKey)
 
-            val rowView = inflater.inflate(R.layout.item_strategy_category_row, categoriesContainer, false)
+            val rowView = inflater.inflate(R.layout.item_strategy_category_row, container, false)
             val row = rowView.findViewById<LinearLayout>(R.id.rowCategory)
             val icon = rowView.findViewById<ImageView>(R.id.iconCategory)
             val title = rowView.findViewById<TextView>(R.id.textCategoryName)
@@ -154,7 +156,7 @@ class StrategiesFragment : Fragment() {
                 )
             }
 
-            categoriesContainer.addView(rowView)
+            container.addView(rowView)
             categoryValueViews[categoryKey] = value
         }
     }
@@ -362,8 +364,8 @@ class StrategiesFragment : Fragment() {
         }
 
         when (key) {
-            "pkt_count" -> textPktCountValue.text = shortName
-            "debug" -> textDebugValue.text = shortName
+            "pkt_count" -> textPktCountValue?.text = shortName
+            "debug" -> textDebugValue?.text = shortName
         }
     }
 
@@ -390,8 +392,8 @@ class StrategiesFragment : Fragment() {
                 updateValueText(categoryKey, strategyName, type)
             }
 
-            categoriesContainer.alpha = 0f
-            categoriesContainer.animate().alpha(1f).setDuration(200).start()
+            categoriesContainer?.alpha = 0f
+            categoriesContainer?.animate()?.alpha(1f)?.setDuration(200)?.start()
 
             val runtimeCore = withContext(Dispatchers.IO) {
                 RuntimeConfigStore.readCore()
@@ -416,12 +418,12 @@ class StrategiesFragment : Fragment() {
     }
 
     private fun showLoading(text: String = "Restarting service...") {
-        loadingText.text = text
-        loadingOverlay.visibility = View.VISIBLE
+        loadingText?.text = text
+        loadingOverlay?.visibility = View.VISIBLE
     }
 
     private fun hideLoading() {
-        loadingOverlay.visibility = View.GONE
+        loadingOverlay?.visibility = View.GONE
     }
 
     private fun saveConfigAndRestart() {
@@ -477,6 +479,14 @@ class StrategiesFragment : Fragment() {
     }
 
     override fun onDestroyView() {
+        categoriesContainer = null
+        rowPktCount = null
+        rowDebug = null
+        loadingOverlay = null
+        loadingText = null
+        textPktCountValue = null
+        textDebugValue = null
+        categoryValueViews.clear()
         super.onDestroyView()
     }
 }

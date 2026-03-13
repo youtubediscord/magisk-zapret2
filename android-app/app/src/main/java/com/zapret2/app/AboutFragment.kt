@@ -13,12 +13,12 @@ import androidx.fragment.app.Fragment
 class AboutFragment : Fragment() {
 
     // UI Elements
-    private lateinit var textAppVersionAbout: TextView
-    private lateinit var cardTelegramGroup: LinearLayout
-    private lateinit var cardVpnService: LinearLayout
-    private lateinit var cardBolvan: LinearLayout
-    private lateinit var cardYoutubediscord: LinearLayout
-    private lateinit var cardGithubRepo: LinearLayout
+    private var textAppVersionAbout: TextView? = null
+    private var cardTelegramGroup: LinearLayout? = null
+    private var cardVpnService: LinearLayout? = null
+    private var cardBolvan: LinearLayout? = null
+    private var cardYoutubediscord: LinearLayout? = null
+    private var cardGithubRepo: LinearLayout? = null
 
     // URLs
     companion object {
@@ -53,30 +53,40 @@ class AboutFragment : Fragment() {
         cardGithubRepo = view.findViewById(R.id.cardGithubRepo)
     }
 
+    override fun onDestroyView() {
+        textAppVersionAbout = null
+        cardTelegramGroup = null
+        cardVpnService = null
+        cardBolvan = null
+        cardYoutubediscord = null
+        cardGithubRepo = null
+        super.onDestroyView()
+    }
+
     private fun setupClickListeners() {
-        cardTelegramGroup.setOnClickListener {
+        cardTelegramGroup?.setOnClickListener {
             openUrl(URL_TELEGRAM_GROUP)
         }
 
-        cardVpnService.setOnClickListener {
+        cardVpnService?.setOnClickListener {
             openUrl(URL_VPN_BOT)
         }
 
-        cardBolvan.setOnClickListener {
+        cardBolvan?.setOnClickListener {
             openUrl(URL_GITHUB_BOLVAN)
         }
 
-        cardYoutubediscord.setOnClickListener {
+        cardYoutubediscord?.setOnClickListener {
             openUrl(URL_GITHUB_YOUTUBEDISCORD)
         }
 
-        cardGithubRepo.setOnClickListener {
+        cardGithubRepo?.setOnClickListener {
             openUrl(URL_GITHUB_REPO)
         }
     }
 
     private fun displayVersion() {
-        textAppVersionAbout.text = "v${BuildConfig.VERSION_NAME}"
+        textAppVersionAbout?.text = "v${BuildConfig.VERSION_NAME}"
     }
 
     /**

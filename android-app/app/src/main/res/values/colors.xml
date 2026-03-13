@@ -90,4 +90,24 @@
     <color name="googlevideo_red">#E53935</color>
     <color name="twitch_purple">#9146FF</color>
     <color name="udp_blue">#03A9F4</color>
+
+    <!-- Switch colors -->
+    <color name="switch_track_inactive">#5C5C5C</color>
+    <color name="switch_thumb_inactive">#B0B0B0</color>
+
+    <!-- Navigation -->
+    <color name="nav_item_background_checked">#330078D4</color>
+
+    <!-- Input & Spinner surfaces -->
+    <color name="surface_input">#353535</color>
+    <color name="surface_spinner">#2A2A2A</color>
+    <color name="surface_very_dark">#1E1E1E</color>
+
+    <!-- Overlay colors -->
+    <color name="ripple_white_faint">#1AFFFFFF</color>
+    <color name="accent_overlay">#330078D4</color>
+    <color name="warning_overlay">#332D2000</color>
+
+    <!-- Status indicator -->
+    <color name="status_indicator_red">#FF5252</color>
 </resources>

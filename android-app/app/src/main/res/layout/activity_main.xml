@@ -7,7 +7,7 @@
     tools:context=".MainActivity"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#202020"
+    android:background="@color/background_primary"
     android:fitsSystemWindows="true">
 
     <!-- Main Content -->
@@ -15,17 +15,17 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:orientation="vertical"
-        android:background="#202020">
+        android:background="@color/background_primary">
 
         <!-- Toolbar with hamburger menu -->
         <com.google.android.material.appbar.MaterialToolbar
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
-            android:background="#1A1A1A"
+            android:background="@color/background_darker"
             app:title="Zapret2"
-            app:titleTextColor="#FFFFFF"
-            app:navigationIconTint="#FFFFFF" />
+            app:titleTextColor="@color/text_primary"
+            app:navigationIconTint="@color/text_primary" />
 
         <!-- ViewPager for fragments -->
         <androidx.viewpager2.widget.ViewPager2
@@ -41,7 +41,7 @@
         android:layout_width="wrap_content"
         android:layout_height="match_parent"
         android:layout_gravity="start"
-        android:background="#2D2D2D"
+        android:background="@color/surface_card"
         android:fitsSystemWindows="true"
         app:headerLayout="@layout/nav_header"
         app:itemIconTint="@color/nav_item_color"
