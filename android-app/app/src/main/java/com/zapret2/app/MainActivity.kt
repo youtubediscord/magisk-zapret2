@@ -115,7 +115,7 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         nav.setNavigationItemSelectedListener(this)
 
         // Set first item as checked by default
-        nav.menu.getItem(0)?.isChecked = true
+        nav.setCheckedItem(R.id.nav_control)
 
         // Find the nav header version text and set it
         val headerView = nav.getHeaderView(0)
@@ -166,6 +166,18 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
                 super.onPageSelected(position)
                 // Check the corresponding menu item by ID
                 if (position in navMenuIds.indices) {
+                    // Clear all checked states across all groups
+                    val menu = nav.menu
+                    for (i in 0 until menu.size()) {
+                        val item = menu.getItem(i)
+                        item.isChecked = false
+                        // Also clear items in submenus
+                        item.subMenu?.let { subMenu ->
+                            for (j in 0 until subMenu.size()) {
+                                subMenu.getItem(j).isChecked = false
+                            }
+                        }
+                    }
                     nav.setCheckedItem(navMenuIds[position])
                     // Update toolbar title based on selected page
                     updateToolbarTitle(position)

@@ -6,6 +6,6 @@
     android:viewportHeight="24">
     <!-- Signal bars icon for network type -->
     <path
-        android:fillColor="#FFFFFF"
+        android:fillColor="@color/text_primary"
         android:pathData="M2,22h20V2L2,22zM20,20H6.83L20,6.83V20z" />
 </vector>
