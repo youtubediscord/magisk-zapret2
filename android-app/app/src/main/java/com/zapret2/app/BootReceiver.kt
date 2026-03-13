@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import com.topjohnwu.superuser.Shell
+import com.zapret2.app.data.RuntimeConfigStore
 
 class BootReceiver : BroadcastReceiver() {
 
