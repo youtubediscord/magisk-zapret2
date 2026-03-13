@@ -19,8 +19,6 @@ object RuntimeConfigStore {
         val pktIn: Int? = null,
         val autostart: Boolean? = null,
         val wifiOnly: Boolean? = null,
-        val debug: Boolean? = null,
-        val qnum: Int? = null,
         val desyncMark: String? = null,
         val portsTcp: String? = null,
         val portsUdp: String? = null,
@@ -37,8 +35,6 @@ object RuntimeConfigStore {
             pktIn?.let { values["pkt_in"] = it.toString() }
             autostart?.let { values["autostart"] = if (it) "1" else "0" }
             wifiOnly?.let { values["wifi_only"] = if (it) "1" else "0" }
-            debug?.let { values["debug"] = if (it) "1" else "0" }
-            qnum?.let { values["qnum"] = it.toString() }
             desyncMark?.let { values["desync_mark"] = it }
             portsTcp?.let { values["ports_tcp"] = it }
             portsUdp?.let { values["ports_udp"] = it }

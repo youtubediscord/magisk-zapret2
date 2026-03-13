@@ -187,12 +187,6 @@ apply_runtime_core_overrides() {
             wifi_only)
                 WIFI_ONLY="$value"
                 ;;
-            debug)
-                DEBUG="$value"
-                ;;
-            qnum)
-                QNUM="$value"
-                ;;
             desync_mark)
                 DESYNC_MARK="$value"
                 ;;
