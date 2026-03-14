@@ -269,6 +269,14 @@ jobs:
           name: zapret2-apk
           path: apk-artifact
 
+      - name: Checkout upstream zapret2 Lua sources
+        uses: actions/checkout@v4
+        with:
+          repository: bol-van/zapret2
+          path: upstream-zapret2
+          sparse-checkout: |
+            nfq/lua
+
       - name: Prepare module
         run: |
           VERSION="${{ needs.prepare-version.outputs.version }}"
@@ -281,6 +289,28 @@ jobs:
           # Copy binaries
           cp binaries/nfqws2-arm64-v8a/nfqws2 zapret2/bin/arm64-v8a/ || true
           cp binaries/nfqws2-armeabi-v7a/nfqws2 zapret2/bin/armeabi-v7a/ || true
+
+          # Sync core Lua files from upstream to match the built binary.
+          # These files define base functions and must have the same
+          # NFQWS2_COMPAT_VER as the compiled nfqws2.
+          # Custom module Lua files (custom_funcs.lua, zapret-multishake.lua,
+          # zapret-16kb.lua, zapret-obfs.lua, zapret-pcap.lua, zapret-tests.lua,
+          # zapret-wgobfs.lua) are kept from the module repo.
+          UPSTREAM_LUA="upstream-zapret2/nfq/lua"
+          if [ -d "$UPSTREAM_LUA" ]; then
+            for core_lua in zapret-lib.lua zapret-antidpi.lua zapret-auto.lua; do
+              if [ -f "$UPSTREAM_LUA/$core_lua" ]; then
+                cp "$UPSTREAM_LUA/$core_lua" "zapret2/lua/$core_lua"
+                echo "Synced upstream $core_lua"
+              else
+                echo "WARNING: upstream $core_lua not found"
+              fi
+            done
+            # Show compat version for logs
+            grep 'NFQWS2_COMPAT_VER' "zapret2/lua/zapret-lib.lua" | head -2 || true
+          else
+            echo "WARNING: upstream Lua directory not found, keeping module Lua files as-is"
+          fi
 
           # Set module version from CI metadata
           sed -i "s/^version=.*/version=v${VERSION}/" module.prop
