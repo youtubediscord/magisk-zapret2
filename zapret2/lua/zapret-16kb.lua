@@ -10,6 +10,22 @@ ZAPRET 16KB BLOCK BYPASS
 
 ]]
 
+-- Upstream API compatibility check
+do
+    local required = {"DLOG", "direction_check", "payload_check", "replay_first", "replay_drop",
+                      "rawsend_payload_segmented", "rawsend_opts", "rawsend_opts_base",
+                      "reconstruct_opts", "blob_or_def", "resolve_range"}
+    local missing = {}
+    for _, name in ipairs(required) do
+        if not _G[name] then table.insert(missing, name) end
+    end
+    if #missing > 0 then
+        local msg = "zapret-16kb.lua: SKIPPED - missing upstream functions: " .. table.concat(missing, ", ")
+        if DLOG then DLOG(msg) else print(msg) end
+        return
+    end
+end
+
 -- Отправить один фейк с указанными опциями
 local function send_one_fake(desync, payload, opts)
     local dis = deepcopy(desync.dis)

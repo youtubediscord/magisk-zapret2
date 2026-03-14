@@ -1,3 +1,25 @@
+-- Upstream API compatibility check
+do
+    local required = {"DLOG", "instance_cutoff_shim"}
+    local missing = {}
+    for _, name in ipairs(required) do
+        if not _G[name] then table.insert(missing, name) end
+    end
+    if #missing > 0 then
+        -- Minimal fallback: these functions are mostly standalone
+        if not _G["instance_cutoff_shim"] then
+            if _G["instance_cutoff"] then
+                instance_cutoff_shim = function(ctx, desync) instance_cutoff(ctx) end
+            else
+                instance_cutoff_shim = function() end
+            end
+        end
+        if not _G["DLOG"] then
+            DLOG = function() end
+        end
+    end
+end
+
 -- test case : --in-range=a --out-range=a --lua-desync=wgobfs:secret=mycoolpassword
 -- encrypt standard wireguard messages - initiation, response, cookie - and change udp packet size
 -- do not encrypt data messages and keepalives
