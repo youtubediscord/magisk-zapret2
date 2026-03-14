@@ -633,20 +633,40 @@ preflight_check() {
     # b) nfqws2 Lua compatibility version check
     local lib_lua="$ZAPRET_DIR/lua/zapret-lib.lua"
     if [ -f "$lib_lua" ] && [ -f "$NFQWS2" ] && [ -x "$NFQWS2" ]; then
-        # Extract only the number AFTER the '=' sign
-        local required_ver
-        required_ver=$(grep 'NFQWS2_COMPAT_VER_REQUIRED\s*=' "$lib_lua" 2>/dev/null | head -1 | sed 's/.*=\s*//' | tr -d '[:space:]')
+        # Extract required version: pure shell, no grep -o (busybox compat)
+        local required_ver=""
+        local req_line=$(grep 'NFQWS2_COMPAT_VER_REQUIRED' "$lib_lua" 2>/dev/null | head -1)
+        case "$req_line" in
+            *=*)
+                required_ver="${req_line##*=}"
+                required_ver="${required_ver%%[!0-9]*}"
+                ;;
+        esac
+
         if [ -n "$required_ver" ]; then
-            # Extract lua_compat_ver from --version output (e.g. "lua_compat_ver5")
-            local binary_ver
-            binary_ver=$($NFQWS2 --version 2>&1 | grep -o 'lua_compat_ver[0-9]*' | grep -o '[0-9]*' | head -1)
+            # Extract binary compat version: pure shell, no grep -o (busybox compat)
+            local binary_ver=""
+            local raw_ver=$($NFQWS2 --version 2>&1 | head -1)
+            case "$raw_ver" in
+                *lua_compat_ver*)
+                    binary_ver="${raw_ver##*lua_compat_ver}"
+                    binary_ver="${binary_ver%%[!0-9]*}"
+                    ;;
+            esac
+            # Fallback: try --help
             if [ -z "$binary_ver" ]; then
-                # Fallback: try --help output
-                binary_ver=$($NFQWS2 --help 2>&1 | head -3 | grep -o 'lua_compat_ver[0-9]*' | grep -o '[0-9]*' | head -1)
+                raw_ver=$($NFQWS2 --help 2>&1 | head -1)
+                case "$raw_ver" in
+                    *lua_compat_ver*)
+                        binary_ver="${raw_ver##*lua_compat_ver}"
+                        binary_ver="${binary_ver%%[!0-9]*}"
+                        ;;
+                esac
             fi
+
             if [ -n "$binary_ver" ]; then
                 if [ "$binary_ver" != "$required_ver" ]; then
-                    local msg="DIAGNOSTIC: Version mismatch. nfqws2 binary has lua_compat_ver=$binary_ver, but scripts require $required_ver. Download nfqws2 and Lua scripts from the same zapret release."
+                    local msg="DIAGNOSTIC: Version mismatch. nfqws2 binary lua_compat_ver=$binary_ver, scripts require $required_ver. Update nfqws2 and Lua scripts from the same zapret release."
                     echo "$msg"
                     log_error "$msg"
                 else
