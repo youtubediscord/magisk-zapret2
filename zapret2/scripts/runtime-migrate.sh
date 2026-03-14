@@ -20,7 +20,6 @@ set_default_config() {
     STRATEGY_PRESET="youtube"
     PRESET_MODE="categories"
     PRESET_FILE="Default.txt"
-    CUSTOM_CMDLINE_FILE="cmdline.txt"
     NFQWS_UID="0:0"
     LOG_MODE="none"
 }
@@ -50,7 +49,6 @@ pkt_in=${PKT_IN:-10}
 strategy_preset=${STRATEGY_PRESET:-youtube}
 preset_mode=${PRESET_MODE:-categories}
 preset_file=${PRESET_FILE:-Default.txt}
-custom_cmdline_file=${CUSTOM_CMDLINE_FILE:-cmdline.txt}
 nfqws_uid=${NFQWS_UID:-0:0}
 log_mode=${LOG_MODE:-none}
 bootstrap_config_path=$CONFIG

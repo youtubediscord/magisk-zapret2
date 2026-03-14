@@ -118,16 +118,9 @@ load_config() {
             log_legacy_conflict "PRESET_MODE is defined in both $CONFIG and $USER_CONFIG; effective mode depends on shell source order"
         fi
 
-        if shell_config_sets_key "$CONFIG" "CUSTOM_CMDLINE_FILE" && shell_config_sets_key "$USER_CONFIG" "CUSTOM_CMDLINE_FILE"; then
-            log_legacy_conflict "CUSTOM_CMDLINE_FILE is defined in both $CONFIG and $USER_CONFIG; effective cmdline source depends on shell source order"
-        fi
-
         case "$PRESET_MODE" in
             file|preset|txt)
                 log_legacy_conflict "Legacy preset-file mode is active (PRESET_MODE=$PRESET_MODE, PRESET_FILE=${PRESET_FILE:-Default.txt}); runtime.ini bootstrap regeneration is unavailable"
-                ;;
-            cmdline|manual|raw)
-                log_legacy_conflict "Legacy raw-cmdline mode is active (PRESET_MODE=$PRESET_MODE, CUSTOM_CMDLINE_FILE=${CUSTOM_CMDLINE_FILE:-$ZAPRET_DIR/cmdline.txt}); runtime.ini bootstrap regeneration is unavailable"
                 ;;
         esac
     else
@@ -151,14 +144,6 @@ load_config() {
         else
             log_msg "WARNING: Preset file not found: $preset_path"
         fi
-    elif [ "$PRESET_MODE" = "cmdline" ] || [ "$PRESET_MODE" = "manual" ] || [ "$PRESET_MODE" = "raw" ]; then
-        local cmdline_path
-        cmdline_path="$(resolve_custom_cmdline_file_path "${CUSTOM_CMDLINE_FILE:-$ZAPRET_DIR/cmdline.txt}")"
-        if [ -f "$cmdline_path" ]; then
-            log_msg "Found custom cmdline file: $cmdline_path"
-        else
-            log_msg "WARNING: Custom cmdline file not found: $cmdline_path"
-        fi
     fi
 
     # Log current configuration
@@ -168,7 +153,6 @@ load_config() {
     log_debug "STRATEGY_PRESET=$STRATEGY_PRESET"
     log_debug "PRESET_MODE=$PRESET_MODE"
     log_debug "PRESET_FILE=$PRESET_FILE"
-    log_debug "CUSTOM_CMDLINE_FILE=${CUSTOM_CMDLINE_FILE:-$ZAPRET_DIR/cmdline.txt}"
     log_debug "NFQWS_UID=${NFQWS_UID:-<root>}"
     log_debug "HOSTLIST_MODE=$HOSTLIST_MODE"
     log_debug "PKT_OUT=$PKT_OUT"
@@ -803,18 +787,6 @@ log_startup_stderr_errors() {
     fi
 }
 
-prepare_cmdline_core_runtime() {
-    is_custom_cmdline_mode || return 0
-
-    if sync_cmdline_core_overrides; then
-        log_msg "Raw cmdline mode validated with runtime [core] values: QNUM=$QNUM DESYNC_MARK=$DESYNC_MARK NFQWS_UID=${NFQWS_UID:-0:0} LOG_MODE=${LOG_MODE:-none}"
-        return 0
-    fi
-
-    log_error "Could not validate raw cmdline source before applying iptables"
-    return 1
-}
-
 # Show detailed error information
 show_error_details() {
     if [ -f "$ERROR_LOG" ] && [ -s "$ERROR_LOG" ]; then
@@ -927,8 +899,6 @@ main() {
 
     # Run pre-flight diagnostics (advisory only, does not block startup)
     preflight_check
-
-    prepare_cmdline_core_runtime
 
     # Apply iptables rules
     apply_iptables
