@@ -1,3 +1,40 @@
+-- Upstream API compatibility check
+do
+    local required = {
+        "DLOG", "direction_check", "payload_check",
+        "replay_first", "replay_drop",
+        "rawsend_payload_segmented", "rawsend_opts", "rawsend_opts_base",
+        "reconstruct_opts", "blob_or_def", "direction_cutoff_opposite",
+        "resolve_range", "genhost"
+    }
+    local missing = {}
+    for _, name in ipairs(required) do
+        if not _G[name] then
+            table.insert(missing, name)
+        end
+    end
+    if #missing > 0 then
+        local msg = "custom_funcs.lua: SKIPPED - missing upstream functions: " .. table.concat(missing, ", ")
+        if DLOG then DLOG(msg) else print(msg) end
+        return
+    end
+    -- Compatibility shims for renamed upstream functions
+    if not _G["instance_cutoff_shim"] then
+        if _G["instance_cutoff"] then
+            instance_cutoff_shim = function(ctx, desync) instance_cutoff(ctx) end
+        else
+            instance_cutoff_shim = function() end
+        end
+    end
+    if not _G["instance_cutoff"] then
+        if _G["instance_cutoff_shim"] then
+            instance_cutoff = function(ctx) instance_cutoff_shim(ctx, nil) end
+        else
+            instance_cutoff = function() end
+        end
+    end
+end
+
 -- AGGRESSIVE HTTP BYPASS for stubborn DPI (like porno365)
 -- Combines multiple techniques: fake flood + disorder + host splitting
 -- standard args : direction, payload, fooling, ip_id, rawsend, reconstruct
