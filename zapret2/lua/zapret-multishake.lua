@@ -33,6 +33,36 @@ hostfakesplit_decoy - дополнительные мусорные пакеты
 
 ]]
 
+-- Upstream API compatibility check
+-- These functions must be provided by zapret-lib.lua and zapret-antidpi.lua
+do
+    local required = {
+        "DLOG", "resolve_range", "genhost", "direction_check", "payload_check",
+        "replay_first", "replay_drop", "replay_drop_set",
+        "rawsend_payload_segmented", "rawsend_opts_base", "rawsend_opts",
+        "reconstruct_opts", "blob_or_def", "direction_cutoff_opposite",
+        "hostfakesplit"
+    }
+    local missing = {}
+    for _, name in ipairs(required) do
+        if not _G[name] then
+            table.insert(missing, name)
+        end
+    end
+    if #missing > 0 then
+        local msg = "zapret-multishake.lua: SKIPPED - missing upstream functions: " .. table.concat(missing, ", ")
+        if DLOG then DLOG(msg) else print(msg) end
+        return
+    end
+    -- Use instance_cutoff_shim if available, fallback to instance_cutoff
+    if not _G["instance_cutoff_shim"] then
+        if _G["instance_cutoff"] then
+            instance_cutoff_shim = function(ctx, desync) instance_cutoff(ctx) end
+        else
+            instance_cutoff_shim = function() end
+        end
+    end
+end
 
 -- ============================================================================
 -- HOSTFAKESPLIT_STEALTH - менее агрессивный hostfakesplit
