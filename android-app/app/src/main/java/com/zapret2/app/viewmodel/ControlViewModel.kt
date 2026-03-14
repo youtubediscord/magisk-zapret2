@@ -37,7 +37,10 @@ data class ControlUiState(
     val pktIn: Int = 10,
     val hasRootAccess: Boolean = true,
     val isModuleInstalled: Boolean = true,
-    val nfqueueSupported: Boolean = true
+    val nfqueueSupported: Boolean = true,
+    val isUpdating: Boolean = false,
+    val updateProgress: Float = 0f,
+    val updateStatus: String = ""
 )
 
 data class ProcessStats(
@@ -272,32 +275,33 @@ class ControlViewModel @Inject constructor(
         }
     }
 
-    fun downloadAndInstallApk(url: String) {
+    fun updateAll(apkUrl: String?, moduleUrl: String?) {
         viewModelScope.launch {
-            when (val result = updateManager.downloadFile(url, "zapret2-update.apk") { }) {
-                is UpdateManager.DownloadResult.Success -> updateManager.installApk(result.file)
-                is UpdateManager.DownloadResult.Error -> _events.emit(ControlEvent.ShowSnackbar("Download failed: ${result.message}"))
-            }
-        }
-    }
+            _uiState.update { it.copy(isUpdating = true, updateProgress = 0f, updateStatus = "Подготовка...") }
 
-    fun downloadAndInstallModule(url: String) {
-        viewModelScope.launch {
-            when (val result = updateManager.downloadFile(url, "zapret2-module.zip") { }) {
-                is UpdateManager.DownloadResult.Success -> {
-                    val (success, needsReboot) = updateManager.installModule(result.file)
-                    val msg = when {
-                        success && needsReboot -> "Module installed. Reboot required."
-                        success -> "Module updated successfully"
-                        else -> "Module installation failed"
-                    }
-                    _events.emit(ControlEvent.ShowSnackbar(msg))
-                    if (success && !needsReboot) {
-                        delay(1000)
-                        checkStatus()
+            val result = withContext(Dispatchers.IO) {
+                updateManager.updateAll(apkUrl, moduleUrl) { progress, status ->
+                    withContext(Dispatchers.Main) {
+                        _uiState.update { it.copy(updateProgress = progress, updateStatus = status) }
                     }
                 }
-                is UpdateManager.DownloadResult.Error -> _events.emit(ControlEvent.ShowSnackbar("Download failed: ${result.message}"))
+            }
+
+            _uiState.update { it.copy(isUpdating = false, updateProgress = 0f, updateStatus = "") }
+
+            result.onSuccess { needsReboot ->
+                if (needsReboot) {
+                    _events.emit(ControlEvent.ShowSnackbar("Обновление установлено. Требуется перезагрузка."))
+                } else {
+                    _events.emit(ControlEvent.ShowSnackbar("Обновление завершено"))
+                    delay(1000)
+                    checkStatus()
+                }
+            }.onFailure { error ->
+                _events.emit(ControlEvent.ShowErrorDialog(
+                    title = "Ошибка обновления",
+                    details = error.message ?: "Неизвестная ошибка"
+                ))
             }
         }
     }

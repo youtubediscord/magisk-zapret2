@@ -16,31 +16,52 @@ fun UpdateDialog(
     changelog: String,
     hasApk: Boolean,
     hasModule: Boolean,
-    downloadProgress: Int,
-    isDownloading: Boolean,
-    statusText: String,
+    isUpdating: Boolean,
+    updateProgress: Float,
+    updateStatus: String,
     onDismiss: () -> Unit,
-    onUpdateApk: () -> Unit,
-    onUpdateModule: () -> Unit
+    onUpdate: () -> Unit
 ) {
     AlertDialog(
-        onDismissRequest = { if (!isDownloading) onDismiss() },
+        onDismissRequest = { if (!isUpdating) onDismiss() },
         containerColor = SurfaceCard,
         title = {
             Text("Доступно обновление v$version", color = TextPrimary)
         },
         text = {
             Column {
-                if (isDownloading) {
-                    Text(statusText, color = TextSecondary, fontSize = 14.sp)
-                    Spacer(modifier = Modifier.height(8.dp))
+                if (isUpdating) {
+                    Text(updateStatus, color = TextSecondary, fontSize = 14.sp)
+                    Spacer(modifier = Modifier.height(12.dp))
                     LinearProgressIndicator(
-                        progress = { downloadProgress / 100f },
+                        progress = { updateProgress },
                         modifier = Modifier.fillMaxWidth(),
-                        color = AccentLightBlue,
+                        color = AccentBlue,
                         trackColor = SurfaceVariant
                     )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        "${(updateProgress * 100).toInt()}%",
+                        color = TextTertiary,
+                        fontSize = 12.sp
+                    )
                 } else {
+                    // Show what will be updated
+                    val updateScope = when {
+                        hasModule && hasApk -> "Модуль + APK"
+                        hasModule -> "Модуль"
+                        hasApk -> "APK"
+                        else -> ""
+                    }
+                    if (updateScope.isNotEmpty()) {
+                        Text(
+                            "Будет обновлено: $updateScope",
+                            color = AccentLightBlue,
+                            fontSize = 13.sp
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+
                     Text("Что нового:", color = TextSecondary, fontSize = 13.sp)
                     Spacer(modifier = Modifier.height(4.dp))
                     Column(
@@ -54,23 +75,14 @@ fun UpdateDialog(
             }
         },
         confirmButton = {
-            if (!isDownloading) {
-                Column {
-                    if (hasApk) {
-                        TextButton(onClick = onUpdateApk) {
-                            Text("Обновить APK", color = AccentLight)
-                        }
-                    }
-                    if (hasModule) {
-                        TextButton(onClick = onUpdateModule) {
-                            Text("Обновить модуль", color = AccentLight)
-                        }
-                    }
+            if (!isUpdating) {
+                TextButton(onClick = onUpdate) {
+                    Text("Обновить", color = AccentLight)
                 }
             }
         },
         dismissButton = {
-            if (!isDownloading) {
+            if (!isUpdating) {
                 TextButton(onClick = onDismiss) {
                     Text("Позже", color = TextSecondary)
                 }

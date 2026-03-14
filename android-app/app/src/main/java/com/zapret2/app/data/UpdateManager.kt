@@ -28,6 +28,10 @@ class UpdateManager(private val context: Context) {
         private const val MODULE_DIR = "/data/adb/modules/zapret2"
         private const val RUNTIME_CONFIG_PATH = "$MODULE_DIR/zapret2/runtime.ini"
         private const val RUNTIME_CONFIG_BACKUP_PATH = "/data/local/tmp/zapret2-runtime.ini.bak"
+        private const val CATEGORIES_CONFIG_PATH = "$MODULE_DIR/zapret2/categories.ini"
+        private const val CATEGORIES_CONFIG_BACKUP_PATH = "/data/local/tmp/zapret2-categories.ini.bak"
+        private const val CONFIG_SH_PATH = "$MODULE_DIR/zapret2/config.sh"
+        private const val CONFIG_SH_BACKUP_PATH = "/data/local/tmp/zapret2-config.sh.bak"
     }
 
     /**
@@ -74,9 +78,28 @@ class UpdateManager(private val context: Context) {
             val release = result.getOrNull()
                 ?: return@withContext UpdateResult.Error("Empty response from server")
 
-            val currentVersion = BuildConfig.VERSION_NAME
+            val currentApkVersion = BuildConfig.VERSION_NAME
+            val apkOutdated = isNewerVersion(release.version, currentApkVersion)
 
-            if (isNewerVersion(release.version, currentVersion)) {
+            // Also check installed module version
+            val moduleOutdated = try {
+                val modResult = Shell.cmd("cat $MODULE_DIR/module.prop 2>/dev/null").exec()
+                if (modResult.isSuccess) {
+                    val moduleVersion = modResult.out
+                        .firstOrNull { it.startsWith("version=") }
+                        ?.substringAfter("version=")
+                        ?.trim()
+                        ?.removePrefix("v")
+                        ?: ""
+                    if (moduleVersion.isNotEmpty()) {
+                        isNewerVersion(release.version, moduleVersion)
+                    } else true // No version found, consider outdated
+                } else true // Module not installed, consider outdated
+            } catch (e: Exception) {
+                true
+            }
+
+            if (apkOutdated || moduleOutdated) {
                 UpdateResult.Available(release)
             } else {
                 UpdateResult.UpToDate
@@ -298,12 +321,15 @@ class UpdateManager(private val context: Context) {
                 // 1. Stop the service
                 Shell.cmd("$modDir/zapret2/scripts/zapret-stop.sh 2>/dev/null || true").exec()
 
-                // 2. Preserve runtime core state across raw unzip updates
+                // 2. Preserve user config files across raw unzip updates
                 val backupResult = Shell.cmd(
-                    "rm -f ${shellQuote(RUNTIME_CONFIG_BACKUP_PATH)} && " +
+                    "rm -f ${shellQuote(RUNTIME_CONFIG_BACKUP_PATH)} ${shellQuote(CATEGORIES_CONFIG_BACKUP_PATH)} ${shellQuote(CONFIG_SH_BACKUP_PATH)} && " +
                         "if [ -f ${shellQuote(RUNTIME_CONFIG_PATH)} ]; then " +
-                        "cp ${shellQuote(RUNTIME_CONFIG_PATH)} ${shellQuote(RUNTIME_CONFIG_BACKUP_PATH)}; " +
-                        "fi"
+                        "cp ${shellQuote(RUNTIME_CONFIG_PATH)} ${shellQuote(RUNTIME_CONFIG_BACKUP_PATH)}; fi && " +
+                        "if [ -f ${shellQuote(CATEGORIES_CONFIG_PATH)} ]; then " +
+                        "cp ${shellQuote(CATEGORIES_CONFIG_PATH)} ${shellQuote(CATEGORIES_CONFIG_BACKUP_PATH)}; fi && " +
+                        "if [ -f ${shellQuote(CONFIG_SH_PATH)} ]; then " +
+                        "cp ${shellQuote(CONFIG_SH_PATH)} ${shellQuote(CONFIG_SH_BACKUP_PATH)}; fi"
                 ).exec()
 
                 if (!backupResult.isSuccess) {
@@ -316,16 +342,21 @@ class UpdateManager(private val context: Context) {
                 ).exec()
 
                 if (!extractResult.isSuccess) {
-                    Shell.cmd("rm -f ${shellQuote(RUNTIME_CONFIG_BACKUP_PATH)}").exec()
+                    Shell.cmd("rm -f ${shellQuote(RUNTIME_CONFIG_BACKUP_PATH)} ${shellQuote(CATEGORIES_CONFIG_BACKUP_PATH)} ${shellQuote(CONFIG_SH_BACKUP_PATH)}").exec()
                     return@withContext Pair(false, false)
                 }
 
-                // 4. Restore runtime core state if it existed before update
+                // 4. Restore user config files if they existed before update
                 val restoreResult = Shell.cmd(
                     "if [ -f ${shellQuote(RUNTIME_CONFIG_BACKUP_PATH)} ]; then " +
                         "cp ${shellQuote(RUNTIME_CONFIG_BACKUP_PATH)} ${shellQuote(RUNTIME_CONFIG_PATH)} && " +
-                        "rm -f ${shellQuote(RUNTIME_CONFIG_BACKUP_PATH)}; " +
-                        "fi"
+                        "rm -f ${shellQuote(RUNTIME_CONFIG_BACKUP_PATH)}; fi && " +
+                        "if [ -f ${shellQuote(CATEGORIES_CONFIG_BACKUP_PATH)} ]; then " +
+                        "cp ${shellQuote(CATEGORIES_CONFIG_BACKUP_PATH)} ${shellQuote(CATEGORIES_CONFIG_PATH)} && " +
+                        "rm -f ${shellQuote(CATEGORIES_CONFIG_BACKUP_PATH)}; fi && " +
+                        "if [ -f ${shellQuote(CONFIG_SH_BACKUP_PATH)} ]; then " +
+                        "cp ${shellQuote(CONFIG_SH_BACKUP_PATH)} ${shellQuote(CONFIG_SH_PATH)} && " +
+                        "rm -f ${shellQuote(CONFIG_SH_BACKUP_PATH)}; fi"
                 ).exec()
 
                 if (!restoreResult.isSuccess) {
@@ -365,6 +396,80 @@ class UpdateManager(private val context: Context) {
         } catch (e: Exception) {
             Pair(false, false)
         }
+    }
+
+    /**
+     * Downloads and installs both module and APK in sequence with progress reporting.
+     * Reports progress via onProgress callback: (progress 0..1, status text).
+     *
+     * @param apkUrl URL for APK download, or null to skip
+     * @param moduleUrl URL for module ZIP download, or null to skip
+     * @param onProgress Callback with (progress: Float, statusText: String)
+     * @return Result with Boolean indicating if reboot is needed
+     */
+    suspend fun updateAll(
+        apkUrl: String?,
+        moduleUrl: String?,
+        onProgress: suspend (Float, String) -> Unit
+    ): Result<Boolean> = withContext(Dispatchers.IO) {
+        var needsReboot = false
+
+        // Calculate weight distribution based on what we're updating
+        val hasModule = moduleUrl != null
+        val hasApk = apkUrl != null
+        val moduleWeight = if (hasModule && hasApk) 0.55f else if (hasModule) 1f else 0f
+        val apkStartAt = moduleWeight
+
+        // Step 1: Download and install module (if available)
+        if (moduleUrl != null) {
+            onProgress(0f, "Скачивание модуля...")
+            val moduleResult = downloadFile(moduleUrl, "zapret2-module.zip") { percent ->
+                val progress = (percent / 100f) * moduleWeight * 0.8f // 80% of module weight is download
+                kotlinx.coroutines.runBlocking {
+                    onProgress(progress, "Скачивание модуля... $percent%")
+                }
+            }
+
+            when (moduleResult) {
+                is DownloadResult.Success -> {
+                    onProgress(moduleWeight * 0.8f, "Установка модуля...")
+                    val (success, reboot) = installModule(moduleResult.file)
+                    if (!success) {
+                        return@withContext Result.failure(Exception("Ошибка установки модуля"))
+                    }
+                    needsReboot = reboot
+                    onProgress(moduleWeight, "Модуль установлен")
+                }
+                is DownloadResult.Error -> {
+                    return@withContext Result.failure(Exception("Ошибка скачивания модуля: ${moduleResult.message}"))
+                }
+            }
+        }
+
+        // Step 2: Download and install APK (if available)
+        if (apkUrl != null) {
+            onProgress(apkStartAt, "Скачивание APK...")
+            val apkWeight = 1f - apkStartAt
+            val apkResult = downloadFile(apkUrl, "zapret2-update.apk") { percent ->
+                val progress = apkStartAt + (percent / 100f) * apkWeight * 0.9f
+                kotlinx.coroutines.runBlocking {
+                    onProgress(progress, "Скачивание APK... $percent%")
+                }
+            }
+
+            when (apkResult) {
+                is DownloadResult.Success -> {
+                    onProgress(1f, "Установка APK...")
+                    installApk(apkResult.file)
+                }
+                is DownloadResult.Error -> {
+                    return@withContext Result.failure(Exception("Ошибка скачивания APK: ${apkResult.message}"))
+                }
+            }
+        }
+
+        onProgress(1f, "Готово")
+        Result.success(needsReboot)
     }
 
     /**

@@ -42,18 +42,32 @@ fun ControlScreen(viewModel: ControlViewModel = hiltViewModel()) {
         }
     }
 
+    // Track whether an update was started so we can auto-dismiss on completion
+    var updateWasStarted by remember { mutableStateOf(false) }
+
+    // Auto-dismiss dialog when update completes
+    LaunchedEffect(state.isUpdating) {
+        if (state.isUpdating) {
+            updateWasStarted = true
+        } else if (updateWasStarted) {
+            updateWasStarted = false
+            showUpdateDialog = null
+        }
+    }
+
     showUpdateDialog?.let { release ->
         UpdateDialog(
             version = release.version,
             changelog = release.changelog,
             hasApk = release.apkUrl != null,
             hasModule = release.moduleUrl != null,
-            downloadProgress = 0,
-            isDownloading = false,
-            statusText = "",
+            isUpdating = state.isUpdating,
+            updateProgress = state.updateProgress,
+            updateStatus = state.updateStatus,
             onDismiss = { showUpdateDialog = null },
-            onUpdateApk = { release.apkUrl?.let { viewModel.downloadAndInstallApk(it) }; showUpdateDialog = null },
-            onUpdateModule = { release.moduleUrl?.let { viewModel.downloadAndInstallModule(it) }; showUpdateDialog = null }
+            onUpdate = {
+                viewModel.updateAll(release.apkUrl, release.moduleUrl)
+            }
         )
     }
 
