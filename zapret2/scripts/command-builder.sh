@@ -242,343 +242,8 @@ build_debug_opts() {
 }
 
 ##########################################################################################
-# RAW CMDLINE / PRESET FILE BUILDERS
+# PRESET FILE BUILDER
 ##########################################################################################
-
-# Returns 0 when PRESET_MODE requests raw command-line loading.
-is_custom_cmdline_mode() {
-    case "${PRESET_MODE:-categories}" in
-        cmdline|manual|raw)
-            return 0
-            ;;
-        *)
-            return 1
-            ;;
-    esac
-}
-
-# Read custom cmdline file and return normalized one-line options string.
-# Remove inline comments while preserving hashes inside quotes.
-# Hashes preceded by backslash are preserved too.
-strip_inline_comments() {
-    local line="$1"
-    printf '%s\n' "$line" |
-    awk '
-    {
-        out="";
-        in_single=0;
-        in_double=0;
-        escaped=0;
-        single_quote=sprintf("%c", 39);
-        double_quote=sprintf("%c", 34);
-
-        for (i = 1; i <= length($0); i++) {
-            ch = substr($0, i, 1);
-
-            if (escaped == 1) {
-                out = out ch;
-                escaped = 0;
-                continue;
-            }
-
-            if (ch == "\\") {
-                out = out ch;
-                escaped = 1;
-                continue;
-            }
-
-            if (in_single) {
-                if (ch == single_quote) {
-                    in_single = 0;
-                }
-                out = out ch;
-                continue;
-            }
-
-            if (in_double) {
-                if (ch == double_quote) {
-                    in_double = 0;
-                }
-                out = out ch;
-                continue;
-            }
-
-            if (ch == single_quote) {
-                in_single = 1;
-                out = out ch;
-                continue;
-            }
-
-            if (ch == double_quote) {
-                in_double = 1;
-                out = out ch;
-                continue;
-            }
-
-            if (ch == "#") {
-                break;
-            }
-
-            out = out ch;
-        }
-
-        sub(/[[:space:]]*$/, "", out);
-        print out;
-    }
-    '
-}
-
-normalize_custom_cmdline_file() {
-    local file_path="$1"
-    local cr
-    local line=""
-    local normalized=""
-
-    cr=$(printf '\r')
-
-    while IFS= read -r line || [ -n "$line" ]; do
-        line="${line%$cr}"
-
-        # Trim spaces/tabs, drop inline comments, and skip empty/comment lines
-        line="$(printf '%s\n' "$line" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
-        line="$(strip_inline_comments "$line")"
-        [ -z "$line" ] && continue
-        case "$line" in
-            "#"*|";"*)
-                continue
-                ;;
-        esac
-
-        # Keep user-friendly multiline syntax and optional continuation backslashes
-        line="$(printf '%s\n' "$line" | sed 's/[[:space:]]*\\$//')"
-        [ -z "$line" ] && continue
-
-        if [ -z "$normalized" ]; then
-            normalized="$line"
-        else
-            normalized="$normalized $line"
-        fi
-    done < "$file_path"
-
-    printf '%s' "$normalized"
-}
-
-# Resolve CUSTOM_CMDLINE_FILE to absolute path.
-resolve_custom_cmdline_file_path() {
-    local cmdline_file="$1"
-
-    case "$cmdline_file" in
-        /*)
-            echo "$cmdline_file"
-            ;;
-        *)
-            echo "$ZAPRET_DIR/$cmdline_file"
-            ;;
-    esac
-}
-
-# Collect values for one option from a space-separated option list.
-# Supports both styles: --opt=value and --opt value.
-collect_option_values() {
-    local opts="$1"
-    local option_name="$2"
-    local token=""
-    local consume_next=0
-
-    [ -z "$opts" ] && return
-
-    # shellcheck disable=SC2086
-    set -- $opts
-
-    while [ "$#" -gt 0 ]; do
-        token="$1"
-        shift
-
-        if [ "$consume_next" -eq 1 ]; then
-            printf '%s\n' "$token"
-            consume_next=0
-            continue
-        fi
-
-        case "$token" in
-            --${option_name}=*)
-                printf '%s\n' "${token#--${option_name}=}"
-                ;;
-            --${option_name})
-                if [ "$#" -gt 0 ]; then
-                    consume_next=1
-                fi
-                ;;
-        esac
-    done
-}
-
-# Validate critical core options that must not be duplicated in raw mode.
-# Duplicates usually indicate conflicting --qnum/--uid/--fwmark/--debug values.
-
-# Validate raw cmdline source while keeping runtime [core] authoritative.
-sync_cmdline_core_overrides() {
-    is_custom_cmdline_mode || return 0
-
-    local cmdline_file="${CUSTOM_CMDLINE_FILE:-$ZAPRET_DIR/cmdline.txt}"
-    local resolved_file=""
-    local raw_args=""
-    local warned_keys=""
-    local option_name
-
-    resolved_file="$(resolve_custom_cmdline_file_path "$cmdline_file")"
-    [ -f "$resolved_file" ] || return 1
-    [ -r "$resolved_file" ] || return 1
-
-    raw_args="$(normalize_custom_cmdline_file "$resolved_file")"
-    [ -n "$raw_args" ] || return 1
-
-    for option_name in qnum fwmark uid debug; do
-        if [ -n "$(collect_option_values "$raw_args" "$option_name")" ]; then
-            if [ -z "$warned_keys" ]; then
-                warned_keys="$option_name"
-            else
-                warned_keys="$warned_keys,$option_name"
-            fi
-        fi
-    done
-
-    if [ -n "$warned_keys" ]; then
-        log_msg "Ignoring raw cmdline core options ($warned_keys); runtime [core] remains authoritative"
-    fi
-
-    return 0
-}
-
-validate_cmdline_core_options() {
-    local opts="$1"
-    local cmdline_path="$2"
-    local duplicate_found=0
-    local option_name=""
-    local values=""
-    local total_count=0
-    local unique_count=0
-
-    for option_name in qnum fwmark uid debug; do
-        values="$(collect_option_values "$opts" "$option_name")"
-        [ -z "$values" ] && continue
-
-        total_count=$(printf '%s\n' "$values" | wc -l)
-        unique_count=$(printf '%s\n' "$values" | sort -u | wc -l)
-
-        if [ "$total_count" -gt 1 ] && [ "$unique_count" -gt 1 ]; then
-            log_error "Conflicting --${option_name} in raw cmdline: $total_count occurrences, $unique_count values"
-            duplicate_found=1
-        fi
-    done
-
-    if [ "$duplicate_found" -ne 0 ]; then
-        log_error "Remove duplicated core options from $cmdline_path or switch to categories/file mode."
-        return 1
-    fi
-
-    return 0
-}
-
-# Strip core options that build_options() already provides as base options.
-# This prevents duplicate --qnum/--fwmark/--uid/--debug/--ipcache-* in the
-# final command line when the user's raw cmdline file includes them.
-strip_core_options_from_cmdline() {
-    local raw="$1"
-    local token=""
-    local result=""
-    local skip_next=0
-
-    # shellcheck disable=SC2086
-    set -- $raw
-
-    while [ "$#" -gt 0 ]; do
-        token="$1"
-        shift
-
-        if [ "$skip_next" -eq 1 ]; then
-            skip_next=0
-            continue
-        fi
-
-        case "$token" in
-            --qnum=*|--fwmark=*|--uid=*|--debug=*|--ipcache-lifetime=*|--ipcache-hostname=*)
-                continue
-                ;;
-            --qnum|--fwmark|--uid|--debug|--ipcache-lifetime|--ipcache-hostname)
-                # The value is the next token
-                skip_next=1
-                continue
-                ;;
-        esac
-
-        if [ -z "$result" ]; then
-            result="$token"
-        else
-            result="$result $token"
-        fi
-    done
-
-    printf '%s' "$result"
-}
-
-# Build options from raw nfqws2 options file.
-# Modifies global: OPTS
-build_custom_cmdline_options() {
-    local cmdline_file="${CUSTOM_CMDLINE_FILE:-$ZAPRET_DIR/cmdline.txt}"
-    local resolved_file=""
-    local raw_args=""
-    local first_word=""
-
-    resolved_file="$(resolve_custom_cmdline_file_path "$cmdline_file")"
-
-    if [ ! -f "$resolved_file" ]; then
-        log_error "Custom cmdline file not found: $resolved_file"
-        return 1
-    fi
-    if [ ! -r "$resolved_file" ]; then
-        log_error "Custom cmdline file is not readable: $resolved_file"
-        return 1
-    fi
-
-    raw_args="$(normalize_custom_cmdline_file "$resolved_file")"
-
-    if [ -z "$raw_args" ]; then
-        log_error "Custom cmdline file is empty: $resolved_file"
-        return 1
-    fi
-
-    first_word="${raw_args%% *}"
-    case "$first_word" in
-        */nfqws2|nfqws2)
-            raw_args="${raw_args#"$first_word"}"
-            while [ "${raw_args# }" != "$raw_args" ]; do
-                raw_args="${raw_args# }"
-            done
-            ;;
-    esac
-
-    if [ -z "$raw_args" ]; then
-        log_error "Custom cmdline has no nfqws2 options: $resolved_file"
-        return 1
-    fi
-
-    if ! validate_cmdline_core_options "$OPTS $raw_args" "$resolved_file"; then
-        return 1
-    fi
-
-    # Strip core options already provided by build_options() base setup
-    raw_args="$(strip_core_options_from_cmdline "$raw_args")"
-
-    if [ -z "$raw_args" ]; then
-        log_error "Custom cmdline has only core options (nothing left after stripping): $resolved_file"
-        return 1
-    fi
-
-    OPTS="$OPTS $raw_args"
-    log_msg "Loaded raw nfqws2 options from $resolved_file"
-    return 0
-}
 
 # Returns 0 when PRESET_MODE requests file-based preset loading.
 is_preset_file_mode() {
@@ -1072,12 +737,6 @@ build_options() {
         log_msg "Using runtime.ini [core] for core runtime values; category building still uses categories.ini"
     fi
 
-    if is_custom_cmdline_mode; then
-        if ! sync_cmdline_core_overrides; then
-            log_error "Raw cmdline source validation failed; startup will rely on runtime [core] plus builder fallback handling"
-        fi
-    fi
-
     # Base options
     OPTS="--qnum=$QNUM --fwmark=$DESYNC_MARK"
 
@@ -1095,21 +754,9 @@ build_options() {
         OPTS="$OPTS $debug_opts"
     fi
 
-    local used_cmdline_mode=0
     local used_preset_mode=0
 
-    if is_custom_cmdline_mode; then
-        log_msg "Mode: Raw command-line configuration"
-        log_msg "Command file: ${CUSTOM_CMDLINE_FILE:-$ZAPRET_DIR/cmdline.txt}"
-
-        if build_custom_cmdline_options; then
-            used_cmdline_mode=1
-        else
-            log_error "Raw command-line mode failed, falling back to categories.ini"
-        fi
-    fi
-
-    if [ "$used_cmdline_mode" -eq 0 ] && is_preset_file_mode; then
+    if is_preset_file_mode; then
         log_msg "Mode: Preset file configuration"
         log_msg "Preset file: ${PRESET_FILE:-Default.txt}"
 
@@ -1134,7 +781,7 @@ build_options() {
         fi
     fi
 
-    if [ "$used_cmdline_mode" -eq 0 ] && [ "$used_preset_mode" -eq 0 ]; then
+    if [ "$used_preset_mode" -eq 0 ]; then
         # Add Lua init options
         local lua_opts=$(build_lua_opts)
         if [ -n "$lua_opts" ]; then
@@ -1158,6 +805,10 @@ build_options() {
     local strategy_count=$((new_count + 1))
     log_msg "Total strategies configured: $strategy_count"
     log_msg "Final command length: $(echo "$OPTS" | wc -c) chars"
+
+    # Save active config to cmdline.txt for inspection (one option per line)
+    echo "$OPTS" | sed 's/ --/\n--/g' > "$ZAPRET_DIR/cmdline.txt" 2>/dev/null
+    log_msg "Active config saved to $ZAPRET_DIR/cmdline.txt"
 
     # Clear old debug log
     > "$DEBUG_LOG" 2>/dev/null

@@ -26,7 +26,6 @@ CONFIG="$ZAPRET_DIR/config.sh"
 LISTS_DIR="$ZAPRET_DIR/lists"
 BLOBS_FILE="$ZAPRET_DIR/blobs.txt"
 PRESETS_DIR="$ZAPRET_DIR/presets"
-CUSTOM_CMDLINE_FILE="${CUSTOM_CMDLINE_FILE:-$ZAPRET_DIR/cmdline.txt}"
 
 # Strategy INI files
 TCP_STRATEGIES_INI="$ZAPRET_DIR/strategies-tcp.ini"
@@ -130,7 +129,6 @@ set_core_config_defaults() {
     STRATEGY_PRESET="youtube"
     PRESET_MODE="categories"
     PRESET_FILE="Default.txt"
-    CUSTOM_CMDLINE_FILE="$ZAPRET_DIR/cmdline.txt"
     NFQWS_UID="0:0"
     LOG_MODE="none"
 }
@@ -210,9 +208,6 @@ apply_runtime_core_overrides() {
                 ;;
             preset_file)
                 PRESET_FILE="$value"
-                ;;
-            custom_cmdline_file)
-                CUSTOM_CMDLINE_FILE="$value"
                 ;;
             nfqws_uid)
                 NFQWS_UID="$value"
