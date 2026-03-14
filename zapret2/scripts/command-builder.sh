@@ -168,12 +168,12 @@ build_lua_opts() {
         log_debug "Added Lua: zapret-auto.lua"
     fi
 
-    if [ -f "$ZAPRET_DIR/lua/zapret-auto.lua" ]; then
+    if [ -f "$ZAPRET_DIR/lua/custom_funcs.lua" ]; then
         lua_opts="$lua_opts --lua-init=@$ZAPRET_DIR/lua/custom_funcs.lua"
-        log_debug "Added Lua: custom-funcs.lua"
+        log_debug "Added Lua: custom_funcs.lua"
     fi
 
-    if [ -f "$ZAPRET_DIR/lua/zapret-auto.lua" ]; then
+    if [ -f "$ZAPRET_DIR/lua/zapret-multishake.lua" ]; then
         lua_opts="$lua_opts --lua-init=@$ZAPRET_DIR/lua/zapret-multishake.lua"
         log_debug "Added Lua: zapret-multishake.lua"
     fi
