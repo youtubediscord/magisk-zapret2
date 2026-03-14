@@ -281,9 +281,8 @@ class ControlViewModel @Inject constructor(
 
             val result = withContext(Dispatchers.IO) {
                 updateManager.updateAll(apkUrl, moduleUrl) { progress, status ->
-                    withContext(Dispatchers.Main) {
-                        _uiState.update { it.copy(updateProgress = progress, updateStatus = status) }
-                    }
+                    // StateFlow.update is thread-safe, no need for Dispatchers.Main
+                    _uiState.update { it.copy(updateProgress = progress, updateStatus = status) }
                 }
             }
 
