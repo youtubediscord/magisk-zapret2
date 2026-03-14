@@ -313,7 +313,7 @@ function circular(ctx, desync)
 	local function count_strategies(hrec)
 		if not hrec.ctstrategy then
 			local uniq={}
-			local n=0
+			local n
 			for i,instance in pairs(desync.plan) do
 				if instance.arg.strategy then
 					n = tonumber(instance.arg.strategy)

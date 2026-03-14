@@ -8,7 +8,7 @@ function pcap_write_packet(file, raw)
 	file:write(raw)
 end
 function pcap_write(file, raw)
-	local pos = file:seek()
+	local pos = file:seek('end')
 	if (pos==0) then
 		pcap_write_header(file)
 	end

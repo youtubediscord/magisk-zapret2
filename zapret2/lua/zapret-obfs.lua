@@ -175,7 +175,12 @@ end
 -- arg : server=[0|1] - override server mode. by default use "--server" nfqws2 parameter
 function udp2icmp(ctx, desync)
 	local dataxor
-	local bserver = desync.arg.server and (desync.arg.server~="0") or b_server
+	local bserver
+	if desync.arg.server then
+		bserver = desync.arg.server~="0"
+	else
+		bserver = b_server
+	end
 
 	local function one_byte_arg(name)
 		if desync.arg[name] then
