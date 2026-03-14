@@ -317,6 +317,39 @@ jobs:
           sed -i "s/^versionCode=.*/versionCode=${VERSION_CODE}/" module.prop
           sed -i "s|^updateJson=.*|updateJson=https://github.com/youtubediscord/magisk-zapret2/releases/latest/download/update.json|" module.prop
 
+          # Validate custom Lua files against upstream API
+          echo "Validating custom Lua compatibility with upstream..."
+          UPSTREAM_CORE="zapret2/lua/zapret-lib.lua zapret2/lua/zapret-antidpi.lua zapret2/lua/zapret-auto.lua"
+          CUSTOM_LUA="zapret2/lua/custom_funcs.lua zapret2/lua/zapret-multishake.lua zapret2/lua/zapret-16kb.lua zapret2/lua/zapret-obfs.lua"
+          WARN_COUNT=0
+
+          # Extract all "function name(" definitions from upstream core files
+          UPSTREAM_FUNCS=$(grep -h '^function [a-zA-Z_][a-zA-Z0-9_]*(' $UPSTREAM_CORE 2>/dev/null | sed 's/function \([a-zA-Z_][a-zA-Z0-9_]*\)(.*/\1/' | sort -u)
+
+          # Also include globals/constants commonly set in upstream
+          UPSTREAM_GLOBALS="DLOG b_debug VERDICT_PASS VERDICT_DROP HEXDUMP_DLOG_MAX"
+          ALL_UPSTREAM="$UPSTREAM_FUNCS $UPSTREAM_GLOBALS"
+
+          # Check each custom Lua file's required functions list
+          for lua_file in $CUSTOM_LUA; do
+            [ -f "$lua_file" ] || continue
+            BASENAME=$(basename "$lua_file")
+            # Extract the required functions from the compatibility check block
+            REQUIRED=$(grep -A 20 'local required' "$lua_file" 2>/dev/null | grep -o '"[a-zA-Z_][a-zA-Z0-9_]*"' | tr -d '"' | sort -u)
+            for func in $REQUIRED; do
+              if ! echo "$ALL_UPSTREAM" | tr ' ' '\n' | grep -qx "$func"; then
+                echo "::warning file=$lua_file::Function '$func' required by $BASENAME not found in upstream core Lua files"
+                WARN_COUNT=$((WARN_COUNT + 1))
+              fi
+            done
+          done
+
+          if [ "$WARN_COUNT" -gt 0 ]; then
+            echo "::warning::$WARN_COUNT upstream API compatibility warnings found. Custom Lua files have runtime guards and will skip gracefully."
+          else
+            echo "All custom Lua files compatible with upstream API"
+          fi
+
           # Make scripts executable
           chmod +x customize.sh service.sh uninstall.sh action.sh 2>/dev/null || true
           chmod +x zapret2/scripts/*.sh 2>/dev/null || true
