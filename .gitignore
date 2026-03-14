@@ -3,3 +3,8 @@ CLAUDE.md
 /.claude
 AGENTS.md
 .env
+.gradle/
+android-app/.gradle/
+android-app/app/build/
+android-app/build/
+*.apk

@@ -1,10 +1,13 @@
 package com.zapret2.app.ui.screen
 
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -12,6 +15,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -77,24 +81,26 @@ fun HostlistContentScreen(navController: NavController, viewModel: HostlistConte
             }
 
             if (state.isEditing) {
-                // Edit mode: full-file text editor
-                OutlinedTextField(
-                    value = state.editorContent,
-                    onValueChange = { viewModel.updateEditorContent(it) },
+                // Edit mode: BasicTextField avoids saving huge content to Bundle (TransactionTooLargeException)
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f)
-                        .padding(horizontal = 12.dp, vertical = 4.dp),
-                    textStyle = MonospaceStyle.copy(fontSize = 12.sp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = AccentLightBlue,
-                        unfocusedBorderColor = Border,
-                        focusedTextColor = TextPrimary,
-                        unfocusedTextColor = TextPrimary,
-                        cursorColor = AccentLightBlue
-                    ),
-                    placeholder = { Text("One domain per line", color = TextHint, fontSize = 12.sp) }
-                )
+                        .padding(horizontal = 12.dp, vertical = 4.dp)
+                        .border(1.dp, Border, RoundedCornerShape(4.dp))
+                        .padding(12.dp)
+                ) {
+                    if (state.editorContent.isEmpty()) {
+                        Text("One domain per line", color = TextHint, fontSize = 12.sp, style = MonospaceStyle)
+                    }
+                    BasicTextField(
+                        value = state.editorContent,
+                        onValueChange = { viewModel.updateEditorContent(it) },
+                        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+                        textStyle = MonospaceStyle.copy(fontSize = 12.sp, color = TextPrimary),
+                        cursorBrush = SolidColor(AccentLightBlue)
+                    )
+                }
 
                 // Bottom bar with line count and save button
                 Row(
