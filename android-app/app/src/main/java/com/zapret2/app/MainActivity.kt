@@ -8,6 +8,8 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.*
@@ -91,7 +93,8 @@ private fun MainScreen() {
         drawerContent = {
             ModalDrawerSheet(
                 drawerContainerColor = Surface,
-                drawerContentColor = TextPrimary
+                drawerContentColor = TextPrimary,
+                modifier = Modifier.verticalScroll(rememberScrollState())
             ) {
                 // Header
                 Column(
