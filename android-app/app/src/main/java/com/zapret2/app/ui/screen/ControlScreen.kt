@@ -1,14 +1,22 @@
 package com.zapret2.app.ui.screen
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.widget.Toast
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -20,13 +28,16 @@ import com.zapret2.app.viewmodel.*
 fun ControlScreen(viewModel: ControlViewModel = hiltViewModel()) {
     val state by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
+    val context = LocalContext.current
     var showUpdateDialog by remember { mutableStateOf<com.zapret2.app.data.UpdateManager.Release?>(null) }
+    var errorDialogData by remember { mutableStateOf<Pair<String, String>?>(null) }
 
     LaunchedEffect(Unit) {
         viewModel.events.collect { event ->
             when (event) {
                 is ControlEvent.ShowSnackbar -> snackbarHostState.showSnackbar(event.message)
                 is ControlEvent.ShowUpdateDialog -> showUpdateDialog = event.release
+                is ControlEvent.ShowErrorDialog -> errorDialogData = Pair(event.title, event.details)
             }
         }
     }
@@ -43,6 +54,41 @@ fun ControlScreen(viewModel: ControlViewModel = hiltViewModel()) {
             onDismiss = { showUpdateDialog = null },
             onUpdateApk = { release.apkUrl?.let { viewModel.downloadAndInstallApk(it) }; showUpdateDialog = null },
             onUpdateModule = { release.moduleUrl?.let { viewModel.downloadAndInstallModule(it) }; showUpdateDialog = null }
+        )
+    }
+
+    errorDialogData?.let { (title, details) ->
+        AlertDialog(
+            onDismissRequest = { errorDialogData = null },
+            containerColor = SurfaceCard,
+            titleContentColor = StatusError,
+            title = { Text(title, color = StatusError) },
+            text = {
+                Text(
+                    text = details,
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 12.sp,
+                    color = TextPrimary,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 300.dp)
+                        .verticalScroll(rememberScrollState())
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    clipboard.setPrimaryClip(ClipData.newPlainText("Error details", details))
+                    Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
+                }) {
+                    Text("Copy", color = AccentBlue)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { errorDialogData = null }) {
+                    Text("Close", color = TextSecondary)
+                }
+            }
         )
     }
 

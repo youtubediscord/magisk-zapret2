@@ -51,6 +51,7 @@ data class ProcessStats(
 sealed class ControlEvent {
     data class ShowSnackbar(val message: String) : ControlEvent()
     data class ShowUpdateDialog(val release: UpdateManager.Release) : ControlEvent()
+    data class ShowErrorDialog(val title: String, val details: String) : ControlEvent()
 }
 
 @HiltViewModel
@@ -160,21 +161,51 @@ class ControlViewModel @Inject constructor(
             _uiState.update { it.copy(isToggling = true) }
             val wasRunning = _uiState.value.isRunning
 
-            val success = withContext(Dispatchers.IO) {
+            val result = withContext(Dispatchers.IO) {
                 val script = if (wasRunning) stopScript else startScript
-                Shell.cmd("sh $script").exec().isSuccess
+                Shell.cmd("sh $script").exec()
             }
 
             delay(1000) // Brief delay for process state to settle
             checkStatus()
             _uiState.update { it.copy(isToggling = false) }
 
-            if (success) {
+            if (result.isSuccess) {
                 val action = if (wasRunning) "stopped" else "started"
                 _events.emit(ControlEvent.ShowSnackbar("Service $action"))
                 if (!wasRunning) serviceEventBus.notifyServiceRestarted()
             } else {
-                _events.emit(ControlEvent.ShowSnackbar("Failed to ${if (wasRunning) "stop" else "start"} service"))
+                val action = if (wasRunning) "stop" else "start"
+                val diagnosticLines = result.out
+                    .filter { it.startsWith("DIAGNOSTIC:") }
+                    .map { it.removePrefix("DIAGNOSTIC:").trim() }
+
+                if (diagnosticLines.isNotEmpty()) {
+                    _events.emit(ControlEvent.ShowErrorDialog(
+                        title = "Failed to $action service",
+                        details = diagnosticLines.joinToString("\n")
+                    ))
+                } else {
+                    // Try reading error log as fallback
+                    val errorLog = withContext(Dispatchers.IO) {
+                        val logResult = Shell.cmd("cat /data/local/tmp/nfqws2-error.log 2>/dev/null").exec()
+                        if (logResult.isSuccess && logResult.out.isNotEmpty()) {
+                            logResult.out.joinToString("\n")
+                        } else null
+                    }
+
+                    if (errorLog != null) {
+                        _events.emit(ControlEvent.ShowErrorDialog(
+                            title = "Failed to $action service",
+                            details = errorLog
+                        ))
+                    } else {
+                        _events.emit(ControlEvent.ShowErrorDialog(
+                            title = "Failed to $action service",
+                            details = "No diagnostic information available.\nCheck logs for details."
+                        ))
+                    }
+                }
             }
         }
     }
