@@ -207,32 +207,53 @@ class UpdateManager(private val context: Context) {
     suspend fun downloadFile(
         url: String,
         fileName: String,
-        progress: (Int) -> Unit
+        progress: suspend (Int) -> Unit
     ): DownloadResult = withContext(Dispatchers.IO) {
         var connection: HttpURLConnection? = null
         try {
-            val downloadUrl = URL(url)
-            connection = downloadUrl.openConnection() as HttpURLConnection
-            connection.apply {
-                requestMethod = "GET"
-                connectTimeout = CONNECT_TIMEOUT
-                readTimeout = READ_TIMEOUT
-                setRequestProperty("User-Agent", "Zapret2-Android/${BuildConfig.VERSION_NAME}")
+            // Follow GitHub redirects (github.com -> objects.githubusercontent.com)
+            var currentUrl = URL(url)
+            var redirectCount = 0
+            while (redirectCount < 5) {
+                connection = currentUrl.openConnection() as HttpURLConnection
+                connection.apply {
+                    requestMethod = "GET"
+                    connectTimeout = CONNECT_TIMEOUT
+                    readTimeout = READ_TIMEOUT
+                    instanceFollowRedirects = false // handle manually for HTTPS->HTTPS
+                    setRequestProperty("User-Agent", "Zapret2-Android/${BuildConfig.VERSION_NAME}")
+                }
+
+                val responseCode = connection.responseCode
+                if (responseCode in 301..302 || responseCode == 307 || responseCode == 308) {
+                    val location = connection.getHeaderField("Location")
+                    connection.disconnect()
+                    if (location == null) {
+                        return@withContext DownloadResult.Error("Redirect without Location header")
+                    }
+                    currentUrl = URL(location)
+                    redirectCount++
+                    continue
+                }
+
+                if (responseCode != HttpURLConnection.HTTP_OK) {
+                    return@withContext DownloadResult.Error("Server returned $responseCode")
+                }
+                break
             }
 
-            if (connection.responseCode != HttpURLConnection.HTTP_OK) {
-                return@withContext DownloadResult.Error("Server returned ${connection.responseCode}")
+            if (connection == null) {
+                return@withContext DownloadResult.Error("Too many redirects")
             }
 
-            val fileLength = connection.contentLength
+            val fileLength = connection!!.contentLength.toLong()
             val outputFile = File(context.cacheDir, fileName)
 
-            // Delete existing file if present
             if (outputFile.exists()) {
                 outputFile.delete()
             }
 
-            connection.inputStream.use { input ->
+            connection!!.inputStream.use { input ->
                 outputFile.outputStream().use { output ->
                     val buffer = ByteArray(BUFFER_SIZE)
                     var bytesRead: Int
@@ -247,20 +268,14 @@ class UpdateManager(private val context: Context) {
                             val currentProgress = ((totalBytesRead * 100) / fileLength).toInt()
                             if (currentProgress != lastReportedProgress) {
                                 lastReportedProgress = currentProgress
-                                withContext(Dispatchers.Main) {
-                                    progress(currentProgress)
-                                }
+                                progress(currentProgress)
                             }
                         }
                     }
                 }
             }
 
-            // Final progress update
-            withContext(Dispatchers.Main) {
-                progress(100)
-            }
-
+            progress(100)
             DownloadResult.Success(outputFile)
         } catch (e: Exception) {
             DownloadResult.Error(e.message ?: "Download failed")
@@ -424,10 +439,8 @@ class UpdateManager(private val context: Context) {
         if (moduleUrl != null) {
             onProgress(0f, "Скачивание модуля...")
             val moduleResult = downloadFile(moduleUrl, "zapret2-module.zip") { percent ->
-                val progress = (percent / 100f) * moduleWeight * 0.8f // 80% of module weight is download
-                kotlinx.coroutines.runBlocking {
-                    onProgress(progress, "Скачивание модуля... $percent%")
-                }
+                val progress = (percent / 100f) * moduleWeight * 0.8f
+                onProgress(progress, "Скачивание модуля... $percent%")
             }
 
             when (moduleResult) {
@@ -452,9 +465,7 @@ class UpdateManager(private val context: Context) {
             val apkWeight = 1f - apkStartAt
             val apkResult = downloadFile(apkUrl, "zapret2-update.apk") { percent ->
                 val progress = apkStartAt + (percent / 100f) * apkWeight * 0.9f
-                kotlinx.coroutines.runBlocking {
-                    onProgress(progress, "Скачивание APK... $percent%")
-                }
+                onProgress(progress, "Скачивание APK... $percent%")
             }
 
             when (apkResult) {
