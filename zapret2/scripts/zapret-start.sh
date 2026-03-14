@@ -633,14 +633,20 @@ preflight_check() {
     # b) nfqws2 Lua compatibility version check
     local lib_lua="$ZAPRET_DIR/lua/zapret-lib.lua"
     if [ -f "$lib_lua" ] && [ -f "$NFQWS2" ] && [ -x "$NFQWS2" ]; then
+        # Extract only the number AFTER the '=' sign
         local required_ver
-        required_ver=$(grep 'NFQWS2_COMPAT_VER_REQUIRED' "$lib_lua" 2>/dev/null | head -1 | grep -o '[0-9][0-9]*')
+        required_ver=$(grep 'NFQWS2_COMPAT_VER_REQUIRED\s*=' "$lib_lua" 2>/dev/null | head -1 | sed 's/.*=\s*//' | tr -d '[:space:]')
         if [ -n "$required_ver" ]; then
+            # Extract lua_compat_ver from --version output (e.g. "lua_compat_ver5")
             local binary_ver
-            binary_ver=$($NFQWS2 --lua-exec="print(NFQWS2_COMPAT_VER or 'nil')" 2>/dev/null | tr -d '[:space:]')
-            if [ -n "$binary_ver" ] && [ "$binary_ver" != "nil" ]; then
+            binary_ver=$($NFQWS2 --version 2>&1 | grep -o 'lua_compat_ver[0-9]*' | grep -o '[0-9]*' | head -1)
+            if [ -z "$binary_ver" ]; then
+                # Fallback: try --help output
+                binary_ver=$($NFQWS2 --help 2>&1 | head -3 | grep -o 'lua_compat_ver[0-9]*' | grep -o '[0-9]*' | head -1)
+            fi
+            if [ -n "$binary_ver" ]; then
                 if [ "$binary_ver" != "$required_ver" ]; then
-                    local msg="DIAGNOSTIC: Version mismatch. nfqws2 binary has Lua compat version $binary_ver, but scripts require version $required_ver. Download nfqws2 and Lua scripts from the same zapret release."
+                    local msg="DIAGNOSTIC: Version mismatch. nfqws2 binary has lua_compat_ver=$binary_ver, but scripts require $required_ver. Download nfqws2 and Lua scripts from the same zapret release."
                     echo "$msg"
                     log_error "$msg"
                 else
@@ -801,24 +807,27 @@ show_error_details() {
         # Pattern 1: desync function not found
         local missing_func=$(grep -o "desync function '[^']*' does not exist" "$ERROR_LOG" | head -1)
         if [ -n "$missing_func" ]; then
-            local func_name=$(echo "$missing_func" | grep -o "'[^']*'" | tr -d "'")
+            # Extract function name between single quotes using sed
+            local func_name=$(echo "$missing_func" | sed "s/.*'\([^']*\)'.*/\1/")
             local msg="DIAGNOSTIC: $missing_func"
             echo "$msg"
             log_error "$msg"
-            # Check which Lua file should contain this function
-            if grep -rql "function $func_name" "$ZAPRET_DIR/lua/" 2>/dev/null; then
-                local lua_file=$(grep -rl "function $func_name" "$ZAPRET_DIR/lua/" 2>/dev/null | head -1)
-                local lua_basename=$(basename "$lua_file")
-                msg="DIAGNOSTIC: Function '$func_name' is defined in $lua_basename"
-                echo "$msg"
-                log_error "$msg"
-                msg="DIAGNOSTIC: This file may not be loading. Check that all Lua files are present and compatible with your nfqws2 version."
-                echo "$msg"
-                log_error "$msg"
-            else
-                msg="DIAGNOSTIC: Function '$func_name' not found in any Lua file. Check your strategy configuration."
-                echo "$msg"
-                log_error "$msg"
+            # Only search for function if name is non-empty
+            if [ -n "$func_name" ]; then
+                if grep -rql "function ${func_name}(" "$ZAPRET_DIR/lua/" 2>/dev/null; then
+                    local lua_file=$(grep -rl "function ${func_name}(" "$ZAPRET_DIR/lua/" 2>/dev/null | head -1)
+                    local lua_basename=$(basename "$lua_file")
+                    msg="DIAGNOSTIC: Function '$func_name' is defined in $lua_basename"
+                    echo "$msg"
+                    log_error "$msg"
+                    msg="DIAGNOSTIC: This file may not be loading. Check that all Lua files are present and compatible with your nfqws2 version."
+                    echo "$msg"
+                    log_error "$msg"
+                else
+                    msg="DIAGNOSTIC: Function '$func_name' not found in any Lua file. Check your strategy configuration."
+                    echo "$msg"
+                    log_error "$msg"
+                fi
             fi
             msg="DIAGNOSTIC: Try updating nfqws2 binary and Lua scripts from the same zapret release."
             echo "$msg"
