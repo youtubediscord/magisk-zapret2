@@ -825,13 +825,13 @@ build_category_options_single() {
     case "$protocol" in
         stun)
             # STUN/Voice - L7 detection only, no port filter
-            # nfqws2 identifies STUN by payload, not by port number
-            local full_filter="--filter-l7=stun,discord"
+            # nfqws2 identifies STUN by --payload= in strategy args, not by port
+            local full_filter=""
 
             # Add filtering options if specified (usually none for STUN)
             local filter_opts=$(build_category_filter "$filter_mode" "$filter_value")
             if [ -n "$filter_opts" ]; then
-                full_filter="$full_filter $filter_opts"
+                full_filter="$filter_opts"
             fi
 
             # Get STUN strategy options from strategies-stun.ini
