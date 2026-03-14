@@ -595,6 +595,62 @@ apply_iptables() {
 }
 
 ##########################################################################################
+# PRE-FLIGHT DIAGNOSTICS
+##########################################################################################
+
+# Run advisory diagnostics before starting nfqws2.
+# All checks are non-blocking: failures are reported but startup continues.
+preflight_check() {
+    log_msg "Running pre-flight diagnostics..."
+
+    # a) Check core Lua files exist and are readable
+    for lua_name in zapret-lib.lua zapret-antidpi.lua zapret-auto.lua; do
+        local lua_path="$ZAPRET_DIR/lua/$lua_name"
+        if [ ! -f "$lua_path" ]; then
+            local msg="DIAGNOSTIC: Missing Lua file: $lua_name. Reinstall the module."
+            echo "$msg"
+            log_error "$msg"
+        elif [ ! -r "$lua_path" ]; then
+            local msg="DIAGNOSTIC: Lua file not readable: $lua_name. Check permissions."
+            echo "$msg"
+            log_error "$msg"
+        fi
+    done
+
+    # b) nfqws2 Lua compatibility version check
+    local lib_lua="$ZAPRET_DIR/lua/zapret-lib.lua"
+    if [ -f "$lib_lua" ] && [ -f "$NFQWS2" ] && [ -x "$NFQWS2" ]; then
+        local required_ver
+        required_ver=$(grep 'NFQWS2_COMPAT_VER_REQUIRED' "$lib_lua" 2>/dev/null | head -1 | grep -o '[0-9][0-9]*')
+        if [ -n "$required_ver" ]; then
+            local binary_ver
+            binary_ver=$($NFQWS2 --lua-exec="print(NFQWS2_COMPAT_VER or 'nil')" 2>/dev/null | tr -d '[:space:]')
+            if [ -n "$binary_ver" ] && [ "$binary_ver" != "nil" ]; then
+                if [ "$binary_ver" != "$required_ver" ]; then
+                    local msg="DIAGNOSTIC: Version mismatch. nfqws2 binary has Lua compat version $binary_ver, but scripts require version $required_ver. Download nfqws2 and Lua scripts from the same zapret release."
+                    echo "$msg"
+                    log_error "$msg"
+                else
+                    log_msg "Lua compat version OK: $binary_ver"
+                fi
+            else
+                log_msg "Could not determine nfqws2 Lua compat version, skipping check"
+            fi
+        fi
+    fi
+
+    # c) Check strategy INI files
+    if [ ! -f "$TCP_STRATEGIES_INI" ]; then
+        local msg="DIAGNOSTIC: Missing strategies-tcp.ini"
+        echo "$msg"
+        log_error "$msg"
+    fi
+
+    log_msg "Pre-flight diagnostics complete"
+    return 0
+}
+
+##########################################################################################
 # NFQWS2 STARTUP
 ##########################################################################################
 
@@ -738,6 +794,78 @@ show_error_details() {
             log_error "  $line"
         done
     fi
+
+    # Parse common errors and provide user-friendly diagnostics
+    if [ -f "$ERROR_LOG" ] && [ -s "$ERROR_LOG" ]; then
+        # Pattern 1: desync function not found
+        local missing_func=$(grep -o "desync function '[^']*' does not exist" "$ERROR_LOG" | head -1)
+        if [ -n "$missing_func" ]; then
+            local func_name=$(echo "$missing_func" | grep -o "'[^']*'" | tr -d "'")
+            local msg="DIAGNOSTIC: $missing_func"
+            echo "$msg"
+            log_error "$msg"
+            # Check which Lua file should contain this function
+            if grep -rql "function $func_name" "$ZAPRET_DIR/lua/" 2>/dev/null; then
+                local lua_file=$(grep -rl "function $func_name" "$ZAPRET_DIR/lua/" 2>/dev/null | head -1)
+                local lua_basename=$(basename "$lua_file")
+                msg="DIAGNOSTIC: Function '$func_name' is defined in $lua_basename"
+                echo "$msg"
+                log_error "$msg"
+                msg="DIAGNOSTIC: This file may not be loading. Check that all Lua files are present and compatible with your nfqws2 version."
+                echo "$msg"
+                log_error "$msg"
+            else
+                msg="DIAGNOSTIC: Function '$func_name' not found in any Lua file. Check your strategy configuration."
+                echo "$msg"
+                log_error "$msg"
+            fi
+            msg="DIAGNOSTIC: Try updating nfqws2 binary and Lua scripts from the same zapret release."
+            echo "$msg"
+            log_error "$msg"
+        fi
+
+        # Pattern 2: Lua compatibility error
+        if grep -q "Incompatible NFQWS2_COMPAT_VER" "$ERROR_LOG" 2>/dev/null; then
+            local msg="DIAGNOSTIC: Lua scripts are incompatible with nfqws2 binary version."
+            echo "$msg"
+            log_error "$msg"
+            msg="DIAGNOSTIC: Download nfqws2 binary and Lua scripts from the same zapret release."
+            echo "$msg"
+            log_error "$msg"
+        fi
+
+        # Pattern 3: Permission denied
+        if grep -q "Permission denied" "$ERROR_LOG" 2>/dev/null; then
+            local msg="DIAGNOSTIC: Permission denied error. Try reinstalling the module or check file permissions."
+            echo "$msg"
+            log_error "$msg"
+        fi
+
+        # Pattern 4: file not found / cannot open
+        local missing_file=$(grep -o "cannot open [^ ]*\|No such file[^)]*" "$ERROR_LOG" | head -1)
+        if [ -n "$missing_file" ]; then
+            local msg="DIAGNOSTIC: $missing_file"
+            echo "$msg"
+            log_error "$msg"
+        fi
+
+        # Pattern 5: Lua syntax error
+        if grep -q "lua.*syntax error\|lua.*error loading" "$ERROR_LOG" 2>/dev/null; then
+            local msg="DIAGNOSTIC: Lua syntax error. Scripts may be corrupted. Reinstall the module."
+            echo "$msg"
+            log_error "$msg"
+        fi
+
+        # Always show raw stderr for advanced users
+        echo "DIAGNOSTIC: Raw error output:"
+        log_error "DIAGNOSTIC: Raw error output:"
+        tail -5 "$ERROR_LOG" | while IFS= read -r line; do
+            if [ -n "$line" ]; then
+                echo "DIAGNOSTIC: > $line"
+                log_error "DIAGNOSTIC: > $line"
+            fi
+        done
+    fi
 }
 
 ##########################################################################################
@@ -767,6 +895,9 @@ main() {
 
     # Fix permissions
     fix_permissions
+
+    # Run pre-flight diagnostics (advisory only, does not block startup)
+    preflight_check
 
     prepare_cmdline_core_runtime
 
