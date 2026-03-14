@@ -840,7 +840,7 @@ build_category_options_single() {
             ;;
         udp)
             # UDP/QUIC - use get_udp_strategy_options
-            proto_filter="--filter-udp=53,443,1400,50000-51000"
+            proto_filter="--filter-udp=53,123,443,1400,50000-65535"
             local full_filter="--out-range=-n$PKT_OUT $proto_filter"
 
             # Add filtering options if specified
@@ -854,7 +854,7 @@ build_category_options_single() {
             ;;
         tcp|*)
             # TCP (default) - use get_tcp_strategy_options
-            proto_filter="--filter-tcp=53,80,443"
+            proto_filter="--filter-tcp=53,80,443,5222"
             local full_filter="--out-range=-n$PKT_OUT $proto_filter"
 
             # Add filtering options if specified

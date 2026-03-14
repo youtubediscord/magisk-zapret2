@@ -123,8 +123,8 @@ set_core_config_defaults() {
     DEBUG=0
     QNUM=200
     DESYNC_MARK=0x40000000
-    PORTS_TCP="80,443"
-    PORTS_UDP="443"
+    PORTS_TCP="53,80,443"
+    PORTS_UDP="123,443,50000:65535"
     PKT_OUT=20
     PKT_IN=10
     STRATEGY_PRESET="youtube"

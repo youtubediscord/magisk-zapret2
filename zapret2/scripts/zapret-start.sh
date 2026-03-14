@@ -502,7 +502,7 @@ apply_iptables() {
                 fi
             done
 
-            # --- OUTPUT UDP ---
+            # --- OUTPUT UDP (port-based) ---
             for ports in $udp_out_ports; do
                 local pmatch
                 [ "$cap_multiport" = "1" ] && pmatch="-m multiport --dports $ports" || pmatch="--dport $ports"
@@ -519,6 +519,22 @@ apply_iptables() {
                     rules_fail=$((rules_fail + 1))
                 fi
             done
+
+            # --- OUTPUT UDP (portless, for STUN L7 detection) ---
+            # Catch STUN/voice on any port; nfqws2 filters by --payload=stun
+            # Mark check prevents re-processing packets already handled by port-based rules
+            local stun_extra=""
+            [ "$cap_connbytes" = "1" ] && stun_extra="$stun_extra -m connbytes --connbytes 1:$PKT_OUT --connbytes-dir=original --connbytes-mode=packets"
+            [ "$cap_mark" = "1" ] && stun_extra="$stun_extra -m mark ! --mark $DESYNC_MARK/$DESYNC_MARK"
+
+            if $ipt -t mangle -A OUTPUT -p udp $stun_extra $nfq_target 2>/dev/null; then
+                log_msg "Added $label UDP OUTPUT (all ports, STUN L7)$mode_tag"
+                rules_ok=$((rules_ok + 1))
+            else
+                log_error "Failed to add $label UDP OUTPUT (all ports, STUN L7)"
+                fail_details="${fail_details}${label} UDP OUT(all/STUN): failed\n"
+                rules_fail=$((rules_fail + 1))
+            fi
 
             # --- INPUT TCP ---
             for ports in $tcp_in_ports; do
@@ -537,7 +553,7 @@ apply_iptables() {
                 fi
             done
 
-            # --- INPUT UDP ---
+            # --- INPUT UDP (port-based) ---
             for ports in $udp_in_ports; do
                 local pmatch
                 [ "$cap_multiport" = "1" ] && pmatch="-m multiport --sports $ports" || pmatch="--sport $ports"
@@ -553,6 +569,19 @@ apply_iptables() {
                     rules_fail=$((rules_fail + 1))
                 fi
             done
+
+            # --- INPUT UDP (portless, for STUN L7 detection) ---
+            local stun_in_extra=""
+            [ "$cap_connbytes" = "1" ] && stun_in_extra="$stun_in_extra -m connbytes --connbytes 1:$PKT_IN --connbytes-dir=reply --connbytes-mode=packets"
+
+            if $ipt -t mangle -A INPUT -p udp $stun_in_extra $nfq_target 2>/dev/null; then
+                log_msg "Added $label UDP INPUT (all ports, STUN L7)$mode_tag"
+                rules_ok=$((rules_ok + 1))
+            else
+                log_error "Failed to add $label UDP INPUT (all ports, STUN L7)"
+                fail_details="${fail_details}${label} UDP IN(all/STUN): failed\n"
+                rules_fail=$((rules_fail + 1))
+            fi
         done
     fi
 
