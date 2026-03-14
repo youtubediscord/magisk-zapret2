@@ -1,6 +1,9 @@
 package com.zapret2.app.ui.screen
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -18,12 +21,9 @@ import com.zapret2.app.viewmodel.*
 fun LogsScreen(viewModel: LogsViewModel = hiltViewModel()) {
     val state by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
-    val scrollState = rememberScrollState()
+    val listState = rememberLazyListState()
 
     LaunchedEffect(Unit) { viewModel.snackbar.collect { snackbarHostState.showSnackbar(it) } }
-    LaunchedEffect(state.logs, state.autoScroll) {
-        if (state.autoScroll && state.logs.isNotBlank()) scrollState.animateScrollTo(scrollState.maxValue)
-    }
 
     Scaffold(snackbarHost = { SnackbarHost(snackbarHostState) }) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
@@ -62,15 +62,38 @@ fun LogsScreen(viewModel: LogsViewModel = hiltViewModel()) {
                         }
                     }
 
-                    val displayLogs = if (state.filterText.isNotEmpty()) {
-                        state.logs.lines().filter { it.contains(state.filterText, ignoreCase = true) }.joinToString("\n")
-                    } else state.logs
+                    val displayLines = remember(state.logs, state.filterText) {
+                        val lines = state.logs.lines()
+                        if (state.filterText.isNotEmpty()) lines.filter { it.contains(state.filterText, ignoreCase = true) }
+                        else lines
+                    }
 
-                    Text(
-                        text = displayLogs.ifBlank { if (state.currentTab == LogTab.WARNINGS) "No warnings found" else "No logs available" },
-                        style = MonospaceStyle.copy(fontSize = 11.sp, color = TextLog),
-                        modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp).verticalScroll(scrollState)
-                    )
+                    LaunchedEffect(displayLines.size, state.autoScroll) {
+                        if (state.autoScroll && displayLines.isNotEmpty()) {
+                            listState.animateScrollToItem(displayLines.size - 1)
+                        }
+                    }
+
+                    if (displayLines.isEmpty() || (displayLines.size == 1 && displayLines[0].isBlank())) {
+                        Text(
+                            text = if (state.currentTab == LogTab.WARNINGS) "No warnings found" else "No logs available",
+                            style = MonospaceStyle.copy(fontSize = 11.sp, color = TextLog),
+                            modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp)
+                        )
+                    } else {
+                        LazyColumn(
+                            state = listState,
+                            modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp)
+                        ) {
+                            itemsIndexed(displayLines, key = { index, _ -> index }) { _, line ->
+                                Text(
+                                    text = line,
+                                    style = MonospaceStyle.copy(fontSize = 11.sp, color = TextLog),
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                        }
+                    }
 
                     Row(modifier = Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = { viewModel.refresh() }, colors = ButtonDefaults.buttonColors(containerColor = BtnSecondary), modifier = Modifier.weight(1f)) {
