@@ -8,6 +8,7 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -17,6 +18,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -31,6 +33,8 @@ fun ControlScreen(viewModel: ControlViewModel = hiltViewModel()) {
     val context = LocalContext.current
     var showUpdateDialog by remember { mutableStateOf<com.zapret2.app.data.UpdateManager.Release?>(null) }
     var errorDialogData by remember { mutableStateOf<Pair<String, String>?>(null) }
+    // PKT number input dialog: Pair(title, currentValue) -> callback
+    var pktDialog by remember { mutableStateOf<Triple<String, Int, (Int) -> Unit>?>(null) }
 
     LaunchedEffect(Unit) {
         viewModel.events.collect { event ->
@@ -106,6 +110,47 @@ fun ControlScreen(viewModel: ControlViewModel = hiltViewModel()) {
         )
     }
 
+    pktDialog?.let { (title, currentValue, onConfirm) ->
+        var textValue by remember(title) { mutableStateOf(currentValue.toString()) }
+        AlertDialog(
+            onDismissRequest = { pktDialog = null },
+            containerColor = SurfaceCard,
+            title = { Text(title, color = TextPrimary) },
+            text = {
+                Column {
+                    Text("Количество пакетов (1–100)", fontSize = 12.sp, color = TextSecondary)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = textValue,
+                        onValueChange = { input -> textValue = input.filter { it.isDigit() }.take(3) },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = TextPrimary,
+                            unfocusedTextColor = TextPrimary,
+                            cursorColor = AccentBlue,
+                            focusedBorderColor = AccentBlue,
+                            unfocusedBorderColor = TextSecondary
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val num = textValue.toIntOrNull()?.coerceIn(1, 100) ?: currentValue
+                    onConfirm(num)
+                    pktDialog = null
+                }) { Text("OK", color = AccentBlue) }
+            },
+            dismissButton = {
+                TextButton(onClick = { pktDialog = null }) {
+                    Text("Отмена", color = TextSecondary)
+                }
+            }
+        )
+    }
+
     Scaffold(snackbarHost = { SnackbarHost(snackbarHostState) }) { padding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp),
@@ -159,9 +204,9 @@ fun ControlScreen(viewModel: ControlViewModel = hiltViewModel()) {
             item {
                 SectionHeader("PACKET INTERCEPTION")
                 FluentCard {
-                    SettingRow(title = "PKT_OUT", value = state.pktOut.toString(), icon = Icons.Default.CallMade, onClick = { viewModel.adjustPktOut(state.pktOut + 5) })
+                    SettingRow(title = "PKT_OUT", value = state.pktOut.toString(), icon = Icons.Default.CallMade, onClick = { pktDialog = Triple("PKT_OUT", state.pktOut) { viewModel.adjustPktOut(it) } })
                     Spacer(modifier = Modifier.height(4.dp))
-                    SettingRow(title = "PKT_IN", value = state.pktIn.toString(), icon = Icons.Default.CallReceived, onClick = { viewModel.adjustPktIn(state.pktIn + 5) })
+                    SettingRow(title = "PKT_IN", value = state.pktIn.toString(), icon = Icons.Default.CallReceived, onClick = { pktDialog = Triple("PKT_IN", state.pktIn) { viewModel.adjustPktIn(it) } })
                 }
             }
 
