@@ -824,15 +824,14 @@ build_category_options_single() {
     local strat_opts=""
     case "$protocol" in
         stun)
-            # STUN/Voice - use STUN-specific strategies
-            # Note: --payload, --out-range, --lua-desync are ALL in strategy options
-            # No proto_filter needed - --payload in strategy does the filtering
-            local full_filter=""
+            # STUN/Voice - L7 detection only, no port filter
+            # nfqws2 identifies STUN by payload, not by port number
+            local full_filter="--filter-l7=stun,discord"
 
             # Add filtering options if specified (usually none for STUN)
             local filter_opts=$(build_category_filter "$filter_mode" "$filter_value")
             if [ -n "$filter_opts" ]; then
-                full_filter="$filter_opts"
+                full_filter="$full_filter $filter_opts"
             fi
 
             # Get STUN strategy options from strategies-stun.ini
