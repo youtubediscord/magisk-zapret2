@@ -220,8 +220,8 @@ check_binary() {
     if [ ! -f "$NFQWS2" ]; then
         log_error "nfqws2 binary not found at $NFQWS2"
         echo "ERROR: nfqws2 binary not found!"
-        echo "Please download from GitHub releases:"
-        echo "https://github.com/bol-van/zapret/releases"
+        echo "DIAGNOSTIC: nfqws2 binary not found at $NFQWS2"
+        echo "DIAGNOSTIC: Please reinstall the module or download nfqws2 from GitHub releases"
         return 1
     fi
 
@@ -240,6 +240,9 @@ check_binary() {
     local help_out=$($NFQWS2 --help 2>&1 | head -1)
     if [ -z "$help_out" ]; then
         log_error "nfqws2 binary does not respond to --help"
+        echo "DIAGNOSTIC: nfqws2 binary does not respond to --help"
+        echo "DIAGNOSTIC: Binary may be corrupted or incompatible with this device architecture"
+        echo "DIAGNOSTIC: Try reinstalling the module"
         return 1
     else
         log_msg "nfqws2 binary OK: $help_out"
@@ -730,6 +733,8 @@ start_nfqws2() {
         OPTS=$(build_options)
         if [ $? -ne 0 ]; then
             log_error "Failed to build options"
+            echo "DIAGNOSTIC: Failed to build nfqws2 command options"
+            echo "DIAGNOSTIC: Check strategy configuration and INI files"
             return 1
         fi
 
