@@ -203,10 +203,35 @@ class ControlViewModel @Inject constructor(
                             details = errorLog
                         ))
                     } else {
-                        _events.emit(ControlEvent.ShowErrorDialog(
-                            title = "Failed to $action service",
-                            details = "No diagnostic information available.\nCheck logs for details."
-                        ))
+                        // Tier 2.5: check stderr from the script execution
+                        val stderrLines = result.err
+                        if (stderrLines.isNotEmpty()) {
+                            _events.emit(ControlEvent.ShowErrorDialog(
+                                title = "Failed to $action service",
+                                details = stderrLines.joinToString("\n")
+                            ))
+                        } else {
+                            // Tier 2.75: read last 20 lines of main log file
+                            val mainLog = withContext(Dispatchers.IO) {
+                                val logResult = Shell.cmd("tail -n 20 /data/local/tmp/zapret2.log 2>/dev/null").exec()
+                                if (logResult.isSuccess && logResult.out.isNotEmpty()) {
+                                    logResult.out.joinToString("\n")
+                                } else null
+                            }
+
+                            if (mainLog != null) {
+                                _events.emit(ControlEvent.ShowErrorDialog(
+                                    title = "Failed to $action service",
+                                    details = mainLog
+                                ))
+                            } else {
+                                // Tier 3: generic fallback
+                                _events.emit(ControlEvent.ShowErrorDialog(
+                                    title = "Failed to $action service",
+                                    details = "No diagnostic information available.\nCheck logs for details."
+                                ))
+                            }
+                        }
                     }
                 }
             }
