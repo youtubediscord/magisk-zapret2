@@ -138,11 +138,11 @@ else
     ui_print "  [!] iptables not found"
 fi
 
-# Create symlink for easy access
-ln -sf "$MODPATH/zapret2/scripts/zapret-start.sh" "$MODPATH/system/bin/zapret2-start"
-ln -sf "$MODPATH/zapret2/scripts/zapret-stop.sh" "$MODPATH/system/bin/zapret2-stop"
-ln -sf "$MODPATH/zapret2/scripts/zapret-restart.sh" "$MODPATH/system/bin/zapret2-restart"
-ln -sf "$MODPATH/zapret2/scripts/zapret-status.sh" "$MODPATH/system/bin/zapret2-status"
+# Set executable permissions for easy access scripts
+set_perm "$MODPATH/system/bin/zapret2-start" 0 0 0755
+set_perm "$MODPATH/system/bin/zapret2-stop" 0 0 0755
+set_perm "$MODPATH/system/bin/zapret2-restart" 0 0 0755
+set_perm "$MODPATH/system/bin/zapret2-status" 0 0 0755
 
 ui_print ""
 ui_print "===================================="
