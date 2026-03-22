@@ -1,0 +1,3 @@
+#!/system/bin/sh
+
+exec "/data/adb/modules/zapret2/zapret2/scripts/zapret-stop.sh" "$@"

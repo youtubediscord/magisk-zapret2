@@ -81,6 +81,7 @@ zip -r "$OUTPUT_DIR/$ZIP_NAME" \
     module.prop \
     customize.sh \
     service.sh \
+    system \
     uninstall.sh \
     action.sh \
     zapret2 \
