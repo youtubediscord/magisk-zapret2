@@ -56,8 +56,7 @@
 
 Точная матрица поддержки, объяснение разрешений APK, правила миграции и сохранения
 пользовательских данных, recovery, безопасное удаление и диагностический порядок
-собраны в [`docs/USER_OPERATIONS_RU.md`](docs/USER_OPERATIONS_RU.md). Изменения
-текущего source candidate перечислены в [`CHANGELOG.md`](CHANGELOG.md).
+собраны в [`docs/USER_OPERATIONS_RU.md`](docs/USER_OPERATIONS_RU.md).
 
 **Zapret2 Control** — приложение на Jetpack Compose с интерфейсом Material 3 Expressive. Адаптивная оболочка подстраивает навигацию и содержимое под компактные телефоны и широкие экраны. Интерфейс поддерживает светлую и тёмную темы, а на совместимых версиях Android — динамические цвета системы. Текущая реализация закреплена на экспериментальном Material 3 `1.5.0-alpha24`; это не стабильный API, а правила обновления и снятия opt-in описаны в [`docs/MD3E_EXPERIMENTAL_AND_TESTING.md`](docs/MD3E_EXPERIMENTAL_AND_TESTING.md).
 

@@ -259,7 +259,7 @@ Acceptance criteria:
 
 ### Phase 9 — Release readiness and final completion audit
 
-- [completed] Update user-facing documentation, permissions/root rationale, supported/unsupported matrix, migration/preservation notes, troubleshooting, recovery/removal guidance and source-candidate release notes in `docs/USER_OPERATIONS_RU.md`, `README.md` and `CHANGELOG.md`; all three explicitly distinguish source readiness from pending signed-artifact/device evidence.
+- [completed] Update user-facing documentation, permissions/root rationale, supported/unsupported matrix, migration/preservation notes, troubleshooting, and recovery/removal guidance in `docs/USER_OPERATIONS_RU.md` and `README.md`; both explicitly distinguish source readiness from pending signed-artifact/device evidence.
 - [completed] Remove dead legacy UI/resources, obsolete direct dependencies, compatibility shims, debug hooks, temporary flags, stale UI TODO comments, and superseded UI paths after a source-usage audit. Intentional protocol recovery readers and platform theme compatibility remain explicitly scoped.
 - [ ] Produce a signed release candidate and matching module ZIP; record hashes, version compatibility, build provenance, and rollback instructions.
 - [ ] Re-run all automated gates and the full manual smoke matrix against the exact release artifacts, not only debug builds or source-tree scripts.
