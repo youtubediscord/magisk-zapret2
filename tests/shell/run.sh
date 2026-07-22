@@ -46,6 +46,30 @@ STRATEGY_OUTPUT="$(sh "$CATEGORY_FIXTURE/scripts/command-builder.sh" --validate-
     fail "valid strategy catalogs were rejected"
 [ "$STRATEGY_OUTPUT" = "$(printf 'Z2_STRATEGIES\tOK')" ] || fail "strategy validator output is not exact"
 
+# Catalog validation is a boot-time parser. Per-line sed/grep forks made this
+# fixture take minutes on Android, so prove valid packaged data no longer
+# depends on either external text process.
+NO_PER_LINE_TOOLS="$TMP/no-per-line-tools"
+mkdir -p "$NO_PER_LINE_TOOLS"
+for tool in sed grep; do
+    cat > "$NO_PER_LINE_TOOLS/$tool" <<EOF
+#!/bin/sh
+echo "unexpected per-line $tool invocation" >&2
+exit 99
+EOF
+    chmod 0755 "$NO_PER_LINE_TOOLS/$tool"
+done
+FAST_CATEGORY_OUTPUT="$(PATH="$NO_PER_LINE_TOOLS:$PATH" sh \
+    "$CATEGORY_FIXTURE/scripts/command-builder.sh" --validate-categories-machine "$CATEGORY_FIXTURE")" ||
+    fail "category validation restored a per-line external text process"
+[ "$FAST_CATEGORY_OUTPUT" = "$(printf 'Z2_CATEGORIES\tOK')" ] ||
+    fail "fork-free category validator output is not exact"
+FAST_STRATEGY_OUTPUT="$(PATH="$NO_PER_LINE_TOOLS:$PATH" sh \
+    "$CATEGORY_FIXTURE/scripts/command-builder.sh" --validate-strategies-machine "$CATEGORY_FIXTURE")" ||
+    fail "strategy validation restored a per-line external text process"
+[ "$FAST_STRATEGY_OUTPUT" = "$(printf 'Z2_STRATEGIES\tOK')" ] ||
+    fail "fork-free strategy validator output is not exact"
+
 CMDLINE_MACHINE_FIXTURE="$TMP/cmdline-machine"
 cp -R "$ROOT/zapret2" "$CMDLINE_MACHINE_FIXTURE"
 cat > "$CMDLINE_MACHINE_FIXTURE/nfqws2" <<'EOF'
@@ -397,6 +421,7 @@ assert_contains "$ROOT/zapret2/scripts/command-builder.sh" 'Z2_CMDLINE_ERROR\tIN
 assert_contains "$ROOT/zapret2/scripts/command-builder.sh" 'command -v sha256sum'
 assert_contains "$ROOT/zapret2/scripts/command-builder.sh" 'command -v awk'
 assert_contains "$ROOT/zapret2/scripts/command-builder.sh" '--validate-categories-machine'
+assert_contains "$ROOT/.github/workflows/build.yml" 'GH_REPO: ${{ github.repository }}'
 assert_contains "$ROOT/zapret2/scripts/command-builder.sh" '--validate-strategies-machine'
 is_canonical_nfqws_id 0 || fail "root nfqws UID rejected"
 is_canonical_nfqws_id 2147483647 || fail "maximum nfqws UID rejected"
