@@ -1,0 +1,270 @@
+## Project Overview
+
+Magisk module for Android DPI (Deep Packet Inspection) bypass using nfqws2 with Lua strategies. Based on a pinned, reviewed [bol-van/zapret2](https://github.com/bol-van/zapret2) revision.
+
+**Target Platform:** Android with Magisk root (20.4+)
+**Core Binary:** nfqws2 (compiled for Android ARM64/ARM)
+**Bypass Method:** NFQUEUE packet manipulation
+
+---
+
+## Project Structure
+
+```
+magisk-zapret2/
+├── android-app/              # Android Kotlin app
+│   └── app/src/main/
+│       ├── java/com/zapret2/app/   # Kotlin sources
+│       │   ├── MainActivity.kt     # Adaptive Compose app shell
+│       │   ├── ui/navigation/      # Compose NavHost and destinations
+│       │   ├── ui/screen/          # Material 3 Expressive screens
+│       │   ├── ui/components/      # Shared Compose components
+│       │   ├── viewmodel/          # Screen state holders
+│       │   ├── StrategyRepository.kt # Strategy data management
+│       │   ├── UpdateManager.kt    # App updates
+│       │   └── ...
+│       └── res/                    # Strings, themes, icons, and other Android resources
+├── zapret2/
+│   ├── scripts/              # Shell scripts
+│   │   ├── zapret-start.sh   # Main startup script, applies iptables
+│   │   ├── zapret-stop.sh    # Stop script
+│   │   └── zapret-status.sh  # Status checker
+│   ├── lists/                # Hostlist files (.txt)
+│   ├── lua/                  # Lua libraries
+│   │   ├── zapret-lib.lua    # Core library functions
+│   │   ├── zapret-antidpi.lua # DPI bypass functions
+│   │   └── zapret-auto.lua   # Auto-detection helpers
+│   ├── categories.ini        # Active category -> strategy state
+│   ├── strategies-tcp.ini    # TCP strategy definitions
+│   ├── strategies-udp.ini    # UDP strategy definitions
+│   ├── strategies-stun.ini   # STUN strategy definitions
+│   ├── runtime.ini           # Authoritative runtime configuration
+│   └── config.sh             # Migration/bootstrap defaults
+├── module.prop               # Magisk module info
+├── customize.sh              # Install script
+├── service.sh                # Boot script
+├── action.sh                 # Volume key action
+└── uninstall.sh              # Cleanup on removal
+```
+
+---
+
+## Key Files
+
+| File | Purpose |
+|------|---------|
+| `strategies-tcp.ini`, `strategies-udp.ini`, `strategies-stun.ini` | Protocol-specific strategy definitions |
+| `categories.ini` | Active category-to-strategy state |
+| `zapret-start.sh` | Main startup script, applies iptables rules |
+| `runtime.ini` | Authoritative live runtime configuration |
+| `config.sh` | Bootstrap defaults used only by controlled migration |
+| `StrategiesScreen.kt` | Strategy selection UI |
+| `HostlistsScreen.kt` | Hostlist browser UI |
+| `ControlScreen.kt` | Start/Stop service controls |
+
+---
+
+## Build
+
+### Android App
+Android app builds via GitHub Actions on push to main.
+
+Release builds intentionally fail closed unless `android-app/keystore.jks` exists and
+`KEYSTORE_PASSWORD`, `KEY_ALIAS`, and `KEY_PASSWORD` are set. CI additionally requires
+`KEYSTORE_BASE64` and `APK_SIGNING_CERT_SHA256`; the latter must be the expected signer
+certificate SHA-256 digest. CI verifies the APK signature and publishes SHA-256 files
+for both distributables.
+
+```bash
+cd android-app
+./gradlew assembleRelease
+```
+
+### Magisk Module ZIP
+```bash
+./build.sh 1.9.100001 dist
+```
+
+The local builder requires prebuilt, non-empty ARM binaries. Release artifacts are
+created by the pinned CI workflow, which also validates the full package contract.
+
+### Production publication workflow
+
+When the user asks to synchronize or deploy production, use this order:
+
+1. Validate the intended source changes, commit them, and push `main` first so the
+   pinned GitHub Actions production build starts immediately.
+2. Do not wait for the remote build unless the user explicitly asks to monitor it.
+   Report the run URL/status observed immediately after the push.
+3. After the push, build local artifacts from that exact pushed commit when the local
+   machine is available and faster. Publish them in a separate GitHub prerelease with
+   a `local-v<version>` tag, the source commit SHA, and SHA-256 checksum assets.
+4. Never mark the local prerelease as `Latest`, and never point `update.json` at local
+   artifacts. The pinned CI release remains the canonical production/update channel.
+5. A local APK must use the production signing identity and its certificate digest
+   must be verified before upload. If that signer is unavailable locally, fail closed:
+   publish only artifacts that can be verified and report the missing APK; never
+   substitute a debug, unsigned, or differently signed APK.
+6. Do not overwrite an existing tag or release. Every local publication is immutable
+   and tied to one pushed commit.
+
+---
+
+## Architecture
+
+### How DPI Bypass Works
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        Android Device                           │
+├─────────────────────────────────────────────────────────────────┤
+│  App (Browser/YouTube/Discord)                                  │
+│          │                                                      │
+│          ▼                                                      │
+│  ┌───────────────┐                                              │
+│  │   iptables    │  (mangle table, OUTPUT/INPUT chains)        │
+│  │   NFQUEUE     │  Redirect first N packets to queue          │
+│  └───────┬───────┘                                              │
+│          │                                                      │
+│          ▼                                                      │
+│  ┌───────────────┐                                              │
+│  │   nfqws2      │  Userspace packet manipulation              │
+│  │   + Lua       │  Apply DPI bypass strategies                │
+│  └───────┬───────┘                                              │
+│          │                                                      │
+│          ▼                                                      │
+│  ┌───────────────┐                                              │
+│  │   Kernel      │  Modified packets sent to network           │
+│  │   Network     │                                              │
+│  └───────────────┘                                              │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Traffic Interception Flow
+
+1. **iptables rules** capture outgoing TCP/UDP packets on ports 80, 443
+2. **NFQUEUE** redirects packets to userspace queue (default queue 200)
+3. **nfqws2** reads packets from queue, applies Lua-defined transformations
+4. **Modified packets** are re-injected into kernel with DESYNC_MARK to avoid loop
+
+---
+
+## Android App Technologies
+
+- **Language:** Kotlin with Jetpack Compose (no XML View screens)
+- **Min SDK:** 24 (Android 7.0)
+- **Target SDK:** 35
+- **Root:** libsu (topjohnwu)
+- **UI:** Material Design 3
+- **Async:** Kotlin Coroutines
+- **Style:** Material 3 Expressive with adaptive light, dark, and dynamic color
+
+### Design System
+
+Compose screens use semantic Material color roles, expressive typography, an 8–64dp
+shape scale, shared spacing/elevation/size/motion tokens, and reduced-motion support.
+
+---
+
+## Configuration Reference
+
+### runtime.ini `[core]` Options
+
+```ini
+[core]
+autostart=1
+wifi_only=0
+qnum=200
+desync_mark=0x40000000
+ports_tcp=80,443
+ports_udp=443
+pkt_out=20
+pkt_in=10
+strategy_preset=syndata_multisplit_tls_google_700
+preset_mode=categories
+```
+
+`runtime.ini` is authoritative after migration; `config.sh` and
+`/data/local/tmp/zapret2-user.conf` are bootstrap inputs only. `qnum` accepts
+1 through 65535 (200-300 is the recommended low-conflict range).
+Live app/start/status paths never fall back to bootstrap inputs. A missing or partial
+runtime is repaired from built-in defaults under the mutation lock while preserving
+valid partial core values and non-core sections; explicit migration is the only path
+that reads bootstrap files.
+
+Compatible installer and in-app updates preserve runtime/category/bootstrap settings,
+hostlists, and only the approved user Lua extension points `zapret-custom.lua` and
+`init_vars.lua` (regular non-symlink files, at most 256 KiB each). Core and packaged Lua
+files always come from the new release and are never restored from the old installation.
+
+---
+
+## Coding Guidelines
+
+### Bug fixes and engineering quality
+
+Every bug must be fixed at its root cause and at the architectural boundary that
+owns the violated invariant. Do not present symptom suppression as a completed
+fix. No-op stubs, disabled validation, catch-all fallbacks, arbitrary retries,
+hard-coded happy paths, test-only production exceptions, and similar workarounds
+are not acceptable substitutes for a correct design.
+
+Before changing code:
+
+1. Reproduce the failure and identify the violated contract, ownership boundary,
+   state transition, or data-flow invariant.
+2. Trace why the current architecture permits the invalid state; fix that cause
+   and all affected entry points consistently.
+3. Add or update tests that prove both the regression and the intended contract,
+   including relevant failure and recovery paths.
+4. Run the complete applicable validation suite and follow newly exposed failures
+   to their own root causes instead of masking them.
+
+If the correct architectural solution is unclear, research it before editing.
+Search the web and consult primary sources first: official documentation,
+standards, upstream source code, specifications, and authoritative issue trackers.
+Use secondary sources only as supporting context. An emergency mitigation may be
+used only when explicitly requested; label it as temporary, isolate it from the
+design, and document the required permanent follow-up.
+
+### Android state and privileged boundaries
+
+```kotlin
+viewModelScope.launch {
+    val result = repository.readTypedState()
+    _uiState.update { current -> current.copy(result = result) }
+}
+```
+
+### Rules
+
+1. **State ownership:** Each screen uses one immutable `UiState` exposed as `StateFlow`; Compose collects it lifecycle-aware.
+2. **Privileged boundaries:** Compose and ViewModels never call libsu, protected paths, or raw filesystem/process APIs directly. Root commands and protected I/O belong in typed repositories/controllers.
+3. **Command safety:** Privileged arguments use the shared quoting and strict path/name validators; never interpolate user-controlled text into shell commands.
+4. **Coroutines:** ViewModels use `viewModelScope`; repositories/controllers place blocking work on `Dispatchers.IO` and preserve cancellation.
+5. **Mutations:** Config, lifecycle, update, hostlist, hosts, DNS, category, and preset writes use the shared mutation lock plus atomic validation/rollback contracts.
+6. **Results:** Privileged operations return typed states/results and publish success only after post-operation verification.
+7. **UI:** Production screens use Compose Material 3 Expressive, semantic design tokens, localized resources, reduced-motion support, and explicit loading/empty/error/disabled states.
+
+---
+
+## Troubleshooting
+
+### Module installs but doesn't work
+```bash
+# Check if nfqws2 is running
+pgrep -f nfqws2
+
+# Check iptables rules
+iptables -t mangle -L OUTPUT -n | grep NFQUEUE
+
+# Check logs
+logcat -s Zapret2
+```
+
+### NFQUEUE not supported
+Check kernel support:
+```bash
+cat /proc/net/netfilter/nf_queue
+lsmod | grep nf
+```
