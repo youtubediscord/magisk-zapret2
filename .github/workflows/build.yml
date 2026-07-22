@@ -238,7 +238,18 @@ jobs:
           [ -x "$APKSIGNER" ] || { echo "apksigner was not found" >&2; exit 1; }
           VERIFY_OUTPUT="$("$APKSIGNER" verify --verbose --print-certs "$APK")"
           printf '%s\n' "$VERIFY_OUTPUT"
-          ACTUAL_CERT="$(printf '%s\n' "$VERIFY_OUTPUT" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n 1 | tr -d ':[:space:]' | tr '[:lower:]' '[:upper:]')"
+          ACTUAL_CERT="$(
+            printf '%s\n' "$VERIFY_OUTPUT" |
+              awk '
+                /certificate SHA-256 digest:/ {
+                  digest = $0
+                  sub(/^.*certificate SHA-256 digest:[[:space:]]*/, "", digest)
+                  gsub(/:|[[:space:]]/, "", digest)
+                  print toupper(digest)
+                }
+              ' |
+              sort -u
+          )"
           EXPECTED_CERT="$(printf '%s' "$APK_SIGNING_CERT_SHA256" | tr -d ':[:space:]' | tr '[:lower:]' '[:upper:]')"
           [ "${#ACTUAL_CERT}" -eq 64 ] || { echo "Unable to read APK signer certificate digest" >&2; exit 1; }
           [ "$ACTUAL_CERT" = "$EXPECTED_CERT" ] || { echo "APK signer certificate digest does not match the release identity" >&2; exit 1; }

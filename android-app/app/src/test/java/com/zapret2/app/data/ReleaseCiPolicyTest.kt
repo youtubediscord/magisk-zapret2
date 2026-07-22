@@ -61,6 +61,19 @@ class ReleaseCiPolicyTest {
     }
 
     @Test
+    fun apkCertificateParser_isIndependentOfApksignerSchemeLabels() {
+        val workflow = repositoryFile(".github/workflows/build.yml").readText()
+        val certificateCheck = workflow
+            .substringAfter("ACTUAL_CERT=\"\$(")
+            .substringBefore("EXPECTED_CERT=\"")
+
+        assertTrue(certificateCheck.contains("/certificate SHA-256 digest:/"))
+        assertTrue(certificateCheck.contains("sub(/^.*certificate SHA-256 digest:"))
+        assertTrue(certificateCheck.contains("sort -u"))
+        assertFalse(certificateCheck.contains("Signer #1 certificate SHA-256 digest"))
+    }
+
+    @Test
     fun releaseLogging_isConfinedToOneDebugOnlyBoundary() {
         val sourceRoot = repositoryDirectory("android-app/app/src/main/java")
         val logger = repositoryFile(
