@@ -16,6 +16,7 @@ LOGFILE="$STATE_DIR/nfqws2.log"
 LOGFILE_PREVIOUS="$STATE_DIR/nfqws2.log.1"
 LOG_MAX_BYTES=1048576
 CMDLINE_FILE="$STATE_DIR/nfqws2.cmdline"
+COMPILED_ARGV_FILE="$STATE_DIR/nfqws2.argv"
 STARTUP_LOG="$STATE_DIR/nfqws2.startup.log"
 ERROR_LOG="$STATE_DIR/nfqws2.error"
 DEBUG_LOG="$STATE_DIR/nfqws2-debug.log"
@@ -28,18 +29,12 @@ RUNTIME_METADATA_MAX_BYTES=262144
 OWNER_STATE_MAX_BYTES=1048576
 OWNER_STATE_CURRENT_MAX_BYTES=65536
 
-USER_CONFIG="/data/local/tmp/zapret2-user.conf"
 RUNTIME_CONFIG="$ZAPRET_DIR/runtime.ini"
 
 NFQWS2="$ZAPRET_DIR/nfqws2"
-CONFIG="$ZAPRET_DIR/config.sh"
 LISTS_DIR="$ZAPRET_DIR/lists"
-BLOBS_FILE="$ZAPRET_DIR/blobs.txt"
 PRESETS_DIR="$ZAPRET_DIR/presets"
-TCP_STRATEGIES_INI="$ZAPRET_DIR/strategies-tcp.ini"
-UDP_STRATEGIES_INI="$ZAPRET_DIR/strategies-udp.ini"
-STUN_STRATEGIES_INI="$ZAPRET_DIR/strategies-stun.ini"
-CATEGORIES_FILE="$ZAPRET_DIR/categories.ini"
+STRATEGY_CATALOGS_DIR="$ZAPRET_DIR/strategy-catalogs"
 
 ZAPRET2_OUT="ZAPRET2_OUT"
 ZAPRET2_IN="ZAPRET2_IN"
@@ -84,7 +79,7 @@ TRACK_JOURNAL_VERSION=2
 TEARDOWN_JOURNAL="$STATE_DIR/firewall-teardown.wal"
 TEARDOWN_JOURNAL_VERSION=2
 
-export STATE_DIR PIDFILE OWNER_STATE LOGFILE LOGFILE_PREVIOUS CMDLINE_FILE
+export STATE_DIR PIDFILE OWNER_STATE LOGFILE LOGFILE_PREVIOUS CMDLINE_FILE COMPILED_ARGV_FILE
 export STARTUP_LOG ERROR_LOG DEBUG_LOG RUNTIME_OWNER_MARKER STATUS_SNAPSHOT
 export LIFECYCLE_LOCK LIFECYCLE_LOCK_OWNER LIFECYCLE_LOCK_REAPER
 export LIFECYCLE_LOCK_REAPER_RECOVERY LIFECYCLE_LOCK_REAPER_RECOVERY_QUARANTINE
@@ -101,7 +96,7 @@ RUNTIME_CONFIG_STATUS="unknown"
 RUNTIME_CONFIG_REASON=""
 RUNTIME_CONFIG_ERROR=""
 RUNTIME_CORE_REPAIR_MODE="defaults"
-RUNTIME_CORE_REQUIRED_KEYS="schema_version config_format runtime_source autostart wifi_only debug qnum desync_mark ports_tcp ports_udp pkt_out pkt_in strategy_preset preset_mode preset_file custom_cmdline_file nfqws_uid log_mode"
+RUNTIME_CORE_REQUIRED_KEYS="schema_version config_format runtime_source autostart wifi_only debug qnum desync_mark pkt_out pkt_in active_preset nfqws_uid log_mode"
 
 is_decimal() {
     case "$1" in
@@ -829,7 +824,7 @@ ensure_runtime_core_config() {
             return 0
         fi
         RUNTIME_CONFIG_REASON="invalid-or-partial"
-        [ "$RUNTIME_CORE_REPAIR_MODE" = merged ] || set_core_config_defaults
+        set_core_config_defaults
     else
         RUNTIME_CONFIG_REASON="$(runtime_config_state_reason)"
         # Never replace an existing symlink, directory, device, or unreadable
@@ -887,8 +882,8 @@ regenerate_runtime_core_config() {
         echo "config_format=runtime-v1"
         echo "runtime_source=self-healed-runtime"
         printf 'autostart=%s\nwifi_only=%s\ndebug=%s\nqnum=%s\n' "$AUTOSTART" "$WIFI_ONLY" "$DEBUG" "$QNUM"
-        printf 'desync_mark=%s\nports_tcp=%s\nports_udp=%s\npkt_out=%s\npkt_in=%s\n' "$DESYNC_MARK" "$PORTS_TCP" "$PORTS_UDP" "$PKT_OUT" "$PKT_IN"
-        printf 'strategy_preset=%s\npreset_mode=%s\npreset_file=%s\ncustom_cmdline_file=%s\n' "$STRATEGY_PRESET" "$PRESET_MODE" "$PRESET_FILE" "$CUSTOM_CMDLINE_FILE"
+        printf 'desync_mark=%s\npkt_out=%s\npkt_in=%s\n' "$DESYNC_MARK" "$PKT_OUT" "$PKT_IN"
+        printf 'active_preset=%s\n' "$ACTIVE_PRESET"
         printf 'nfqws_uid=%s\nlog_mode=%s\n' "$NFQWS_UID" "$LOG_MODE"
         if [ -s "$preserved" ]; then
             echo
@@ -962,8 +957,6 @@ apply_core_config_key() {
         debug|DEBUG) case "$value" in 0|1) DEBUG="$value" ;; *) return 1;; esac ;;
         qnum|QNUM) normalize_qnum "$value" || return 1; QNUM="$QNUM_NORMALIZED" ;;
         desync_mark|DESYNC_MARK) canonical_mark "$value" || return 1; DESYNC_MARK="$MARK_CANONICAL" ;;
-        ports_tcp|PORTS_TCP) normalize_owner_port_list "$value" || return 1; PORTS_TCP="$OWNER_PORT_LIST_NORMALIZED" ;;
-        ports_udp|PORTS_UDP) normalize_owner_port_list "$value" || return 1; PORTS_UDP="$OWNER_PORT_LIST_NORMALIZED" ;;
         pkt_out|PKT_OUT)
             is_canonical_positive_decimal "$value" && [ "${#value}" -le 9 ] 2>/dev/null || return 1
             PKT_OUT="$value"
@@ -972,20 +965,11 @@ apply_core_config_key() {
             is_canonical_positive_decimal "$value" && [ "${#value}" -le 9 ] 2>/dev/null || return 1
             PKT_IN="$value"
             ;;
-        strategy_preset|STRATEGY_PRESET)
-            is_safe_token "$value" && [ "${#value}" -le 255 ] 2>/dev/null || return 1
-            STRATEGY_PRESET="$value"
-            ;;
-        preset_mode|PRESET_MODE)
-            case "$value" in categories|file|preset|txt|cmdline) PRESET_MODE="$value" ;; *) return 1;; esac
-            ;;
-        preset_file|PRESET_FILE)
+        active_preset|ACTIVE_PRESET)
             is_safe_runtime_file_name "$value" || return 1
-            PRESET_FILE="$value"
-            ;;
-        custom_cmdline_file|CUSTOM_CMDLINE_FILE)
-            is_safe_cmdline_file_name "$value" || return 1
-            CUSTOM_CMDLINE_FILE="$value"
+            case "$value" in _*|*.txt) ;; *) return 1 ;; esac
+            case "$value" in _*) return 1 ;; esac
+            ACTIVE_PRESET="$value"
             ;;
         nfqws_uid|NFQWS_UID)
             case "$value" in
@@ -1020,62 +1004,15 @@ is_safe_runtime_file_name() {
     return 0
 }
 
-is_safe_cmdline_file_name() {
-    local value="$1" normalized
-    is_safe_runtime_file_name "$value" || return 1
-    normalized="$(LC_ALL=C printf '%s' "$value" | tr '[:upper:]' '[:lower:]')" || return 1
-    case "$normalized" in
-        runtime-manifest.tsv|upstream-zapret2.commit|strategies-tcp.ini|strategies-udp.ini|strategies-stun.ini|blobs.txt|config.sh|runtime.ini|categories.ini|hosts.ini|nfqws2|bin|lua|lists|presets|scripts) return 1 ;;
-    esac
-    return 0
-}
-
-config_file_mode_is_0600() {
-    local path="$1" mode listing
-    if command -v stat >/dev/null 2>&1; then
-        mode="$(stat -c '%a' "$path" 2>/dev/null)" || return 1
-        [ "$mode" = 600 ]
-        return
-    fi
-    listing="$(ls -ln "$path" 2>/dev/null)" || return 1
-    set -- $listing
-    case "${1:-}" in -rw-------*) return 0 ;; *) return 1 ;; esac
-}
-
-parse_bootstrap_config_file() {
-    local path="$1" external="${2:-0}" line key raw cr
-    [ -f "$path" ] && [ ! -L "$path" ] && [ -r "$path" ] || return 1
-    path_uid_is_root "$path" || return 1
-    [ "$external" != 1 ] || config_file_mode_is_0600 "$path" || return 1
-    cr="$(printf '\r')"
-    while IFS= read -r line || [ -n "$line" ]; do
-        line="${line%"$cr"}"
-        trim_config_value_in_place "$line"
-        line="$CONFIG_VALUE_TRIMMED"
-        case "$line" in ""|"#"*|";"*|"#!"*) continue ;; esac
-        case "$line" in *=*) ;; *) return 1 ;; esac
-        trim_config_value_in_place "${line%%=*}"
-        key="$CONFIG_VALUE_TRIMMED"
-        raw="${line#*=}"
-        decode_config_value "$raw" || return 1
-        apply_core_config_key "$key" "$CONFIG_VALUE_DECODED" || return 1
-    done < "$path"
-}
-
 set_core_config_defaults() {
     AUTOSTART=1
     WIFI_ONLY=0
     DEBUG=0
     QNUM=200
     DESYNC_MARK=0x40000000
-    PORTS_TCP="80,443"
-    PORTS_UDP="443"
     PKT_OUT=20
     PKT_IN=10
-    STRATEGY_PRESET="syndata_multisplit_tls_google_700"
-    PRESET_MODE="categories"
-    PRESET_FILE="Default.txt"
-    CUSTOM_CMDLINE_FILE="cmdline.txt"
+    ACTIVE_PRESET="Default v1 (game filter).txt"
     NFQWS_UID="0:0"
     LOG_MODE="none"
 }
@@ -1157,11 +1094,15 @@ apply_runtime_core_overrides() {
             runtime_source)
                 case "$value" in ""|*[!A-Za-z0-9._-]*) RUNTIME_CONFIG_ERROR="invalid runtime.ini runtime_source"; return 1;; esac
                 ;;
-            autostart|wifi_only|debug|qnum|desync_mark|ports_tcp|ports_udp|pkt_out|pkt_in|strategy_preset|preset_mode|preset_file|custom_cmdline_file|nfqws_uid|log_mode)
+            autostart|wifi_only|debug|qnum|desync_mark|pkt_out|pkt_in|active_preset|nfqws_uid|log_mode)
                 apply_core_config_key "$key" "$value" || {
                     RUNTIME_CONFIG_ERROR="invalid [core] value for $key"
                     return 1
                 }
+                ;;
+            *)
+                RUNTIME_CONFIG_ERROR="unsupported runtime.ini [core] key: $key"
+                return 1
                 ;;
         esac
     done < "$RUNTIME_CONFIG"
@@ -1174,7 +1115,6 @@ apply_runtime_core_overrides() {
         case "$seen_keys" in *"|$required|"*) ;; *) missing="${missing}${missing:+,}$required" ;; esac
     done
     if [ -n "$missing" ]; then
-        RUNTIME_CORE_REPAIR_MODE="merged"
         RUNTIME_CONFIG_ERROR="runtime.ini [core] is partial; missing: $missing"
         return 1
     fi
@@ -2334,8 +2274,15 @@ normalize_owner_port_list() {
     OWNER_PORT_LIST_NORMALIZED="$result"
 }
 
+normalize_owner_optional_port_list() {
+    OWNER_PORT_LIST_NORMALIZED=""
+    [ -z "$1" ] && return 0
+    normalize_owner_port_list "$1"
+}
+
 owner_port_rule_count() {
     local old_ifs count
+    [ -n "$1" ] || { printf '0\n'; return 0; }
     old_ifs="$IFS"; IFS=,; set -- $1; IFS="$old_ifs"; count=$#
     [ "$count" -gt 0 ] || return 1; printf '%s\n' "$count"
 }
@@ -2385,14 +2332,16 @@ owner_spec_fingerprint() {
 }
 
 prepare_owner_generation_spec() {
-    local ipv4_active="${1:-1}" ipv6_active="${2:-0}" tcp_count udp_count stun_count per_family
+    local ipv4_active="${1:-1}" ipv6_active="${2:-0}" tcp_count udp_count per_family
     read_install_generation_meta || return 1
     is_safe_firewall_identity "${FIREWALL_TAG:-}" "${ZAPRET2_OUT:-}" "${ZAPRET2_IN:-}" || prepare_new_firewall_identity || return 1
     OWNER_WRITE_FIREWALL_TAG="$FIREWALL_TAG"; OWNER_WRITE_OUT_CHAIN="$ZAPRET2_OUT"; OWNER_WRITE_IN_CHAIN="$ZAPRET2_IN"
     normalize_qnum "${QNUM:-}" || return 1; OWNER_WRITE_QNUM="$QNUM_NORMALIZED"
-    normalize_owner_port_list "${PORTS_TCP:-}" || return 1; OWNER_WRITE_PORTS_TCP="$OWNER_PORT_LIST_NORMALIZED"
-    normalize_owner_port_list "${PORTS_UDP:-}" || return 1; OWNER_WRITE_PORTS_UDP="$OWNER_PORT_LIST_NORMALIZED"
-    OWNER_WRITE_STUN_PORTS=3478,5349,19302
+    normalize_owner_optional_port_list "${PORTS_TCP:-}" || return 1; OWNER_WRITE_PORTS_TCP="$OWNER_PORT_LIST_NORMALIZED"
+    normalize_owner_optional_port_list "${PORTS_UDP:-}" || return 1; OWNER_WRITE_PORTS_UDP="$OWNER_PORT_LIST_NORMALIZED"
+    [ -n "$OWNER_WRITE_PORTS_TCP$OWNER_WRITE_PORTS_UDP" ] || return 1
+    # Voice ports are already folded into the compiled UDP union.
+    OWNER_WRITE_STUN_PORTS=0
     is_decimal "${PKT_OUT:-}" && [ "$PKT_OUT" -gt 0 ] || return 1; OWNER_WRITE_PKT_OUT="$PKT_OUT"
     is_decimal "${PKT_IN:-}" && [ "$PKT_IN" -gt 0 ] || return 1; OWNER_WRITE_PKT_IN="$PKT_IN"
     canonical_mark "${DESYNC_MARK:-}" || return 1; OWNER_WRITE_DESYNC_MARK="$MARK_CANONICAL"
@@ -2401,10 +2350,15 @@ prepare_owner_generation_spec() {
     OWNER_WRITE_IPV4_CONNBYTES="${IPV4_CONNBYTES:-1}"; OWNER_WRITE_IPV4_MULTIPORT="${IPV4_MULTIPORT:-1}"; OWNER_WRITE_IPV4_MARK="${IPV4_MARK:-1}"
     OWNER_WRITE_IPV6_CONNBYTES="${IPV6_CONNBYTES:-1}"; OWNER_WRITE_IPV6_MULTIPORT="${IPV6_MULTIPORT:-1}"; OWNER_WRITE_IPV6_MARK="${IPV6_MARK:-1}"
     case "$OWNER_WRITE_IPV4_CONNBYTES:$OWNER_WRITE_IPV4_MULTIPORT:$OWNER_WRITE_IPV4_MARK:$OWNER_WRITE_IPV6_CONNBYTES:$OWNER_WRITE_IPV6_MULTIPORT:$OWNER_WRITE_IPV6_MARK" in *[!01:]*) return 1;; esac
-    tcp_count="$(owner_port_rule_count "$OWNER_WRITE_PORTS_TCP")"; udp_count="$(owner_port_rule_count "$OWNER_WRITE_PORTS_UDP")"; stun_count="$(owner_port_rule_count "$OWNER_WRITE_STUN_PORTS")" || return 1
-    if [ "$OWNER_WRITE_IPV4_MULTIPORT" = 1 ]; then per_family=6; else per_family=$((2 * (tcp_count + udp_count + stun_count))); fi
+    tcp_count="$(owner_port_rule_count "$OWNER_WRITE_PORTS_TCP")" || return 1
+    udp_count="$(owner_port_rule_count "$OWNER_WRITE_PORTS_UDP")" || return 1
+    if [ "$OWNER_WRITE_IPV4_MULTIPORT" = 1 ]; then
+        per_family=0; [ -z "$OWNER_WRITE_PORTS_TCP" ] || per_family=$((per_family + 2)); [ -z "$OWNER_WRITE_PORTS_UDP" ] || per_family=$((per_family + 2))
+    else per_family=$((2 * (tcp_count + udp_count))); fi
     OWNER_WRITE_IPV4_RULES=$((per_family * ipv4_active))
-    if [ "$OWNER_WRITE_IPV6_MULTIPORT" = 1 ]; then per_family=6; else per_family=$((2 * (tcp_count + udp_count + stun_count))); fi
+    if [ "$OWNER_WRITE_IPV6_MULTIPORT" = 1 ]; then
+        per_family=0; [ -z "$OWNER_WRITE_PORTS_TCP" ] || per_family=$((per_family + 2)); [ -z "$OWNER_WRITE_PORTS_UDP" ] || per_family=$((per_family + 2))
+    else per_family=$((2 * (tcp_count + udp_count))); fi
     OWNER_WRITE_IPV6_RULES=$((per_family * ipv6_active))
     OWNER_WRITE_IPV4_SPEC="$(owner_build_family_spec ipv4 "$ipv4_active" "$OWNER_WRITE_IPV4_CONNBYTES" "$OWNER_WRITE_IPV4_MULTIPORT" "$OWNER_WRITE_IPV4_MARK" "$OWNER_WRITE_IPV4_RULES")"
     OWNER_WRITE_IPV6_SPEC="$(owner_build_family_spec ipv6 "$ipv6_active" "$OWNER_WRITE_IPV6_CONNBYTES" "$OWNER_WRITE_IPV6_MULTIPORT" "$OWNER_WRITE_IPV6_MARK" "$OWNER_WRITE_IPV6_RULES")"
@@ -2535,9 +2489,10 @@ read_owner_state() {
             OWNER_WRITE_FIREWALL_TAG=legacy; OWNER_WRITE_OUT_CHAIN=ZAPRET2_OUT; OWNER_WRITE_IN_CHAIN=ZAPRET2_IN
             ;;
     esac
-    normalize_owner_port_list "$OWNER_STATE_PORTS_TCP" || return 1; [ "$OWNER_PORT_LIST_NORMALIZED" = "$OWNER_STATE_PORTS_TCP" ] || return 1
-    normalize_owner_port_list "$OWNER_STATE_PORTS_UDP" || return 1; [ "$OWNER_PORT_LIST_NORMALIZED" = "$OWNER_STATE_PORTS_UDP" ] || return 1
-    normalize_owner_port_list "$OWNER_STATE_STUN_PORTS" || return 1; [ "$OWNER_PORT_LIST_NORMALIZED" = "$OWNER_STATE_STUN_PORTS" ] && [ "$OWNER_STATE_STUN_PORTS" = 3478,5349,19302 ] || return 1
+    normalize_owner_optional_port_list "$OWNER_STATE_PORTS_TCP" || return 1; [ "$OWNER_PORT_LIST_NORMALIZED" = "$OWNER_STATE_PORTS_TCP" ] || return 1
+    normalize_owner_optional_port_list "$OWNER_STATE_PORTS_UDP" || return 1; [ "$OWNER_PORT_LIST_NORMALIZED" = "$OWNER_STATE_PORTS_UDP" ] || return 1
+    [ -n "$OWNER_STATE_PORTS_TCP$OWNER_STATE_PORTS_UDP" ] || return 1
+    [ "$OWNER_STATE_STUN_PORTS" = 0 ] || return 1
     is_canonical_positive_decimal "$OWNER_STATE_PKT_OUT" && [ "${#OWNER_STATE_PKT_OUT}" -le 9 ] 2>/dev/null || return 1
     is_canonical_positive_decimal "$OWNER_STATE_PKT_IN" && [ "${#OWNER_STATE_PKT_IN}" -le 9 ] 2>/dev/null || return 1
     canonical_mark "$OWNER_STATE_DESYNC_MARK" || return 1; [ "$MARK_CANONICAL" = "$OWNER_STATE_DESYNC_MARK" ] || return 1
@@ -2547,10 +2502,13 @@ read_owner_state() {
         is_canonical_nonnegative_i64 "$OWNER_STATE_IPV6_RULES" || return 1
     tcp_count="$(owner_port_rule_count "$OWNER_STATE_PORTS_TCP")" || return 1
     udp_count="$(owner_port_rule_count "$OWNER_STATE_PORTS_UDP")" || return 1
-    stun_count="$(owner_port_rule_count "$OWNER_STATE_STUN_PORTS")" || return 1
-    if [ "$OWNER_STATE_IPV4_MULTIPORT" = 1 ]; then expected=6; else expected=$((2 * (tcp_count + udp_count + stun_count))); fi
+    if [ "$OWNER_STATE_IPV4_MULTIPORT" = 1 ]; then
+        expected=0; [ -z "$OWNER_STATE_PORTS_TCP" ] || expected=$((expected + 2)); [ -z "$OWNER_STATE_PORTS_UDP" ] || expected=$((expected + 2))
+    else expected=$((2 * (tcp_count + udp_count))); fi
     [ "$OWNER_STATE_IPV4_RULES" = $((expected * OWNER_STATE_IPV4_ACTIVE)) ] || return 1
-    if [ "$OWNER_STATE_IPV6_MULTIPORT" = 1 ]; then expected=6; else expected=$((2 * (tcp_count + udp_count + stun_count))); fi
+    if [ "$OWNER_STATE_IPV6_MULTIPORT" = 1 ]; then
+        expected=0; [ -z "$OWNER_STATE_PORTS_TCP" ] || expected=$((expected + 2)); [ -z "$OWNER_STATE_PORTS_UDP" ] || expected=$((expected + 2))
+    else expected=$((2 * (tcp_count + udp_count))); fi
     [ "$OWNER_STATE_IPV6_RULES" = $((expected * OWNER_STATE_IPV6_ACTIVE)) ] || return 1
     [ "$OWNER_STATE_SCHEMA_VERSION" = "$OWNER_STATE_VERSION" ] || return 0
     # A cold lifecycle process has no prior OWNER_WRITE_* generation.  Build
@@ -3011,6 +2969,7 @@ owner_rule_once() {
 owner_rule_set() {
     local tool="$1" op="$2" chain="$3" proto="$4" direction="$5" ports="$6" packet_count="$7" cb_dir="$8"
     local qnum="$9" mark="${10}" connbytes="${11}" multiport="${12}" markcap="${13}" old_ifs item rc=0
+    [ -n "$ports" ] || return 0
     if [ "$multiport" = 1 ]; then owner_rule_once "$tool" "$op" "$chain" "$proto" "$direction" "$ports" "$packet_count" "$cb_dir" "$qnum" "$mark" "$connbytes" "$multiport" "$markcap"; return; fi
     old_ifs="$IFS"; IFS=,; set -- $ports; IFS="$old_ifs"
     for item in "$@"; do owner_rule_once "$tool" "$op" "$chain" "$proto" "$direction" "$item" "$packet_count" "$cb_dir" "$qnum" "$mark" "$connbytes" 0 "$markcap" || rc=1; done
@@ -3032,6 +2991,7 @@ owner_payload_rule_once() {
 owner_payload_rule_set() {
     local tool="$1" parent="$2" proto="$3" direction="$4" ports="$5" packet_count="$6" cb_dir="$7"
     local qnum="$8" mark="$9" connbytes="${10}" multiport="${11}" markcap="${12}" item old_ifs ordinal first
+    [ -n "$ports" ] || return 0
     if [ "$parent" = "$ZAPRET2_OUT" ]; then OWNER_PAYLOAD_OUT_ORDINAL=$((OWNER_PAYLOAD_OUT_ORDINAL + 1)); ordinal="$OWNER_PAYLOAD_OUT_ORDINAL"
     else OWNER_PAYLOAD_IN_ORDINAL=$((OWNER_PAYLOAD_IN_ORDINAL + 1)); ordinal="$OWNER_PAYLOAD_IN_ORDINAL"; fi
     if [ "$multiport" = 1 ]; then
@@ -3075,10 +3035,8 @@ owner_family_generation_healthy() {
     OWNER_PAYLOAD_OUT_ORDINAL=0; OWNER_PAYLOAD_IN_ORDINAL=0
     owner_payload_rule_set "$tool" "$ZAPRET2_OUT" tcp out "$OWNER_STATE_PORTS_TCP" "$OWNER_STATE_PKT_OUT" original "$OWNER_STATE_QNUM" "$OWNER_STATE_DESYNC_MARK" "$connbytes" "$multiport" "$markcap" || return 1
     owner_payload_rule_set "$tool" "$ZAPRET2_OUT" udp out "$OWNER_STATE_PORTS_UDP" "$OWNER_STATE_PKT_OUT" original "$OWNER_STATE_QNUM" "$OWNER_STATE_DESYNC_MARK" "$connbytes" "$multiport" "$markcap" || return 1
-    owner_payload_rule_set "$tool" "$ZAPRET2_OUT" udp out "$OWNER_STATE_STUN_PORTS" "$OWNER_STATE_PKT_OUT" original "$OWNER_STATE_QNUM" "$OWNER_STATE_DESYNC_MARK" "$connbytes" "$multiport" "$markcap" || return 1
     owner_payload_rule_set "$tool" "$ZAPRET2_IN" tcp in "$OWNER_STATE_PORTS_TCP" "$OWNER_STATE_PKT_IN" reply "$OWNER_STATE_QNUM" "$OWNER_STATE_DESYNC_MARK" "$connbytes" "$multiport" "$markcap" || return 1
     owner_payload_rule_set "$tool" "$ZAPRET2_IN" udp in "$OWNER_STATE_PORTS_UDP" "$OWNER_STATE_PKT_IN" reply "$OWNER_STATE_QNUM" "$OWNER_STATE_DESYNC_MARK" "$connbytes" "$multiport" "$markcap" || return 1
-    owner_payload_rule_set "$tool" "$ZAPRET2_IN" udp in "$OWNER_STATE_STUN_PORTS" "$OWNER_STATE_PKT_IN" reply "$OWNER_STATE_QNUM" "$OWNER_STATE_DESYNC_MARK" "$connbytes" "$multiport" "$markcap" || return 1
     return 0
 }
 
@@ -3205,6 +3163,7 @@ retire_teardown_journal() {
 teardown_append_rule_records() {
     local path="$1" family="$2" parent="$3" proto="$4" direction="$5" ports="$6" packet_count="$7" cb_dir="$8"
     local qnum="$9" mark="${10}" connbytes="${11}" multiport="${12}" markcap="${13}" item old_ifs ordinal first
+    [ -n "$ports" ] || return 0
     old_ifs="$IFS"; if [ "$multiport" = 1 ]; then set -- "$ports"; else IFS=,; set -- $ports; IFS="$old_ifs"; fi
     first=1
     for item in "$@"; do
@@ -3286,10 +3245,8 @@ create_teardown_operation_journal() {
         TEARDOWN_RECORD_ID=$((TEARDOWN_RECORD_ID + 1)); printf 'record|%s|pending|%s|anchor|INPUT|%s|Z2M%s_%s_%s\n' "$TEARDOWN_RECORD_ID" "$family" "$ZAPRET2_IN" "${family#ipv}" "$TEARDOWN_RECORD_ID" "$TEARDOWN_TOKEN_SHORT" >> "$tmp"
         teardown_append_rule_records "$tmp" "$family" "$ZAPRET2_OUT" tcp out "$OWNER_STATE_PORTS_TCP" "$OWNER_STATE_PKT_OUT" original "$OWNER_STATE_QNUM" "$OWNER_STATE_DESYNC_MARK" "$connbytes" "$multiport" "$markcap" || { rm -f "$tmp"; return 1; }
         teardown_append_rule_records "$tmp" "$family" "$ZAPRET2_OUT" udp out "$OWNER_STATE_PORTS_UDP" "$OWNER_STATE_PKT_OUT" original "$OWNER_STATE_QNUM" "$OWNER_STATE_DESYNC_MARK" "$connbytes" "$multiport" "$markcap" || { rm -f "$tmp"; return 1; }
-        teardown_append_rule_records "$tmp" "$family" "$ZAPRET2_OUT" udp out "$OWNER_STATE_STUN_PORTS" "$OWNER_STATE_PKT_OUT" original "$OWNER_STATE_QNUM" "$OWNER_STATE_DESYNC_MARK" "$connbytes" "$multiport" "$markcap" || { rm -f "$tmp"; return 1; }
         teardown_append_rule_records "$tmp" "$family" "$ZAPRET2_IN" tcp in "$OWNER_STATE_PORTS_TCP" "$OWNER_STATE_PKT_IN" reply "$OWNER_STATE_QNUM" "$OWNER_STATE_DESYNC_MARK" "$connbytes" "$multiport" "$markcap" || { rm -f "$tmp"; return 1; }
         teardown_append_rule_records "$tmp" "$family" "$ZAPRET2_IN" udp in "$OWNER_STATE_PORTS_UDP" "$OWNER_STATE_PKT_IN" reply "$OWNER_STATE_QNUM" "$OWNER_STATE_DESYNC_MARK" "$connbytes" "$multiport" "$markcap" || { rm -f "$tmp"; return 1; }
-        teardown_append_rule_records "$tmp" "$family" "$ZAPRET2_IN" udp in "$OWNER_STATE_STUN_PORTS" "$OWNER_STATE_PKT_IN" reply "$OWNER_STATE_QNUM" "$OWNER_STATE_DESYNC_MARK" "$connbytes" "$multiport" "$markcap" || { rm -f "$tmp"; return 1; }
         TEARDOWN_RECORD_ID=$((TEARDOWN_RECORD_ID + 1)); printf 'record|%s|pending|%s|chain|%s|Z2X%s_%s_%s\n' "$TEARDOWN_RECORD_ID" "$family" "$ZAPRET2_OUT" "${family#ipv}" "$TEARDOWN_RECORD_ID" "$TEARDOWN_TOKEN_SHORT" >> "$tmp"
         TEARDOWN_RECORD_ID=$((TEARDOWN_RECORD_ID + 1)); printf 'record|%s|pending|%s|chain|%s|Z2X%s_%s_%s\n' "$TEARDOWN_RECORD_ID" "$family" "$ZAPRET2_IN" "${family#ipv}" "$TEARDOWN_RECORD_ID" "$TEARDOWN_TOKEN_SHORT" >> "$tmp"
     done
@@ -3305,7 +3262,7 @@ validate_teardown_operation_journal() {
         -v a4="$OWNER_STATE_IPV4_ACTIVE" -v a6="$OWNER_STATE_IPV6_ACTIVE" \
         -v c4="$OWNER_STATE_IPV4_CONNBYTES" -v m4="$OWNER_STATE_IPV4_MULTIPORT" -v k4="$OWNER_STATE_IPV4_MARK" \
         -v c6="$OWNER_STATE_IPV6_CONNBYTES" -v m6="$OWNER_STATE_IPV6_MULTIPORT" -v k6="$OWNER_STATE_IPV6_MARK" \
-        -v tcp="$OWNER_STATE_PORTS_TCP" -v udp="$OWNER_STATE_PORTS_UDP" -v stun="$OWNER_STATE_STUN_PORTS" \
+        -v tcp="$OWNER_STATE_PORTS_TCP" -v udp="$OWNER_STATE_PORTS_UDP" \
         -v po="$OWNER_STATE_PKT_OUT" -v pi="$OWNER_STATE_PKT_IN" -v q="$OWNER_STATE_QNUM" -v mark="$OWNER_STATE_DESYNC_MARK" \
         -v outchain="$OWNER_STATE_OUT_CHAIN" -v inchain="$OWNER_STATE_IN_CHAIN" -v tag="$OWNER_STATE_FIREWALL_TAG" '
         function add(f,s) { expected[++expected_n]=f "|" s }
@@ -3317,6 +3274,7 @@ validate_teardown_operation_journal() {
             add(f,"chain|" rulechain)
         }
         function rules(f,chain,proto,dir,ports,pkt,cb,conn,multi,markcap, n,p,i) {
+            if (ports=="") return
             if (multi==1) { one(f,chain,proto,dir,ports,pkt,cb,conn,multi,markcap); return }
             n=split(ports,p,","); for(i=1;i<=n;i++) one(f,chain,proto,dir,p[i],pkt,cb,conn,0,markcap)
         }
@@ -3325,10 +3283,8 @@ validate_teardown_operation_journal() {
             add(f,"anchor|OUTPUT|" outchain); add(f,"anchor|INPUT|" inchain)
             rules(f,outchain,"tcp","out",tcp,po,"original",conn,multi,markcap)
             rules(f,outchain,"udp","out",udp,po,"original",conn,multi,markcap)
-            rules(f,outchain,"udp","out",stun,po,"original",conn,multi,markcap)
             rules(f,inchain,"tcp","in",tcp,pi,"reply",conn,multi,markcap)
             rules(f,inchain,"udp","in",udp,pi,"reply",conn,multi,markcap)
-            rules(f,inchain,"udp","in",stun,pi,"reply",conn,multi,markcap)
             add(f,"chain|" outchain); add(f,"chain|" inchain)
         }
         BEGIN { family("ipv4",a4,c4,m4,k4); family("ipv6",a6,c6,m6,k6) }
@@ -3574,10 +3530,8 @@ cleanup_owned_family() {
     "$tool" -t mangle -D INPUT -j "$ZAPRET2_IN" >/dev/null 2>&1 || true
     owner_rule_set "$tool" -D "$ZAPRET2_OUT" tcp out "$OWNER_WRITE_PORTS_TCP" "$OWNER_WRITE_PKT_OUT" original "$OWNER_WRITE_QNUM" "$OWNER_WRITE_DESYNC_MARK" "$connbytes" "$multiport" "$markcap" || true
     owner_rule_set "$tool" -D "$ZAPRET2_OUT" udp out "$OWNER_WRITE_PORTS_UDP" "$OWNER_WRITE_PKT_OUT" original "$OWNER_WRITE_QNUM" "$OWNER_WRITE_DESYNC_MARK" "$connbytes" "$multiport" "$markcap" || true
-    owner_rule_set "$tool" -D "$ZAPRET2_OUT" udp out "$OWNER_WRITE_STUN_PORTS" "$OWNER_WRITE_PKT_OUT" original "$OWNER_WRITE_QNUM" "$OWNER_WRITE_DESYNC_MARK" "$connbytes" "$multiport" "$markcap" || true
     owner_rule_set "$tool" -D "$ZAPRET2_IN" tcp in "$OWNER_WRITE_PORTS_TCP" "$OWNER_WRITE_PKT_IN" reply "$OWNER_WRITE_QNUM" "$OWNER_WRITE_DESYNC_MARK" "$connbytes" "$multiport" "$markcap" || true
     owner_rule_set "$tool" -D "$ZAPRET2_IN" udp in "$OWNER_WRITE_PORTS_UDP" "$OWNER_WRITE_PKT_IN" reply "$OWNER_WRITE_QNUM" "$OWNER_WRITE_DESYNC_MARK" "$connbytes" "$multiport" "$markcap" || true
-    owner_rule_set "$tool" -D "$ZAPRET2_IN" udp in "$OWNER_WRITE_STUN_PORTS" "$OWNER_WRITE_PKT_IN" reply "$OWNER_WRITE_QNUM" "$OWNER_WRITE_DESYNC_MARK" "$connbytes" "$multiport" "$markcap" || true
     if owned_chain_exists "$tool" "$ZAPRET2_OUT"; then "$tool" -t mangle -X "$ZAPRET2_OUT" >/dev/null 2>&1 || rc=1; fi
     if owned_chain_exists "$tool" "$ZAPRET2_IN"; then "$tool" -t mangle -X "$ZAPRET2_IN" >/dev/null 2>&1 || rc=1; fi
     owned_family_absent "$tool" || rc=1

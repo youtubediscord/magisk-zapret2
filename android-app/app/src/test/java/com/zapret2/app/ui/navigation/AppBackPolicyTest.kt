@@ -45,9 +45,6 @@ class AppBackPolicyTest {
         val navHost = repositoryFile(
             "android-app/app/src/main/java/com/zapret2/app/ui/navigation/AppNavHost.kt"
         ).readText()
-        val configEditor = repositoryFile(
-            "android-app/app/src/main/java/com/zapret2/app/ui/screen/ConfigEditorScreen.kt"
-        ).readText()
         val hostsEditor = repositoryFile(
             "android-app/app/src/main/java/com/zapret2/app/ui/screen/HostsEditorScreen.kt"
         ).readText()
@@ -62,9 +59,8 @@ class AppBackPolicyTest {
         assertTrue(
             Regex("onNavigateBack = \\{ navController\\.popOrOpenControl\\(\\) }")
                 .findAll(navHost)
-                .count() == 2,
+                .count() == 1,
         )
-        assertFalse(configEditor.contains("onNavigateBack: () -> Unit = {}"))
         assertFalse(hostsEditor.contains("onNavigateBack: () -> Unit = {}"))
         assertFalse(detail.contains("else navController.popBackStack()"))
         assertFalse(navHost.contains("if (!navController.popBackStack())"))

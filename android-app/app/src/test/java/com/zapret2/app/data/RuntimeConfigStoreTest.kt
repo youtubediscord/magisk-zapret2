@@ -18,14 +18,9 @@ class RuntimeConfigStoreTest {
         debug=0
         qnum=200
         desync_mark=0x40000000
-        ports_tcp=80,443
-        ports_udp=443
         pkt_out=20
         pkt_in=10
-        strategy_preset=default
-        preset_mode=categories
-        preset_file=Default.txt
-        custom_cmdline_file=cmdline.txt
+        active_preset=Default v1 (game filter).txt
         nfqws_uid=0:0
         log_mode=none
     """.trimIndent()
@@ -48,22 +43,19 @@ class RuntimeConfigStoreTest {
         assertFalse(RuntimeConfigStore.hasCompleteRuntimeCore(completeRuntime.replace("pkt_out=20", "pkt_out=1000000000")))
         assertFalse(RuntimeConfigStore.hasCompleteRuntimeCore(completeRuntime.replace("desync_mark=0x40000000", "desync_mark=0x100000000")))
         assertTrue(RuntimeConfigStore.hasCompleteRuntimeCore(completeRuntime.replace("desync_mark=0x40000000", "desync_mark=4294967295")))
-        assertFalse(RuntimeConfigStore.hasCompleteRuntimeCore(completeRuntime.replace("ports_tcp=80,443", "ports_tcp=443:80")))
-        assertFalse(RuntimeConfigStore.hasCompleteRuntimeCore(completeRuntime.replace("preset_file=Default.txt", "preset_file=../Default.txt")))
-        assertTrue(RuntimeConfigStore.hasCompleteRuntimeCore(completeRuntime.replace("cmdline.txt", "Custom Options.txt")))
-        assertTrue(RuntimeConfigStore.hasCompleteRuntimeCore(completeRuntime.replace("cmdline.txt", "custom-command")))
-        assertFalse(RuntimeConfigStore.hasCompleteRuntimeCore(completeRuntime.replace("cmdline.txt", "blobs.txt")))
-        assertFalse(RuntimeConfigStore.hasCompleteRuntimeCore(completeRuntime.replace("cmdline.txt", "runtime.ini")))
+        assertFalse(RuntimeConfigStore.hasCompleteRuntimeCore(completeRuntime.replace("Default v1 (game filter).txt", "../Default.txt")))
+        assertTrue(RuntimeConfigStore.hasCompleteRuntimeCore(completeRuntime.replace("Default v1 (game filter).txt", "Custom Options.txt")))
+        assertFalse(RuntimeConfigStore.hasCompleteRuntimeCore(completeRuntime.replace("Default v1 (game filter).txt", "runtime.ini")))
         assertFalse(
             RuntimeConfigStore.hasCompleteRuntimeCore(
-                completeRuntime.replace("cmdline.txt", "\u044f".repeat(126) + ".txt"),
+                completeRuntime.replace("Default v1 (game filter).txt", "\u044f".repeat(126) + ".txt"),
             ),
         )
         assertFalse(RuntimeConfigStore.hasCompleteRuntimeCore(completeRuntime.replace("nfqws_uid=0:0", "nfqws_uid=root")))
         assertTrue(RuntimeConfigStore.hasCompleteRuntimeCore(completeRuntime.replace("nfqws_uid=0:0", "nfqws_uid=2147483647:2147483647")))
         assertFalse(RuntimeConfigStore.hasCompleteRuntimeCore(completeRuntime.replace("nfqws_uid=0:0", "nfqws_uid=01:0")))
         assertFalse(RuntimeConfigStore.hasCompleteRuntimeCore(completeRuntime.replace("nfqws_uid=0:0", "nfqws_uid=2147483648:0")))
-        assertTrue(RuntimeConfigStore.hasCompleteRuntimeCore("$completeRuntime\nfuture_option=value"))
+        assertFalse(RuntimeConfigStore.hasCompleteRuntimeCore("$completeRuntime\nfuture_option=value"))
         assertFalse(RuntimeConfigStore.hasCompleteRuntimeCore("$completeRuntime\nfuture_option=\"unterminated"))
         assertFalse(RuntimeConfigStore.hasCompleteRuntimeCore("$completeRuntime\nfuture_option=value\tpoison"))
     }
@@ -71,35 +63,25 @@ class RuntimeConfigStoreTest {
     @Test
     fun coreSettingsUpdate_mapsEverySupportedFieldToRuntimeKeys() {
         val pairs = RuntimeConfigStore.CoreSettingsUpdate(
-            presetMode = "cmdline",
-            presetFile = "Default.txt",
-            customCmdlineFile = "custom.txt",
+            activePreset = "Default v1 (game filter).txt",
             logMode = "file",
             pktOut = 20,
             pktIn = 10,
             autostart = true,
             wifiOnly = false,
             desyncMark = "0x40000000",
-            portsTcp = "80,443",
-            portsUdp = "443",
-            strategyPreset = "youtube",
             nfqwsUid = "0:0",
         ).toCorePairs()
 
         assertEquals(
             linkedMapOf(
-                "preset_mode" to "cmdline",
-                "preset_file" to "Default.txt",
-                "custom_cmdline_file" to "custom.txt",
+                "active_preset" to "Default v1 (game filter).txt",
                 "log_mode" to "file",
                 "pkt_out" to "20",
                 "pkt_in" to "10",
                 "autostart" to "1",
                 "wifi_only" to "0",
                 "desync_mark" to "0x40000000",
-                "ports_tcp" to "80,443",
-                "ports_udp" to "443",
-                "strategy_preset" to "youtube",
                 "nfqws_uid" to "0:0",
             ),
             pairs,

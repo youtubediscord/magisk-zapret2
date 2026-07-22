@@ -141,9 +141,9 @@ internal object OwnerStateSchema {
         val generation = values["generation"].orEmpty()
         val installGeneration = values["install_generation"].orEmpty()
         val archiveDigest = values["install_archive_sha256"].orEmpty()
-        val tcpPorts = parseCanonicalPorts(values["ports_tcp"].orEmpty()) ?: return false
-        val udpPorts = parseCanonicalPorts(values["ports_udp"].orEmpty()) ?: return false
-        val stunPorts = parseCanonicalPorts(values["stun_ports"].orEmpty()) ?: return false
+        val tcpPorts = parseCanonicalPorts(values["ports_tcp"].orEmpty(), allowEmpty = true) ?: return false
+        val udpPorts = parseCanonicalPorts(values["ports_udp"].orEmpty(), allowEmpty = true) ?: return false
+        if (tcpPorts.isEmpty() && udpPorts.isEmpty()) return false
         val pktOut = canonicalPositive("pkt_out", maxDigits = 9) ?: return false
         val pktIn = canonicalPositive("pkt_in", maxDigits = 9) ?: return false
         val ipv4Active = bit("ipv4_active") ?: return false
@@ -167,12 +167,16 @@ internal object OwnerStateSchema {
         if (values["phase"] !in setOf("launched", "active", "stopping", "error")) return false
         if (!installGeneration.matches(Regex("[A-Za-z0-9._-]{1,128}"))) return false
         if (!archiveDigest.matches(Regex("[0-9a-f]{64}"))) return false
-        if (values["stun_ports"] != "3478,5349,19302" || ipv4Active != 1) return false
+        if (values["stun_ports"] != "0" || ipv4Active != 1) return false
         val mark = values["desync_mark"].orEmpty()
         if (ProtocolMark.canonicalOrNull(mark) != mark) return false
 
         fun expectedRules(active: Int, multiport: Int): Long =
-            (if (multiport == 1) 6L else 2L * (tcpPorts.size + udpPorts.size + stunPorts.size)) * active
+            (if (multiport == 1) {
+                2L * listOf(tcpPorts, udpPorts).count { it.isNotEmpty() }
+            } else {
+                2L * (tcpPorts.size + udpPorts.size)
+            }) * active
         if (ipv4Rules != expectedRules(ipv4Active, ipv4Multiport) ||
             ipv6Rules != expectedRules(ipv6Active, ipv6Multiport)
         ) {
@@ -223,8 +227,9 @@ internal object OwnerStateSchema {
         append(";rules:").append(rules)
     }
 
-    private fun parseCanonicalPorts(value: String): List<String>? {
-        if (value.isEmpty() || value.startsWith(',') || value.endsWith(',') || ",," in value) return null
+    private fun parseCanonicalPorts(value: String, allowEmpty: Boolean = false): List<String>? {
+        if (value.isEmpty()) return if (allowEmpty) emptyList() else null
+        if (value.startsWith(',') || value.endsWith(',') || ",," in value) return null
         val items = value.split(',')
         return items.takeIf {
             it.all { item ->

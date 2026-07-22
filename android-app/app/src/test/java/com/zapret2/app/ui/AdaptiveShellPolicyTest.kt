@@ -43,9 +43,9 @@ class AdaptiveShellPolicyTest {
         assertEquals(6, Screen.mediumRailScreens.size)
         assertEquals(6, Screen.mediumRailScreens.distinct().size)
         assertEquals(7, Screen.mediumRailScreens.size + 1)
-        assertEquals(3, Screen.mediumOverflowScreens.size)
+        assertEquals(2, Screen.mediumOverflowScreens.size)
         assertEquals(
-            listOf(Screen.ConfigEditor, Screen.HostsEditor, Screen.About),
+            listOf(Screen.HostsEditor, Screen.About),
             Screen.mediumOverflowScreens,
         )
         assertEquals(

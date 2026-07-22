@@ -128,10 +128,6 @@ while [ "$utf8_name_index" -lt 125 ]; do
     utf8_safe_name="${utf8_safe_name}${utf8_two_byte}"
     utf8_name_index=$((utf8_name_index + 1))
 done
-package_contract_safe_cmdline_name "a${utf8_safe_name}.txt" || fail "255-byte cmdline name rejected"
-if package_contract_safe_cmdline_name "${utf8_safe_name}${utf8_two_byte}.txt"; then
-    fail "overlong multibyte cmdline name accepted"
-fi
 package_contract_safe_preset_name "a${utf8_safe_name}.txt" || fail "255-byte preset name rejected"
 for unsafe_preset_name in \
     "${utf8_safe_name}${utf8_two_byte}.txt" 'UPPER.TXT' '_internal.txt' 'bad"name.txt' "bad'name.txt"
@@ -151,7 +147,13 @@ printf 'blob\n' > "$candidate_root/bin/blob.bin"
 printf 'example.com\n' > "$candidate_root/lists/list.txt"
 candidate="$candidate_root/presets/_Safe.candidate.1.txt"
 write_valid_candidate() {
-    printf '%s\n' '--lua-init=@lua/core.lua' '--blob=x:@bin/blob.bin' '--hostlist=lists/list.txt' '--new' > "$candidate"
+    printf '%s\n' \
+        '--lua-init=@lua/core.lua' \
+        '--blob=x:@bin/blob.bin' \
+        '--name=Safe profile' \
+        '--filter-tcp=443' \
+        '--hostlist=lists/list.txt' \
+        '--lua-desync=pass' > "$candidate"
 }
 validate_candidate() {
     sh "$ROOT/zapret2/scripts/command-builder.sh" --validate-preset-machine "$candidate_root" "$candidate" 'Safe.txt'
@@ -163,6 +165,12 @@ printf '%s\n' '--ipcache-hostname=0' > "$candidate"
 assert_invalid_code FORBIDDEN_IPCACHE_OPTION validate_candidate
 printf '%s\n' '--ipcache-lifetime=1' > "$candidate"
 assert_invalid_code FORBIDDEN_IPCACHE_OPTION validate_candidate
+write_valid_candidate
+sed -i 's/--lua-desync=pass/--lua-desync=fake:blob=missing/' "$candidate"
+assert_invalid_code BLOB_REFERENCE_MISSING validate_candidate
+write_valid_candidate
+sed -i 's/--lua-desync=pass/--lua-desync=fake:blob=fake_default_tls/' "$candidate"
+validate_candidate >/dev/null || fail "built-in nfqws blob was rejected"
 printf '%s\n' '--lua-init=@lua/../core.lua' > "$candidate"
 assert_invalid_code UNSAFE_DEPENDENCY_PATH validate_candidate
 printf '%s\n' '--lua-init=@/absolute.lua' > "$candidate"
@@ -207,8 +215,10 @@ package_root="$TMP_ROOT/manifest-package"
 mkdir -p "$source_root" "$package_root"
 cp "$ROOT/module.prop" "$ROOT/customize.sh" "$ROOT/service.sh" "$ROOT/uninstall.sh" "$ROOT/action.sh" "$source_root/"
 cp -R "$ROOT/system" "$ROOT/zapret2" "$source_root/"
-mkdir -p "$source_root/zapret2/bin/armeabi-v7a"
-cp "$source_root/zapret2/bin/arm64-v8a/nfqws2" "$source_root/zapret2/bin/armeabi-v7a/nfqws2"
+printf '%064d\n' 0 > "$source_root/zapret2/upstream-zapret2.commit"
+mkdir -p "$source_root/zapret2/bin/arm64-v8a" "$source_root/zapret2/bin/armeabi-v7a"
+cp /bin/true "$source_root/zapret2/bin/arm64-v8a/nfqws2"
+cp /bin/true "$source_root/zapret2/bin/armeabi-v7a/nfqws2"
 package_contract_assemble_package "$source_root" "$package_root" || fail "fixture assembly: $PACKAGE_CONTRACT_CODE $PACKAGE_CONTRACT_DETAIL"
 package_contract_validate_all "$package_root" package || fail "fixture package: $PACKAGE_CONTRACT_CODE $PACKAGE_CONTRACT_DETAIL"
 package_contract_validate_exact_tree "$package_root" package || fail "fixture exact tree: $PACKAGE_CONTRACT_CODE $PACKAGE_CONTRACT_DETAIL"
@@ -224,24 +234,22 @@ cp -R "$package_root" "$installed_root"
 rm -f "$installed_root/customize.sh"
 cp "$installed_root/zapret2/bin/arm64-v8a/nfqws2" "$installed_root/zapret2/nfqws2"
 chmod 0755 "$installed_root/zapret2/nfqws2"
-sed -i 's/^preset_mode=categories$/preset_mode=cmdline/;s/^custom_cmdline_file=cmdline.txt$/custom_cmdline_file="Custom Options"/' \
-    "$installed_root/zapret2/runtime.ini"
-printf '%s\n' '--new' > "$installed_root/zapret2/Custom Options"
-chmod 0644 "$installed_root/zapret2/Custom Options"
-package_contract_validate_tree "$installed_root" installed || fail "configured cmdline rejected: $PACKAGE_CONTRACT_CODE $PACKAGE_CONTRACT_DETAIL"
-package_contract_validate_exact_tree "$installed_root" installed || fail "configured cmdline omitted from installed closure: $PACKAGE_CONTRACT_CODE $PACKAGE_CONTRACT_DETAIL"
-rm -f "$installed_root/zapret2/Custom Options"
-if package_contract_validate_tree "$installed_root" installed; then fail "missing active cmdline accepted"; fi
-printf '%s\n' '--new' > "$installed_root/zapret2/Custom Options"
-chmod 0644 "$installed_root/zapret2/Custom Options"
-sed -i 's/^custom_cmdline_file="Custom Options"$/custom_cmdline_file=blobs.txt/' "$installed_root/zapret2/runtime.ini"
-if package_contract_validate_tree "$installed_root" installed; then fail "release-owned cmdline binding accepted"; fi
-
-cp "$package_root/zapret2/categories.ini" "$TMP_ROOT/categories.good"
-printf '%s\n' 'hostlist=missing-category-dependency.txt' >> "$package_root/zapret2/categories.ini"
-if package_contract_validate_catalog "$package_root"; then fail "undeclared category dependency accepted"; fi
-[ "$PACKAGE_CONTRACT_CODE" = CATEGORY_DEPENDENCY_NOT_DECLARED ] || fail "wrong category dependency failure: $PACKAGE_CONTRACT_CODE"
-cp "$TMP_ROOT/categories.good" "$package_root/zapret2/categories.ini"
+custom_preset="$installed_root/zapret2/presets/My custom.txt"
+cp "$installed_root/zapret2/presets/Default v1 (game filter).txt" "$custom_preset"
+printf '%s\n' '# user-owned preset' >> "$custom_preset"
+chmod 0644 "$custom_preset"
+sed -i 's/^active_preset=.*/active_preset=My custom.txt/' "$installed_root/zapret2/runtime.ini"
+package_contract_validate_tree "$installed_root" installed || fail "configured custom preset rejected: $PACKAGE_CONTRACT_CODE $PACKAGE_CONTRACT_DETAIL"
+package_contract_validate_catalog "$installed_root" || fail "valid custom preset rejected: $PACKAGE_CONTRACT_CODE $PACKAGE_CONTRACT_DETAIL"
+package_contract_validate_exact_tree "$installed_root" installed || fail "custom preset omitted from installed closure: $PACKAGE_CONTRACT_CODE $PACKAGE_CONTRACT_DETAIL"
+cp "$custom_preset" "$TMP_ROOT/custom-preset.good"
+printf '%s\n' '--ipcache-hostname=1' > "$custom_preset"
+if package_contract_validate_catalog "$installed_root"; then fail "invalid custom preset accepted"; fi
+[ "$PACKAGE_CONTRACT_CODE" = PRESET_INVALID ] || fail "wrong custom preset failure: $PACKAGE_CONTRACT_CODE"
+cp "$TMP_ROOT/custom-preset.good" "$custom_preset"
+rm -f "$custom_preset"
+if package_contract_validate_tree "$installed_root" installed; then fail "missing active preset accepted"; fi
+[ "$PACKAGE_CONTRACT_CODE" = RUNTIME_PRESET_UNSAFE ] || fail "wrong active preset failure: $PACKAGE_CONTRACT_CODE"
 cp "$package_root/zapret2/scripts/command-builder.sh" "$TMP_ROOT/command-builder.good"
 printf '\r\n' >> "$package_root/zapret2/scripts/command-builder.sh"
 if package_contract_validate_all "$package_root" package; then fail "CRLF shell executable accepted"; fi

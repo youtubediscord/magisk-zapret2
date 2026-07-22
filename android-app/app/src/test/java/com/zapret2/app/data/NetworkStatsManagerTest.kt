@@ -16,8 +16,7 @@ class NetworkStatsManagerTest {
         active = true,
         qnum = 200,
         portsTcp = "80",
-        portsUdp = "443",
-        stunPorts = "3478,5349,19302",
+        portsUdp = "443,3478,5349,19302",
         pktOut = 20,
         pktIn = 10,
         desyncMark = "0x40000000",
@@ -117,12 +116,11 @@ class NetworkStatsManagerTest {
     fun topology_bindsMultiportConnbytesAndMarkPayloads() {
         val capableContract = contract.copy(
             portsTcp = "80,443",
-            portsUdp = "443",
-            stunPorts = "3478,5349,19302",
+            portsUdp = "443,3478,5349,19302",
             connbytes = true,
             multiport = true,
             markCapability = true,
-            expectedRuleCount = 6,
+            expectedRuleCount = 4,
         )
         val valid = capableTopology()
         assertTrue(verify(valid, capableContract).topologyVerified)
@@ -195,11 +193,9 @@ class NetworkStatsManagerTest {
     private fun capableTopology(): List<String> = topology(
         listOf(
             capablePayload("O1", "tcp", "--dports", "80,443", 20, "original"),
-            capablePayload("O2", "udp", "--dports", "443", 20, "original"),
-            capablePayload("O3", "udp", "--dports", "3478,5349,19302", 20, "original"),
+            capablePayload("O2", "udp", "--dports", "443,3478,5349,19302", 20, "original"),
             capablePayload("I1", "tcp", "--sports", "80,443", 10, "reply"),
-            capablePayload("I2", "udp", "--sports", "443", 10, "reply"),
-            capablePayload("I3", "udp", "--sports", "3478,5349,19302", 10, "reply"),
+            capablePayload("I2", "udp", "--sports", "443,3478,5349,19302", 10, "reply"),
         ),
     )
 

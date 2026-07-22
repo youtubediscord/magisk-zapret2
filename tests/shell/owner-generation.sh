@@ -26,21 +26,19 @@ cat > "$MOCK/iptables" <<'EOF'
 #!/bin/sh
 emit() {
     echo "-N $Z2_OUT_CHAIN"; echo "-N $Z2_IN_CHAIN"
-    for n in 1 2 3; do echo "-N Z2R_${Z2_FIREWALL_TAG}_O$n"; done
-    for n in 1 2 3; do echo "-N Z2R_${Z2_FIREWALL_TAG}_I$n"; done
+    for n in 1 2; do echo "-N Z2R_${Z2_FIREWALL_TAG}_O$n"; done
+    for n in 1 2; do echo "-N Z2R_${Z2_FIREWALL_TAG}_I$n"; done
     echo "-A OUTPUT -j $Z2_OUT_CHAIN"
     [ "${Z2_SNAPSHOT_MODE:-ok}" != duplicate-anchor ] || echo "-A OUTPUT -j $Z2_OUT_CHAIN"
     echo "-A INPUT -j $Z2_IN_CHAIN"
-    for n in 1 2 3; do
+    for n in 1 2; do
         [ "${Z2_SNAPSHOT_MODE:-ok}:$n" = missing-jump:2 ] || echo "-A $Z2_OUT_CHAIN -j Z2R_${Z2_FIREWALL_TAG}_O$n"
     done
-    for n in 1 2 3; do echo "-A $Z2_IN_CHAIN -j Z2R_${Z2_FIREWALL_TAG}_I$n"; done
+    for n in 1 2; do echo "-A $Z2_IN_CHAIN -j Z2R_${Z2_FIREWALL_TAG}_I$n"; done
     echo "-A Z2R_${Z2_FIREWALL_TAG}_O1 -p tcp -m multiport --dports 80,443 -j NFQUEUE --queue-num 200 --queue-bypass"
-    echo "-A Z2R_${Z2_FIREWALL_TAG}_O2 -p udp -m multiport --dports 443 -j NFQUEUE --queue-num 200 --queue-bypass"
-    echo "-A Z2R_${Z2_FIREWALL_TAG}_O3 -p udp -m multiport --dports 3478,5349,19302 -j NFQUEUE --queue-num 200 --queue-bypass"
+    echo "-A Z2R_${Z2_FIREWALL_TAG}_O2 -p udp -m multiport --dports 443,3478,5349,19302 -j NFQUEUE --queue-num 200 --queue-bypass"
     echo "-A Z2R_${Z2_FIREWALL_TAG}_I1 -p tcp -m multiport --sports 80,443 -j NFQUEUE --queue-num 200 --queue-bypass"
-    echo "-A Z2R_${Z2_FIREWALL_TAG}_I2 -p udp -m multiport --sports 443 -j NFQUEUE --queue-num 200 --queue-bypass"
-    echo "-A Z2R_${Z2_FIREWALL_TAG}_I3 -p udp -m multiport --sports 3478,5349,19302 -j NFQUEUE --queue-num 200 --queue-bypass"
+    echo "-A Z2R_${Z2_FIREWALL_TAG}_I2 -p udp -m multiport --sports 443,3478,5349,19302 -j NFQUEUE --queue-num 200 --queue-bypass"
     [ "${Z2_SNAPSHOT_MODE:-ok}" != extra-payload ] || echo "-A Z2R_${Z2_FIREWALL_TAG}_O1 -j RETURN"
 }
 case " $* " in
@@ -63,7 +61,7 @@ read_current_boot_id() { CURRENT_BOOT_ID=11111111-1111-1111-1111-111111111111; }
 if ! command -v sha256sum >/dev/null 2>&1; then sha256sum() { cat >/dev/null; echo aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; }; fi
 new_lifecycle_token() { printf '%s\n' 'AbCdEf1234-generation'; }
 
-QNUM=200; PORTS_TCP=80,443; PORTS_UDP=443; PKT_OUT=20; PKT_IN=10; DESYNC_MARK=0x40000000
+QNUM=200; PORTS_TCP=80,443; PORTS_UDP=443,3478,5349,19302; PKT_OUT=20; PKT_IN=10; DESYNC_MARK=0x40000000
 IPV4_CONNBYTES=1; IPV4_MULTIPORT=1; IPV4_MARK=1; IPV6_CONNBYTES=1; IPV6_MULTIPORT=1; IPV6_MARK=1
 prepare_new_firewall_identity || fail "schema-v7 firewall identity preparation failed"
 [ "$FIREWALL_TAG:$ZAPRET2_OUT:$ZAPRET2_IN" = AbCdEf1234:Z2O_AbCdEf1234:Z2I_AbCdEf1234 ] || fail "dynamic firewall identity changed"

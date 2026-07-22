@@ -2,11 +2,13 @@ package com.zapret2.app.viewmodel
 
 import androidx.lifecycle.SavedStateHandle
 import com.zapret2.app.data.PresetCatalog
+import com.zapret2.app.data.PresetCommandPreview
 import com.zapret2.app.data.PresetDiscovery
 import com.zapret2.app.data.PresetDurableOutcome
 import com.zapret2.app.data.PresetEntry
 import com.zapret2.app.data.PresetIssue
 import com.zapret2.app.data.PresetMutationOutcome
+import com.zapret2.app.data.PresetPreviewOutcome
 import com.zapret2.app.data.PresetRepository
 import com.zapret2.app.data.PresetSelection
 import com.zapret2.app.data.ServiceEventBus
@@ -28,7 +30,7 @@ class PresetsViewModelSafetyTest {
                     quarantinedCount = 49,
                     issueCounts = mapOf(PresetIssue.DEPENDENCY_MISSING to 49),
                 ),
-                selection = PresetSelection("categories", "", "cmdline.txt"),
+                selection = PresetSelection("valid-0.txt"),
             )
         }
         val viewModel = PresetsViewModel(SavedStateHandle(), repository, ServiceEventBus())
@@ -63,7 +65,7 @@ class PresetsViewModelSafetyTest {
         val repository = FakeRepository().apply {
             catalog = PresetCatalog(
                 PresetDiscovery(listOf(PresetEntry("valid.txt")), 0, emptyMap()),
-                PresetSelection("file", "valid.txt", "cmdline.txt"),
+                PresetSelection("valid.txt"),
             )
         }
         val viewModel = PresetsViewModel(SavedStateHandle(), repository, ServiceEventBus())
@@ -72,23 +74,6 @@ class PresetsViewModelSafetyTest {
         viewModel.applyPreset("valid.txt")
 
         assertEquals(0, repository.applyCalls)
-        assertNull(viewModel.uiState.value.operation)
-    }
-
-    @Test
-    fun alreadyActiveCategoriesMode_isRejectedBeforeRepositoryMutation() = runBlocking {
-        val repository = FakeRepository().apply {
-            catalog = PresetCatalog(
-                PresetDiscovery(listOf(PresetEntry("valid.txt")), 0, emptyMap()),
-                PresetSelection("categories", "", "cmdline.txt"),
-            )
-        }
-        val viewModel = PresetsViewModel(SavedStateHandle(), repository, ServiceEventBus())
-        viewModel.loadPresetsNow()
-
-        viewModel.switchToCategoriesMode()
-
-        assertEquals(0, repository.switchCalls)
         assertNull(viewModel.uiState.value.operation)
     }
 
@@ -205,7 +190,7 @@ class PresetsViewModelSafetyTest {
             compatibleContent = "current source"
             catalog = PresetCatalog(
                 PresetDiscovery(listOf(PresetEntry("valid.txt")), 0, emptyMap()),
-                PresetSelection("categories", "", "cmdline.txt"),
+                PresetSelection("valid.txt"),
             )
         }
         val viewModel = PresetsViewModel(handle, repository, ServiceEventBus())
@@ -218,18 +203,44 @@ class PresetsViewModelSafetyTest {
         assertTrue(editor?.hasAuthoritativeBaseline == true)
     }
 
+    @Test
+    fun previewUsesUnsavedDraftAndEditingInvalidatesPreviousCommand() = runBlocking {
+        val repository = FakeRepository()
+        val viewModel = PresetsViewModel(SavedStateHandle(), repository, ServiceEventBus())
+        viewModel.loadPresetsNow()
+        viewModel.openPresetEditorNow("valid.txt")
+        viewModel.updatePresetContent("unsaved draft")
+
+        viewModel.previewPresetNow("valid.txt", "unsaved draft")
+
+        assertEquals("unsaved draft", repository.previewContent)
+        assertEquals(PresetPreviewUiStatus.READY, viewModel.uiState.value.editingPreset?.previewStatus)
+        assertNotNull(viewModel.uiState.value.editingPreset?.commandPreview)
+
+        viewModel.updatePresetContent("newer draft")
+
+        assertEquals(PresetPreviewUiStatus.IDLE, viewModel.uiState.value.editingPreset?.previewStatus)
+        assertNull(viewModel.uiState.value.editingPreset?.commandPreview)
+    }
+
     private class FakeRepository : PresetRepository {
         var catalog: PresetCatalog? = PresetCatalog(
             PresetDiscovery(listOf(PresetEntry("valid.txt")), 0, emptyMap()),
-            PresetSelection("categories", "", "cmdline.txt"),
+            PresetSelection("valid.txt"),
         )
         var mutation: PresetMutationOutcome = PresetMutationOutcome.Applied
         var compatibleContent: String? = "content"
+        var previewContent: String? = null
         var applyCalls = 0
-        var switchCalls = 0
 
         override suspend fun loadCatalog(): PresetCatalog? = catalog
         override suspend fun readCompatible(fileName: String): String? = compatibleContent
+        override suspend fun preview(fileName: String, content: String): PresetPreviewOutcome {
+            previewContent = content
+            return PresetPreviewOutcome.Ready(
+                PresetCommandPreview("/data/nfqws2", listOf("--qnum=200", "--fwmark=1", "--uid=0:0", "--name=test"), "443", ""),
+            )
+        }
         override suspend fun apply(fileName: String): PresetMutationOutcome {
             applyCalls++
             return mutation
@@ -240,9 +251,5 @@ class PresetsViewModelSafetyTest {
             content: String,
             applyAfterSave: Boolean,
         ): PresetMutationOutcome = mutation
-        override suspend fun switchToCategories(): PresetMutationOutcome {
-            switchCalls++
-            return mutation
-        }
     }
 }

@@ -5,12 +5,14 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.zapret2.app.R
 import com.zapret2.app.data.PresetCatalog
+import com.zapret2.app.data.PresetCommandPreview
 import com.zapret2.app.data.PresetContentPolicy
 import com.zapret2.app.data.PresetDurableOutcome
 import com.zapret2.app.data.PresetEntry
 import com.zapret2.app.data.PresetIssue
 import com.zapret2.app.data.PresetMutationOutcome
 import com.zapret2.app.data.PresetNamePolicy
+import com.zapret2.app.data.PresetPreviewOutcome
 import com.zapret2.app.data.PresetRepository
 import com.zapret2.app.data.ServiceEventBus
 import com.zapret2.app.ui.UiText
@@ -24,22 +26,25 @@ import kotlinx.coroutines.launch
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 
-enum class PresetsOperation { LOAD, APPLY, SWITCH_MODE, OPEN_EDITOR, SAVE, SAVE_AND_APPLY }
+enum class PresetsOperation { LOAD, APPLY, OPEN_EDITOR, PREVIEW, SAVE, SAVE_AND_APPLY }
+
+enum class PresetPreviewUiStatus { IDLE, READY, REJECTED, FAILED, BLOCKED }
 
 data class PresetEditorState(
     val fileName: String,
     val content: String,
     val baselineContent: String,
     val hasAuthoritativeBaseline: Boolean = false,
+    val previewStatus: PresetPreviewUiStatus = PresetPreviewUiStatus.IDLE,
+    val commandPreview: PresetCommandPreview? = null,
+    val previewIssue: PresetIssue? = null,
 ) {
     val hasUnsavedChanges: Boolean
         get() = content != baselineContent
 }
 
 data class PresetsUiState(
-    val activeMode: String = "categories",
     val activePresetFile: String = "",
-    val activeCmdlineFile: String = "cmdline.txt",
     val hasAuthoritativeCatalog: Boolean = false,
     val presets: List<PresetEntry> = emptyList(),
     val quarantinedCount: Int = 0,
@@ -121,9 +126,7 @@ class PresetsViewModel @Inject constructor(
         _uiState.update { current ->
             if (catalog == null) {
                 current.copy(
-                    activeMode = "",
                     activePresetFile = "",
-                    activeCmdlineFile = "",
                     presets = emptyList(),
                     quarantinedCount = 0,
                     issueCounts = emptyMap(),
@@ -135,9 +138,7 @@ class PresetsViewModel @Inject constructor(
                 )
             } else {
                 current.copy(
-                    activeMode = catalog.selection.activeMode,
                     activePresetFile = catalog.selection.activePresetFile,
-                    activeCmdlineFile = catalog.selection.activeCmdlineFile,
                     presets = catalog.discovery.available,
                     quarantinedCount = catalog.discovery.quarantinedCount,
                     issueCounts = catalog.discovery.issueCounts,
@@ -155,7 +156,7 @@ class PresetsViewModel @Inject constructor(
         if (!acceptName(fileName)) return
         val state = _uiState.value
         if (!state.hasAuthoritativeCatalog || state.presets.none { it.fileName == fileName }) return
-        if (state.activeMode in ACTIVE_PRESET_MODES && state.activePresetFile == fileName) return
+        if (state.activePresetFile == fileName) return
         if (!operationInProgress.compareAndSet(false, true)) return
         beginOperation(
             PresetsOperation.APPLY,
@@ -167,23 +168,6 @@ class PresetsViewModel @Inject constructor(
     internal suspend fun applyPresetNow(fileName: String) {
         val outcome = repository.apply(fileName)
         finishMutation(outcome, fileName, keepOperation = true)
-        loadPresetsNow()
-    }
-
-    fun switchToCategoriesMode() {
-        val state = _uiState.value
-        if (!state.hasAuthoritativeCatalog || state.activeMode == CATEGORY_MODE) return
-        if (!operationInProgress.compareAndSet(false, true)) return
-        beginOperation(
-            PresetsOperation.SWITCH_MODE,
-            UiText.resource(R.string.presets_switching_categories),
-        )
-        launchOperation { switchToCategoriesNow() }
-    }
-
-    internal suspend fun switchToCategoriesNow() {
-        val outcome = repository.switchToCategories()
-        finishMutation(outcome, null, keepOperation = true)
         loadPresetsNow()
     }
 
@@ -251,7 +235,12 @@ class PresetsViewModel @Inject constructor(
             _uiState.update { it.copy(message = UiText.resource(R.string.presets_editor_too_large)) }
             return
         }
-        val updated = editor.copy(content = content)
+        val updated = editor.copy(
+            content = content,
+            previewStatus = PresetPreviewUiStatus.IDLE,
+            commandPreview = null,
+            previewIssue = null,
+        )
         persistEditorState(updated)
         _uiState.update {
             it.copy(
@@ -262,6 +251,50 @@ class PresetsViewModel @Inject constructor(
                     it.message
                 },
             )
+        }
+    }
+
+    fun previewPreset() {
+        val state = _uiState.value
+        val editor = state.editingPreset ?: return
+        if (!state.hasAuthoritativeCatalog || !editor.hasAuthoritativeBaseline) return
+        if (!acceptName(editor.fileName)) return
+        if (!operationInProgress.compareAndSet(false, true)) return
+        beginOperation(PresetsOperation.PREVIEW, UiText.resource(R.string.presets_compiling_preview))
+        launchOperation { previewPresetNow(editor.fileName, editor.content) }
+    }
+
+    internal suspend fun previewPresetNow(fileName: String, content: String) {
+        val outcome = repository.preview(fileName, content)
+        _uiState.update { current ->
+            val editor = current.editingPreset
+            if (editor == null || editor.fileName != fileName || editor.content != content) {
+                current.copy(operation = null, loadingText = null)
+            } else {
+                val updated = when (outcome) {
+                    is PresetPreviewOutcome.Ready -> editor.copy(
+                        previewStatus = PresetPreviewUiStatus.READY,
+                        commandPreview = outcome.preview,
+                        previewIssue = null,
+                    )
+                    is PresetPreviewOutcome.Rejected -> editor.copy(
+                        previewStatus = PresetPreviewUiStatus.REJECTED,
+                        commandPreview = null,
+                        previewIssue = outcome.issue,
+                    )
+                    PresetPreviewOutcome.Failed -> editor.copy(
+                        previewStatus = PresetPreviewUiStatus.FAILED,
+                        commandPreview = null,
+                        previewIssue = null,
+                    )
+                    PresetPreviewOutcome.Blocked -> editor.copy(
+                        previewStatus = PresetPreviewUiStatus.BLOCKED,
+                        commandPreview = null,
+                        previewIssue = null,
+                    )
+                }
+                current.copy(operation = null, loadingText = null, editingPreset = updated)
+            }
         }
     }
 
@@ -357,6 +390,9 @@ class PresetsViewModel @Inject constructor(
             content = draft,
             baselineContent = source,
             hasAuthoritativeBaseline = true,
+            previewStatus = PresetPreviewUiStatus.IDLE,
+            commandPreview = null,
+            previewIssue = null,
         )
     }
 
@@ -381,8 +417,7 @@ class PresetsViewModel @Inject constructor(
         keepOperation: Boolean = false,
     ) {
         if (outcome is PresetMutationOutcome.Applied ||
-            outcome is PresetMutationOutcome.SavedAndApplied ||
-            outcome is PresetMutationOutcome.CategoriesEnabled
+            outcome is PresetMutationOutcome.SavedAndApplied
         ) {
             serviceEventBus.notifyServiceRestarted()
         }
@@ -426,7 +461,6 @@ class PresetsViewModel @Inject constructor(
         PresetMutationOutcome.Applied -> UiText.resource(R.string.presets_applied_file, fileName.orEmpty())
         PresetMutationOutcome.Saved -> UiText.resource(R.string.presets_saved)
         PresetMutationOutcome.SavedAndApplied -> UiText.resource(R.string.presets_saved_applied)
-        PresetMutationOutcome.CategoriesEnabled -> UiText.resource(R.string.presets_categories_enabled)
         is PresetMutationOutcome.Rejected -> UiText.resource(R.string.presets_validation_rejected)
         PresetMutationOutcome.SourceChanged -> UiText.resource(R.string.presets_source_changed)
         PresetMutationOutcome.RestartFailedRolledBack ->
@@ -444,8 +478,6 @@ class PresetsViewModel @Inject constructor(
         const val EDITOR_FILE_KEY = "presets_editor_file"
         const val EDITOR_DRAFT_KEY = "presets_editor_draft"
         const val EDITOR_BASELINE_KEY = "presets_editor_baseline"
-        const val CATEGORY_MODE = "categories"
-        val ACTIVE_PRESET_MODES = setOf("file", "preset", "txt")
     }
 }
 

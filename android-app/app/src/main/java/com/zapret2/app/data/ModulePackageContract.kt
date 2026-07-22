@@ -29,6 +29,7 @@ internal object ModulePackageContract {
         REGULAR_FILE,
         BOUNDED_REGULAR_FILE,
         DIRECTORY_TREE,
+        CUSTOM_PRESETS,
         MODULE_ROOT_MARKER,
     }
 
@@ -65,7 +66,7 @@ internal object ModulePackageContract {
         "zapret2/scripts/common.sh",
         COMMAND_BUILDER_SCRIPT_PATH,
         PACKAGE_CONTRACT_SCRIPT_PATH,
-        "zapret2/scripts/runtime-migrate.sh",
+        "zapret2/scripts/runtime-init.sh",
         "zapret2/scripts/zapret-start.sh",
         "zapret2/scripts/zapret-stop.sh",
         "zapret2/scripts/zapret-restart.sh",
@@ -80,17 +81,17 @@ internal object ModulePackageContract {
         "module.prop",
         RUNTIME_MANIFEST_PATH,
         "zapret2/upstream-zapret2.commit",
-        "zapret2/strategies-tcp.ini",
-        "zapret2/strategies-udp.ini",
-        "zapret2/strategies-stun.ini",
-        "zapret2/blobs.txt",
+        "zapret2/strategy-catalogs/tcp.txt",
+        "zapret2/strategy-catalogs/udp.txt",
+        "zapret2/strategy-catalogs/voice.txt",
+        "zapret2/strategy-catalogs/http80.txt",
     )
 
     private val mandatoryMutableSeeds = listOf(
-        "zapret2/config.sh",
         "zapret2/runtime.ini",
-        "zapret2/categories.ini",
         "zapret2/hosts.ini",
+        "zapret2/lua/zapret-custom.lua",
+        "zapret2/lua/init_vars.lua",
     )
 
     private val mandatoryRuntimeDependencies = listOf(
@@ -122,29 +123,16 @@ internal object ModulePackageContract {
     /** Bootstrap checked after recursive copy; all package files come from the manifest. */
     val requiredRegularFiles = listOf(RUNTIME_MANIFEST_PATH)
 
-    const val MAX_PRESERVED_USER_LUA_BYTES = 256 * 1024
-    const val MAX_PRESERVED_COMMAND_LINE_BYTES = 256 * 1024
-    const val PRESERVED_COMMAND_LINE_CONFIG_KEY = "custom_cmdline_file"
     const val PRESERVED_LISTS_DIRECTORY = "zapret2/lists"
+    const val PRESERVED_CUSTOM_PRESETS_DIRECTORY = "zapret2/presets"
     const val DISABLE_MARKER = "disable"
     val installerOwnedArtifacts = setOf(DISABLE_MARKER, InstallGenerationMetadata.RELATIVE_PATH)
 
     /** The complete allowlist of installed artifacts allowed to cross a hot-update boundary. */
     val preservationPlan = listOf(
         PreservationArtifact("zapret2/runtime.ini", PreservationPolicy.REGULAR_FILE),
-        PreservationArtifact("zapret2/categories.ini", PreservationPolicy.REGULAR_FILE),
-        PreservationArtifact("zapret2/config.sh", PreservationPolicy.REGULAR_FILE),
-        PreservationArtifact(
-            "zapret2/lua/zapret-custom.lua",
-            PreservationPolicy.BOUNDED_REGULAR_FILE,
-            MAX_PRESERVED_USER_LUA_BYTES,
-        ),
-        PreservationArtifact(
-            "zapret2/lua/init_vars.lua",
-            PreservationPolicy.BOUNDED_REGULAR_FILE,
-            MAX_PRESERVED_USER_LUA_BYTES,
-        ),
         PreservationArtifact(PRESERVED_LISTS_DIRECTORY, PreservationPolicy.DIRECTORY_TREE),
+        PreservationArtifact(PRESERVED_CUSTOM_PRESETS_DIRECTORY, PreservationPolicy.CUSTOM_PRESETS),
         PreservationArtifact(DISABLE_MARKER, PreservationPolicy.MODULE_ROOT_MARKER),
     )
 

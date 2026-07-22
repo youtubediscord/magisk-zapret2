@@ -20,7 +20,7 @@ magisk-zapret2/
 │       │   ├── ui/screen/          # Material 3 Expressive screens
 │       │   ├── ui/components/      # Shared Compose components
 │       │   ├── viewmodel/          # Screen state holders
-│       │   ├── StrategyRepository.kt # Strategy data management
+│       │   ├── ProfileRepository.kt # Active preset profile editing
 │       │   ├── UpdateManager.kt    # App updates
 │       │   └── ...
 │       └── res/                    # Strings, themes, icons, and other Android resources
@@ -34,12 +34,10 @@ magisk-zapret2/
 │   │   ├── zapret-lib.lua    # Core library functions
 │   │   ├── zapret-antidpi.lua # DPI bypass functions
 │   │   └── zapret-auto.lua   # Auto-detection helpers
-│   ├── categories.ini        # Active category -> strategy state
-│   ├── strategies-tcp.ini    # TCP strategy definitions
-│   ├── strategies-udp.ini    # UDP strategy definitions
-│   ├── strategies-stun.ini   # STUN strategy definitions
+│   ├── presets/              # Complete TXT launch presets
+│   ├── strategy-catalogs/    # TCP/UDP/voice/http80 editor templates
 │   ├── runtime.ini           # Authoritative runtime configuration
-│   └── config.sh             # Migration/bootstrap defaults
+│   └── scripts/command-builder.sh # Safe preset compiler/launcher
 ├── module.prop               # Magisk module info
 ├── customize.sh              # Install script
 ├── service.sh                # Boot script
@@ -53,12 +51,12 @@ magisk-zapret2/
 
 | File | Purpose |
 |------|---------|
-| `strategies-tcp.ini`, `strategies-udp.ini`, `strategies-stun.ini` | Protocol-specific strategy definitions |
-| `categories.ini` | Active category-to-strategy state |
+| `presets/*.txt` | Complete launch presets; profiles are split by `--new` |
+| `strategy-catalogs/*.txt` | Protocol-specific strategy templates for the profile editor |
 | `zapret-start.sh` | Main startup script, applies iptables rules |
 | `runtime.ini` | Authoritative live runtime configuration |
-| `config.sh` | Bootstrap defaults used only by controlled migration |
-| `StrategiesScreen.kt` | Strategy selection UI |
+| `command-builder.sh` | Validates a preset and compiles a private argv artifact |
+| `ProfilesScreen.kt` | Active preset profile and strategy editing UI |
 | `HostlistsScreen.kt` | Hostlist browser UI |
 | `ControlScreen.kt` | Start/Stop service controls |
 
@@ -142,7 +140,7 @@ When the user asks to synchronize or deploy production, use this order:
 
 ### Traffic Interception Flow
 
-1. **iptables rules** capture outgoing TCP/UDP packets on ports 80, 443
+1. **iptables rules** capture the exact TCP/UDP port union of enabled profiles
 2. **NFQUEUE** redirects packets to userspace queue (default queue 200)
 3. **nfqws2** reads packets from queue, applies Lua-defined transformations
 4. **Modified packets** are re-injected into kernel with DESYNC_MARK to avoid loop
@@ -172,30 +170,28 @@ shape scale, shared spacing/elevation/size/motion tokens, and reduced-motion sup
 
 ```ini
 [core]
+schema_version=1
+config_format=runtime-v1
+runtime_source=repository-defaults
 autostart=1
 wifi_only=0
+debug=0
 qnum=200
 desync_mark=0x40000000
-ports_tcp=80,443
-ports_udp=443
 pkt_out=20
 pkt_in=10
-strategy_preset=syndata_multisplit_tls_google_700
-preset_mode=categories
+active_preset=Default v1 (game filter).txt
+nfqws_uid=0:0
+log_mode=none
 ```
 
-`runtime.ini` is authoritative after migration; `config.sh` and
-`/data/local/tmp/zapret2-user.conf` are bootstrap inputs only. `qnum` accepts
-1 through 65535 (200-300 is the recommended low-conflict range).
-Live app/start/status paths never fall back to bootstrap inputs. A missing or partial
-runtime is repaired from built-in defaults under the mutation lock while preserving
-valid partial core values and non-core sections; explicit migration is the only path
-that reads bootstrap files.
+`runtime.ini` selects one `active_preset`; it does not duplicate port, filter, or
+strategy state. `qnum` accepts 1 through 65535. The selected TXT is the only traffic
+and strategy source. No legacy configuration migration exists.
 
-Compatible installer and in-app updates preserve runtime/category/bootstrap settings,
-hostlists, and only the approved user Lua extension points `zapret-custom.lua` and
-`init_vars.lua` (regular non-symlink files, at most 256 KiB each). Core and packaged Lua
-files always come from the new release and are never restored from the old installation.
+Compatible installer and in-app updates preserve a valid new-contract runtime,
+hostlists, and custom-name presets. Packaged presets, catalogs, binaries, and all Lua
+files are replaced by the new release.
 
 ---
 

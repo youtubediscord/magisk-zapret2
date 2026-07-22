@@ -15,7 +15,6 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import com.zapret2.app.ui.screen.AboutScreen
-import com.zapret2.app.ui.screen.ConfigEditorScreen
 import com.zapret2.app.ui.screen.ControlScreen
 import com.zapret2.app.ui.screen.DnsManagerScreen
 import com.zapret2.app.ui.screen.HostlistContentScreen
@@ -23,7 +22,7 @@ import com.zapret2.app.ui.screen.HostlistsScreen
 import com.zapret2.app.ui.screen.HostsEditorScreen
 import com.zapret2.app.ui.screen.LogsScreen
 import com.zapret2.app.ui.screen.PresetsScreen
-import com.zapret2.app.ui.screen.StrategiesScreen
+import com.zapret2.app.ui.screen.ProfilesScreen
 import com.zapret2.app.ui.theme.MotionTokens
 
 @Composable
@@ -58,13 +57,8 @@ fun AppNavHost(
         },
     ) {
         composable(Screen.Control.route) { ControlScreen() }
-        composable(Screen.Strategies.route) { StrategiesScreen() }
+        composable(Screen.Profiles.route) { ProfilesScreen() }
         composable(Screen.Presets.route) { PresetsScreen() }
-        composable(Screen.ConfigEditor.route) {
-            ConfigEditorScreen(
-                onNavigateBack = { navController.popOrOpenControl() },
-            )
-        }
         composable(Screen.Hostlists.route) { HostlistsScreen(navController) }
         composable(Screen.HostsEditor.route) {
             HostsEditorScreen(

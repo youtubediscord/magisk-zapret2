@@ -144,7 +144,7 @@ export SCRIPT_DIR ZAPRET_DIR MODDIR STATE_DIR PATH Z2_FW_STATE Z2_SYNC_COUNT Z2_
 Z2_TEST_BOOT_ID=11111111-1111-1111-1111-111111111111
 read_current_boot_id() { is_valid_boot_id "$Z2_TEST_BOOT_ID" || return 1; CURRENT_BOOT_ID="$Z2_TEST_BOOT_ID"; }
 scan_exact_owned_nfqws() { OWNED_SCAN_PIDS="${Z2_MOCK_OWNED_PROCESS:-}"; printf '%s\n' "$OWNED_SCAN_PIDS"; }
-QNUM=200; PORTS_TCP=80,443; PORTS_UDP=443; PKT_OUT=20; PKT_IN=10; DESYNC_MARK=0x40000000
+QNUM=200; PORTS_TCP=80,443; PORTS_UDP=443,3478,5349,19302; PKT_OUT=20; PKT_IN=10; DESYNC_MARK=0x40000000
 BUILD_CONNBYTES=1; BUILD_MULTIPORT=1; BUILD_MARK=1
 new_lifecycle_token() { printf '%s\n' 'AbCdEf1234-generation'; }
 prepare_new_firewall_identity || fail "could not prepare schema-v7 firewall identity"
@@ -172,10 +172,29 @@ assert_clean() {
     build_track_for_tool "$tool"; [ ! -e "$BUILD_TRACK_FILE" ] || fail "$tool left a completed cleanup journal"
 }
 
+# A preset may be genuinely single-protocol. An empty opposite protocol is a
+# no-op and must not create a wildcard or malformed firewall rule.
+reset_all
+PORTS_UDP=""
+validate_port_list "$PORTS_UDP" || fail "empty optional UDP port set was rejected"
+build_detached_family iptables || fail "TCP-only detached build failed"
+[ "$(read_count "$CASE/fw.iptables.rules")" = 2 ] || fail "TCP-only build created extra rules"
+cleanup_tracked_family iptables || fail "TCP-only cleanup failed"
+assert_clean iptables
+PORTS_TCP=""
+PORTS_UDP=443
+validate_port_list "$PORTS_TCP" || fail "empty optional TCP port set was rejected"
+build_detached_family iptables || fail "UDP-only detached build failed"
+[ "$(read_count "$CASE/fw.iptables.rules")" = 2 ] || fail "UDP-only build created extra rules"
+cleanup_tracked_family iptables || fail "UDP-only cleanup failed"
+assert_clean iptables
+PORTS_TCP=80,443
+PORTS_UDP=443,3478,5349,19302
+
 if [ "${Z2_NEW_ONLY:-0}" != 1 ]; then
 for tool in iptables ip6tables; do
     position=1
-    while [ "$position" -le 8 ]; do
+    while [ "$position" -le 6 ]; do
         reset_all; Z2_FAIL_N="$position"; export Z2_FAIL_N
         build_detached_family "$tool" && fail "$tool -N $position unexpectedly succeeded"
         assert_clean "$tool"
@@ -183,7 +202,7 @@ for tool in iptables ip6tables; do
     done
 
     position=1
-    while [ "$position" -le 6 ]; do
+    while [ "$position" -le 4 ]; do
         reset_all; Z2_FAIL_JUMP="$position"; export Z2_FAIL_JUMP
         build_detached_family "$tool" && fail "$tool per-rule jump -A $position unexpectedly succeeded"
         assert_clean "$tool"
@@ -191,7 +210,7 @@ for tool in iptables ip6tables; do
     done
 
     position=1
-    while [ "$position" -le 6 ]; do
+    while [ "$position" -le 4 ]; do
         reset_all; Z2_FAIL_APPEND="$position"; export Z2_FAIL_APPEND
         build_detached_family "$tool" && fail "$tool rule -A $position unexpectedly succeeded"
         assert_clean "$tool"
@@ -236,8 +255,8 @@ anchor_deletes=$(read_count "$CASE/fw.iptables.anchor_d")
 cleanup_tracked_family iptables || fail "retired journal cleanup was not a no-op"
 [ "$(read_count "$CASE/fw.iptables.rule_d")" = "$rule_deletes" ] || fail "retired journal replayed a rule"
 [ "$(read_count "$CASE/fw.iptables.anchor_d")" = "$anchor_deletes" ] || fail "retired journal replayed an anchor"
-[ "$(read_count "$CASE/fw.iptables.rules")" = 6 ] || fail "committed retirement removed owned rules"
-[ "$(read_count "$CASE/fw.iptables.jumps")" = 6 ] || fail "committed retirement removed per-rule jumps"
+[ "$(read_count "$CASE/fw.iptables.rules")" = 4 ] || fail "committed retirement removed owned rules"
+[ "$(read_count "$CASE/fw.iptables.jumps")" = 4 ] || fail "committed retirement removed per-rule jumps"
 [ "$(read_count "$CASE/fw.iptables.anchor.OUTPUT")" = 1 ] || fail "committed retirement removed OUTPUT anchor"
 [ "$(read_count "$CASE/fw.iptables.anchor.INPUT")" = 1 ] || fail "committed retirement removed INPUT anchor"
 

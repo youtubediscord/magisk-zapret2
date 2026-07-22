@@ -81,6 +81,65 @@ class PresetRepositoryTest {
     }
 
     @Test
+    fun previewProtocol_preservesExactArgumentBoundariesAndPortUnion() {
+        val outcome = PresetMachineProtocol.parsePreview(
+            listOf(
+                "Z2_COMMAND_PREVIEW\t1\tgood.txt\tTCP=80,443\tUDP=443,3478,5349,19302",
+                "Z2_COMMAND_EXECUTABLE\t/data/adb/modules/zapret2/zapret2/nfqws2",
+                "Z2_COMMAND_ARGUMENT\t--qnum=200",
+                "Z2_COMMAND_ARGUMENT\t--fwmark=0x40000000",
+                "Z2_COMMAND_ARGUMENT\t--uid=0:0",
+                "Z2_COMMAND_ARGUMENT\t--name=profile with spaces",
+                "Z2_COMMAND_SUMMARY\t1\tcount=4",
+            ),
+            "good.txt",
+        )
+
+        val preview = (outcome as PresetPreviewOutcome.Ready).preview
+        assertEquals(listOf("--qnum=200", "--fwmark=0x40000000", "--uid=0:0", "--name=profile with spaces"), preview.arguments)
+        assertEquals("80,443", preview.tcpPorts)
+        assertEquals("443,3478,5349,19302", preview.udpPorts)
+        assertTrue(preview.rendered.contains("'--name=profile with spaces'"))
+    }
+
+    @Test
+    fun previewProtocol_failsClosedOnCountMismatchAndReturnsTypedRejection() {
+        assertEquals(
+            PresetPreviewOutcome.Failed,
+            PresetMachineProtocol.parsePreview(
+                listOf(
+                    "Z2_COMMAND_PREVIEW\t1\tgood.txt\tTCP=443\tUDP=",
+                    "Z2_COMMAND_EXECUTABLE\t/data/nfqws2",
+                    "Z2_COMMAND_ARGUMENT\t--qnum=200",
+                    "Z2_COMMAND_SUMMARY\t1\tcount=2",
+                ),
+                "good.txt",
+            ),
+        )
+        assertEquals(
+            PresetPreviewOutcome.Rejected(PresetIssue.FORBIDDEN_IPCACHE_OPTION),
+            PresetMachineProtocol.parsePreview(
+                listOf("Z2_COMMAND_PREVIEW\t0\tFORBIDDEN_IPCACHE_OPTION\tgood.txt"),
+                "good.txt",
+            ),
+        )
+    }
+
+    @Test
+    fun preview_stagesDraftUnderMutationGateAndAlwaysRemovesIt() = runBlocking {
+        val runner = FakePresetRunner(validation = PresetValidation.Compatible)
+        val gate = RecordingGate()
+        val repository = TransactionalPresetRepository(runner, gate)
+
+        val outcome = repository.preview("custom.txt", "unsaved draft")
+
+        assertTrue(outcome is PresetPreviewOutcome.Ready)
+        assertEquals(1, gate.calls)
+        assertEquals(listOf("write-candidate", "preview", "remove"), runner.events)
+        assertFalse(runner.files.keys.any { it.startsWith("_") })
+    }
+
+    @Test
     fun apply_revalidatesInsideMutationAndDoesNotMutateRejectedPreset() = runBlocking {
         val runner = FakePresetRunner(validation = PresetValidation.Quarantined(PresetIssue.DEPENDENCY_MISSING))
         val gate = RecordingGate()
@@ -129,14 +188,14 @@ class PresetRepositoryTest {
     @Test
     fun saveAndApply_restartFailureRestoresConfigAndOldFileContent() = runBlocking {
         val runner = FakePresetRunner(validation = PresetValidation.Compatible, restartSucceeds = false)
-        runner.config = ActivePresetConfig("categories", "old.txt")
+        runner.config = ActivePresetConfig("old.txt")
         runner.files["custom.txt"] = "old content"
         val repository = TransactionalPresetRepository(runner, RecordingGate())
 
         val result = repository.save("custom.txt", "old content", "new content", applyAfterSave = true)
 
         assertEquals(PresetMutationOutcome.RestartFailedRolledBack, result)
-        assertEquals(ActivePresetConfig("categories", "old.txt"), runner.config)
+        assertEquals(ActivePresetConfig("old.txt"), runner.config)
         assertEquals("old content", runner.files["custom.txt"])
         assertEquals(2, runner.configWrites)
         assertEquals(1, runner.restartCalls)
@@ -149,13 +208,13 @@ class PresetRepositoryTest {
             validation = PresetValidation.Compatible,
             restartFailure = IllegalStateException("restart failed"),
         )
-        runner.config = ActivePresetConfig("categories", "old.txt")
+        runner.config = ActivePresetConfig("old.txt")
         val repository = TransactionalPresetRepository(runner, RecordingGate())
 
         val result = repository.apply("good.txt")
 
         assertEquals(PresetMutationOutcome.RestartFailedRolledBack, result)
-        assertEquals(ActivePresetConfig("categories", "old.txt"), runner.config)
+        assertEquals(ActivePresetConfig("old.txt"), runner.config)
         assertEquals(2, runner.configWrites)
     }
 
@@ -165,31 +224,15 @@ class PresetRepositoryTest {
             validation = PresetValidation.Compatible,
             restartFailure = IllegalStateException("restart failed"),
         )
-        runner.config = ActivePresetConfig("categories", "old.txt")
+        runner.config = ActivePresetConfig("old.txt")
         runner.files["custom.txt"] = "old content"
         val repository = TransactionalPresetRepository(runner, RecordingGate())
 
         val result = repository.save("custom.txt", "old content", "new content", applyAfterSave = true)
 
         assertEquals(PresetMutationOutcome.RestartFailedRolledBack, result)
-        assertEquals(ActivePresetConfig("categories", "old.txt"), runner.config)
+        assertEquals(ActivePresetConfig("old.txt"), runner.config)
         assertEquals("old content", runner.files["custom.txt"])
-    }
-
-    @Test
-    fun switchToCategories_restartExceptionRestoresPreviousConfig() = runBlocking {
-        val runner = FakePresetRunner(
-            validation = PresetValidation.Compatible,
-            restartFailure = IllegalStateException("restart failed"),
-        )
-        runner.config = ActivePresetConfig("file", "active.txt")
-        val repository = TransactionalPresetRepository(runner, RecordingGate())
-
-        val result = repository.switchToCategories()
-
-        assertEquals(PresetMutationOutcome.RestartFailedRolledBack, result)
-        assertEquals(ActivePresetConfig("file", "active.txt"), runner.config)
-        assertEquals(2, runner.configWrites)
     }
 
     @Test
@@ -302,14 +345,14 @@ class PresetRepositoryTest {
             validation = PresetValidation.Compatible,
             configWriteFailureOnCall = 1,
         )
-        runner.config = ActivePresetConfig("categories", "old.txt")
+        runner.config = ActivePresetConfig("old.txt")
         runner.files["custom.txt"] = "old content"
         val repository = TransactionalPresetRepository(runner, RecordingGate())
 
         val result = repository.save("custom.txt", "old content", "new content", applyAfterSave = true)
 
         assertEquals(PresetMutationOutcome.WriteFailedRolledBack, result)
-        assertEquals(ActivePresetConfig("categories", "old.txt"), runner.config)
+        assertEquals(ActivePresetConfig("old.txt"), runner.config)
         assertEquals("old content", runner.files["custom.txt"])
     }
 
@@ -320,7 +363,7 @@ class PresetRepositoryTest {
             restartSucceeds = false,
             configWriteFailureOnCall = 2,
         )
-        runner.config = ActivePresetConfig("categories", "old.txt")
+        runner.config = ActivePresetConfig("old.txt")
         runner.files["custom.txt"] = "old content"
         val repository = TransactionalPresetRepository(runner, RecordingGate())
 
@@ -357,7 +400,7 @@ class PresetRepositoryTest {
         val result = repository.apply("good.txt")
 
         assertEquals(PresetMutationOutcome.Applied, result)
-        assertEquals(ActivePresetConfig("file", "good.txt"), runner.config)
+        assertEquals(ActivePresetConfig("good.txt"), runner.config)
         assertEquals(listOf("validate", "snapshot-config", "write-config", "restart"), runner.events)
     }
 
@@ -381,7 +424,7 @@ class PresetRepositoryTest {
         private val snapshotFileFailureOnCall: Int? = null,
         private val configWriteFailureOnCall: Int? = null,
     ) : PresetRunner {
-        var config = ActivePresetConfig("categories", "old.txt")
+        var config = ActivePresetConfig("old.txt")
         val files = linkedMapOf<String, String>()
         val events = mutableListOf<String>()
         var validationCalls = 0
@@ -399,8 +442,19 @@ class PresetRepositoryTest {
             return validation
         }
 
-        override suspend fun loadSelection(): PresetSelection =
-            PresetSelection(config.presetMode, config.presetFile, "cmdline.txt")
+        override suspend fun previewPreset(
+            candidateFileName: String,
+            logicalFileName: String,
+        ): PresetPreviewOutcome {
+            events += "preview"
+            return PresetPreviewOutcome.Ready(
+                PresetCommandPreview("/data/nfqws2", listOf("--qnum=200", "--fwmark=1", "--uid=0:0", "--name=test"), "443", ""),
+            )
+        }
+
+        override suspend fun loadSelection(): PresetSelection = PresetSelection(config.presetFile)
+
+        override suspend fun isServiceRunning(): Boolean = true
 
         override suspend fun snapshotActiveConfig(): ActivePresetConfig {
             events += "snapshot-config"

@@ -1,3 +1,7 @@
+> Historical audit log. The current preset/profile/strategy architecture and its
+> implementation contract are defined in `docs/PRESET_PROFILE_STRATEGY_CONTRACT_RU.md`;
+> older category/cmdline entries below are retained only as history.
+
 ## Legacy Bootstrap Final Cleanup
 
 - [completed] Remove the remaining live bootstrap fallback. Shell and Android now require one complete runtime-v1 `[core]`; missing/partial state self-heals from built-in values without reading `config.sh` or `/data/local/tmp/zapret2-user.conf`, while the explicit migration script remains the only bootstrap consumer.

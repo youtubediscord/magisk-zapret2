@@ -45,7 +45,7 @@ case "$1" in
             [ "$PRIOR_GENERATION" = prior-generation ] && [ "$PRIOR_QNUM" = 200 ] &&
                 [ "$PRIOR_ARGV_SHA256" = aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa ] && [ "$PRIOR_IPV6" = 0 ] || return 1
             echo exact-prior-restored >> "$LOG"
-            HEALTH_RULES=6; HEALTH_PID=42; HEALTH_IPV6=0
+            HEALTH_RULES=4; HEALTH_PID=42; HEALTH_IPV6=0
             PRIOR_TORN_DOWN=0
             return 0
         }

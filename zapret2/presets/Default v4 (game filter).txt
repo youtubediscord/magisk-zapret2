@@ -97,6 +97,7 @@
 --name=DeepSeek
 --filter-tcp=80,443-65535
 --hostlist=lists/deepseek.txt
+--lua-desync=pass
 
 --new
 

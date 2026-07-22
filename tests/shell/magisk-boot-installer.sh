@@ -14,6 +14,7 @@ fail() { echo "FAIL: Magisk boot installer: $*" >&2; exit 1; }
 
 cleanup() {
     [ "$OWNED" = 1 ] || return 0
+    [ "${Z2_KEEP_TEST_ARTIFACTS:-0}" != 1 ] || return 0
     rm -rf "$LIVE" "$UPDATE" "$STATE" "$CASE"
 }
 
@@ -76,28 +77,39 @@ grep -Fxq "archive_sha256=$expected_sha" "$UPDATE/zapret2/install-generation.met
     fail "successful installation leaked the lifecycle lock"
 
 mv "$UPDATE" "$LIVE"
-sed -i 's/^custom_cmdline_file=.*/custom_cmdline_file=User Options/' "$LIVE/zapret2/runtime.ini"
+sed -i 's/^active_preset=.*/active_preset=My custom.txt/' "$LIVE/zapret2/runtime.ini"
 printf '%s\n' '--custom-user-option' > "$LIVE/zapret2/User Options"
 printf '%s\n' 'user-category-state' > "$LIVE/zapret2/categories.ini"
 printf '%s\n' 'user-lua-state' > "$LIVE/zapret2/lua/zapret-custom.lua"
 printf '%s\n' 'custom.example' > "$LIVE/zapret2/lists/custom-user-list.txt"
+cp "$LIVE/zapret2/presets/Default v1 (game filter).txt" "$LIVE/zapret2/presets/My custom.txt"
+printf '%s\n' '# user-owned custom preset' >> "$LIVE/zapret2/presets/My custom.txt"
+printf '%s\n' 'old-built-in-must-not-cross' > "$LIVE/zapret2/presets/Default v1 (game filter).txt"
 printf '%s\n' 'old-core-must-not-cross' > "$LIVE/zapret2/lua/custom_funcs.lua"
 chmod 0644 "$LIVE/zapret2/User Options" "$LIVE/zapret2/categories.ini" \
     "$LIVE/zapret2/lua/zapret-custom.lua" "$LIVE/zapret2/lists/custom-user-list.txt" \
-    "$LIVE/zapret2/lua/custom_funcs.lua"
+    "$LIVE/zapret2/lua/custom_funcs.lua" "$LIVE/zapret2/presets/My custom.txt" \
+    "$LIVE/zapret2/presets/Default v1 (game filter).txt"
 : > "$LIVE/disable"
 chmod 0600 "$LIVE/disable"
 
 prepare_magisk_stage
 packaged_core_sha=$(sha256sum "$UPDATE/zapret2/lua/custom_funcs.lua" | awk 'NR == 1 { print $1 }')
+packaged_custom_lua_sha=$(sha256sum "$UPDATE/zapret2/lua/zapret-custom.lua" | awk 'NR == 1 { print $1 }')
+packaged_default_sha=$(sha256sum "$UPDATE/zapret2/presets/Default v1 (game filter).txt" | awk 'NR == 1 { print $1 }')
 run_installer "$CASE/update.log" || fail "state-preserving boot-mode update failed"
-grep -Fxq 'user-category-state' "$UPDATE/zapret2/categories.ini" || fail "categories were not preserved"
-grep -Fxq 'user-lua-state' "$UPDATE/zapret2/lua/zapret-custom.lua" || fail "approved user Lua was not preserved"
+grep -Fxq 'active_preset=My custom.txt' "$UPDATE/zapret2/runtime.ini" || fail "active preset selection was not preserved"
+grep -Fxq '# user-owned custom preset' "$UPDATE/zapret2/presets/My custom.txt" || fail "custom preset was not preserved"
 grep -Fxq 'custom.example' "$UPDATE/zapret2/lists/custom-user-list.txt" || fail "custom hostlist was not preserved"
-grep -Fxq -- '--custom-user-option' "$UPDATE/zapret2/User Options" || fail "configured command line was not preserved"
+[ ! -e "$UPDATE/zapret2/categories.ini" ] || fail "retired categories were preserved"
+[ ! -e "$UPDATE/zapret2/User Options" ] || fail "retired command line was preserved"
 [ -f "$UPDATE/disable" ] && [ ! -s "$UPDATE/disable" ] &&
     [ "$(stat -c %a "$UPDATE/disable")" = 600 ] || fail "disable marker was not preserved"
 [ "$(sha256sum "$UPDATE/zapret2/lua/custom_funcs.lua" | awk 'NR == 1 { print $1 }')" = "$packaged_core_sha" ] ||
     fail "old core Lua crossed the release boundary"
+[ "$(sha256sum "$UPDATE/zapret2/lua/zapret-custom.lua" | awk 'NR == 1 { print $1 }')" = "$packaged_custom_lua_sha" ] ||
+    fail "old custom Lua crossed the release boundary"
+[ "$(sha256sum "$UPDATE/zapret2/presets/Default v1 (game filter).txt" | awk 'NR == 1 { print $1 }')" = "$packaged_default_sha" ] ||
+    fail "old built-in preset crossed the release boundary"
 
 echo "Magisk boot installer tests passed"

@@ -20,7 +20,23 @@ enum class PresetIssue(val wireCode: String) {
     DEPENDENCY_EMPTY("DEPENDENCY_EMPTY"),
     DEPENDENCY_UNREADABLE("DEPENDENCY_UNREADABLE"),
     FORBIDDEN_IPCACHE_OPTION("FORBIDDEN_IPCACHE_OPTION"),
+    UNKNOWN_OPTION("UNKNOWN_OPTION"),
+    WINDOWS_OPTION_FORBIDDEN("WINDOWS_OPTION_FORBIDDEN"),
+    GLOBAL_OPTION_AFTER_PROFILE("GLOBAL_OPTION_AFTER_PROFILE"),
+    EMPTY_PROFILE("EMPTY_PROFILE"),
+    TRAILING_NEW("TRAILING_NEW"),
+    PROFILE_NAME_MISSING("PROFILE_NAME_MISSING"),
+    PROFILE_DUPLICATE_NAME("PROFILE_DUPLICATE_NAME"),
+    PROFILE_DUPLICATE_SKIP("PROFILE_DUPLICATE_SKIP"),
+    PROFILE_FILTER_MISSING("PROFILE_FILTER_MISSING"),
+    PROFILE_STRATEGY_MISSING("PROFILE_STRATEGY_MISSING"),
+    INVALID_FILTER("INVALID_FILTER"),
+    INVALID_BLOB("INVALID_BLOB"),
+    INVALID_OPTION_VALUE("INVALID_OPTION_VALUE"),
+    UNSAFE_OPTION_VALUE("UNSAFE_OPTION_VALUE"),
+    NO_ENABLED_PROFILE("NO_ENABLED_PROFILE"),
     NO_VALID_OPTIONS("NO_VALID_OPTIONS"),
+    NFQWS_DRY_RUN_FAILED("NFQWS_DRY_RUN_FAILED"),
     MALFORMED_PROTOCOL("MALFORMED_PROTOCOL"),
     UNKNOWN("UNKNOWN");
 
@@ -28,6 +44,29 @@ enum class PresetIssue(val wireCode: String) {
         fun fromWireCode(value: String): PresetIssue =
             entries.firstOrNull { it.wireCode == value.trim().uppercase() } ?: UNKNOWN
     }
+}
+
+data class PresetCommandPreview(
+    val executable: String,
+    val arguments: List<String>,
+    val tcpPorts: String,
+    val udpPorts: String,
+) {
+    val rendered: String
+        get() = buildList {
+            add(shellQuote(executable))
+            addAll(arguments.map(::shellQuote))
+        }.joinToString(" \\\n  ")
+
+    private fun shellQuote(value: String): String =
+        "'" + value.replace("'", "'\"'\"'") + "'"
+}
+
+sealed interface PresetPreviewOutcome {
+    data class Ready(val preview: PresetCommandPreview) : PresetPreviewOutcome
+    data class Rejected(val issue: PresetIssue) : PresetPreviewOutcome
+    data object Failed : PresetPreviewOutcome
+    data object Blocked : PresetPreviewOutcome
 }
 
 internal object PresetContentPolicy {
@@ -49,9 +88,7 @@ data class PresetDiscovery(
 )
 
 data class PresetSelection(
-    val activeMode: String,
     val activePresetFile: String,
-    val activeCmdlineFile: String,
 )
 
 data class PresetCatalog(
@@ -69,7 +106,6 @@ enum class PresetDurableOutcome {
     APPLIED,
     SAVED,
     SAVED_AND_APPLIED,
-    CATEGORIES_ENABLED,
     REJECTED,
     SOURCE_CHANGED,
     RESTART_FAILED_ROLLED_BACK,
@@ -92,10 +128,6 @@ sealed interface PresetMutationOutcome {
 
     data object SavedAndApplied : PresetMutationOutcome {
         override val durable = PresetDurableOutcome.SAVED_AND_APPLIED
-    }
-
-    data object CategoriesEnabled : PresetMutationOutcome {
-        override val durable = PresetDurableOutcome.CATEGORIES_ENABLED
     }
 
     data class Rejected(val issue: PresetIssue) : PresetMutationOutcome {
@@ -128,7 +160,6 @@ sealed interface PresetMutationOutcome {
 }
 
 internal data class ActivePresetConfig(
-    val presetMode: String,
     val presetFile: String,
 )
 
