@@ -16,29 +16,103 @@ assert_invalid_code() {
     grep -Fq "$expected" "$output" || fail "wrong validation reason; expected $expected"
 }
 
-[ "$(grep -c '^preset-compatible|0644|' "$ROOT/zapret2/runtime-manifest.tsv")" -eq 13 ] || fail "compatible manifest count"
-[ "$(grep -c '^preset-quarantined|0644|' "$ROOT/zapret2/runtime-manifest.tsv")" -eq 85 ] || fail "quarantined manifest count"
+[ "$(grep -c '^preset-compatible|0644|' "$ROOT/zapret2/runtime-manifest.tsv")" -eq 98 ] || fail "compatible manifest count"
+[ "$(grep -c '^preset-quarantined|0644|' "$ROOT/zapret2/runtime-manifest.tsv")" -eq 0 ] || fail "quarantined manifest count"
 if grep -R -q -- '--lua-init=@lua/custom_diag.lua' "$ROOT/zapret2/presets"; then fail "custom_diag reference remains"; fi
-if grep -R -q -- '--lua-init=@lua/fakemultisplit.lua' "$ROOT/zapret2/presets"; then fail "fakemultisplit reference remains"; fi
-if grep -R -q -- '--lua-init=@lua/fakemultidisorder.lua' "$ROOT/zapret2/presets"; then fail "fakemultidisorder reference remains"; fi
+[ "$(grep -Rl -- '--lua-init=@lua/fakemultisplit.lua' "$ROOT/zapret2/presets" | grep -v '/_' | wc -l)" -eq 98 ] || fail "fakemultisplit missing from a preset"
+[ "$(grep -Rl -- '--lua-init=@lua/fakemultidisorder.lua' "$ROOT/zapret2/presets" | grep -v '/_' | wc -l)" -eq 98 ] || fail "fakemultidisorder missing from a preset"
 if grep -R -q -- '^--wf-' "$ROOT/zapret2/presets"; then fail "WinDivert filter option remains"; fi
-if grep -R -q -- '^--name=' "$ROOT/zapret2/presets"; then fail "unsupported profile name remains"; fi
 if grep -R -q -- '^--in-range=' "$ROOT/zapret2/presets"; then fail "inbound range remains"; fi
 if grep -R -q -- '^--lua-desync=circular:' "$ROOT/zapret2/presets"; then fail "circular strategy remains"; fi
+if grep -R -q -- '--ipcache' "$ROOT/zapret2/presets"; then fail "forbidden ipcache option remains"; fi
 if grep -R -q -- 'russia-youtube-ipset.txt' "$ROOT/zapret2/presets"; then fail "stale russia-youtube ipset name remains"; fi
 for preset in "$ROOT"/zapret2/presets/*.txt; do
+    case "${preset##*/}" in
+        _*) ;;
+        *)
+            awk '
+                /^--new$/ {
+                    if (names != 1) exit 1
+                    names=0
+                    next
+                }
+                /^--name=/ {
+                    if ($0 == "--name=") exit 1
+                    names++
+                }
+                END { if (names != 1) exit 1 }
+            ' "$preset" || fail "profile without exactly one name: $preset"
+            ;;
+    esac
     awk '
         /^[[:space:]]*$/ { blanks++; if (blanks > 1) exit 1; next }
         { blanks=0 }
     ' "$preset" || fail "consecutive blank lines: $preset"
 done
+grep -Fxq -- '--name=youtube.com (интерфейс)' \
+    "$ROOT/zapret2/presets/Default v1 (game filter).txt" || fail "default profile names not restored"
+common_blob_hash=
+for preset in "$ROOT"/zapret2/presets/*.txt; do
+    case "${preset##*/}" in _*) continue ;; esac
+    [ "$(grep -c '^--blob=' "$preset")" -eq 68 ] || fail "incomplete common blob block: $preset"
+    blob_hash="$(grep '^--blob=' "$preset" | sha256sum | awk '{print $1}')"
+    if [ -z "$common_blob_hash" ]; then
+        common_blob_hash="$blob_hash"
+    else
+        [ "$blob_hash" = "$common_blob_hash" ] || fail "different common blob block: $preset"
+    fi
+done
+
+import_source="$TMP_ROOT/import-source"
+import_destination="$TMP_ROOT/import-package/presets"
+mkdir -p "$import_source" "$import_destination"
+printf '%s\n' \
+    '--lua-init=@lua/fakemultisplit.lua' \
+    '--lua-init=@lua/fakemultidisorder.lua' \
+    '--name=Профиль с пробелом' \
+    '--skip' \
+    '--ipcache-hostname=0' \
+    '--ipset=lists/russia-youtube-rtmps.txt' \
+    '--lua-desync=pass' > "$import_source/Fixture.txt"
+printf '%s\n' \
+    '--blob=a:0x00' \
+    '--name=Blob A' \
+    '--filter-tcp=443' \
+    '--lua-desync=fake:blob=a' > "$import_source/BlobA.txt"
+printf '%s\n' \
+    '--blob=b:0x01' \
+    '--name=Blob B' \
+    '--filter-udp=443' \
+    '--lua-desync=fake:blob=b' > "$import_source/BlobB.txt"
+python3 "$ROOT/zapret2/scripts/sync-winws2-presets.py" \
+    "$import_source" --destination "$import_destination" >/dev/null
+grep -Fxq -- '--name=Профиль с пробелом' "$import_destination/Fixture.txt" || fail "importer removed profile name"
+grep -Fxq -- '--skip' "$import_destination/Fixture.txt" || fail "importer removed profile skip"
+grep -Fxq -- '--lua-init=@lua/fakemultisplit.lua' "$import_destination/Fixture.txt" || fail "importer removed Android fakemultisplit"
+grep -Fxq -- '--lua-init=@lua/fakemultidisorder.lua' "$import_destination/Fixture.txt" || fail "importer removed Android fakemultidisorder"
+if grep -Fq -- '--ipcache' "$import_destination/Fixture.txt"; then fail "importer preserved ipcache"; fi
+grep -Fxq -- '--ipset=lists/ipset-russia-youtube-rtmps.txt' \
+    "$import_destination/Fixture.txt" || fail "importer did not normalize Android list name"
+for imported_preset in "$import_destination"/*.txt; do
+    grep -Fxq -- '--blob=a:0x00' "$imported_preset" || fail "importer did not propagate common blob a"
+    grep -Fxq -- '--blob=b:0x01' "$imported_preset" || fail "importer did not propagate common blob b"
+done
+conflict_source="$TMP_ROOT/import-conflict"
+conflict_destination="$TMP_ROOT/import-conflict-package/presets"
+mkdir -p "$conflict_source" "$conflict_destination"
+printf '%s\n' '--blob=same:0x00' '--name=One' '--filter-tcp=443' '--lua-desync=pass' > "$conflict_source/One.txt"
+printf '%s\n' '--blob=same:0x01' '--name=Two' '--filter-tcp=443' '--lua-desync=pass' > "$conflict_source/Two.txt"
+if python3 "$ROOT/zapret2/scripts/sync-winws2-presets.py" \
+    "$conflict_source" --destination "$conflict_destination" >/dev/null 2>&1; then
+    fail "importer accepted conflicting common blob definitions"
+fi
 
 scan="$TMP_ROOT/repository-preset-scan"
 sh "$ROOT/zapret2/scripts/command-builder.sh" --scan-presets-machine "$ROOT/zapret2" > "$scan"
-[ "$(awk -F '\t' '$1 == "Z2_PRESET" && $2 == "VALID" { n++ } END { print n+0 }' "$scan")" -eq 13 ] || fail "scanner valid count"
-[ "$(awk -F '\t' '$1 == "Z2_PRESET" && $2 == "QUARANTINED" { n++ } END { print n+0 }' "$scan")" -eq 85 ] || fail "scanner quarantined count"
-grep -Fq 'valid=13' "$scan" || fail "scanner summary valid count"
-grep -Fq 'quarantined=85' "$scan" || fail "scanner summary quarantined count"
+[ "$(awk -F '\t' '$1 == "Z2_PRESET" && $2 == "VALID" { n++ } END { print n+0 }' "$scan")" -eq 98 ] || fail "scanner valid count"
+[ "$(awk -F '\t' '$1 == "Z2_PRESET" && $2 == "QUARANTINED" { n++ } END { print n+0 }' "$scan")" -eq 0 ] || fail "scanner quarantined count"
+grep -Fq 'valid=98' "$scan" || fail "scanner summary valid count"
+grep -Fq 'quarantined=0' "$scan" || fail "scanner summary quarantined count"
 grep -Fq 'total=98' "$scan" || fail "scanner summary total count"
 
 . "$ROOT/zapret2/scripts/package-contract.sh"
@@ -85,6 +159,10 @@ validate_candidate() {
 write_valid_candidate
 validate_candidate | grep -Fq 'Z2_PRESET_VALIDATION' || fail "valid candidate rejected"
 
+printf '%s\n' '--ipcache-hostname=0' > "$candidate"
+assert_invalid_code FORBIDDEN_IPCACHE_OPTION validate_candidate
+printf '%s\n' '--ipcache-lifetime=1' > "$candidate"
+assert_invalid_code FORBIDDEN_IPCACHE_OPTION validate_candidate
 printf '%s\n' '--lua-init=@lua/../core.lua' > "$candidate"
 assert_invalid_code UNSAFE_DEPENDENCY_PATH validate_candidate
 printf '%s\n' '--lua-init=@/absolute.lua' > "$candidate"

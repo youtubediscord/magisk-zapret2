@@ -125,15 +125,17 @@ class ServiceLifecycleControllerTest {
     }
 
     @Test
-    fun ownerStateSchema_acceptsOnlyCurrentVersionSix() {
-        assertEquals(6, OwnerStateSchema.VERSION)
-        assertTrue(OwnerStateSchema.accepts("6"))
+    fun ownerStateSchema_acceptsOnlyCurrentVersionSeven() {
+        assertEquals(7, OwnerStateSchema.VERSION)
+        assertTrue(OwnerStateSchema.accepts("7"))
+        assertFalse(OwnerStateSchema.accepts("6"))
         assertFalse(OwnerStateSchema.accepts("5"))
         assertFalse(OwnerStateSchema.accepts("4"))
         assertFalse(OwnerStateSchema.accepts("3"))
         assertFalse(OwnerStateSchema.accepts("1"))
         assertFalse(OwnerStateSchema.accepts("03"))
         assertEquals(33, OwnerStateSchema.fields.size)
+        assertEquals("argv_sha256", OwnerStateSchema.currentFields[3])
         assertEquals("boot_id", OwnerStateSchema.currentFields[7])
         assertEquals(listOf("firewall_tag", "out_chain", "in_chain"), OwnerStateSchema.currentFields.subList(11, 14))
         assertTrue("install_generation" in OwnerStateSchema.fields)

@@ -33,9 +33,9 @@ assert_rejected missing-installed-binary-contract
 assert_rejected arbitrary-installed-executable
 { cat "$GOOD"; printf 'immutable-file|0644|zapret2/tab\tname\n'; } > "$CASE/zapret2/runtime-manifest.tsv"
 assert_rejected control-character-path
-sed 's/^owner_protocol|6|/owner_protocol|5|/' "$GOOD" > "$CASE/zapret2/runtime-manifest.tsv"
+sed 's/^owner_protocol|7|/owner_protocol|6|/' "$GOOD" > "$CASE/zapret2/runtime-manifest.tsv"
 assert_rejected legacy-v5
-sed 's/^owner_protocol|6|zapret2-firewall$/owner_protocol|6|other/' "$GOOD" > "$CASE/zapret2/runtime-manifest.tsv"
+sed 's/^owner_protocol|7|zapret2-firewall$/owner_protocol|7|other/' "$GOOD" > "$CASE/zapret2/runtime-manifest.tsv"
 assert_rejected mismatch
 { sed -n '2p' "$GOOD"; sed -n '1p' "$GOOD"; sed -n '3,$p' "$GOOD"; } > "$CASE/zapret2/runtime-manifest.tsv"
 assert_rejected reordered

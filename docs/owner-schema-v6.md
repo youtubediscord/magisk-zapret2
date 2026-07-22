@@ -1,4 +1,7 @@
-# Owner metadata schema v6
+# Owner metadata schema v6 (legacy)
+
+Schema v6 is retained as historical and read-only compatibility documentation.
+Current packages declare and write schema v7.
 
 Compatible packages declare the exact ordered metadata line
 `owner_protocol|6|zapret2-firewall` immediately after
@@ -40,5 +43,6 @@ generation is rejected because it has no stable generation-bound kernel
 identity. A clean different-boot recovery may retire it only after the existing
 exact process and successful full-family absence proof.
 
-Android parsers should accept v6 as the current writable schema, display v5 as
-legacy/restart-required, and must not synthesize missing v6 identity fields.
+Android parsers may accept a valid same-boot v6 record for read-only status
+display. Lifecycle writers must publish v7 and must not synthesize missing v6
+identity fields.

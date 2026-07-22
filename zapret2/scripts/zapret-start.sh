@@ -16,7 +16,7 @@ PROBE_TOOL=""
 NEW_PID_PUBLISHED=0
 LAUNCHED_PID=""
 LAUNCHED_PID_START=""
-LAUNCHED_ARGV_HEX=""
+LAUNCHED_ARGV_SHA256=""
 LAUNCH_OWNS_PIDFILE=0
 IPV4_BUILT=0
 IPV6_BUILT=0
@@ -43,7 +43,7 @@ PRIOR_OWNER_FILE="$STATE_DIR/replace.owner.$$"
 PRIOR_GENERATION=""
 PRIOR_IPV6=0
 PRIOR_QNUM=""
-PRIOR_ARGV_HEX=""
+PRIOR_ARGV_SHA256=""
 
 log_msg() {
     append_lifecycle_log "[INFO] $(date '+%Y-%m-%d %H:%M:%S') $1"
@@ -551,7 +551,7 @@ capture_prior_healthy_generation() {
     PRIOR_GENERATION="$OWNER_STATE_GENERATION"
     PRIOR_IPV6="$STATUS_FILE_IPV6_ACTIVE"
     PRIOR_QNUM="$OWNER_STATE_QNUM"
-    PRIOR_ARGV_HEX="$OWNER_STATE_ARGV_HEX"
+    PRIOR_ARGV_SHA256="$OWNER_STATE_ARGV_SHA256"
     cp "$OWNER_STATE" "$PRIOR_OWNER_FILE" 2>/dev/null || return 1
     chmod 0600 "$PRIOR_OWNER_FILE" 2>/dev/null || { rm -f "$PRIOR_OWNER_FILE"; return 1; }
     state_path_is_managed_file "$PRIOR_ARGV_FILE" || return 1
@@ -617,7 +617,7 @@ verify_family_snapshot_exact() {
 }
 
 restore_prior_healthy_generation() {
-    local line first=1 candidate="" start="" n=0 restored_argv live_owner
+    local line first=1 candidate="" start="" n=0 restored_argv_sha256 live_owner
     [ "$PRIOR_HEALTHY" = 1 ] && [ "$PRIOR_TORN_DOWN" = 1 ] || return 1
     [ -f "$PRIOR_ARGV_FILE" ] && [ ! -L "$PRIOR_ARGV_FILE" ] || return 1
     set --
@@ -645,23 +645,23 @@ restore_prior_healthy_generation() {
         if read_live_pidfile; then candidate="$LIVE_PIDFILE_PID"; fi
         start="$(proc_starttime "$candidate" 2>/dev/null)" || start=""
         if [ -n "$start" ] && verify_nfqws_pid "$candidate" "$start" "" "$QNUM"; then
-            restored_argv="$(proc_cmdline_hex "$candidate" 2>/dev/null)" || restored_argv=""
-            [ -n "$restored_argv" ] && [ "$restored_argv" = "$PRIOR_ARGV_HEX" ] || return 1
+            restored_argv_sha256="$(proc_cmdline_sha256 "$candidate" 2>/dev/null)" || restored_argv_sha256=""
+            [ -n "$restored_argv_sha256" ] && [ "$restored_argv_sha256" = "$PRIOR_ARGV_SHA256" ] || return 1
             LAUNCHED_PID="$candidate"
             LAUNCHED_PID_START="$start"
-            LAUNCHED_ARGV_HEX="$restored_argv"
+            LAUNCHED_ARGV_SHA256="$restored_argv_sha256"
             write_numeric_pidfile "$candidate" || return 1
             live_owner="$OWNER_STATE"; OWNER_STATE="$PRIOR_OWNER_FILE"
             read_owner_state || { OWNER_STATE="$live_owner"; return 1; }
             OWNER_STATE="$live_owner"; owner_loaded_generation_for_write || return 1
-            write_owner_state "$candidate" "$start" "$restored_argv" "$QNUM" "$PRIOR_GENERATION" active || return 1
+            write_owner_state "$candidate" "$start" "$restored_argv_sha256" "$QNUM" "$PRIOR_GENERATION" active || return 1
             restore_family_snapshot iptables "$PRIOR_RULES_V4" || return 1
             if [ "$PRIOR_IPV6" = 1 ]; then
                 restore_family_snapshot ip6tables "$PRIOR_RULES_V6" || return 1
             fi
             read_verified_pidfile || return 1
             [ "$VERIFIED_PID" = "$candidate" ] && [ "$VERIFIED_PID_START" = "$start" ] || return 1
-            [ "$OWNER_STATE_QNUM" = "$PRIOR_QNUM" ] && [ "$OWNER_STATE_ARGV_HEX" = "$PRIOR_ARGV_HEX" ] || return 1
+            [ "$OWNER_STATE_QNUM" = "$PRIOR_QNUM" ] && [ "$OWNER_STATE_ARGV_SHA256" = "$PRIOR_ARGV_SHA256" ] || return 1
             verify_family_snapshot_exact iptables "$PRIOR_RULES_V4" || return 1
             [ "$PRIOR_IPV6" != 1 ] || verify_family_snapshot_exact ip6tables "$PRIOR_RULES_V6" || return 1
             HEALTH_PID="$VERIFIED_PID"; HEALTH_PID_START="$VERIFIED_PID_START"
@@ -919,7 +919,7 @@ launch_nfqws2() {
     fi
     LAUNCHED_PID_START="$(proc_starttime "$LAUNCHED_PID" 2>/dev/null)" || LAUNCHED_PID_START=""
     if [ -n "$LAUNCHED_PID_START" ]; then
-        LAUNCHED_ARGV_HEX="$(proc_cmdline_hex "$LAUNCHED_PID" 2>/dev/null)" || LAUNCHED_ARGV_HEX=""
+        LAUNCHED_ARGV_SHA256="$(proc_cmdline_sha256 "$LAUNCHED_PID" 2>/dev/null)" || LAUNCHED_ARGV_SHA256=""
     fi
     while [ "$n" -lt 10 ]; do
         candidate="$LAUNCHED_PID"
@@ -941,12 +941,12 @@ launch_nfqws2() {
 }
 
 stop_failed_fallback_launch() {
-    local pid="$1" start argv rc=0
+    local pid="$1" start argv_sha256 rc=0
     [ -n "$pid" ] || return 0
     start="${LAUNCHED_PID_START:-}"
-    argv="${LAUNCHED_ARGV_HEX:-}"
-    if [ -n "$start" ] && verify_nfqws_pid "$pid" "$start" "$argv" "$QNUM"; then
-        stop_verified_nfqws_pid "$pid" "$start" "$argv" "$QNUM" >/dev/null 2>&1 || rc=1
+    argv_sha256="${LAUNCHED_ARGV_SHA256:-}"
+    if [ -n "$start" ] && verify_nfqws_pid "$pid" "$start" "$argv_sha256" "$QNUM"; then
+        stop_verified_nfqws_pid "$pid" "$start" "$argv_sha256" "$QNUM" >/dev/null 2>&1 || rc=1
     elif kill -0 "$pid" 2>/dev/null && [ "$(proc_starttime "$pid" 2>/dev/null)" = "$start" ]; then
         rc=1
     fi

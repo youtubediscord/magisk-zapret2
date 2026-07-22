@@ -343,6 +343,7 @@ private fun PresetIssue.labelResource(): Int = when (this) {
     PresetIssue.PRESET_TOO_LARGE -> R.string.presets_issue_too_large
     PresetIssue.PRESET_UNREADABLE,
     PresetIssue.DEPENDENCY_UNREADABLE -> R.string.presets_issue_unreadable
+    PresetIssue.FORBIDDEN_IPCACHE_OPTION -> R.string.presets_issue_ipcache_forbidden
     PresetIssue.MALFORMED_PROTOCOL,
     PresetIssue.UNKNOWN -> R.string.presets_issue_unknown
 }

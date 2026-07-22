@@ -65,12 +65,12 @@ new_lifecycle_token() { printf '%s\n' 'AbCdEf1234-generation'; }
 
 QNUM=200; PORTS_TCP=80,443; PORTS_UDP=443; PKT_OUT=20; PKT_IN=10; DESYNC_MARK=0x40000000
 IPV4_CONNBYTES=1; IPV4_MULTIPORT=1; IPV4_MARK=1; IPV6_CONNBYTES=1; IPV6_MULTIPORT=1; IPV6_MARK=1
-prepare_new_firewall_identity || fail "schema-v6 firewall identity preparation failed"
+prepare_new_firewall_identity || fail "schema-v7 firewall identity preparation failed"
 [ "$FIREWALL_TAG:$ZAPRET2_OUT:$ZAPRET2_IN" = AbCdEf1234:Z2O_AbCdEf1234:Z2I_AbCdEf1234 ] || fail "dynamic firewall identity changed"
 prepare_owner_generation_spec 1 0 || fail "owner generation preparation failed"
-write_owner_state 123 456 00 200 generation-a active || fail "owner publication failed"
-read_owner_state || fail "owner v6 round trip failed"
-[ "$OWNER_STATE_SCHEMA_VERSION:$OWNER_STATE_FIREWALL_TAG:$OWNER_STATE_OUT_CHAIN:$OWNER_STATE_IN_CHAIN" = 6:AbCdEf1234:Z2O_AbCdEf1234:Z2I_AbCdEf1234 ] || fail "owner identity fields changed"
+write_owner_state 123 456 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 200 generation-a active || fail "owner publication failed"
+read_owner_state || fail "owner v7 round trip failed"
+[ "$OWNER_STATE_SCHEMA_VERSION:$OWNER_STATE_FIREWALL_TAG:$OWNER_STATE_OUT_CHAIN:$OWNER_STATE_IN_CHAIN" = 7:AbCdEf1234:Z2O_AbCdEf1234:Z2I_AbCdEf1234 ] || fail "owner identity fields changed"
 
 Z2_FIREWALL_TAG="$FIREWALL_TAG"; Z2_OUT_CHAIN="$ZAPRET2_OUT"; Z2_IN_CHAIN="$ZAPRET2_IN"
 export Z2_FIREWALL_TAG Z2_OUT_CHAIN Z2_IN_CHAIN

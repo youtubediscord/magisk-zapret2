@@ -504,6 +504,7 @@
     <string name="presets_issue_too_large">размер набора превышает 1 МБ</string>
     <string name="presets_editor_too_large">Размер пресета не должен превышать 1 МБ.</string>
     <string name="presets_issue_unreadable">файл недоступен для чтения</string>
+    <string name="presets_issue_ipcache_forbidden">параметры IP-кэша запрещены</string>
     <string name="presets_issue_unknown">неизвестная ошибка проверки</string>
     <string name="presets_validation_rejected">Набор несовместим; активная конфигурация не изменена</string>
     <string name="presets_restart_failed_rolled_back">Перезапуск не удался; предыдущая конфигурация и файл набора восстановлены</string>

@@ -22,6 +22,11 @@ DEBUG_LOG="$STATE_DIR/nfqws2-debug.log"
 RUNTIME_OWNER_MARKER="$STATE_DIR/runtime.owner"
 STATUS_SNAPSHOT="$STATE_DIR/status.snapshot"
 RUNTIME_METADATA_MAX_BYTES=262144
+# Legacy owner schemas duplicated a command of up to 256 KiB as hex. Keep a
+# read-only compatibility envelope for those records, while every current
+# record stores only a fixed-size SHA-256 identity and has a much tighter cap.
+OWNER_STATE_MAX_BYTES=1048576
+OWNER_STATE_CURRENT_MAX_BYTES=65536
 
 USER_CONFIG="/data/local/tmp/zapret2-user.conf"
 RUNTIME_CONFIG="$ZAPRET_DIR/runtime.ini"
@@ -69,11 +74,12 @@ FULL_ROLLBACK_VERSION=1
 INSTALL_GENERATION_META="$ZAPRET_DIR/install-generation.meta"
 INSTALL_GENERATION_VERSION=1
 LEGACY_MIGRATION_MARKER="$STATE_DIR/legacy-direct-rules.migrated"
-OWNER_STATE_VERSION=6
+OWNER_STATE_VERSION=7
 OWNER_STATE_V3_FIELD_SEQUENCE="version|pid|starttime|argv_hex|qnum|exe|generation|phase"
 OWNER_STATE_V4_FIELD_SEQUENCE="version|pid|starttime|argv_hex|qnum|exe|generation|phase|install_generation|install_archive_sha256|ports_tcp|ports_udp|stun_ports|pkt_out|pkt_in|desync_mark|ipv4_active|ipv6_active|ipv4_connbytes|ipv4_multiport|ipv4_mark|ipv6_connbytes|ipv6_multiport|ipv6_mark|ipv4_rules|ipv6_rules|ipv4_spec|ipv6_spec|firewall_fingerprint"
 OWNER_STATE_V5_FIELD_SEQUENCE="version|pid|starttime|argv_hex|qnum|exe|generation|boot_id|phase|install_generation|install_archive_sha256|ports_tcp|ports_udp|stun_ports|pkt_out|pkt_in|desync_mark|ipv4_active|ipv6_active|ipv4_connbytes|ipv4_multiport|ipv4_mark|ipv6_connbytes|ipv6_multiport|ipv6_mark|ipv4_rules|ipv6_rules|ipv4_spec|ipv6_spec|firewall_fingerprint"
 OWNER_STATE_V6_FIELD_SEQUENCE="version|pid|starttime|argv_hex|qnum|exe|generation|boot_id|phase|install_generation|install_archive_sha256|firewall_tag|out_chain|in_chain|ports_tcp|ports_udp|stun_ports|pkt_out|pkt_in|desync_mark|ipv4_active|ipv6_active|ipv4_connbytes|ipv4_multiport|ipv4_mark|ipv6_connbytes|ipv6_multiport|ipv6_mark|ipv4_rules|ipv6_rules|ipv4_spec|ipv6_spec|firewall_fingerprint"
+OWNER_STATE_V7_FIELD_SEQUENCE="version|pid|starttime|argv_sha256|qnum|exe|generation|boot_id|phase|install_generation|install_archive_sha256|firewall_tag|out_chain|in_chain|ports_tcp|ports_udp|stun_ports|pkt_out|pkt_in|desync_mark|ipv4_active|ipv6_active|ipv4_connbytes|ipv4_multiport|ipv4_mark|ipv6_connbytes|ipv6_multiport|ipv6_mark|ipv4_rules|ipv6_rules|ipv4_spec|ipv6_spec|firewall_fingerprint"
 TRACK_JOURNAL_VERSION=2
 TEARDOWN_JOURNAL="$STATE_DIR/firewall-teardown.wal"
 TEARDOWN_JOURNAL_VERSION=2
@@ -394,7 +400,7 @@ recover_stale_owner_publication() {
         return 1
     }
     case "$OWNER_STATE_SCHEMA_VERSION" in
-        3|4|5) legacy=1 ;;
+        3|4|5|6) legacy=1 ;;
         "$OWNER_STATE_VERSION") ;;
         *) STALE_TRACK_DIAGNOSTIC="owner publication schema is unsupported"; return 1 ;;
     esac
@@ -412,12 +418,13 @@ recover_stale_owner_publication() {
     read_current_boot_id || { STALE_TRACK_DIAGNOSTIC="current boot identity is unavailable"; return 1; }
     current_boot="$CURRENT_BOOT_ID"
     if [ "$legacy" = 0 ] && [ "$OWNER_STATE_BOOT_ID" = "$current_boot" ]; then
-        verify_nfqws_pid "$OWNER_STATE_PID" "$OWNER_STATE_START" "$OWNER_STATE_ARGV_HEX" "$OWNER_STATE_QNUM" && return 0
+        verify_nfqws_pid "$OWNER_STATE_PID" "$OWNER_STATE_START" "$OWNER_STATE_ARGV_SHA256" "$OWNER_STATE_QNUM" && return 0
         STALE_TRACK_DIAGNOSTIC="same-boot owner/PID ambiguity remains"
         return 1
     fi
-    if [ "$OWNER_STATE_SCHEMA_VERSION" = 5 ] && [ "$OWNER_STATE_BOOT_ID" = "$current_boot" ]; then
-        STALE_TRACK_DIAGNOSTIC="same-boot legacy-v5 owner requires an explicit restart migration"
+    if { [ "$OWNER_STATE_SCHEMA_VERSION" = 5 ] || [ "$OWNER_STATE_SCHEMA_VERSION" = 6 ]; } &&
+       [ "$OWNER_STATE_BOOT_ID" = "$current_boot" ]; then
+        STALE_TRACK_DIAGNOSTIC="same-boot legacy owner requires an explicit restart migration"
         return 1
     fi
     STALE_TRACK_REQUIRED_TOOLS=iptables
@@ -2254,13 +2261,13 @@ pid_cmdline_has_arg() {
     tr '\000' '\n' < "/proc/$pid/cmdline" 2>/dev/null | grep -Fqx -- "$wanted"
 }
 
-proc_cmdline_hex() {
+proc_cmdline_sha256() {
     local pid="$1" value
     is_decimal "$pid" || return 1
     [ -r "/proc/$pid/cmdline" ] || return 1
-    value="$(od -An -v -tx1 "/proc/$pid/cmdline" 2>/dev/null | tr -d '[:space:]')" || return 1
-    [ -n "$value" ] || return 1
-    case "$value" in *[!0-9A-Fa-f]*) return 1 ;; esac
+    value="$(sha256sum "/proc/$pid/cmdline" 2>/dev/null)" || return 1
+    value="${value%% *}"
+    is_lower_sha256 "$value" || return 1
     printf '%s\n' "$value"
 }
 
@@ -2288,6 +2295,7 @@ proc_cmdline_may_match_nfqws() {
 OWNER_STATE_PID=""
 OWNER_STATE_START=""
 OWNER_STATE_ARGV_HEX=""
+OWNER_STATE_ARGV_SHA256=""
 OWNER_STATE_QNUM=""
 OWNER_STATE_EXE=""
 OWNER_STATE_GENERATION=""
@@ -2431,7 +2439,7 @@ owner_loaded_generation_for_write() {
 
 read_owner_state() {
     local expected_nfqws2="${AUDIT_NFQWS2_OVERRIDE:-$NFQWS2}"
-    OWNER_STATE_PID=""; OWNER_STATE_START=""; OWNER_STATE_ARGV_HEX=""
+    OWNER_STATE_PID=""; OWNER_STATE_START=""; OWNER_STATE_ARGV_HEX=""; OWNER_STATE_ARGV_SHA256=""
     OWNER_STATE_QNUM=""; OWNER_STATE_EXE=""; OWNER_STATE_GENERATION=""; OWNER_STATE_BOOT_ID=""; OWNER_STATE_PHASE=""; OWNER_STATE_SCHEMA_VERSION=""; OWNER_STATE_LEGACY=0
     OWNER_STATE_INSTALL_GENERATION=""; OWNER_STATE_INSTALL_ARCHIVE_SHA256=""
     OWNER_STATE_PORTS_TCP=""; OWNER_STATE_PORTS_UDP=""; OWNER_STATE_STUN_PORTS=""; OWNER_STATE_PKT_OUT=""; OWNER_STATE_PKT_IN=""; OWNER_STATE_DESYNC_MARK=""
@@ -2440,7 +2448,10 @@ read_owner_state() {
     OWNER_STATE_IPV4_SPEC=""; OWNER_STATE_IPV6_SPEC=""; OWNER_STATE_FIREWALL_FINGERPRINT=""
     OWNER_STATE_FIREWALL_TAG=""; OWNER_STATE_OUT_CHAIN=""; OWNER_STATE_IN_CHAIN=""
     state_file_is_secure "$OWNER_STATE" && [ -r "$OWNER_STATE" ] || return 1
-    local key value version="" tcp_count udp_count stun_count expected seen_keys="|" field_sequence=""
+    local key value version="" tcp_count udp_count stun_count expected seen_keys="|" field_sequence="" size
+    size="$(wc -c < "$OWNER_STATE" 2>/dev/null)" || return 1
+    is_decimal "$size" && [ "$size" -gt 0 ] 2>/dev/null &&
+        [ "$size" -le "$OWNER_STATE_MAX_BYTES" ] 2>/dev/null || return 1
     while IFS='=' read -r key value; do
         case "$seen_keys" in *"|$key|"*) return 1;; esac
         seen_keys="${seen_keys}${key}|"
@@ -2450,6 +2461,7 @@ read_owner_state() {
             pid) OWNER_STATE_PID="$value" ;;
             starttime) OWNER_STATE_START="$value" ;;
             argv_hex) OWNER_STATE_ARGV_HEX="$value" ;;
+            argv_sha256) OWNER_STATE_ARGV_SHA256="$value" ;;
             qnum) OWNER_STATE_QNUM="$value" ;;
             exe) OWNER_STATE_EXE="$value" ;;
             generation) OWNER_STATE_GENERATION="$value" ;;
@@ -2486,32 +2498,43 @@ read_owner_state() {
         3) [ "$field_sequence" = "$OWNER_STATE_V3_FIELD_SEQUENCE" ] || return 1; OWNER_STATE_SCHEMA_VERSION=3; OWNER_STATE_LEGACY=1 ;;
         4) [ "$field_sequence" = "$OWNER_STATE_V4_FIELD_SEQUENCE" ] || return 1; OWNER_STATE_SCHEMA_VERSION=4; OWNER_STATE_LEGACY=1 ;;
         5) [ "$field_sequence" = "$OWNER_STATE_V5_FIELD_SEQUENCE" ] || return 1; OWNER_STATE_SCHEMA_VERSION=5; OWNER_STATE_LEGACY=1 ;;
-        "$OWNER_STATE_VERSION") [ "$field_sequence" = "$OWNER_STATE_V6_FIELD_SEQUENCE" ] || return 1; OWNER_STATE_SCHEMA_VERSION="$OWNER_STATE_VERSION" ;;
+        6) [ "$field_sequence" = "$OWNER_STATE_V6_FIELD_SEQUENCE" ] || return 1; OWNER_STATE_SCHEMA_VERSION=6; OWNER_STATE_LEGACY=1 ;;
+        "$OWNER_STATE_VERSION") [ "$field_sequence" = "$OWNER_STATE_V7_FIELD_SEQUENCE" ] || return 1; OWNER_STATE_SCHEMA_VERSION="$OWNER_STATE_VERSION" ;;
         *) return 1 ;;
     esac
+    if [ "$OWNER_STATE_SCHEMA_VERSION" = "$OWNER_STATE_VERSION" ]; then
+        [ "$size" -le "$OWNER_STATE_CURRENT_MAX_BYTES" ] 2>/dev/null || return 1
+    fi
     is_canonical_positive_decimal "$OWNER_STATE_PID" &&
         is_canonical_nonnegative_i64 "$OWNER_STATE_START" || return 1
     normalize_qnum "$OWNER_STATE_QNUM" || return 1
     OWNER_STATE_QNUM="$QNUM_NORMALIZED"
     [ "$OWNER_STATE_EXE" = "$expected_nfqws2" ] || return 1
-    [ -n "$OWNER_STATE_ARGV_HEX" ] || return 1
-    case "$OWNER_STATE_ARGV_HEX" in *[!0-9A-Fa-f]*) return 1 ;; esac
+    if [ "$OWNER_STATE_SCHEMA_VERSION" = "$OWNER_STATE_VERSION" ]; then
+        [ -z "$OWNER_STATE_ARGV_HEX" ] && is_lower_sha256 "$OWNER_STATE_ARGV_SHA256" || return 1
+    else
+        [ -z "$OWNER_STATE_ARGV_SHA256" ] && [ -n "$OWNER_STATE_ARGV_HEX" ] || return 1
+        case "$OWNER_STATE_ARGV_HEX" in *[!0-9A-Fa-f]*) return 1 ;; esac
+    fi
     is_safe_token "$OWNER_STATE_GENERATION" || return 1
     case "$OWNER_STATE_SCHEMA_VERSION" in
-        5|"$OWNER_STATE_VERSION") is_valid_boot_id "$OWNER_STATE_BOOT_ID" || return 1 ;;
+        5|6|"$OWNER_STATE_VERSION") is_valid_boot_id "$OWNER_STATE_BOOT_ID" || return 1 ;;
         *) [ -z "$OWNER_STATE_BOOT_ID" ] || return 1 ;;
     esac
     case "$OWNER_STATE_PHASE" in launched|active|stopping|error) ;; *) return 1 ;; esac
     [ "$OWNER_STATE_SCHEMA_VERSION" = 3 ] && return 0
     is_safe_token "$OWNER_STATE_INSTALL_GENERATION" && [ "${#OWNER_STATE_INSTALL_GENERATION}" -le 128 ] 2>/dev/null || return 1
     is_lower_sha256 "$OWNER_STATE_INSTALL_ARCHIVE_SHA256" || return 1
-    if [ "$OWNER_STATE_SCHEMA_VERSION" = "$OWNER_STATE_VERSION" ]; then
-        is_safe_firewall_identity "$OWNER_STATE_FIREWALL_TAG" "$OWNER_STATE_OUT_CHAIN" "$OWNER_STATE_IN_CHAIN" || return 1
-        OWNER_WRITE_FIREWALL_TAG="$OWNER_STATE_FIREWALL_TAG"; OWNER_WRITE_OUT_CHAIN="$OWNER_STATE_OUT_CHAIN"; OWNER_WRITE_IN_CHAIN="$OWNER_STATE_IN_CHAIN"
-    else
-        [ -z "$OWNER_STATE_FIREWALL_TAG$OWNER_STATE_OUT_CHAIN$OWNER_STATE_IN_CHAIN" ] || return 1
-        OWNER_WRITE_FIREWALL_TAG=legacy; OWNER_WRITE_OUT_CHAIN=ZAPRET2_OUT; OWNER_WRITE_IN_CHAIN=ZAPRET2_IN
-    fi
+    case "$OWNER_STATE_SCHEMA_VERSION" in
+        6|"$OWNER_STATE_VERSION")
+            is_safe_firewall_identity "$OWNER_STATE_FIREWALL_TAG" "$OWNER_STATE_OUT_CHAIN" "$OWNER_STATE_IN_CHAIN" || return 1
+            OWNER_WRITE_FIREWALL_TAG="$OWNER_STATE_FIREWALL_TAG"; OWNER_WRITE_OUT_CHAIN="$OWNER_STATE_OUT_CHAIN"; OWNER_WRITE_IN_CHAIN="$OWNER_STATE_IN_CHAIN"
+            ;;
+        *)
+            [ -z "$OWNER_STATE_FIREWALL_TAG$OWNER_STATE_OUT_CHAIN$OWNER_STATE_IN_CHAIN" ] || return 1
+            OWNER_WRITE_FIREWALL_TAG=legacy; OWNER_WRITE_OUT_CHAIN=ZAPRET2_OUT; OWNER_WRITE_IN_CHAIN=ZAPRET2_IN
+            ;;
+    esac
     normalize_owner_port_list "$OWNER_STATE_PORTS_TCP" || return 1; [ "$OWNER_PORT_LIST_NORMALIZED" = "$OWNER_STATE_PORTS_TCP" ] || return 1
     normalize_owner_port_list "$OWNER_STATE_PORTS_UDP" || return 1; [ "$OWNER_PORT_LIST_NORMALIZED" = "$OWNER_STATE_PORTS_UDP" ] || return 1
     normalize_owner_port_list "$OWNER_STATE_STUN_PORTS" || return 1; [ "$OWNER_PORT_LIST_NORMALIZED" = "$OWNER_STATE_STUN_PORTS" ] && [ "$OWNER_STATE_STUN_PORTS" = 3478,5349,19302 ] || return 1
@@ -2531,7 +2554,7 @@ read_owner_state() {
     [ "$OWNER_STATE_IPV6_RULES" = $((expected * OWNER_STATE_IPV6_ACTIVE)) ] || return 1
     [ "$OWNER_STATE_SCHEMA_VERSION" = "$OWNER_STATE_VERSION" ] || return 0
     # A cold lifecycle process has no prior OWNER_WRITE_* generation.  Build
-    # the authenticated v6 specs solely from the just-validated owner fields;
+    # the authenticated v7 specs solely from the just-validated owner fields;
     # otherwise a valid record is accidentally accepted only in the writer's
     # original shell where these globals happen to remain populated.
     OWNER_WRITE_QNUM="$OWNER_STATE_QNUM"
@@ -2551,15 +2574,14 @@ write_numeric_pidfile() {
 }
 
 write_owner_state() {
-    local pid="$1" start="$2" argv_hex="$3" qnum="$4" generation="$5" phase="$6"
-    local tmp="$OWNER_STATE.tmp.$$" boot_id
+    local pid="$1" start="$2" argv_sha256="$3" qnum="$4" generation="$5" phase="$6"
+    local tmp="$OWNER_STATE.tmp.$$" boot_id size
     read_current_boot_id || return 1
     boot_id="$CURRENT_BOOT_ID"
     is_canonical_positive_decimal "$pid" && is_canonical_nonnegative_i64 "$start" || return 1
     normalize_qnum "$qnum" || return 1
     qnum="$QNUM_NORMALIZED"
-    [ -n "$argv_hex" ] || return 1
-    case "$argv_hex" in *[!0-9A-Fa-f]*) return 1 ;; esac
+    is_lower_sha256 "$argv_sha256" || return 1
     is_safe_token "$generation" || return 1
     case "$phase" in launched|active|stopping|error) ;; *) return 1 ;; esac
     if [ "${OWNER_WRITE_READY:-0}" != 1 ] || { [ -n "${OWNER_WRITE_SOURCE_GENERATION:-}" ] && [ "$OWNER_WRITE_SOURCE_GENERATION" != "$generation" ]; }; then
@@ -2573,7 +2595,7 @@ write_owner_state() {
     umask 077
     {
         printf 'version=%s\n' "$OWNER_STATE_VERSION"
-        printf 'pid=%s\nstarttime=%s\nargv_hex=%s\n' "$pid" "$start" "$argv_hex"
+        printf 'pid=%s\nstarttime=%s\nargv_sha256=%s\n' "$pid" "$start" "$argv_sha256"
         printf 'qnum=%s\nexe=%s\ngeneration=%s\nboot_id=%s\nphase=%s\n' "$qnum" "$NFQWS2" "$generation" "$boot_id" "$phase"
         printf 'install_generation=%s\ninstall_archive_sha256=%s\n' "$OWNER_WRITE_INSTALL_GENERATION" "$OWNER_WRITE_INSTALL_ARCHIVE_SHA256"
         printf 'firewall_tag=%s\nout_chain=%s\nin_chain=%s\n' "$OWNER_WRITE_FIREWALL_TAG" "$OWNER_WRITE_OUT_CHAIN" "$OWNER_WRITE_IN_CHAIN"
@@ -2582,23 +2604,26 @@ write_owner_state() {
         printf 'ipv6_connbytes=%s\nipv6_multiport=%s\nipv6_mark=%s\nipv4_rules=%s\nipv6_rules=%s\n' "$OWNER_WRITE_IPV6_CONNBYTES" "$OWNER_WRITE_IPV6_MULTIPORT" "$OWNER_WRITE_IPV6_MARK" "$OWNER_WRITE_IPV4_RULES" "$OWNER_WRITE_IPV6_RULES"
         printf 'ipv4_spec=%s\nipv6_spec=%s\nfirewall_fingerprint=%s\n' "$OWNER_WRITE_IPV4_SPEC" "$OWNER_WRITE_IPV6_SPEC" "$OWNER_WRITE_FIREWALL_FINGERPRINT"
     } > "$tmp" || { rm -f "$tmp"; return 1; }
+    size="$(wc -c < "$tmp" 2>/dev/null)" || { rm -f "$tmp"; return 1; }
+    is_decimal "$size" && [ "$size" -gt 0 ] 2>/dev/null &&
+        [ "$size" -le "$OWNER_STATE_CURRENT_MAX_BYTES" ] 2>/dev/null || { rm -f "$tmp"; return 1; }
     chmod 0600 "$tmp" 2>/dev/null || { rm -f "$tmp"; return 1; }
     mv -f "$tmp" "$OWNER_STATE" || { rm -f "$tmp"; return 1; }
     OWNER_WRITE_READY=0; OWNER_WRITE_SOURCE_GENERATION=""
 }
 
 publish_nfqws_owner() {
-    local pid="$1" start="$2" qnum="$3" phase="$4" argv_hex generation
+    local pid="$1" start="$2" qnum="$3" phase="$4" argv_sha256 generation
     is_decimal "$pid" && is_decimal "$start" || return 1
-    argv_hex="$(proc_cmdline_hex "$pid")" || return 1
-    verify_nfqws_pid "$pid" "$start" "$argv_hex" "$qnum" || return 1
+    argv_sha256="$(proc_cmdline_sha256 "$pid")" || return 1
+    verify_nfqws_pid "$pid" "$start" "$argv_sha256" "$qnum" || return 1
     generation="${PENDING_OWNER_GENERATION:-}"
     [ -n "$generation" ] || generation="$(new_lifecycle_token)" || return 1
     # The authenticated, boot-bound owner is the publication commit marker.
     # Publish it first so a power loss can leave at worst an owner-only state,
     # which process preflight can verify exactly.  A bare numeric pidfile is
     # intentionally never produced.
-    write_owner_state "$pid" "$start" "$argv_hex" "$qnum" "$generation" "$phase" || return 1
+    write_owner_state "$pid" "$start" "$argv_sha256" "$qnum" "$generation" "$phase" || return 1
     sync || return 1
     write_numeric_pidfile "$pid" || return 1
     sync || return 1
@@ -2612,19 +2637,19 @@ set_owner_phase() {
     local phase="$1"
     read_owner_state && owner_state_is_current_boot || return 1
     [ "$OWNER_STATE_PHASE" = "$phase" ] && return 0
-    verify_nfqws_pid "$OWNER_STATE_PID" "$OWNER_STATE_START" "$OWNER_STATE_ARGV_HEX" "$OWNER_STATE_QNUM" || return 1
-    write_owner_state "$OWNER_STATE_PID" "$OWNER_STATE_START" "$OWNER_STATE_ARGV_HEX" "$OWNER_STATE_QNUM" "$OWNER_STATE_GENERATION" "$phase"
+    verify_nfqws_pid "$OWNER_STATE_PID" "$OWNER_STATE_START" "$OWNER_STATE_ARGV_SHA256" "$OWNER_STATE_QNUM" || return 1
+    write_owner_state "$OWNER_STATE_PID" "$OWNER_STATE_START" "$OWNER_STATE_ARGV_SHA256" "$OWNER_STATE_QNUM" "$OWNER_STATE_GENERATION" "$phase"
 }
 
 republish_owner_ipv6_inactive() {
     read_owner_state || return 1
     owner_state_is_current_boot || return 1
-    verify_nfqws_pid "$OWNER_STATE_PID" "$OWNER_STATE_START" "$OWNER_STATE_ARGV_HEX" "$OWNER_STATE_QNUM" || return 1
+    verify_nfqws_pid "$OWNER_STATE_PID" "$OWNER_STATE_START" "$OWNER_STATE_ARGV_SHA256" "$OWNER_STATE_QNUM" || return 1
     owner_loaded_generation_for_write || return 1
     OWNER_WRITE_IPV6_ACTIVE=0; OWNER_WRITE_IPV6_RULES=0
     OWNER_WRITE_IPV6_SPEC="$(owner_build_family_spec ipv6 0 "$OWNER_WRITE_IPV6_CONNBYTES" "$OWNER_WRITE_IPV6_MULTIPORT" "$OWNER_WRITE_IPV6_MARK" 0)" || return 1
     OWNER_WRITE_FIREWALL_FINGERPRINT="$(owner_spec_fingerprint "$OWNER_WRITE_IPV4_SPEC" "$OWNER_WRITE_IPV6_SPEC")" || return 1
-    write_owner_state "$OWNER_STATE_PID" "$OWNER_STATE_START" "$OWNER_STATE_ARGV_HEX" "$OWNER_STATE_QNUM" "$OWNER_STATE_GENERATION" "$OWNER_STATE_PHASE" || return 1
+    write_owner_state "$OWNER_STATE_PID" "$OWNER_STATE_START" "$OWNER_STATE_ARGV_SHA256" "$OWNER_STATE_QNUM" "$OWNER_STATE_GENERATION" "$OWNER_STATE_PHASE" || return 1
     read_owner_state && [ "$OWNER_STATE_IPV6_ACTIVE" = 0 ] && [ "$OWNER_STATE_IPV6_RULES" = 0 ]
 }
 
@@ -2641,8 +2666,8 @@ retire_owner_metadata() {
 
 VERIFIED_STARTTIME=""
 verify_nfqws_pid() {
-    local pid="$1" expected_start="${2:-}" expected_argv="${3:-}" expected_qnum="${4:-}"
-    local before after cmd_exe binary_exe actual_argv argv0 runtime_nfqws2
+    local pid="$1" expected_start="${2:-}" expected_argv_sha256="${3:-}" expected_qnum="${4:-}"
+    local before after cmd_exe binary_exe actual_argv_sha256 argv0 runtime_nfqws2
     runtime_nfqws2="${AUDIT_NFQWS2_OVERRIDE:-$NFQWS2}"
     VERIFIED_STARTTIME=""
     is_decimal "$pid" || return 1
@@ -2656,9 +2681,10 @@ verify_nfqws_pid() {
         normalize_qnum "$expected_qnum" || return 1
         pid_cmdline_has_arg "$pid" "--qnum=$QNUM_NORMALIZED" || return 1
     fi
-    if [ -n "$expected_argv" ]; then
-        actual_argv="$(proc_cmdline_hex "$pid")" || return 1
-        [ "$actual_argv" = "$expected_argv" ] || return 1
+    if [ -n "$expected_argv_sha256" ]; then
+        is_lower_sha256 "$expected_argv_sha256" || return 1
+        actual_argv_sha256="$(proc_cmdline_sha256 "$pid")" || return 1
+        [ "$actual_argv_sha256" = "$expected_argv_sha256" ] || return 1
     fi
 
     cmd_exe="$(readlink -f "/proc/$pid/exe" 2>/dev/null)"
@@ -2678,7 +2704,7 @@ verify_nfqws_pid() {
 read_verified_pidfile() {
     VERIFIED_PID=""
     VERIFIED_PID_START=""
-    VERIFIED_PID_ARGV=""
+    VERIFIED_PID_ARGV_SHA256=""
     VERIFIED_PID_QNUM=""
     state_file_is_secure "$PIDFILE" && [ -r "$PIDFILE" ] || return 1
     local candidate
@@ -2687,8 +2713,8 @@ read_verified_pidfile() {
     if [ -e "$OWNER_STATE" ]; then
         read_owner_state && owner_state_is_current_boot || return 1
         [ "$OWNER_STATE_PID" = "$candidate" ] || return 1
-        verify_nfqws_pid "$candidate" "$OWNER_STATE_START" "$OWNER_STATE_ARGV_HEX" "$OWNER_STATE_QNUM" || return 1
-        VERIFIED_PID_ARGV="$OWNER_STATE_ARGV_HEX"
+        verify_nfqws_pid "$candidate" "$OWNER_STATE_START" "$OWNER_STATE_ARGV_SHA256" "$OWNER_STATE_QNUM" || return 1
+        VERIFIED_PID_ARGV_SHA256="$OWNER_STATE_ARGV_SHA256"
         VERIFIED_PID_QNUM="$OWNER_STATE_QNUM"
     else
         # A bare numeric PID cannot authenticate a current lifecycle owner.
@@ -2713,20 +2739,20 @@ read_live_pidfile() {
 }
 
 stop_verified_nfqws_pid() {
-    local pid="$1" start="$2" expected_argv="${3:-}" expected_qnum="${4:-}" n=0
-    verify_nfqws_pid "$pid" "$start" "$expected_argv" "$expected_qnum" || return 2
+    local pid="$1" start="$2" expected_argv_sha256="${3:-}" expected_qnum="${4:-}" n=0
+    verify_nfqws_pid "$pid" "$start" "$expected_argv_sha256" "$expected_qnum" || return 2
     kill -TERM "$pid" 2>/dev/null || return 1
     while [ "$n" -lt 5 ]; do
         sleep 1
-        verify_nfqws_pid "$pid" "$start" "$expected_argv" "$expected_qnum" || return 0
+        verify_nfqws_pid "$pid" "$start" "$expected_argv_sha256" "$expected_qnum" || return 0
         n=$((n + 1))
     done
-    verify_nfqws_pid "$pid" "$start" "$expected_argv" "$expected_qnum" || return 0
+    verify_nfqws_pid "$pid" "$start" "$expected_argv_sha256" "$expected_qnum" || return 0
     kill -KILL "$pid" 2>/dev/null || return 1
     n=0
     while [ "$n" -lt 3 ]; do
         sleep 1
-        verify_nfqws_pid "$pid" "$start" "$expected_argv" "$expected_qnum" || return 0
+        verify_nfqws_pid "$pid" "$start" "$expected_argv_sha256" "$expected_qnum" || return 0
         n=$((n + 1))
     done
     return 1
@@ -2735,7 +2761,7 @@ stop_verified_nfqws_pid() {
 PROCESS_CLEANUP_PREFLIGHT_PROVEN=0
 PROCESS_PREFLIGHT_PID=""
 PROCESS_PREFLIGHT_START=""
-PROCESS_PREFLIGHT_ARGV=""
+PROCESS_PREFLIGHT_ARGV_SHA256=""
 PROCESS_PREFLIGHT_QNUM=""
 PROCESS_PREFLIGHT_GENERATION=""
 PROCESS_PREFLIGHT_PHASE=""
@@ -2751,7 +2777,7 @@ process_snapshot_owner_matches() {
     read_owner_state && owner_state_is_current_boot || return 1
     [ "$OWNER_STATE_PID" = "$PROCESS_PREFLIGHT_PID" ] &&
         [ "$OWNER_STATE_START" = "$PROCESS_PREFLIGHT_START" ] &&
-        [ "$OWNER_STATE_ARGV_HEX" = "$PROCESS_PREFLIGHT_ARGV" ] &&
+        [ "$OWNER_STATE_ARGV_SHA256" = "$PROCESS_PREFLIGHT_ARGV_SHA256" ] &&
         [ "$OWNER_STATE_QNUM" = "$PROCESS_PREFLIGHT_QNUM" ] &&
         [ "$OWNER_STATE_GENERATION" = "$PROCESS_PREFLIGHT_GENERATION" ] &&
         [ "$OWNER_STATE_PHASE" = "$PROCESS_PREFLIGHT_PHASE" ]
@@ -2774,9 +2800,9 @@ stop_pidfile_process() {
     process_snapshot_pidfile_matches && process_snapshot_owner_matches || return 1
     if [ "$PROCESS_PREFLIGHT_LIVE" = 1 ]; then
         verify_nfqws_pid "$PROCESS_PREFLIGHT_PID" "$PROCESS_PREFLIGHT_START" \
-            "$PROCESS_PREFLIGHT_ARGV" "$PROCESS_PREFLIGHT_QNUM" || return 1
+            "$PROCESS_PREFLIGHT_ARGV_SHA256" "$PROCESS_PREFLIGHT_QNUM" || return 1
         stop_verified_nfqws_pid "$PROCESS_PREFLIGHT_PID" "$PROCESS_PREFLIGHT_START" \
-            "$PROCESS_PREFLIGHT_ARGV" "$PROCESS_PREFLIGHT_QNUM" || rc=1
+            "$PROCESS_PREFLIGHT_ARGV_SHA256" "$PROCESS_PREFLIGHT_QNUM" || rc=1
     fi
     # Never kill a process that appeared after the read-only proof. A new exact
     # process makes teardown incomplete and leaves its evidence intact.
@@ -2836,10 +2862,10 @@ stop_all_exact_owned_nfqws() {
 # fall through to the broad exact-path scan and kill a listener.
 PROCESS_CLEANUP_PREFLIGHT_ERROR=""
 preflight_owned_process_cleanup() {
-    local count=0 pid pidfile_present=0 owner_present=0 argv start
+    local count=0 pid pidfile_present=0 owner_present=0 argv_sha256 start
     PROCESS_CLEANUP_PREFLIGHT_ERROR=""
     PROCESS_CLEANUP_PREFLIGHT_PROVEN=0
-    PROCESS_PREFLIGHT_PID=""; PROCESS_PREFLIGHT_START=""; PROCESS_PREFLIGHT_ARGV=""
+    PROCESS_PREFLIGHT_PID=""; PROCESS_PREFLIGHT_START=""; PROCESS_PREFLIGHT_ARGV_SHA256=""
     PROCESS_PREFLIGHT_QNUM=""; PROCESS_PREFLIGHT_GENERATION=""; PROCESS_PREFLIGHT_PHASE=""
     PROCESS_PREFLIGHT_PIDFILE_PRESENT=0; PROCESS_PREFLIGHT_OWNER_PRESENT=0
     PROCESS_PREFLIGHT_LIVE=0
@@ -2879,7 +2905,7 @@ preflight_owned_process_cleanup() {
         PROCESS_PREFLIGHT_LIVE=1
         pid="$OWNED_SCAN_PIDS"
         start="$(proc_starttime "$pid")" || return 1
-        argv="$(proc_cmdline_hex "$pid")" || return 1
+        argv_sha256="$(proc_cmdline_sha256 "$pid")" || return 1
         if [ "$pidfile_present" = 1 ]; then
             read_verified_pidfile || {
                 PROCESS_CLEANUP_PREFLIGHT_ERROR="live PID publication is corrupt or unverified"
@@ -2893,8 +2919,8 @@ preflight_owned_process_cleanup() {
             PROCESS_PREFLIGHT_QNUM="$VERIFIED_PID_QNUM"
         elif [ "$owner_present" = 1 ]; then
             [ "$OWNER_STATE_PID" = "$pid" ] && [ "$OWNER_STATE_START" = "$start" ] &&
-                [ "$OWNER_STATE_ARGV_HEX" = "$argv" ] &&
-                verify_nfqws_pid "$pid" "$start" "$argv" "$OWNER_STATE_QNUM" || {
+                [ "$OWNER_STATE_ARGV_SHA256" = "$argv_sha256" ] &&
+                verify_nfqws_pid "$pid" "$start" "$argv_sha256" "$OWNER_STATE_QNUM" || {
                     PROCESS_CLEANUP_PREFLIGHT_ERROR="owner metadata does not match the exact module process"
                     return 1
                 }
@@ -2902,7 +2928,7 @@ preflight_owned_process_cleanup() {
         fi
         PROCESS_PREFLIGHT_PID="$pid"
         PROCESS_PREFLIGHT_START="$start"
-        PROCESS_PREFLIGHT_ARGV="$argv"
+        PROCESS_PREFLIGHT_ARGV_SHA256="$argv_sha256"
     elif [ "$owner_present" = 1 ]; then
         PROCESS_CLEANUP_PREFLIGHT_ERROR="current-boot owner publication has no exact live module process"
         return 1

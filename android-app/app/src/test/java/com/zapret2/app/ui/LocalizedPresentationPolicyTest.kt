@@ -18,7 +18,7 @@ class LocalizedPresentationPolicyTest {
         val translatableStrings = english.strings.filterValues(LocalizedString::translatable)
         val translatablePlurals = english.plurals.filterValues(LocalizedPlural::translatable)
 
-        assertEquals(493, translatableStrings.size)
+        assertEquals(494, translatableStrings.size)
         assertEquals(14, translatablePlurals.size)
         assertEquals(translatableStrings.keys, russian.strings.keys)
         translatableStrings.forEach { (name, base) ->
@@ -71,7 +71,7 @@ class LocalizedPresentationPolicyTest {
         }
 
         assertEquals("Unconsumed default resources", emptyList<String>(), missing)
-        assertEquals(520, catalog.strings.size + catalog.plurals.size)
+        assertEquals(521, catalog.strings.size + catalog.plurals.size)
     }
 
     @Test
