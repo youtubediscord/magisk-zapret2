@@ -65,6 +65,23 @@ PRESET_TOTAL="$(find "$ROOT/zapret2/presets" -maxdepth 1 -type f -name '*.txt' |
 grep -Fxq "Z2_PRESET_SUMMARY$(printf '\t')1$(printf '\t')valid=$PRESET_TOTAL$(printf '\t')quarantined=0$(printf '\t')total=$PRESET_TOTAL" "$PRESET_SCAN" ||
     fail "preset summary does not match the packaged catalog"
 
+# These read-only commands run while the app's shared root-command gate is
+# occupied. They must remain shell-builtin parsers rather than spawning one
+# grep process for every catalog section, preset name, or dependency.
+NO_GREP_BIN="$TMP/no-grep-bin"
+mkdir -p "$NO_GREP_BIN"
+printf '%s\n' '#!/bin/sh' 'exit 99' > "$NO_GREP_BIN/grep"
+chmod 0755 "$NO_GREP_BIN/grep"
+NO_GREP_STRATEGY_OUTPUT="$(PATH="$NO_GREP_BIN:$PATH" sh \
+    "$ROOT/zapret2/scripts/command-builder.sh" --validate-strategies-machine "$ROOT/zapret2")" ||
+    fail "strategy validation still depends on per-section grep processes"
+[ "$NO_GREP_STRATEGY_OUTPUT" = "$STRATEGY_OUTPUT" ] || fail "fork-free strategy output changed"
+NO_GREP_SCAN="$TMP/presets.no-grep.scan"
+PATH="$NO_GREP_BIN:$PATH" sh "$ROOT/zapret2/scripts/command-builder.sh" \
+    --scan-presets-machine "$ROOT/zapret2" > "$NO_GREP_SCAN" ||
+    fail "preset scan still depends on per-preset grep processes"
+cmp "$PRESET_SCAN" "$NO_GREP_SCAN" >/dev/null || fail "fork-free preset scan output changed"
+
 FIXTURE="$TMP/compiler"
 cp -R "$ROOT/zapret2" "$FIXTURE"
 cat > "$FIXTURE/nfqws2" <<'EOF'
@@ -107,6 +124,12 @@ compile_preset_artifact "$FIXTURE/presets/TCP only.txt" "TCP only.txt" "$TMP/tcp
 read_compiled_artifact_metadata "$TMP/tcp.argv" || fail "TCP artifact metadata is invalid"
 [ "$COMPILED_TCP_PORTS" = 80 ] && [ -z "$COMPILED_UDP_PORTS" ] ||
     fail "TCP-only preset opened unexpected ports"
+sed '/--filter-tcp=80/a --filter-tcp=443' "$FIXTURE/presets/TCP only.txt" > "$FIXTURE/presets/Multi filter.txt"
+compile_preset_artifact "$FIXTURE/presets/Multi filter.txt" "Multi filter.txt" "$TMP/multi-filter.argv" ||
+    fail "multiple filters in one profile did not compile"
+read_compiled_artifact_metadata "$TMP/multi-filter.argv" || fail "multi-filter metadata is invalid"
+[ "$COMPILED_TCP_PORTS" = 80,443 ] && [ -z "$COMPILED_UDP_PORTS" ] ||
+    fail "fork-free capture parser dropped a repeated protocol filter"
 cp "$TMP/tcp.argv" "$TMP/tampered-ipcache.argv"
 printf '%s\n' '--ipcache-hostname=1' >> "$TMP/tampered-ipcache.argv"
 read_compiled_artifact_metadata "$TMP/tampered-ipcache.argv" || fail "tampered artifact fixture is structurally invalid"

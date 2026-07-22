@@ -3618,6 +3618,36 @@ owned_family_present() {
     '
 }
 
+# Read-only namespace discovery for a failed generation that never reached
+# owner.meta publication. Dynamic chain names are strict module-owned kernel
+# object identities; detecting them is safe even when teardown still requires
+# a stronger journal/owner proof.
+zapret2_namespace_present() {
+    local tool="$1" listing
+    listing="$("$tool" -t mangle -S 2>/dev/null)" || return 2
+    printf '%s\n' "$listing" | awk '
+        function owned(name, tag, side, ordinal) {
+            if (name == "ZAPRET2_OUT" || name == "ZAPRET2_IN" || name == "ZAPRET2_PROBE") return 1
+            if ((index(name,"Z2O_")==1 || index(name,"Z2I_")==1) && length(name)==14) {
+                tag=substr(name,5,10)
+                return tag !~ /[^A-Za-z0-9]/
+            }
+            if (index(name,"Z2R_")==1 && length(name)>=17) {
+                tag=substr(name,5,10); side=substr(name,16,1); ordinal=substr(name,17)
+                return substr(name,15,1)=="_" && tag !~ /[^A-Za-z0-9]/ &&
+                    (side=="O" || side=="I") && ordinal ~ /^[1-9][0-9]*$/
+            }
+            return 0
+        }
+        $1 == "-N" && owned($2) { found=1 }
+        $1 == "-A" {
+            if (owned($2)) found=1
+            for (i=3;i<=NF;i++) if (($i=="-j" || $i=="--jump" || $i=="-g" || $i=="--goto") && owned($(i+1))) found=1
+        }
+        END { exit found ? 0 : 1 }
+    '
+}
+
 owned_family_absent() {
     owned_family_present "$1"
     case $? in 1) return 0;; *) return 1;; esac

@@ -9,7 +9,25 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.atomic.AtomicBoolean
+
+internal class BoundedCommandGate(private val queueTimeoutMillis: Long) {
+    private val mutex = Mutex()
+
+    suspend fun <T> run(onTimeout: () -> T, block: suspend () -> T): T {
+        val acquired = withTimeoutOrNull(queueTimeoutMillis) {
+            mutex.lock()
+            true
+        } == true
+        if (!acquired) return onTimeout()
+        return try {
+            block()
+        } finally {
+            mutex.unlock()
+        }
+    }
+}
 
 /**
  * Single entry point for root-backed Zapret2 lifecycle operations in the app process.
@@ -25,7 +43,8 @@ object ServiceLifecycleController {
     private const val RESTART_SCRIPT = "$MODULE_DIR/zapret2/scripts/zapret-restart.sh"
     private const val STATUS_SCRIPT = "$MODULE_DIR/zapret2/scripts/zapret-status.sh"
     private const val FULL_ROLLBACK_SCRIPT = "$MODULE_DIR/zapret2/scripts/zapret-full-rollback.sh"
-    private val rootCommandMutex = Mutex()
+    private const val ROOT_COMMAND_QUEUE_TIMEOUT_MILLIS = 5_000L
+    private val rootCommandGate = BoundedCommandGate(ROOT_COMMAND_QUEUE_TIMEOUT_MILLIS)
     private val lifecycleMutex = Mutex()
     private val appUpdateInProgress = AtomicBoolean(false)
     private val fullRollbackInProgress = AtomicBoolean(false)
@@ -827,15 +846,23 @@ object ServiceLifecycleController {
     }
 
     private suspend fun executeRaw(command: String, requireRoot: Boolean): CommandResult = withContext(Dispatchers.IO) {
-        rootCommandMutex.lock()
-        try {
+        rootCommandGate.run(
+            onTimeout = {
+                CommandResult(
+                    success = false,
+                    rootGranted = false,
+                    rootAccessState = RootAccessState.TIMEOUT,
+                    error = "Timed out waiting for another root command to finish",
+                )
+            },
+        ) command@{
             currentCoroutineContext().ensureActive()
             if (requireRoot) {
                 val probe = executeShell("id -u")
                 val uid = probe.stdout.firstOrNull()?.trim()
                 if (!probe.success || uid != "0") {
                     val access = classifyRootAccess(probe, uid, Shell.isAppGrantedRoot())
-                    return@withContext CommandResult(
+                    return@command CommandResult(
                         success = false,
                         stdout = probe.stdout,
                         stderr = probe.stderr,
@@ -846,8 +873,6 @@ object ServiceLifecycleController {
                 }
             }
             executeShell(command).copy(rootGranted = true)
-        } finally {
-            rootCommandMutex.unlock()
         }
     }
 

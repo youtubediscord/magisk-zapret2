@@ -1,5 +1,9 @@
 package com.zapret2.app.data
 
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -7,6 +11,27 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ServiceLifecycleControllerTest {
+
+    @Test
+    fun boundedCommandGate_timesOutQueuedCallerAndRecoversAfterOwnerFinishes() = runBlocking {
+        val gate = BoundedCommandGate(queueTimeoutMillis = 100)
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val holder = launch(Dispatchers.Default) {
+            gate.run(onTimeout = { error("holder unexpectedly timed out") }) {
+                entered.complete(Unit)
+                release.await()
+            }
+        }
+        entered.await()
+
+        val queued = gate.run(onTimeout = { "timeout" }) { "acquired" }
+        assertEquals("timeout", queued)
+
+        release.complete(Unit)
+        holder.join()
+        assertEquals("acquired", gate.run(onTimeout = { "timeout" }) { "acquired" })
+    }
 
     @Test
     fun rootAccessClassifier_distinguishesGrantedDeniedMissingTimeoutAndShellFailure() {

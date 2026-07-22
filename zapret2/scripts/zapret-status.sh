@@ -102,6 +102,10 @@ if command -v iptables >/dev/null 2>&1; then
         Z2_IPV4_RULES=$(( $(chain_owned_rule_count iptables "$ZAPRET2_OUT") + $(chain_owned_rule_count iptables "$ZAPRET2_IN") ))
         if [ "$Z2_OWNER_METADATA_VERIFIED" = 1 ] && [ "$OWNER_STATE_SCHEMA_VERSION" = "$OWNER_STATE_VERSION" ] &&
            owner_family_generation_healthy iptables ipv4; then IPV4_VERIFIED=1; fi
+    elif zapret2_namespace_present iptables; then
+        # A detached failed-build generation is owned residue even without a
+        # publishable owner.meta. Never report this kernel state as stopped.
+        Z2_IPV4=1
     fi
 fi
 
@@ -111,6 +115,8 @@ if command -v ip6tables >/dev/null 2>&1; then
         Z2_IPV6_RULES=$(( $(chain_owned_rule_count ip6tables "$ZAPRET2_OUT") + $(chain_owned_rule_count ip6tables "$ZAPRET2_IN") ))
         if [ "$Z2_OWNER_METADATA_VERIFIED" = 1 ] && [ "$OWNER_STATE_SCHEMA_VERSION" = "$OWNER_STATE_VERSION" ] &&
            owner_family_generation_healthy ip6tables ipv6; then IPV6_VERIFIED=1; fi
+    elif zapret2_namespace_present ip6tables; then
+        Z2_IPV6=1
     fi
 elif [ "$STATUS_FILE_IPV6_ACTIVE" = 1 ]; then
     IPV6_UNKNOWN=1
