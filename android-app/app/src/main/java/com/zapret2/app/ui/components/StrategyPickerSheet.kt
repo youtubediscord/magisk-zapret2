@@ -97,7 +97,11 @@ fun StrategyPickerSheet(
                     .heightIn(max = SizeTokens.SheetContentMaxHeight)
                     .selectableGroup(),
             ) {
-                items(items = strategies, key = { it.id }) { strategy ->
+                items(
+                    items = strategies,
+                    key = { it.id },
+                    contentType = { "strategy" },
+                ) { strategy ->
                     val selected = strategy.id == selectedId
                     Row(
                         modifier = Modifier

@@ -8,7 +8,7 @@ import org.junit.Test
 class ComposeLazyListPerformancePolicyTest {
 
     @Test
-    fun everyLazyCollection_hasAnExplicitStableKey() {
+    fun everyLazyCollection_hasAnExplicitStableKeyAndContentType() {
         val calls = uiSources().flatMap { file ->
             val source = file.readText()
             Regex("\\b(?:items|itemsIndexed)\\s*\\(").findAll(source).map { match ->
@@ -21,6 +21,10 @@ class ComposeLazyListPerformancePolicyTest {
         assertTrue(calls.isNotEmpty())
         calls.forEach { (fileName, header) ->
             assertTrue("$fileName lazy collection has no stable key: $header", "key =" in header)
+            assertTrue(
+                "$fileName lazy collection has no reusable content type: $header",
+                "contentType =" in header,
+            )
         }
     }
 
@@ -43,6 +47,46 @@ class ComposeLazyListPerformancePolicyTest {
             .substringBefore("LogActions(")
         assertTrue(logs.contains("val logLineStyle = remember(logLineColor)"))
         assertFalse(logItems.contains("MonospaceStyle.copy("))
+
+        val hostlists = repositoryFile(
+            "android-app/app/src/main/java/com/zapret2/app/ui/screen/HostlistsScreen.kt",
+        ).readText()
+        assertTrue(hostlists.contains("val compactNumberFormat = remember(locale)"))
+        assertFalse(hostlists.contains("private fun formatNumber("))
+
+        val hostlistItem = repositoryFile(
+            "android-app/app/src/main/java/com/zapret2/app/ui/components/HostlistItem.kt",
+        ).readText()
+        assertTrue(hostlistItem.contains("val formattedSize = remember(context, sizeBytes)"))
+    }
+
+    @Test
+    fun editorAndReorderHotPaths_avoidRepeatedLinearWorkAndStyleAllocation() {
+        listOf(
+            "ConfigEditorScreen.kt",
+            "HostsEditorScreen.kt",
+            "HostlistContentScreen.kt",
+        ).forEach { fileName ->
+            val source = repositoryFile(
+                "android-app/app/src/main/java/com/zapret2/app/ui/screen/$fileName",
+            ).readText()
+            assertTrue("$fileName must remember its editor text style", source.contains("editorTextStyle = remember("))
+            assertFalse("$fileName allocates its text style on every editor recomposition", source.contains("textStyle = MonospaceStyle.copy("))
+        }
+
+        val presetEditor = repositoryFile(
+            "android-app/app/src/main/java/com/zapret2/app/ui/components/PresetEditorDialog.kt",
+        ).readText()
+        assertTrue(presetEditor.contains("editorTextStyle = remember("))
+        assertFalse(presetEditor.contains("textStyle = MonospaceStyle.copy("))
+
+        val strategies = repositoryFile(
+            "android-app/app/src/main/java/com/zapret2/app/ui/screen/StrategiesScreen.kt",
+        ).readText()
+        val pickerRows = strategies.substringAfter("itemsIndexed(\n                            items = displayList")
+            .substringBefore("private fun StrategyPickerToolbar(")
+        assertFalse(pickerRows.contains("details.indexOf("))
+        assertTrue(pickerRows.contains("val currentIndex = if (isReorderMode) index else 0"))
     }
 
     private fun uiSources(): List<File> =

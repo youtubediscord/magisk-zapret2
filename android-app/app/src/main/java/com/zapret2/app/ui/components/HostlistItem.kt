@@ -13,6 +13,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -35,6 +36,10 @@ fun HostlistItem(
     onClick: () -> Unit,
 ) {
     val context = LocalContext.current
+    val displayName = remember(filename) { filename.removeSuffix(".txt") }
+    val formattedSize = remember(context, sizeBytes) {
+        Formatter.formatShortFileSize(context, sizeBytes)
+    }
     Surface(
         onClick = onClick,
         enabled = enabled,
@@ -59,7 +64,7 @@ fun HostlistItem(
             Spacer(Modifier.width(SpacingTokens.Large))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = filename.removeSuffix(".txt"),
+                    text = displayName,
                     style = MaterialTheme.typography.titleSmall,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
@@ -76,7 +81,7 @@ fun HostlistItem(
             }
             Spacer(Modifier.width(SpacingTokens.Medium))
             Text(
-                text = Formatter.formatShortFileSize(context, sizeBytes),
+                text = formattedSize,
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.outline,
             )

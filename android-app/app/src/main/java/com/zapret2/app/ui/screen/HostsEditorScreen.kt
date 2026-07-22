@@ -81,6 +81,8 @@ fun HostsEditorScreen(
     val contentLineCount = remember(state.content) {
         if (state.content.isBlank()) 0 else state.content.lineSequence().count()
     }
+    val editorTextColor = MaterialTheme.colorScheme.onSurface
+    val editorTextStyle = remember(editorTextColor) { MonospaceStyle.copy(color = editorTextColor) }
 
     LifecycleStartEffect(activeViewModel) {
         activeViewModel?.onScreenEntered()
@@ -237,7 +239,7 @@ fun HostsEditorScreen(
                             .weight(1f),
                         enabled = state.actionsEnabled,
                         isError = hasUnsavedChanges && !contentIsValid,
-                        textStyle = MonospaceStyle.copy(color = MaterialTheme.colorScheme.onSurface),
+                        textStyle = editorTextStyle,
                         label = { Text(stringResource(R.string.hosts_entries)) },
                         supportingText = {
                             Text(

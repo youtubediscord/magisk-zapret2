@@ -77,6 +77,8 @@ fun ConfigEditorScreen(
     val commandLineCount = remember(state.commandText) {
         if (state.commandText.isBlank()) 0 else state.commandText.lineSequence().count()
     }
+    val editorTextColor = MaterialTheme.colorScheme.onSurface
+    val editorTextStyle = remember(editorTextColor) { MonospaceStyle.copy(color = editorTextColor) }
     var showExitDialog by rememberSaveable { mutableStateOf(false) }
     var showReloadDialog by rememberSaveable { mutableStateOf(false) }
 
@@ -253,7 +255,7 @@ fun ConfigEditorScreen(
                             .fillMaxWidth()
                             .weight(1f),
                         enabled = state.actionsEnabled && state.hasAuthoritativeBinding,
-                        textStyle = MonospaceStyle.copy(color = MaterialTheme.colorScheme.onSurface),
+                        textStyle = editorTextStyle,
                         label = { Text(stringResource(R.string.config_editor_field_label)) },
                         supportingText = {
                             Text(

@@ -32,6 +32,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material.icons.Icons
@@ -78,6 +79,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -372,7 +374,11 @@ private fun CategoriesContent(
                 item { EmptyCategoriesState(onReload = onReload) }
             }
 
-            items(state.categories, key = { it.key }) { category ->
+            items(
+                items = state.categories,
+                key = { it.key },
+                contentType = { "category" },
+            ) { category ->
                 CategoryRow(
                     title = category.title,
                     subtitle = category.subtitle.resolve(),
@@ -436,6 +442,8 @@ private fun StrategyPickerView(
         ?: StrategyOrderSaveState()
     val isOrderSaving = categoryOrderState.status == StrategyOrderSaveStatus.SAVING
     val canReorder = !isLoading && loadError == null && details.isNotEmpty()
+    val currentOnRetry by rememberUpdatedState(onRetry)
+    val currentOnConsumeOrderSaved by rememberUpdatedState(onConsumeOrderSaved)
 
     LaunchedEffect(category.key, loadedDetails) {
         details.clear()
@@ -443,13 +451,13 @@ private fun StrategyPickerView(
     }
 
     LaunchedEffect(category.key, category.type) {
-        onRetry()
+        currentOnRetry()
     }
 
     LaunchedEffect(categoryOrderState.status) {
         if (categoryOrderState.status == StrategyOrderSaveStatus.SAVED) {
             isReorderMode = false
-            onConsumeOrderSaved()
+            currentOnConsumeOrderSaved()
         }
     }
 
@@ -615,8 +623,12 @@ private fun StrategyPickerView(
                         contentPadding = PaddingValues(bottom = SpacingTokens.ExtraLarge),
                         verticalArrangement = Arrangement.spacedBy(SpacingTokens.Small),
                     ) {
-                        items(displayList, key = { it.id }) { strategy ->
-                            val currentIndex = details.indexOf(strategy)
+                        itemsIndexed(
+                            items = displayList,
+                            key = { _, strategy -> strategy.id },
+                            contentType = { _, _ -> "strategy" },
+                        ) { index, strategy ->
+                            val currentIndex = if (isReorderMode) index else 0
                             StrategyCard(
                                 strategy = strategy,
                                 isSelected = strategy.id == category.strategy,
@@ -772,7 +784,11 @@ private fun StrategyCard(
     } else {
         strategy.description
     }
-    val positionDescription = stringResource(R.string.strategy_position, position + 1, totalCount)
+    val positionDescription = if (isReorderMode) {
+        stringResource(R.string.strategy_position, position + 1, totalCount)
+    } else {
+        ""
+    }
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.large,

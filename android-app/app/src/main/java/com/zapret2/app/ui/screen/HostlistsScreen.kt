@@ -38,6 +38,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -79,6 +80,13 @@ fun HostlistsScreen(
     val runtimeState = activeViewModel?.uiState?.collectAsStateWithLifecycle()
     val state = previewState ?: runtimeState?.value ?: HostlistsUiState()
     val reduceMotion = LocalReducedMotionEnabled.current
+    val locale = Locale.getDefault()
+    val compactNumberFormat = remember(locale) {
+        CompactDecimalFormat.getInstance(locale, CompactDecimalFormat.CompactStyle.SHORT)
+    }
+    val formattedTotalEntries = remember(state.totalEntries, compactNumberFormat) {
+        compactNumberFormat.format(state.totalEntries)
+    }
 
     LifecycleStartEffect(activeViewModel) {
         activeViewModel?.onScreenEntered()
@@ -134,7 +142,7 @@ fun HostlistsScreen(
                                 Text(
                                     text = stringResource(
                                         R.string.hostlists_total_entries,
-                                        formatNumber(state.totalEntries),
+                                        formattedTotalEntries,
                                     ),
                                     style = MaterialTheme.typography.headlineSmallEmphasized,
                                 )
@@ -216,7 +224,11 @@ fun HostlistsScreen(
                     item { EmptyHostlistState(onRefresh = { activeViewModel?.refresh() }) }
                 }
 
-                items(state.hostlists, key = { it.filename }) { hostlist ->
+                items(
+                    items = state.hostlists,
+                    key = { it.filename },
+                    contentType = { "hostlist" },
+                ) { hostlist ->
                     HostlistItem(
                         filename = hostlist.filename,
                         entryCount = hostlist.entryCount,
@@ -328,11 +340,6 @@ private fun EmptyHostlistState(onRefresh: () -> Unit) {
         }
     }
 }
-
-private fun formatNumber(number: Int): String = CompactDecimalFormat.getInstance(
-    Locale.getDefault(),
-    CompactDecimalFormat.CompactStyle.SHORT,
-).format(number)
 
 private fun hostlistIcon(filename: String): ImageVector {
     val normalized = filename.lowercase().removeSuffix(".txt")

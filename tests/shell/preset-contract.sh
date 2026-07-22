@@ -26,6 +26,12 @@ if grep -R -q -- '^--name=' "$ROOT/zapret2/presets"; then fail "unsupported prof
 if grep -R -q -- '^--in-range=' "$ROOT/zapret2/presets"; then fail "inbound range remains"; fi
 if grep -R -q -- '^--lua-desync=circular:' "$ROOT/zapret2/presets"; then fail "circular strategy remains"; fi
 if grep -R -q -- 'russia-youtube-ipset.txt' "$ROOT/zapret2/presets"; then fail "stale russia-youtube ipset name remains"; fi
+for preset in "$ROOT"/zapret2/presets/*.txt; do
+    awk '
+        /^[[:space:]]*$/ { blanks++; if (blanks > 1) exit 1; next }
+        { blanks=0 }
+    ' "$preset" || fail "consecutive blank lines: $preset"
+done
 
 scan="$TMP_ROOT/repository-preset-scan"
 sh "$ROOT/zapret2/scripts/command-builder.sh" --scan-presets-machine "$ROOT/zapret2" > "$scan"

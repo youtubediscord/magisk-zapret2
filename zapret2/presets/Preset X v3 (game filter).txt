@@ -13,8 +13,6 @@
 --ipcache-lifetime=8400
 --ipcache-hostname=1
 
-
-
 --blob=tls_google:@bin/tls_clienthello_www_google_com.bin
 --blob=tls1:@bin/tls_clienthello_1.bin
 --blob=tls2:@bin/tls_clienthello_2.bin
