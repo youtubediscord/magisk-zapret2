@@ -217,10 +217,14 @@ object ServiceLifecycleController {
     suspend fun checkRootAccess(): RootAccess {
         val result = executeRaw("id -u", requireRoot = false)
         val uid = result.stdout.firstOrNull()?.trim()
-        return classifyRootAccess(result, uid)
+        return classifyRootAccess(result, uid, Shell.isAppGrantedRoot())
     }
 
-    internal fun classifyRootAccess(result: CommandResult, uid: String?): RootAccess {
+    internal fun classifyRootAccess(
+        result: CommandResult,
+        uid: String?,
+        appGrantedRoot: Boolean? = null,
+    ): RootAccess {
         if (result.success && uid == "0") return RootAccess(RootAccessState.GRANTED)
         val canonicalUid = uid?.takeIf { it.matches(Regex("(?:0|[1-9][0-9]*)")) }
         val diagnostic = listOfNotNull(
@@ -236,12 +240,15 @@ object ServiceLifecycleController {
                 RootAccessState.MANAGER_UNAVAILABLE
             listOf("denied", "not granted", "permission").any(normalized::contains) ->
                 RootAccessState.DENIED
+            appGrantedRoot == false -> RootAccessState.DENIED
             else -> RootAccessState.SHELL_FAILURE
         }
         val message = if (result.success && canonicalUid != null) {
             "Root access was not granted (uid=$uid)"
         } else if (result.success) {
             "Root shell returned an invalid uid"
+        } else if (appGrantedRoot == false) {
+            "Root access was not granted by the root manager"
         } else {
             diagnostic
         }
@@ -827,7 +834,7 @@ object ServiceLifecycleController {
                 val probe = executeShell("id -u")
                 val uid = probe.stdout.firstOrNull()?.trim()
                 if (!probe.success || uid != "0") {
-                    val access = classifyRootAccess(probe, uid)
+                    val access = classifyRootAccess(probe, uid, Shell.isAppGrantedRoot())
                     return@withContext CommandResult(
                         success = false,
                         stdout = probe.stdout,

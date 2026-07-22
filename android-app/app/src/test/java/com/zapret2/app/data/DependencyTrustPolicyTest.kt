@@ -42,7 +42,7 @@ class DependencyTrustPolicyTest {
         assertEquals("Every resolved artifact must have exactly one SHA-256", artifacts.length, checksums.length)
         assertEquals(
             "Unexpected verification metadata bytes",
-            "6d11d155d0409191170649c77195c40308e34e0bb73722291dd739291d34033b",
+            "a43be8deda50158426cb7ea12fc68993d4ae0949d75d984838c4406e329a3044",
             sha256(metadata),
         )
     }

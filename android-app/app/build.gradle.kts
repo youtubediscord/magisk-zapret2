@@ -86,7 +86,7 @@ dependencyLocking {
 
 dependencies {
     // libsu - root library by topjohnwu (Magisk author)
-    implementation("com.github.topjohnwu.libsu:core:5.2.2")
+    implementation("com.github.topjohnwu.libsu:core:6.0.0")
 
     // AndroidX core
     implementation("androidx.core:core-ktx:1.15.0")

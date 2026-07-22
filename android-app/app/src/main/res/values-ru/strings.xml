@@ -182,7 +182,7 @@
     <string name="control_packet_count">Количество пакетов</string>
     <string name="control_packet_range">Введите значение от 1 до 999 999 999</string>
     <string name="control_status_degraded">Служба работает с ошибками</string>
-    <string name="control_status_root_denied">Root-доступ отклонён</string>
+    <string name="control_status_root_denied">Разрешите root-доступ в root-менеджере</string>
     <string name="control_status_root_manager_unavailable">Root-менеджер недоступен</string>
     <string name="control_status_root_shell_failed">Сбой root-оболочки</string>
     <string name="control_status_root_timeout">Истекло время запроса root</string>
