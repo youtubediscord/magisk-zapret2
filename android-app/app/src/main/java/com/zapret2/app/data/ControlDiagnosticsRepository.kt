@@ -118,11 +118,20 @@ class ControlDiagnosticsRepository @Inject constructor() {
                             fi
                         fi
                         if [ "${'$'}z2_module_state" = ready ]; then
-                            z2_category_validation=${'$'}(/system/bin/sh $commandBuilder \
-                                --validate-categories-machine $zapretDirectory) || z2_module_state=partial
+                            z2_strategy_validation=${'$'}(/system/bin/sh $commandBuilder \
+                                --validate-strategies-machine $zapretDirectory) || z2_module_state=partial
                             if [ "${'$'}z2_module_state" = ready ] &&
-                                [ "${'$'}z2_category_validation" != "${'$'}(printf 'Z2_CATEGORIES\tOK')" ]; then
+                                [ "${'$'}z2_strategy_validation" != "${'$'}(printf 'Z2_STRATEGIES\tOK')" ]; then
                                 z2_module_state=partial
+                            fi
+                        fi
+                        if [ "${'$'}z2_module_state" = ready ]; then
+                            z2_active_preset=${'$'}(package_contract_runtime_core_value $moduleDir active_preset) ||
+                                z2_module_state=partial
+                            if [ "${'$'}z2_module_state" = ready ]; then
+                                /system/bin/sh $commandBuilder --preflight-preset-machine $zapretDirectory \
+                                    "$zapretDirectory/presets/${'$'}z2_active_preset" "${'$'}z2_active_preset" \
+                                    >/dev/null 2>&1 || z2_module_state=partial
                             fi
                         fi
                         if [ -e $removeMarker ] || [ -L $removeMarker ]; then

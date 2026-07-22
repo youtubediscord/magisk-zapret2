@@ -612,7 +612,7 @@ capture_snapshot() {
     capture_root_query "$csp_dir/magisk.txt" 'magisk -v; magisk -V'
     capture_root_query "$csp_dir/module-prop.txt" "cat $MODULE_DIR/module.prop"
     capture_root_query "$csp_dir/install-generation.meta" "cat $MODULE_DIR/zapret2/install-generation.meta"
-    capture_root_query "$csp_dir/module-hashes.txt" "sha256sum $MODULE_DIR/module.prop $MODULE_DIR/zapret2/runtime.ini $MODULE_DIR/zapret2/categories.ini $MODULE_DIR/zapret2/install-generation.meta 2>/dev/null"
+    capture_root_query "$csp_dir/module-hashes.txt" "sha256sum $MODULE_DIR/module.prop $MODULE_DIR/zapret2/runtime.ini $MODULE_DIR/zapret2/strategy-catalogs/*.txt $MODULE_DIR/zapret2/install-generation.meta 2>/dev/null"
     capture_root_query "$csp_dir/state-listing.txt" "ls -lan $STATE_DIR 2>/dev/null"
     capture_root_query "$csp_dir/module-listing.txt" "ls -lan $MODULE_DIR $MODULE_DIR/zapret2 $MODULE_DIR/system/bin 2>/dev/null"
     capture_root_query "$csp_dir/processes.txt" "ps -A 2>/dev/null | grep nfqws2 || true"
@@ -665,7 +665,10 @@ preflight_device() {
     check_remote_path "$pd_report" "$STATE_DIR" d 700
     check_remote_path "$pd_report" "$MODULE_DIR/module.prop" f 644
     check_remote_path "$pd_report" "$MODULE_DIR/zapret2/runtime.ini" f 644
-    check_remote_path "$pd_report" "$MODULE_DIR/zapret2/categories.ini" f 644
+    check_remote_path "$pd_report" "$MODULE_DIR/zapret2/strategy-catalogs/tcp.txt" f 644
+    check_remote_path "$pd_report" "$MODULE_DIR/zapret2/strategy-catalogs/udp.txt" f 644
+    check_remote_path "$pd_report" "$MODULE_DIR/zapret2/strategy-catalogs/voice.txt" f 644
+    check_remote_path "$pd_report" "$MODULE_DIR/zapret2/strategy-catalogs/http80.txt" f 644
     check_remote_path "$pd_report" "$MODULE_DIR/zapret2/install-generation.meta" f 600
     check_remote_path "$pd_report" "$MODULE_DIR/system/bin/zapret2-start" f 755
     check_remote_path "$pd_report" "$MODULE_DIR/system/bin/zapret2-stop" f 755

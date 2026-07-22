@@ -138,8 +138,8 @@ class OwnerStateSchemaTest {
         val tag = "Ab12Cd34Ef"
         val outChain = "Z2O_$tag"
         val inChain = "Z2I_$tag"
-        val ipv4Spec = "family:ipv4;active:1;tag:$tag;outchain:$outChain;inchain:$inChain;qnum:200;tcp:80,443;udp:443;stun:3478,5349,19302;out:20;in:10;mark:0x40000000;connbytes:1;multiport:1;markcap:1;rules:6"
-        val ipv6Spec = "family:ipv6;active:0;tag:$tag;outchain:$outChain;inchain:$inChain;qnum:200;tcp:80,443;udp:443;stun:3478,5349,19302;out:20;in:10;mark:0x40000000;connbytes:1;multiport:1;markcap:1;rules:0"
+        val ipv4Spec = "family:ipv4;active:1;tag:$tag;outchain:$outChain;inchain:$inChain;qnum:200;tcp:80,443;udp:443;stun:0;out:20;in:10;mark:0x40000000;connbytes:1;multiport:1;markcap:1;rules:4"
+        val ipv6Spec = "family:ipv6;active:0;tag:$tag;outchain:$outChain;inchain:$inChain;qnum:200;tcp:80,443;udp:443;stun:0;out:20;in:10;mark:0x40000000;connbytes:1;multiport:1;markcap:1;rules:0"
         val fingerprint = MessageDigest.getInstance("SHA-256")
             .digest("$ipv4Spec\n$ipv6Spec\n".toByteArray(Charsets.UTF_8))
             .joinToString("") { "%02x".format(it.toInt() and 0xff) }
@@ -161,7 +161,7 @@ class OwnerStateSchemaTest {
             "in_chain" to inChain,
             "ports_tcp" to "80,443",
             "ports_udp" to "443",
-            "stun_ports" to "3478,5349,19302",
+            "stun_ports" to "0",
             "pkt_out" to "20",
             "pkt_in" to "10",
             "desync_mark" to "0x40000000",
@@ -173,7 +173,7 @@ class OwnerStateSchemaTest {
             "ipv6_connbytes" to "1",
             "ipv6_multiport" to "1",
             "ipv6_mark" to "1",
-            "ipv4_rules" to "6",
+            "ipv4_rules" to "4",
             "ipv6_rules" to "0",
             "ipv4_spec" to ipv4Spec,
             "ipv6_spec" to ipv6Spec,

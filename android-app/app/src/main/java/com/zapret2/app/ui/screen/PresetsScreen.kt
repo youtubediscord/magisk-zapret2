@@ -1,5 +1,8 @@
 package com.zapret2.app.ui.screen
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -19,7 +22,6 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Category
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Error
@@ -27,7 +29,6 @@ import androidx.compose.material.icons.filled.FolderOff
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SettingsSuggest
 import androidx.compose.material.icons.filled.WarningAmber
-import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilledTonalButton
@@ -43,6 +44,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -66,6 +68,8 @@ import com.zapret2.app.ui.components.SettingRow
 import com.zapret2.app.ui.theme.extendedColors
 import com.zapret2.app.viewmodel.PresetsViewModel
 import com.zapret2.app.viewmodel.PresetsUiState
+import com.zapret2.app.viewmodel.PresetPreviewUiStatus
+import com.zapret2.app.viewmodel.PresetsOperation
 
 @Composable
 fun PresetsScreen(
@@ -76,8 +80,8 @@ fun PresetsScreen(
     val runtimeState = activeViewModel?.uiState?.collectAsStateWithLifecycle()
     val state = previewState ?: runtimeState?.value ?: PresetsUiState()
     val snackbarHostState = remember { SnackbarHostState() }
+    val context = LocalContext.current
     val settingsEnabled = !state.isLoading && state.hasAuthoritativeCatalog
-    val presetModeActive = state.activeMode in presetModes
 
     LifecycleStartEffect(activeViewModel) {
         activeViewModel?.onScreenEntered()
@@ -87,6 +91,16 @@ fun PresetsScreen(
     AppSnackbarEffect(state.message, snackbarHostState) { activeViewModel?.clearMessage() }
 
     state.editingPreset?.let { editor ->
+        val previewError = when (editor.previewStatus) {
+            PresetPreviewUiStatus.REJECTED -> stringResource(
+                R.string.presets_preview_rejected,
+                stringResource((editor.previewIssue ?: PresetIssue.UNKNOWN).labelResource()),
+            )
+            PresetPreviewUiStatus.FAILED -> stringResource(R.string.presets_preview_failed)
+            PresetPreviewUiStatus.BLOCKED -> stringResource(R.string.presets_preview_blocked)
+            PresetPreviewUiStatus.IDLE,
+            PresetPreviewUiStatus.READY -> null
+        }
         PresetEditorDialog(
             fileName = editor.fileName,
             content = editor.content,
@@ -98,7 +112,15 @@ fun PresetsScreen(
             } else {
                 stringResource(R.string.presets_editor_source_unavailable)
             },
+            commandPreview = editor.commandPreview,
+            previewError = previewError,
+            previewLoading = state.operation == PresetsOperation.PREVIEW,
             onContentChange = { activeViewModel?.updatePresetContent(it) },
+            onPreview = { activeViewModel?.previewPreset() },
+            onCopyPreview = { command ->
+                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                clipboard.setPrimaryClip(ClipData.newPlainText("nfqws2 argv", command))
+            },
             onDismiss = { discardUnsavedChanges ->
                 activeViewModel?.closePresetEditor(discardUnsavedChanges)
             },
@@ -149,7 +171,7 @@ fun PresetsScreen(
                                     )
                                     Text(
                                         text = if (state.hasAuthoritativeCatalog) {
-                                            activeModeLabel(state.activeMode)
+                                            stringResource(R.string.presets_mode_file)
                                         } else {
                                             stringResource(R.string.presets_state_unavailable)
                                         },
@@ -164,11 +186,9 @@ fun PresetsScreen(
                                 value = when {
                                     !state.hasAuthoritativeCatalog ->
                                         stringResource(R.string.presets_state_unavailable)
-                                    presetModeActive -> state.activePresetFile.ifBlank {
+                                    else -> state.activePresetFile.ifBlank {
                                         stringResource(R.string.presets_not_set)
                                     }
-                                    state.activeMode in commandLineModes -> state.activeCmdlineFile
-                                    else -> stringResource(R.string.presets_categories_file)
                                 },
                             )
                         }
@@ -185,16 +205,6 @@ fun PresetsScreen(
                                 Icon(Icons.Default.Refresh, contentDescription = null)
                                 Spacer(Modifier.width(SpacingTokens.Small))
                                 Text(stringResource(R.string.action_reload))
-                            }
-                            Button(
-                                onClick = { activeViewModel?.switchToCategoriesMode() },
-                                enabled = settingsEnabled && state.activeMode !in categoryModes,
-                                shape = MaterialTheme.shapes.extraLarge,
-                                modifier = buttonModifier,
-                            ) {
-                                Icon(Icons.Default.Category, contentDescription = null)
-                                Spacer(Modifier.width(SpacingTokens.Small))
-                                Text(stringResource(R.string.presets_use_categories))
                             }
                         }
                     }
@@ -233,7 +243,7 @@ fun PresetsScreen(
                         key = PresetEntry::fileName,
                         contentType = { "preset" },
                     ) { preset ->
-                        val isActive = presetModeActive && state.activePresetFile == preset.fileName
+                        val isActive = state.activePresetFile == preset.fileName
                         PresetCard(
                             preset = preset,
                             isActive = isActive,
@@ -307,7 +317,6 @@ private fun PresetDurableOutcomeBanner(
         PresetDurableOutcome.APPLIED,
         PresetDurableOutcome.SAVED,
         PresetDurableOutcome.SAVED_AND_APPLIED,
-        PresetDurableOutcome.CATEGORIES_ENABLED,
     )
     val colors = if (success) MaterialTheme.extendedColors.success else MaterialTheme.extendedColors.warning
     val detail = if (outcome == PresetDurableOutcome.REJECTED && issue != null) {
@@ -344,6 +353,22 @@ private fun PresetIssue.labelResource(): Int = when (this) {
     PresetIssue.PRESET_UNREADABLE,
     PresetIssue.DEPENDENCY_UNREADABLE -> R.string.presets_issue_unreadable
     PresetIssue.FORBIDDEN_IPCACHE_OPTION -> R.string.presets_issue_ipcache_forbidden
+    PresetIssue.NFQWS_DRY_RUN_FAILED -> R.string.presets_issue_dry_run_failed
+    PresetIssue.UNKNOWN_OPTION,
+    PresetIssue.WINDOWS_OPTION_FORBIDDEN,
+    PresetIssue.GLOBAL_OPTION_AFTER_PROFILE,
+    PresetIssue.EMPTY_PROFILE,
+    PresetIssue.TRAILING_NEW,
+    PresetIssue.PROFILE_NAME_MISSING,
+    PresetIssue.PROFILE_DUPLICATE_NAME,
+    PresetIssue.PROFILE_DUPLICATE_SKIP,
+    PresetIssue.PROFILE_FILTER_MISSING,
+    PresetIssue.PROFILE_STRATEGY_MISSING,
+    PresetIssue.INVALID_FILTER,
+    PresetIssue.INVALID_BLOB,
+    PresetIssue.INVALID_OPTION_VALUE,
+    PresetIssue.UNSAFE_OPTION_VALUE,
+    PresetIssue.NO_ENABLED_PROFILE,
     PresetIssue.MALFORMED_PROTOCOL,
     PresetIssue.UNKNOWN -> R.string.presets_issue_unknown
 }
@@ -352,7 +377,6 @@ private fun PresetDurableOutcome.labelResource(): Int = when (this) {
     PresetDurableOutcome.APPLIED -> R.string.presets_applied
     PresetDurableOutcome.SAVED -> R.string.presets_saved
     PresetDurableOutcome.SAVED_AND_APPLIED -> R.string.presets_saved_applied
-    PresetDurableOutcome.CATEGORIES_ENABLED -> R.string.presets_categories_enabled
     PresetDurableOutcome.REJECTED -> R.string.presets_validation_rejected
     PresetDurableOutcome.SOURCE_CHANGED -> R.string.presets_source_changed
     PresetDurableOutcome.RESTART_FAILED_ROLLED_BACK -> R.string.presets_restart_failed_rolled_back
@@ -528,16 +552,3 @@ private fun PresetLoadErrorState(message: String, onReload: () -> Unit) {
         }
     }
 }
-
-private val presetModes = setOf("file", "preset", "txt")
-private val commandLineModes = setOf("cmdline")
-private val categoryModes = setOf("categories")
-
-@Composable
-private fun activeModeLabel(mode: String): String = stringResource(
-    when (mode) {
-        in presetModes -> R.string.presets_mode_file
-        in commandLineModes -> R.string.presets_mode_command
-        else -> R.string.presets_mode_categories
-    },
-)

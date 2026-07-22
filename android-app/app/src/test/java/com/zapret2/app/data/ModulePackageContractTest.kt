@@ -101,14 +101,14 @@ class ModulePackageContractTest {
             "immutable-file|0644|module.prop",
             "immutable-file|0644|zapret2/runtime-manifest.tsv",
             "immutable-file|0644|zapret2/upstream-zapret2.commit",
-            "immutable-file|0644|zapret2/strategies-tcp.ini",
-            "immutable-file|0644|zapret2/strategies-udp.ini",
-            "immutable-file|0644|zapret2/strategies-stun.ini",
-            "immutable-file|0644|zapret2/blobs.txt",
-            "mutable-seed|0644|zapret2/config.sh",
+            "immutable-file|0644|zapret2/strategy-catalogs/tcp.txt",
+            "immutable-file|0644|zapret2/strategy-catalogs/udp.txt",
+            "immutable-file|0644|zapret2/strategy-catalogs/voice.txt",
+            "immutable-file|0644|zapret2/strategy-catalogs/http80.txt",
             "mutable-seed|0644|zapret2/runtime.ini",
-            "mutable-seed|0644|zapret2/categories.ini",
             "mutable-seed|0644|zapret2/hosts.ini",
+            "mutable-seed|0644|zapret2/lua/zapret-custom.lua",
+            "mutable-seed|0644|zapret2/lua/init_vars.lua",
             "runtime-dependency-immutable|0644|zapret2/lua/custom_funcs.lua",
             "runtime-dependency-immutable|0644|zapret2/lua/zapret-antidpi.lua",
             "runtime-dependency-immutable|0644|zapret2/lua/zapret-auto.lua",
@@ -124,7 +124,7 @@ class ModulePackageContractTest {
             "immutable-exec|0755|zapret2/scripts/common.sh",
             "immutable-exec|0755|zapret2/scripts/command-builder.sh",
             "immutable-exec|0755|zapret2/scripts/package-contract.sh",
-            "immutable-exec|0755|zapret2/scripts/runtime-migrate.sh",
+            "immutable-exec|0755|zapret2/scripts/runtime-init.sh",
             "immutable-exec|0755|zapret2/scripts/zapret-start.sh",
             "immutable-exec|0755|zapret2/scripts/zapret-stop.sh",
             "immutable-exec|0755|zapret2/scripts/zapret-restart.sh",
@@ -192,7 +192,7 @@ class ModulePackageContractTest {
         val requiredRuntimeFiles = setOf(
             "zapret2/scripts/command-builder.sh",
             "zapret2/scripts/package-contract.sh",
-            "zapret2/scripts/runtime-migrate.sh",
+            "zapret2/scripts/runtime-init.sh",
             "zapret2/lua/zapret-lib.lua",
             "zapret2/lua/zapret-antidpi.lua",
             "zapret2/lua/zapret-auto.lua",
@@ -207,57 +207,6 @@ class ModulePackageContractTest {
             writeValidPackage(stage)
             File(stage, relative).delete()
             assertNotNull("Expected missing $relative to be rejected", ModulePackageContract.validateStaging(stage, "arm64-v8a"))
-        }
-    }
-
-    @Test
-    fun categoryDependenciesAreCanonicalPresentAndDeclared() {
-        val manifestLines = sourceManifest().lineSequence().toSet()
-        val categories = repositoryFile("zapret2/categories.ini")
-        val sections = mutableListOf<Map<String, String>>()
-        var current = linkedMapOf<String, String>()
-        categories.readLines().forEach { rawLine ->
-            val line = rawLine.trim()
-            when {
-                line.length > 2 && line.startsWith('[') && line.endsWith(']') -> {
-                    if (current.isNotEmpty()) sections += current
-                    current = linkedMapOf("section" to line.removeSurrounding("[", "]"))
-                }
-                line.isNotEmpty() && !line.startsWith('#') && '=' in line -> {
-                    current[line.substringBefore('=').trim()] = line.substringAfter('=').trim()
-                }
-            }
-        }
-        if (current.isNotEmpty()) sections += current
-
-        sections.forEach { section ->
-            val filterMode = section["filter_mode"] ?: return@forEach
-            val hostlist = section["hostlist"].orEmpty()
-            val ipset = section["ipset"].orEmpty()
-            when (filterMode) {
-                "hostlist" -> {
-                    assertTrue("${section["section"]} needs a hostlist", hostlist.isNotEmpty())
-                    assertTrue("${section["section"]} has an inactive ipset", ipset.isEmpty())
-                }
-                "ipset" -> {
-                    assertTrue("${section["section"]} needs an ipset", ipset.isNotEmpty())
-                    assertTrue("${section["section"]} has an inactive hostlist", hostlist.isEmpty())
-                }
-                "hostlist-domains", "none" -> {
-                    assertTrue("${section["section"]} has an inactive hostlist", hostlist.isEmpty())
-                    assertTrue("${section["section"]} has an inactive ipset", ipset.isEmpty())
-                }
-                else -> error("Unexpected filter mode in ${section["section"]}: $filterMode")
-            }
-            listOf(hostlist, ipset).filter(String::isNotEmpty).forEach { name ->
-                assertFalse("Category dependency must be a direct filename", '/' in name || '\\' in name)
-                val relative = "zapret2/lists/$name"
-                assertTrue("Category dependency is missing: $relative", repositoryFile(relative).isFile)
-                assertTrue(
-                    "Category dependency is not declared: $relative",
-                    "runtime-dependency-mutable-seed|0644|$relative" in manifestLines,
-                )
-            }
         }
     }
 
@@ -354,22 +303,19 @@ class ModulePackageContractTest {
     fun mutablePreservationAllowlistCannotRetainObsoleteImmutableFiles() {
         val preserved = ModulePackageContract.preservedMutableFiles +
             ModulePackageContract.preservedUserLuaFiles +
-            ModulePackageContract.PRESERVED_LISTS_DIRECTORY
+            ModulePackageContract.PRESERVED_LISTS_DIRECTORY +
+            ModulePackageContract.PRESERVED_CUSTOM_PRESETS_DIRECTORY
         assertEquals(
             setOf(
                 "zapret2/runtime.ini",
-                "zapret2/categories.ini",
-                "zapret2/config.sh",
-                "zapret2/lua/zapret-custom.lua",
-                "zapret2/lua/init_vars.lua",
-                "zapret2/lists"
+                "zapret2/lists",
+                "zapret2/presets",
             ),
             preserved.toSet()
         )
         assertTrue("zapret2/runtime.ini" in preserved)
-        assertEquals(256 * 1024, ModulePackageContract.MAX_PRESERVED_USER_LUA_BYTES)
-        assertEquals(256 * 1024, ModulePackageContract.MAX_PRESERVED_COMMAND_LINE_BYTES)
-        assertEquals("custom_cmdline_file", ModulePackageContract.PRESERVED_COMMAND_LINE_CONFIG_KEY)
+        assertFalse("zapret2/lua/zapret-custom.lua" in preserved)
+        assertFalse("zapret2/lua/init_vars.lua" in preserved)
         assertFalse("zapret2/lua/zapret-lib.lua" in preserved)
         assertFalse("zapret2/lua/zapret-antidpi.lua" in preserved)
         assertFalse("zapret2/lua/custom_funcs.lua" in preserved)
@@ -394,13 +340,10 @@ class ModulePackageContractTest {
         assertTrue(shell.contains("stat -c %a"))
         assertTrue(shell.contains("chmod 0600 '/candidate/disable'"))
         assertTrue(shell.contains("'/candidate/${ModulePackageContract.PACKAGE_CONTRACT_SCRIPT_PATH}'"))
-        assertTrue(shell.contains("package_contract_configured_cmdline_relative '/active'"))
-        assertTrue(shell.contains("source_cmdline='/active/zapret2'/\"\$cmdline_name\""))
-        assertTrue(shell.contains("target_cmdline='/candidate/zapret2'/\"\$cmdline_name\""))
-        assertTrue(shell.contains("case \"\$source_cmdline_mode\" in 600|644)"))
-        assertTrue(shell.contains("chmod 0644 \"\$target_cmdline\""))
-        assertTrue(shell.contains("stat -c %a \"\$target_cmdline\""))
-        assertTrue(shell.contains("size\" -le ${ModulePackageContract.MAX_PRESERVED_COMMAND_LINE_BYTES}"))
+        assertTrue(shell.contains("package_contract_safe_preset_name"))
+        assertTrue(shell.contains("'/active/zapret2/presets'"))
+        assertTrue(shell.contains("'/candidate/zapret2/presets'"))
+        assertTrue(shell.contains("size\" -le 1048576"))
         assertTrue(shell.contains("cmp -s"))
     }
 

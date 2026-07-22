@@ -245,7 +245,7 @@ cp "$ROOT/module.prop" "$ROOT/customize.sh" "$ROOT/service.sh" "$ROOT/uninstall.
     "$ROOT/action.sh" "$FIXTURE/"
 cp -R "$ROOT/system" "$ROOT/zapret2" "$FIXTURE/"
 mkdir -p "$FIXTURE/zapret2/bin/arm64-v8a"
-printf '%s\n' 'test-nfqws2' > "$FIXTURE/zapret2/bin/arm64-v8a/nfqws2"
+cp /bin/true "$FIXTURE/zapret2/bin/arm64-v8a/nfqws2"
 mkdir -p "$FIXTURE/zapret2/bin/armeabi-v7a"
 cp "$FIXTURE/zapret2/bin/arm64-v8a/nfqws2" "$FIXTURE/zapret2/bin/armeabi-v7a/nfqws2"
 rm -f "$FIXTURE/disable" "$FIXTURE/zapret2/install-generation.meta"

@@ -3,7 +3,6 @@ package com.zapret2.app.ui.navigation
 import androidx.annotation.StringRes
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
-import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.EditNote
 import androidx.compose.material.icons.filled.FolderOpen
@@ -22,9 +21,8 @@ sealed class Screen(
     val icon: ImageVector,
 ) {
     object Control : Screen("control", R.string.screen_control, Icons.Default.PlayArrow)
-    object Strategies : Screen("strategies", R.string.screen_strategies, Icons.Default.Tune)
+    object Profiles : Screen("profiles", R.string.screen_profiles, Icons.Default.Tune)
     object Presets : Screen("presets", R.string.screen_presets, Icons.Default.FolderOpen)
-    object ConfigEditor : Screen("config_editor", R.string.screen_config_editor, Icons.Default.Code)
     object Hostlists : Screen("hostlists", R.string.screen_hostlists, Icons.AutoMirrored.Filled.List)
     object HostsEditor : Screen("hosts_editor", R.string.screen_hosts_editor, Icons.Default.EditNote)
     object DnsManager : Screen("dns_manager", R.string.screen_dns_manager, Icons.Default.Dns)
@@ -44,8 +42,8 @@ sealed class Screen(
     }
 
     companion object {
-        val mainScreens = listOf(Control, Strategies)
-        val configScreens = listOf(Presets, ConfigEditor)
+        val mainScreens = listOf(Control, Profiles)
+        val configScreens = listOf(Presets)
         val dataScreens = listOf(Hostlists, HostsEditor, DnsManager)
         val systemScreens = listOf(Logs, About)
 
@@ -57,7 +55,7 @@ sealed class Screen(
         )
 
         private val navigationScreens = navigationGroups.flatMap { it.screens }
-        val mediumRailScreens = listOf(Control, Strategies, Presets, Hostlists, DnsManager, Logs)
+        val mediumRailScreens = listOf(Control, Profiles, Presets, Hostlists, DnsManager, Logs)
         val mediumOverflowScreens = navigationScreens.filterNot(mediumRailScreens::contains)
 
         @StringRes

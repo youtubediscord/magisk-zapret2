@@ -11,12 +11,11 @@
     <string name="nav_group_data">Data</string>
     <string name="nav_group_system">System</string>
     <string name="screen_control">Control</string>
-    <string name="screen_strategies">Strategies</string>
+    <string name="screen_profiles">Profiles</string>
     <string name="screen_hostlists">Hostlists</string>
     <string name="screen_logs">Logs</string>
     <string name="screen_about">About</string>
     <string name="screen_presets">Presets</string>
-    <string name="screen_config_editor">Configuration editor</string>
     <string name="screen_hosts_editor">Hosts editor</string>
     <string name="screen_dns_manager">DNS manager</string>
     <string name="screen_hostlist_content">Hostlist contents</string>
@@ -29,42 +28,12 @@
     <string name="action_refresh">Refresh</string>
     <string name="cd_refresh_hostlists">Refresh hostlists</string>
     <string name="config_discard_title">Discard unsaved changes?</string>
-    <string name="config_discard_body">Your edits will be lost if you leave this screen.</string>
-    <string name="config_reload_title">Reload configuration?</string>
-    <string name="config_reload_body">Reloading will replace unsaved edits with the current module configuration.</string>
-    <string name="config_mode_title">Enable configuration mode?</string>
-    <string name="config_mode_body">Configuration mode must be enabled before these changes can be applied.</string>
-    <string name="config_editor_title">Configuration</string>
-    <string name="config_cmdline_binding_unavailable">Command file binding unavailable</string>
-    <string name="config_editor_description">Edit the module’s command-line arguments.</string>
-    <string name="config_editor_field_label">Command line</string>
-    <string name="config_editor_empty">No command-line arguments are configured.</string>
-    <plurals name="config_line_count">
-        <item quantity="one">%1$d line</item>
-        <item quantity="other">%1$d lines</item>
-    </plurals>
-    <string name="config_command_empty">Command line is empty</string>
-    <string name="config_command_too_large">The command line must be 256 KB or smaller.</string>
-    <string name="config_command_invalid">The command line contains an unsupported or unsafe option. Nothing was saved.</string>
-    <string name="config_load_failed">Could not load the command line</string>
-    <string name="config_source_changed">The command source changed outside the app. It was reloaded; review your draft before saving again.</string>
-    <string name="config_save_failed">Could not save the command line</string>
-    <string name="config_rollback_failed">The command-line change failed and the previous file or runtime mode could not be restored. Reboot before retrying.</string>
-    <string name="config_saved">Command line saved</string>
-    <string name="config_saved_restarted">Command line saved and service restarted</string>
-    <string name="config_saved_restart_failed">Command line saved, but the service did not restart</string>
-    <string name="config_save_blocked">Module writes are blocked by an update, recovery, disable, or removal; the command line was not saved.</string>
-    <string name="loading_command_line">Loading command line…</string>
-    <string name="applying_changes">Applying changes…</string>
     <string name="action_retry">Retry</string>
     <string name="action_keep_editing">Keep editing</string>
     <string name="action_discard">Discard</string>
     <string name="action_save">Save</string>
     <string name="action_reload">Reload</string>
-    <string name="action_enable_restart">Enable and restart</string>
-    <string name="action_restart_current_mode">Restart in current mode</string>
     <string name="action_cancel">Cancel</string>
-    <string name="action_save_restart">Save &amp; restart</string>
     <string name="update_whats_new">What’s new:</string>
     <string name="update_later">Later</string>
     <string name="update_now">Update</string>
@@ -90,16 +59,12 @@
     <string name="state_inactive">Inactive</string>
     <string name="state_enabled">Enabled</string>
     <string name="state_disabled">Disabled</string>
-    <string name="strategy_no_bypass">DPI bypass is off</string>
     <string name="state_available">%1$s available</string>
     <string name="state_unavailable">%1$s unavailable</string>
     <string name="state_checking">Checking %1$s</string>
     <string name="cd_back">Back</string>
     <string name="cd_clear_search">Clear search</string>
     <string name="preset_edit_title">Edit preset</string>
-    <string name="preset_strategy_command">Strategy command</string>
-    <string name="strategy_filter_ipset">IPSet</string>
-    <string name="strategy_filter_hostlist">Hostlist</string>
     <string name="update_available_version">Update v%1$s available</string>
     <string name="update_scope_both">Module + APK</string>
     <string name="update_scope_module">Module</string>
@@ -441,9 +406,18 @@
     <string name="presets_not_set">Not set</string>
     <string name="presets_state_unavailable">Unavailable until presets are reloaded</string>
     <string name="presets_editor_source_unavailable">The preset source must be reloaded and verified before editing or saving.</string>
+    <string name="presets_editor_source_tab">Preset TXT</string>
+    <string name="presets_editor_command_tab">Final command</string>
+    <string name="presets_editor_source_label">Complete preset source</string>
+    <string name="presets_editor_command_label">Exact nfqws2 argv</string>
+    <string name="presets_compiling_preview">Compiling and verifying command…</string>
+    <string name="presets_preview_ready_hint">Build the exact command from the current editor contents. Unsaved changes are supported.</string>
+    <string name="presets_preview_build">Build command</string>
+    <string name="presets_preview_ports">Intercepted ports — TCP: %1$s · UDP: %2$s</string>
+    <string name="presets_preview_rejected">Command was rejected: %1$s</string>
+    <string name="presets_preview_failed">Could not build the command safely.</string>
+    <string name="presets_preview_blocked">Command preview is temporarily blocked by another module operation.</string>
     <string name="presets_source_changed">The preset changed outside the editor. Your draft was kept; reload and verify the current file before saving.</string>
-    <string name="presets_categories_file" translatable="false">categories.ini</string>
-    <string name="presets_use_categories">Use categories</string>
     <string name="presets_files">Preset files</string>
     <string name="presets_edit_item">Edit %1$s</string>
     <string name="presets_active">Active</string>
@@ -451,8 +425,6 @@
     <string name="presets_empty_title">No preset files found</string>
     <string name="presets_empty_body">Reload after adding .txt files to the presets directory.</string>
     <string name="presets_mode_file">Preset file</string>
-    <string name="presets_mode_command">Command line</string>
-    <string name="presets_mode_categories">Categories</string>
     <string name="presets_loading">Loading presets…</string>
     <string name="presets_load_error_title">Could not load presets</string>
     <string name="presets_load_failed">Check module access, then try again.</string>
@@ -460,8 +432,6 @@
     <string name="presets_applying">Applying %1$s…</string>
     <string name="presets_applied_file">%1$s applied</string>
     <string name="presets_mutation_blocked">Module writes are blocked by an update, recovery, disable, or removal; preset changes were not saved.</string>
-    <string name="presets_switching_categories">Switching to categories…</string>
-    <string name="presets_categories_enabled">Categories enabled</string>
     <string name="presets_loading_file">Loading %1$s…</string>
     <string name="presets_read_failed">Could not read the preset file</string>
     <string name="preset_discard_body">Your unsaved preset changes will be lost.</string>
@@ -484,6 +454,7 @@
     <string name="presets_editor_too_large">The preset must be 1 MB or smaller.</string>
     <string name="presets_issue_unreadable">unreadable file</string>
     <string name="presets_issue_ipcache_forbidden">IP cache options are prohibited</string>
+    <string name="presets_issue_dry_run_failed">nfqws2 rejected the compiled arguments</string>
     <string name="presets_issue_unknown">unknown validation issue</string>
     <string name="presets_validation_rejected">The preset is incompatible; no active configuration was changed</string>
     <string name="presets_restart_failed_rolled_back">Restart failed; the previous preset configuration and file were restored</string>
@@ -491,70 +462,11 @@
     <string name="presets_rollback_failed">Preset rollback could not be completed; inspect module status before restarting or rebooting</string>
     <string name="presets_io_failed">The preset operation failed before it could be completed safely</string>
     <string name="presets_outcome_rejected_reason">Preset rejected: %1$s</string>
-    <string name="strategies_packet_count">Packet count</string>
-    <string name="strategies_packet_picker_body">Outgoing packets to modify</string>
-    <string name="strategies_packet_option">%1$s packets</string>
-    <string name="strategies_debug_mode">Debug mode</string>
-    <string name="strategies_debug_picker_body">Choose the diagnostic log destination</string>
-    <string name="strategies_debug_none">None</string>
-    <string name="strategies_debug_none_body">Logging disabled</string>
-    <string name="strategies_debug_android">Android logcat</string>
-    <string name="strategies_debug_android_body">Output to the Android system log</string>
-    <string name="strategies_debug_file">File</string>
-    <string name="strategies_debug_file_body">Write diagnostics to a local file</string>
-    <string name="strategies_debug_syslog">Syslog</string>
-    <string name="strategies_debug_syslog_body">Send diagnostics to the system logger</string>
-    <string name="strategies_category_title">Category strategies</string>
-    <string name="strategies_category_subtitle_target">%1$s · %2$s</string>
-    <string name="strategies_category_subtitle_no_filter">%1$s · No filter</string>
-    <plurals name="strategies_category_count">
-        <item quantity="one">%1$d traffic category configured</item>
-        <item quantity="other">%1$d traffic categories configured</item>
-    </plurals>
-    <string name="cd_reload_strategies">Reload strategies</string>
-    <string name="strategies_categories">Categories</string>
-    <string name="strategies_advanced">Advanced</string>
-    <string name="strategies_packet_setting_body">PKT_OUT · restarts the service when changed</string>
-    <string name="strategies_debug_setting_body">Diagnostic output destination</string>
-    <string name="strategies_search_hint">Search names, descriptions, IDs or arguments</string>
-    <plurals name="strategies_count">
-        <item quantity="one">%1$d strategy</item>
-        <item quantity="other">%1$d strategies</item>
-    </plurals>
-    <plurals name="strategies_reorder_count">
-        <item quantity="one">%1$d strategy · Disabled stays pinned first</item>
-        <item quantity="other">%1$d strategies · Disabled stays pinned first</item>
-    </plurals>
-    <string name="strategies_reorder_title">Reorder strategies</string>
-    <string name="strategies_reorder_body">Move items with the arrow controls; back saves the order</string>
-    <string name="cd_save_strategy_order">Save strategy order</string>
-    <string name="cd_reorder_strategies">Reorder strategies</string>
-    <string name="strategy_position">Position %1$d of %2$d</string>
-    <string name="cd_pinned_first">Pinned first</string>
-    <string name="cd_move_up">Move up</string>
-    <string name="cd_move_down">Move down</string>
-    <string name="cd_hide_arguments">Hide arguments</string>
-    <string name="cd_preview_arguments">Preview arguments</string>
-    <string name="strategies_empty_title">No strategy categories found</string>
-    <string name="strategies_empty_body">Check the module category configuration, then reload.</string>
-    <string name="strategies_no_matches">No matching strategies</string>
-    <string name="strategies_nothing_matches">Nothing matches “%1$s”</string>
-    <string name="strategies_loading">Loading strategies…</string>
-    <string name="strategies_load_failed">Could not load strategies</string>
-    <string name="strategies_restarting_service">Saving and restarting service…</string>
-    <string name="strategies_applied_successfully">Changes applied</string>
-    <string name="strategies_saved_restart_failed">Changes were saved, but the service did not restart</string>
-    <string name="strategies_save_failed">Could not save strategy changes</string>
-    <string name="strategies_save_blocked">Module writes are blocked by an update, recovery, disable, or removal; strategy changes were not saved.</string>
-    <string name="strategies_rollback_failed">Strategy saving failed and the previous configuration could not be fully restored. Restart the module and review diagnostics.</string>
-    <string name="strategies_order_saved">Strategy order saved</string>
-    <string name="strategies_order_save_failed">Could not save strategy order</string>
     <string name="app_version_short">v%1$s</string>
     <string name="about_telegram_handle" translatable="false">@bypassblock</string>
     <string name="about_vpn_handle" translatable="false">@zapretvpns_bot</string>
     <string name="about_upstream_repo" translatable="false">bol-van/zapret</string>
     <string name="about_maintainer" translatable="false">youtubediscord</string>
-    <string name="config_cmdline_path" translatable="false">/data/adb/modules/zapret2/zapret2/%1$s</string>
     <string name="hosts_system_path" translatable="false">/system/etc/hosts</string>
     <string name="term_nfqueue" translatable="false">NFQUEUE</string>
     <string name="term_pkt_out" translatable="false">PKT_OUT</string>
@@ -563,4 +475,29 @@
     <string name="term_pid" translatable="false">PID</string>
     <string name="term_cpu" translatable="false">CPU</string>
     <string name="update_percent">%1$d%%</string>
+    <string name="profiles_title">Profiles</string>
+    <string name="profiles_active_unavailable">Active preset is unavailable</string>
+    <string name="profiles_refresh">Refresh</string>
+    <string name="profiles_read_failed">Could not read the active preset</string>
+    <string name="profiles_saving">Validating and saving preset…</string>
+    <string name="profiles_choose_strategy">Choose strategy</string>
+    <string name="profiles_move_up">Move up</string>
+    <string name="profiles_move_down">Move down</string>
+    <string name="profiles_close">Close</string>
+    <string name="profiles_scope_ambiguous">The strategy catalog cannot be determined unambiguously</string>
+    <string name="profiles_catalog_unavailable">Strategy catalog is unavailable</string>
+    <string name="profiles_save_failed">Could not save the profile</string>
+    <string name="profiles_saved_stopped">Profile saved; the service remains stopped</string>
+    <string name="profiles_applied">Changes applied</string>
+    <string name="profiles_source_changed">The preset changed; data was reloaded</string>
+    <string name="profiles_restart_failed_rolled_back">Restart failed; changes were rolled back</string>
+    <string name="profiles_write_failed_rolled_back">Write failed; the file was restored</string>
+    <string name="profiles_rollback_failed">Could not restore the previous state</string>
+    <string name="profiles_io_failed">Read or write error</string>
+    <string name="profiles_blocked">Another operation temporarily blocks this change</string>
+    <string name="profiles_rejected">Validation rejected the change: %1$s</string>
+    <string name="profiles_rename">Rename profile</string>
+    <string name="profiles_name">Profile name</string>
+    <string name="profiles_save">Save</string>
+    <string name="profiles_lists_unavailable">Domain and IP lists are unavailable</string>
 </resources>

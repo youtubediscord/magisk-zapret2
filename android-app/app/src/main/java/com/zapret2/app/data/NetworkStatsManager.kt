@@ -21,7 +21,6 @@ internal data class OwnedFirewallFamilyContract(
     val qnum: Int,
     val portsTcp: String,
     val portsUdp: String,
-    val stunPorts: String,
     val pktOut: Int,
     val pktIn: Int,
     val desyncMark: String,
@@ -206,8 +205,9 @@ internal object OwnedIptablesTopologyVerifier {
         if (contract.qnum !in 1..65535 || contract.pktOut !in 1..999_999_999 ||
             contract.pktIn !in 1..999_999_999 || contract.expectedRuleCount < 0 ||
             ProtocolMark.canonicalOrNull(contract.desyncMark) != contract.desyncMark ||
-            !isCanonicalPortList(contract.portsTcp) || !isCanonicalPortList(contract.portsUdp) ||
-            contract.stunPorts != "3478,5349,19302"
+            !isCanonicalOptionalPortList(contract.portsTcp) ||
+            !isCanonicalOptionalPortList(contract.portsUdp) ||
+            contract.portsTcp.isEmpty() && contract.portsUdp.isEmpty()
         ) {
             return null
         }
@@ -223,11 +223,9 @@ internal object OwnedIptablesTopologyVerifier {
             connbytesDirection: String,
         ) {
             var ordinal = 0
-            listOf(
-                "tcp" to contract.portsTcp,
-                "udp" to contract.portsUdp,
-                "udp" to contract.stunPorts,
-            ).forEach { (protocol, portList) ->
+            listOf("tcp" to contract.portsTcp, "udp" to contract.portsUdp)
+                .filter { (_, portList) -> portList.isNotEmpty() }
+                .forEach { (protocol, portList) ->
                 val groups = if (contract.multiport) listOf(portList) else portList.split(',')
                 groups.forEach { ports ->
                     ordinal++
@@ -394,6 +392,9 @@ internal object OwnedIptablesTopologyVerifier {
             first in 0..65535 && last in first..65535
         }
     }
+
+    private fun isCanonicalOptionalPortList(value: String): Boolean =
+        value.isEmpty() || isCanonicalPortList(value)
 }
 
 /**
@@ -637,7 +638,6 @@ class NetworkStatsManager(context: Context) {
             qnum = values.getValue("qnum").toInt(),
             portsTcp = values.getValue("ports_tcp"),
             portsUdp = values.getValue("ports_udp"),
-            stunPorts = values.getValue("stun_ports"),
             pktOut = values.getValue("pkt_out").toInt(),
             pktIn = values.getValue("pkt_in").toInt(),
             desyncMark = values.getValue("desync_mark"),

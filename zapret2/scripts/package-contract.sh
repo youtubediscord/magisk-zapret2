@@ -11,7 +11,6 @@ PACKAGE_CONTRACT_OWNER_PROTOCOL=7
 PACKAGE_CONTRACT_MAX_MANIFEST_BYTES=262144
 PACKAGE_CONTRACT_MAX_MODULE_PROP_BYTES=4096
 PACKAGE_CONTRACT_MAX_SHELL_EXEC_BYTES=262144
-PACKAGE_CONTRACT_MAX_CMDLINE_BYTES=262144
 PACKAGE_CONTRACT_UPDATE_JSON="https://github.com/youtubediscord/magisk-zapret2/releases/latest/download/update.json"
 PACKAGE_CONTRACT_CODE="OK"
 PACKAGE_CONTRACT_DETAIL=""
@@ -79,20 +78,6 @@ package_contract_safe_preset_name() {
     return 0
 }
 
-package_contract_safe_cmdline_name() {
-    local value="$1" normalized
-    [ -n "$value" ] && package_contract_safe_file_name_byte_length "$value" || return 1
-    [ "$value" = "$(printf '%s' "$value" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')" ] || return 1
-    case "$value" in .|..|*/*|*\\*) return 1 ;; esac
-    if LC_ALL=C printf '%s' "$value" | grep -q "[\"']"; then return 1; fi
-    if LC_ALL=C printf '%s' "$value" | grep -q '[[:cntrl:]]'; then return 1; fi
-    normalized="$(LC_ALL=C printf '%s' "$value" | tr '[:upper:]' '[:lower:]')" || return 1
-    case "$normalized" in
-        runtime-manifest.tsv|upstream-zapret2.commit|strategies-tcp.ini|strategies-udp.ini|strategies-stun.ini|blobs.txt|config.sh|runtime.ini|categories.ini|hosts.ini|nfqws2|bin|lua|lists|presets|scripts) return 1 ;;
-    esac
-    return 0
-}
-
 package_contract_runtime_core_value() {
     local root="${1%/}" key="$2" runtime
     runtime="$root/zapret2/runtime.ini"
@@ -122,13 +107,6 @@ package_contract_runtime_core_value() {
         }
         END { if (invalid || count != 1 || value == "") exit 1; printf "%s", value }
     ' "$runtime"
-}
-
-package_contract_configured_cmdline_relative() {
-    local root="${1%/}" name
-    name="$(package_contract_runtime_core_value "$root" custom_cmdline_file)" || return 1
-    package_contract_safe_cmdline_name "$name" || return 1
-    printf 'zapret2/%s\n' "$name"
 }
 
 package_contract_manifest_has_entry() {
@@ -325,13 +303,11 @@ package_contract_validate_manifest() {
         "immutable-file|0644|module.prop" \
         "immutable-file|0644|zapret2/runtime-manifest.tsv" \
         "immutable-file|0644|zapret2/upstream-zapret2.commit" \
-        "immutable-file|0644|zapret2/strategies-tcp.ini" \
-        "immutable-file|0644|zapret2/strategies-udp.ini" \
-        "immutable-file|0644|zapret2/strategies-stun.ini" \
-        "immutable-file|0644|zapret2/blobs.txt" \
-        "mutable-seed|0644|zapret2/config.sh" \
+        "immutable-file|0644|zapret2/strategy-catalogs/tcp.txt" \
+        "immutable-file|0644|zapret2/strategy-catalogs/udp.txt" \
+        "immutable-file|0644|zapret2/strategy-catalogs/voice.txt" \
+        "immutable-file|0644|zapret2/strategy-catalogs/http80.txt" \
         "mutable-seed|0644|zapret2/runtime.ini" \
-        "mutable-seed|0644|zapret2/categories.ini" \
         "mutable-seed|0644|zapret2/hosts.ini" \
         "runtime-dependency-immutable|0644|zapret2/lua/custom_funcs.lua" \
         "runtime-dependency-immutable|0644|zapret2/lua/zapret-antidpi.lua" \
@@ -348,7 +324,7 @@ package_contract_validate_manifest() {
         "immutable-exec|0755|zapret2/scripts/common.sh" \
         "immutable-exec|0755|zapret2/scripts/command-builder.sh" \
         "immutable-exec|0755|zapret2/scripts/package-contract.sh" \
-        "immutable-exec|0755|zapret2/scripts/runtime-migrate.sh" \
+        "immutable-exec|0755|zapret2/scripts/runtime-init.sh" \
         "immutable-exec|0755|zapret2/scripts/zapret-start.sh" \
         "immutable-exec|0755|zapret2/scripts/zapret-stop.sh" \
         "immutable-exec|0755|zapret2/scripts/zapret-restart.sh" \
@@ -363,7 +339,8 @@ package_contract_validate_manifest() {
         "immutable-exec|0755|system/bin/zapret2-restart" \
         "immutable-exec|0755|system/bin/zapret2-full-rollback" \
         "abi-exec|0755|zapret2/bin/{abi}/nfqws2" \
-        "installed-exec|0755|zapret2/nfqws2"
+        "installed-exec|0755|zapret2/nfqws2" \
+        "preset-compatible|0644|zapret2/presets/Default v1 (game filter).txt"
     do
         printf '%s\n' "$required_entry" >> "$required" || {
             rm -f "$entries" "$required"; package_contract_fail "MANIFEST_TEMP_FAILED"; return 1;
@@ -531,7 +508,7 @@ package_contract_build_allowlist() {
 package_contract_validate_exact_tree() {
     local root="${1%/}" profile="${2:-package}" meta_policy="${3:-no-meta}"
     local files="" directories="" listing="" actual="" allowed_records=""
-    local entry="" relative="" configured_cmdline="" unsafe="" hardlinked="" unexpected=""
+    local entry="" relative="" unsafe="" hardlinked="" unexpected=""
     [ -n "$root" ] && [ -d "$root" ] && [ ! -L "$root" ] || {
         package_contract_fail "PACKAGE_ROOT_INVALID" "$root"
         return 1
@@ -551,13 +528,6 @@ package_contract_validate_exact_tree() {
     package_contract_build_allowlist "$root" "$profile" "$files" "$directories" || {
         rm -f "$files" "$directories" "$listing" "$actual" "$allowed_records"; return 1;
     }
-    if [ "$profile" = installed ]; then
-        configured_cmdline="$(package_contract_configured_cmdline_relative "$root")" || {
-            rm -f "$files" "$directories" "$listing" "$actual" "$allowed_records"
-            package_contract_fail "CONFIGURED_CMDLINE_BINDING_INVALID"
-            return 1
-        }
-    fi
     find "$root" -mindepth 1 -print > "$listing" 2>/dev/null || {
         rm -f "$files" "$directories" "$listing" "$actual" "$allowed_records"
         package_contract_fail "PACKAGE_ENUMERATION_FAILED"; return 1;
@@ -612,8 +582,7 @@ package_contract_validate_exact_tree() {
         rm -f "$files" "$directories" "$listing" "$actual" "$allowed_records"
         package_contract_fail "ALLOWLIST_TEMP_FAILED"; return 1;
     }
-    unexpected="$(awk -F '|' -v profile="$profile" -v meta_policy="$meta_policy" \
-        -v configured_cmdline="$configured_cmdline" '
+    unexpected="$(awk -F '|' -v profile="$profile" -v meta_policy="$meta_policy" '
         NR == FNR { allowed[$0]=1; next }
         {
             record=$0
@@ -623,7 +592,7 @@ package_contract_validate_exact_tree() {
             if (record in allowed) next
             if (profile == "installed") {
                 if (kind == "file" && (path == "disable" || path == "zapret2/install-generation.meta" ||
-                    path == configured_cmdline || index(path, "zapret2/lists/") == 1)) next
+                    index(path, "zapret2/lists/") == 1 || index(path, "zapret2/presets/") == 1)) next
                 if (kind == "directory" && index(path, "zapret2/lists/") == 1) next
             }
             if (meta_policy == "allow-meta" && (path == "META-INF" || index(path, "META-INF/") == 1)) next
@@ -725,72 +694,9 @@ package_contract_apply_executable_modes() {
     package_contract_for_each_path "$root" "$profile" package_contract_chmod_executable_callback
 }
 
-package_contract_validate_configured_cmdline() {
-    local root="${1%/}" relative path size mode file_mode
-    mode="$(package_contract_runtime_core_value "$root" preset_mode)" || {
-        package_contract_fail "RUNTIME_PRESET_MODE_INVALID"
-        return 1
-    }
-    case "$mode" in categories|file|preset|txt|cmdline) ;; *) package_contract_fail "RUNTIME_PRESET_MODE_INVALID" "$mode"; return 1 ;; esac
-    relative="$(package_contract_configured_cmdline_relative "$root")" || {
-        package_contract_fail "CONFIGURED_CMDLINE_BINDING_INVALID"
-        return 1
-    }
-    path="$root/$relative"
-    if [ ! -e "$path" ] && [ ! -L "$path" ]; then
-        [ "$mode" != cmdline ] && return 0
-        package_contract_fail "CONFIGURED_CMDLINE_MISSING" "$relative"
-        return 1
-    fi
-    [ -f "$path" ] && [ ! -L "$path" ] || {
-        package_contract_fail "CONFIGURED_CMDLINE_UNSAFE" "$relative"
-        return 1
-    }
-    [ "$(stat -c %u "$path" 2>/dev/null)" = 0 ] &&
-        [ "$(stat -c %h "$path" 2>/dev/null)" = 1 ] || {
-        package_contract_fail "CONFIGURED_CMDLINE_OWNER" "$relative"
-        return 1
-    }
-    size="$(wc -c < "$path" 2>/dev/null)" || {
-        package_contract_fail "CONFIGURED_CMDLINE_SIZE" "$relative"
-        return 1
-    }
-    case "$size" in ''|*[!0-9]*) package_contract_fail "CONFIGURED_CMDLINE_SIZE" "$relative"; return 1 ;; esac
-    [ "$size" -le "$PACKAGE_CONTRACT_MAX_CMDLINE_BYTES" ] || {
-        package_contract_fail "CONFIGURED_CMDLINE_TOO_LARGE" "$relative:$size"
-        return 1
-    }
-    if [ "$mode" = cmdline ] && [ "$size" -eq 0 ]; then
-        package_contract_fail "CONFIGURED_CMDLINE_EMPTY" "$relative"
-        return 1
-    fi
-    file_mode="$(stat -c %a "$path" 2>/dev/null)" || {
-        package_contract_fail "CONFIGURED_CMDLINE_MODE" "$relative"
-        return 1
-    }
-    case "$file_mode" in
-        600|644) ;;
-        *)
-            package_contract_fail "CONFIGURED_CMDLINE_MODE" "$relative:$file_mode"
-            return 1
-            ;;
-    esac
-    return 0
-}
-
 package_contract_validate_runtime_selection() {
-    local root="${1%/}" mode preset relative path manifest
-    package_contract_validate_configured_cmdline "$root" || return 1
-    mode="$(package_contract_runtime_core_value "$root" preset_mode)" || {
-        package_contract_fail "RUNTIME_PRESET_MODE_INVALID"
-        return 1
-    }
-    case "$mode" in
-        categories|cmdline) return 0 ;;
-        file|preset|txt) ;;
-        *) package_contract_fail "RUNTIME_PRESET_MODE_INVALID" "$mode"; return 1 ;;
-    esac
-    preset="$(package_contract_runtime_core_value "$root" preset_file)" || {
+    local root="${1%/}" preset relative path manifest
+    preset="$(package_contract_runtime_core_value "$root" active_preset)" || {
         package_contract_fail "RUNTIME_PRESET_BINDING_INVALID"
         return 1
     }
@@ -801,10 +707,8 @@ package_contract_validate_runtime_selection() {
     relative="zapret2/presets/$preset"
     path="$root/$relative"
     manifest="$root/$PACKAGE_CONTRACT_MANIFEST_REL"
-    package_contract_manifest_has_entry "$manifest" "preset-compatible|0644|$relative" || {
-        package_contract_fail "RUNTIME_PRESET_NOT_COMPATIBLE" "$relative"
-        return 1
-    }
+    # Installed custom presets are intentionally outside the immutable package
+    # manifest; the same strict scanner below still has to classify them valid.
     [ -f "$path" ] && [ ! -L "$path" ] && [ -s "$path" ] &&
         [ "$(stat -c %u "$path" 2>/dev/null)" = 0 ] &&
         [ "$(stat -c %h "$path" 2>/dev/null)" = 1 ] &&
@@ -1047,61 +951,6 @@ package_contract_validate_modes() {
     package_contract_fail "$code" "$detail"
 }
 
-package_contract_validate_blob_catalog() {
-    local root="$1"
-    local manifest="$root/$PACKAGE_CONTRACT_MANIFEST_REL"
-    local blobs="$root/zapret2/blobs.txt"
-    local line="" raw="" relative="" cr
-    cr=$(printf '\r')
-    while IFS= read -r line || [ -n "$line" ]; do
-        line="${line%"$cr"}"
-        case "$line" in ""|'#'*|';'*) continue ;; esac
-        case "$line" in
-            --blob=*:@bin/*)
-                raw="${line##*:@bin/}"
-                case "$raw" in ""|*/*|*\\*|*"'"*|*'"'*) package_contract_fail "BLOB_PATH" "$raw"; return 1 ;; esac
-                relative="zapret2/bin/$raw"
-                grep -Fqx "runtime-dependency-immutable|0644|$relative" "$manifest" || {
-                    package_contract_fail "BLOB_NOT_DECLARED" "$relative"; return 1;
-                }
-                ;;
-            --blob=*:0x*) ;;
-            *) package_contract_fail "BLOB_CATALOG_LINE" "$line"; return 1 ;;
-        esac
-    done < "$blobs"
-    return 0
-}
-
-package_contract_validate_category_dependencies() {
-    local root="$1" declared="$2"
-    local categories="$root/zapret2/categories.ini" references="" name="" relative=""
-    package_contract_check_regular "$categories" "zapret2/categories.ini" || return 1
-    references="$(mktemp)" || { package_contract_fail "CATEGORY_TEMP_FAILED"; return 1; }
-    awk -F '=' '
-        $1 == "hostlist" || $1 == "ipset" {
-            value = substr($0, index($0, "=") + 1)
-            sub(/^[[:space:]]+/, "", value)
-            sub(/[[:space:]]+$/, "", value)
-            if (value != "") print value
-        }
-    ' "$categories" > "$references" || {
-        rm -f "$references"; package_contract_fail "CATEGORY_SCAN_FAILED"; return 1;
-    }
-    while IFS= read -r name || [ -n "$name" ]; do
-        case "$name" in */*|*\\*|.|..) rm -f "$references"; package_contract_fail "CATEGORY_DEPENDENCY_PATH" "$name"; return 1 ;; esac
-        relative="zapret2/lists/$name"
-        package_contract_safe_relative_path "$relative" || {
-            rm -f "$references"; package_contract_fail "CATEGORY_DEPENDENCY_PATH" "$name"; return 1;
-        }
-        grep -Fqx -e "$relative" "$declared" || {
-            rm -f "$references"; package_contract_fail "CATEGORY_DEPENDENCY_NOT_DECLARED" "$relative"; return 1;
-        }
-        package_contract_check_regular "$root/$relative" "$relative" || { rm -f "$references"; return 1; }
-    done < "$references"
-    rm -f "$references"
-    return 0
-}
-
 package_contract_validate_catalog() {
     local root="$1"
     local manifest="$root/$PACKAGE_CONTRACT_MANIFEST_REL"
@@ -1147,11 +996,6 @@ package_contract_validate_catalog() {
         esac
     done < "$manifest"
 
-    package_contract_validate_category_dependencies "$root" "$declared" || {
-        rm -rf "$temp_root"
-        return 1
-    }
-
     if ! /system/bin/sh "$builder" --validate-strategies-machine "$root/zapret2" > "$strategy_scan" 2>/dev/null; then
         if ! sh "$builder" --validate-strategies-machine "$root/zapret2" > "$strategy_scan" 2>/dev/null; then
             rm -rf "$temp_root"
@@ -1175,7 +1019,8 @@ package_contract_validate_catalog() {
     fi
     unset PRESET_ALLOWED_DEPENDENCIES_FILE
 
-    awk -F '\t' '$1 == "Z2_PRESET" { print $4 "\t" $2 }' "$scan" | LC_ALL=C sort > "$actual"
+    awk -F '\t' 'NR==FNR { wanted[$1]=1; next } $1 == "Z2_PRESET" && ($4 in wanted) { print $4 "\t" $2 }' \
+        "$catalog_expected" "$scan" | LC_ALL=C sort > "$actual"
     LC_ALL=C sort "$expected" -o "$expected"
     cmp -s "$expected" "$actual" || {
         rm -rf "$temp_root"; package_contract_fail "CATALOG_CLASSIFICATION_MISMATCH"; return 1;
@@ -1183,13 +1028,19 @@ package_contract_validate_catalog() {
     [ "$(grep -c '^Z2_PRESET_SUMMARY[[:space:]]' "$scan")" -eq 1 ] || {
         rm -rf "$temp_root"; package_contract_fail "CATALOG_SUMMARY"; return 1;
     }
+    if grep -q '^Z2_PRESET[[:space:]]QUARANTINED[[:space:]]' "$scan"; then
+        file="$(awk -F '\t' '$1=="Z2_PRESET" && $2=="QUARANTINED" { print $4; exit }' "$scan")"
+        rm -rf "$temp_root"; package_contract_fail "PRESET_INVALID" "$file"; return 1
+    fi
 
     for file in "$root/zapret2/presets"/*.txt; do
         [ -e "$file" ] || [ -L "$file" ] || continue
         [ -f "$file" ] && [ ! -L "$file" ] || {
             rm -rf "$temp_root"; package_contract_fail "CATALOG_UNSAFE_ENTRY" "${file##*/}"; return 1;
         }
-        printf '%s\n' "${file##*/}" >> "$catalog_actual"
+        name="${file##*/}"
+        grep -Fqx "$name" "$catalog_expected" || continue
+        printf '%s\n' "$name" >> "$catalog_actual"
     done
     LC_ALL=C sort "$catalog_expected" -o "$catalog_expected"
     LC_ALL=C sort "$catalog_actual" -o "$catalog_actual"
@@ -1197,7 +1048,6 @@ package_contract_validate_catalog() {
         rm -rf "$temp_root"; package_contract_fail "CATALOG_CONTENT_MISMATCH"; return 1;
     }
 
-    package_contract_validate_blob_catalog "$root" || { rm -rf "$temp_root"; return 1; }
     rm -rf "$temp_root"
     return 0
 }

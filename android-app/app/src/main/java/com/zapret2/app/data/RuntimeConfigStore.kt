@@ -14,7 +14,7 @@ object RuntimeConfigStore {
 
     private const val moduleDir = "/data/adb/modules/zapret2"
     private const val runtimeConfigPath = "$moduleDir/zapret2/runtime.ini"
-    private const val migrateScriptPath = "$moduleDir/zapret2/scripts/runtime-migrate.sh"
+    private const val initScriptPath = "$moduleDir/zapret2/scripts/runtime-init.sh"
     private const val maxRuntimeBytes = 256 * 1024
     private val requiredCoreKeys = setOf(
         "schema_version",
@@ -25,48 +25,33 @@ object RuntimeConfigStore {
         "debug",
         "qnum",
         "desync_mark",
-        "ports_tcp",
-        "ports_udp",
         "pkt_out",
         "pkt_in",
-        "strategy_preset",
-        "preset_mode",
-        "preset_file",
-        "custom_cmdline_file",
+        "active_preset",
         "nfqws_uid",
         "log_mode",
     )
     private val fileLock = Any()
 
     data class CoreSettingsUpdate(
-        val presetMode: String? = null,
-        val presetFile: String? = null,
-        val customCmdlineFile: String? = null,
+        val activePreset: String? = null,
         val logMode: String? = null,
         val pktOut: Int? = null,
         val pktIn: Int? = null,
         val autostart: Boolean? = null,
         val wifiOnly: Boolean? = null,
         val desyncMark: String? = null,
-        val portsTcp: String? = null,
-        val portsUdp: String? = null,
-        val strategyPreset: String? = null,
         val nfqwsUid: String? = null
     ) {
         fun toCorePairs(): Map<String, String> {
             val values = linkedMapOf<String, String>()
-            presetMode?.let { values["preset_mode"] = it }
-            presetFile?.let { values["preset_file"] = it }
-            customCmdlineFile?.let { values["custom_cmdline_file"] = it }
+            activePreset?.let { values["active_preset"] = it }
             logMode?.let { values["log_mode"] = it }
             pktOut?.let { values["pkt_out"] = it.toString() }
             pktIn?.let { values["pkt_in"] = it.toString() }
             autostart?.let { values["autostart"] = if (it) "1" else "0" }
             wifiOnly?.let { values["wifi_only"] = if (it) "1" else "0" }
             desyncMark?.let { values["desync_mark"] = it }
-            portsTcp?.let { values["ports_tcp"] = it }
-            portsUdp?.let { values["ports_udp"] = it }
-            strategyPreset?.let { values["strategy_preset"] = it }
             nfqwsUid?.let { values["nfqws_uid"] = it }
             return values
         }
@@ -144,7 +129,7 @@ object RuntimeConfigStore {
                 return@synchronized false
             }
 
-            val currentContent = readRuntimeConfigContentOrMigrateInternal() ?: return@synchronized false
+            val currentContent = readRuntimeConfigContentOrInitializeInternal() ?: return@synchronized false
             val updatedContent = upsertSectionValues(currentContent, "core", normalized, normalizedRemoveKeys)
             if (!hasCompleteRuntimeCore(updatedContent)) return@synchronized false
             writeFileAtomically(runtimeConfigPath, updatedContent, currentContent)
@@ -156,13 +141,6 @@ object RuntimeConfigStore {
         removeKeys: Set<String> = emptySet()
     ): Boolean {
         return upsertCoreValues(update.toCorePairs(), removeKeys)
-    }
-
-    suspend fun setActiveModeValues(
-        update: CoreSettingsUpdate,
-        removeKeys: Set<String> = emptySet()
-    ): Boolean {
-        return updateCoreSettings(update, removeKeys)
     }
 
     suspend fun readDnsManager(): Map<String, String>? {
@@ -184,41 +162,14 @@ object RuntimeConfigStore {
             }.toMap(linkedMapOf())
             val normalizedRemoveKeys = removeKeys.map(::normalizeKey).filter { it.isNotEmpty() }.toSet()
             if (normalized.isEmpty() && normalizedRemoveKeys.isEmpty()) return@synchronized false
-            val currentContent = readRuntimeConfigContentOrMigrateInternal() ?: return@synchronized false
+            val currentContent = readRuntimeConfigContentOrInitializeInternal() ?: return@synchronized false
             val updatedContent = upsertSectionValues(currentContent, "dns_manager", normalized, normalizedRemoveKeys)
             writeFileAtomically(runtimeConfigPath, updatedContent, currentContent)
         }
     }
 
-    suspend fun readStrategyOrder(): Map<String, String> {
-        val content = readRuntimeConfigContentEnsuring() ?: return emptyMap()
-        return withContext(Dispatchers.IO) { parseSectionValues(content, "strategy_order") }
-    }
-
-    suspend fun upsertStrategyOrderValue(
-        key: String,
-        value: String,
-        expectedCurrentValue: String?,
-    ): Boolean = coordinatedMutation {
-        synchronized(fileLock) {
-            val normalizedKey = normalizeKey(key)
-            if (normalizedKey !in setOf("tcp", "udp", "stun")) return@synchronized false
-            val normalizedValue = sanitizeValue(value)
-            val currentContent = readRuntimeConfigContentOrMigrateInternal() ?: return@synchronized false
-            val currentValues = parseSectionValuesOrNull(currentContent, "strategy_order")
-                ?: return@synchronized false
-            if (currentValues[normalizedKey] != expectedCurrentValue) return@synchronized false
-            val updatedContent = upsertSectionValues(
-                currentContent,
-                "strategy_order",
-                mapOf(normalizedKey to normalizedValue)
-            )
-            writeFileAtomically(runtimeConfigPath, updatedContent, currentContent)
-        }
-    }
-
     private fun ensureRuntimeConfigInternal(): Boolean {
-        return readRuntimeConfigContentOrMigrateInternal() != null
+        return readRuntimeConfigContentOrInitializeInternal() != null
     }
 
     private suspend fun coordinatedMutation(block: suspend () -> Boolean): Boolean {
@@ -240,7 +191,7 @@ object RuntimeConfigStore {
         return try {
             ModuleMutationCoordinator.withMutation {
                 withContext(Dispatchers.IO) {
-                    synchronized(fileLock) { readRuntimeConfigContentOrMigrateInternal() }
+                    synchronized(fileLock) { readRuntimeConfigContentOrInitializeInternal() }
                 }
             }
         } catch (_: ModuleMutationCoordinator.MutationBlockedException) {
@@ -254,10 +205,10 @@ object RuntimeConfigStore {
             ?.takeIf(::hasCompleteRuntimeCore)
 
     /** Caller must already own [ModuleMutationCoordinator] and [fileLock]. */
-    private fun readRuntimeConfigContentOrMigrateInternal(): String? {
+    private fun readRuntimeConfigContentOrInitializeInternal(): String? {
         readRuntimeConfigContent()?.let { return it }
 
-        val command = "sh ${RootFileIo.shellQuote(migrateScriptPath)} --defaults-only ${RootFileIo.shellQuote(runtimeConfigPath)}"
+        val command = "sh ${RootFileIo.shellQuote(initScriptPath)} ${RootFileIo.shellQuote(runtimeConfigPath)}"
         val result = Shell.cmd(command).exec()
         if (!result.isSuccess) {
             return null
@@ -535,7 +486,7 @@ object RuntimeConfigStore {
             if (!hasValidIniScalarSyntax(rawValue)) return false
             seen[key] = decodeIniValue(rawValue)
         }
-        if (coreSections != 1 || !seen.keys.containsAll(requiredCoreKeys)) return false
+        if (coreSections != 1 || seen.keys != requiredCoreKeys) return false
         if (seen["schema_version"] != "1" || seen["config_format"] != "runtime-v1") return false
         val runtimeSource = seen["runtime_source"].orEmpty()
         if (!runtimeSource.matches(Regex("[A-Za-z0-9._-]+"))) return false
@@ -547,15 +498,9 @@ object RuntimeConfigStore {
         val qnum = seen["qnum"]?.takeIf { it.matches(Regex("[0-9]+")) }?.toIntOrNull()
         if (qnum == null || qnum !in 1..65535) return false
         if (ProtocolMark.canonicalOrNull(seen["desync_mark"].orEmpty()) == null) return false
-        if (!isValidPortList(seen["ports_tcp"].orEmpty()) || !isValidPortList(seen["ports_udp"].orEmpty())) return false
         if (positiveCountOrNull(seen["pkt_out"]) == null || positiveCountOrNull(seen["pkt_in"]) == null) return false
-        if (!seen["strategy_preset"].orEmpty().matches(Regex("[A-Za-z0-9._-]{1,255}"))) return false
-        if (seen["preset_mode"] !in setOf("categories", "file", "preset", "txt", "cmdline")) return false
-        if (!isSafeRuntimeFileName(seen["preset_file"].orEmpty()) ||
-            !isSafeCommandLineFileName(seen["custom_cmdline_file"].orEmpty())
-        ) {
-            return false
-        }
+        val activePreset = seen["active_preset"].orEmpty()
+        if (!isSafeRuntimeFileName(activePreset) || !activePreset.endsWith(".txt") || activePreset.startsWith("_")) return false
         if (!isValidNfqwsIdentity(seen["nfqws_uid"].orEmpty())) return false
         return seen["log_mode"] in setOf("android", "file", "syslog", "none")
     }
@@ -590,44 +535,5 @@ object RuntimeConfigStore {
 
     private fun isSafeRuntimeFileName(value: String): Boolean =
         RootFileIo.isSimpleFileName(value)
-
-    internal fun isSafeCommandLineFileName(value: String): Boolean =
-        isSafeRuntimeFileName(value) && reservedCommandLineNames.none { reserved ->
-            value.equals(reserved, ignoreCase = true)
-        }
-
-    private val reservedCommandLineNames = setOf(
-        "runtime-manifest.tsv",
-        "upstream-zapret2.commit",
-        "strategies-tcp.ini",
-        "strategies-udp.ini",
-        "strategies-stun.ini",
-        "blobs.txt",
-        "config.sh",
-        "runtime.ini",
-        "categories.ini",
-        "hosts.ini",
-        "nfqws2",
-        "bin",
-        "lua",
-        "lists",
-        "presets",
-        "scripts",
-    )
-
-    private fun isValidPortList(value: String): Boolean {
-        if (value.isEmpty() || value.startsWith(',') || value.endsWith(',') || ",," in value) return false
-        return value.split(',').all { item ->
-            val bounds = item.split(':')
-            if (bounds.size !in 1..2) return@all false
-            val first = bounds[0].takeIf { it.matches(Regex("[0-9]+")) }?.toIntOrNull() ?: return@all false
-            val last = if (bounds.size == 2) {
-                bounds[1].takeIf { it.matches(Regex("[0-9]+")) }?.toIntOrNull() ?: return@all false
-            } else {
-                first
-            }
-            first in 0..65535 && last in first..65535
-        }
-    }
 
 }

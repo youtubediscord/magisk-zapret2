@@ -13,6 +13,7 @@ import javax.inject.Singleton
 interface PresetRepository {
     suspend fun loadCatalog(): PresetCatalog?
     suspend fun readCompatible(fileName: String): String?
+    suspend fun preview(fileName: String, content: String): PresetPreviewOutcome
     suspend fun apply(fileName: String): PresetMutationOutcome
     suspend fun save(
         fileName: String,
@@ -20,7 +21,6 @@ interface PresetRepository {
         content: String,
         applyAfterSave: Boolean,
     ): PresetMutationOutcome
-    suspend fun switchToCategories(): PresetMutationOutcome
 }
 
 object PresetNamePolicy {
@@ -34,6 +34,10 @@ internal object PresetMachineProtocol {
     private const val RECORD = "Z2_PRESET"
     private const val SUMMARY = "Z2_PRESET_SUMMARY"
     private const val VALIDATION = "Z2_PRESET_VALIDATION"
+    private const val COMMAND_PREVIEW = "Z2_COMMAND_PREVIEW"
+    private const val COMMAND_EXECUTABLE = "Z2_COMMAND_EXECUTABLE"
+    private const val COMMAND_ARGUMENT = "Z2_COMMAND_ARGUMENT"
+    private const val COMMAND_SUMMARY = "Z2_COMMAND_SUMMARY"
 
     fun parseDiscovery(lines: List<String>): PresetDiscovery? {
         val records = mutableListOf<ScanRecord>()
@@ -106,6 +110,62 @@ internal object PresetMachineProtocol {
         }
     }
 
+    fun parsePreview(lines: List<String>, expectedLogicalName: String): PresetPreviewOutcome {
+        val records = lines.filter(String::isNotBlank)
+        val first = records.firstOrNull()?.split('\t') ?: return PresetPreviewOutcome.Failed
+        if (first.firstOrNull() != COMMAND_PREVIEW) return PresetPreviewOutcome.Failed
+        if (first.getOrNull(1) == "0") {
+            if (records.size != 1 || first.size != 4 || first[3] != expectedLogicalName || first[2] == "OK") {
+                return PresetPreviewOutcome.Failed
+            }
+            return PresetPreviewOutcome.Rejected(PresetIssue.fromWireCode(first[2]))
+        }
+        if (first.size != 5 || first[1] != "1" || first[2] != expectedLogicalName) {
+            return PresetPreviewOutcome.Failed
+        }
+        val tcpPorts = first[3].takeIf { it.startsWith("TCP=") }?.removePrefix("TCP=")
+            ?: return PresetPreviewOutcome.Failed
+        val udpPorts = first[4].takeIf { it.startsWith("UDP=") }?.removePrefix("UDP=")
+            ?: return PresetPreviewOutcome.Failed
+        if (!isValidPortUnion(tcpPorts) || !isValidPortUnion(udpPorts) || tcpPorts + udpPorts == "") {
+            return PresetPreviewOutcome.Failed
+        }
+        if (records.size < 4) return PresetPreviewOutcome.Failed
+        val executable = records[1].split('\t').takeIf {
+            it.size == 2 && it[0] == COMMAND_EXECUTABLE && it[1].startsWith('/') && !it[1].containsControl()
+        }?.get(1) ?: return PresetPreviewOutcome.Failed
+        val summary = records.last().split('\t')
+        if (summary.size != 3 || summary[0] != COMMAND_SUMMARY || summary[1] != "1") {
+            return PresetPreviewOutcome.Failed
+        }
+        val count = summary[2].takeIf { it.startsWith("count=") }
+            ?.removePrefix("count=")?.toIntOrNull() ?: return PresetPreviewOutcome.Failed
+        val arguments = records.subList(2, records.lastIndex).map { record ->
+            val fields = record.split('\t')
+            if (fields.size != 2 || fields[0] != COMMAND_ARGUMENT || !fields[1].startsWith("--") ||
+                fields[1].containsControl()
+            ) return PresetPreviewOutcome.Failed
+            fields[1]
+        }
+        if (count != arguments.size || count <= 3) return PresetPreviewOutcome.Failed
+        return PresetPreviewOutcome.Ready(
+            PresetCommandPreview(executable, arguments, tcpPorts, udpPorts),
+        )
+    }
+
+    private fun String.containsControl(): Boolean = any { it.code < 0x20 || it.code == 0x7f }
+
+    private fun isValidPortUnion(value: String): Boolean {
+        if (value.isEmpty()) return true
+        return value.split(',').all { token ->
+            val bounds = token.split(':')
+            if (bounds.size !in 1..2) return@all false
+            val first = bounds[0].toIntOrNull() ?: return@all false
+            val last = bounds.getOrNull(1)?.toIntOrNull() ?: first
+            first in 1..65535 && last in first..65535
+        }
+    }
+
     private data class ScanRecord(val fileName: String, val issue: PresetIssue?)
     private data class ScanSummary(val valid: Int, val quarantined: Int, val total: Int)
 }
@@ -117,6 +177,7 @@ internal interface PresetMutationGate {
 internal interface PresetRunner {
     suspend fun scanPresets(): List<String>?
     suspend fun validatePreset(candidateFileName: String, logicalFileName: String): PresetValidation
+    suspend fun previewPreset(candidateFileName: String, logicalFileName: String): PresetPreviewOutcome
     suspend fun loadSelection(): PresetSelection?
     suspend fun snapshotActiveConfig(): ActivePresetConfig?
     suspend fun writeActiveConfig(config: ActivePresetConfig): Boolean
@@ -126,6 +187,7 @@ internal interface PresetRunner {
     suspend fun restoreFile(fileName: String, snapshot: PresetFileSnapshot): Boolean
     suspend fun removeFile(fileName: String): Boolean
     suspend fun restart(): Boolean
+    suspend fun isServiceRunning(): Boolean?
 }
 
 @Singleton
@@ -158,43 +220,47 @@ internal class RootPresetRunner @Inject constructor() : PresetRunner {
         }
         val candidatePath = "$presetsDir/$candidateFileName"
         val result = ServiceLifecycleController.executeRoot(
-            "/system/bin/sh ${RootFileIo.shellQuote(commandBuilder)} --validate-preset-machine " +
+            "/system/bin/sh ${RootFileIo.shellQuote(commandBuilder)} --preflight-preset-machine " +
                 "${RootFileIo.shellQuote(zapretDir)} ${RootFileIo.shellQuote(candidatePath)} " +
                 RootFileIo.shellQuote(logicalFileName),
         )
         return PresetMachineProtocol.parseValidation(result.stdout, logicalFileName)
     }
 
+    override suspend fun previewPreset(
+        candidateFileName: String,
+        logicalFileName: String,
+    ): PresetPreviewOutcome {
+        if (!isSafeName(candidateFileName) || !PresetNamePolicy.isValid(logicalFileName)) {
+            return PresetPreviewOutcome.Rejected(PresetIssue.UNSAFE_PRESET_NAME)
+        }
+        val candidatePath = "$presetsDir/$candidateFileName"
+        val result = ServiceLifecycleController.executeRoot(
+            "/system/bin/sh ${RootFileIo.shellQuote(commandBuilder)} --preview-preset-machine " +
+                "${RootFileIo.shellQuote(zapretDir)} ${RootFileIo.shellQuote(candidatePath)} " +
+                RootFileIo.shellQuote(logicalFileName),
+        )
+        return PresetMachineProtocol.parsePreview(result.stdout, logicalFileName)
+    }
+
     override suspend fun snapshotActiveConfig(): ActivePresetConfig? {
         val values = RuntimeConfigStore.readCoreResult()
         if (!values.usesRuntimeConfig) return null
-        val presetMode = values.values["preset_mode"] ?: return null
-        val presetFile = values.values["preset_file"] ?: return null
-        return ActivePresetConfig(presetMode, presetFile)
+        val presetFile = values.values["active_preset"] ?: return null
+        return ActivePresetConfig(presetFile)
     }
 
     override suspend fun loadSelection(): PresetSelection? {
         val result = RuntimeConfigStore.readCoreResult()
         if (!result.usesRuntimeConfig) return null
         val values = result.values
-        val activeMode = values["preset_mode"] ?: return null
-        val activePresetFile = values["preset_file"] ?: return null
-        val activeCmdlineFile = values["custom_cmdline_file"]
-            ?.takeIf(RuntimeConfigStore::isSafeCommandLineFileName)
-            ?: return null
-        return PresetSelection(
-            activeMode = activeMode,
-            activePresetFile = activePresetFile,
-            activeCmdlineFile = activeCmdlineFile,
-        )
+        val activePresetFile = values["active_preset"] ?: return null
+        return PresetSelection(activePresetFile = activePresetFile)
     }
 
     override suspend fun writeActiveConfig(config: ActivePresetConfig): Boolean {
-        return RuntimeConfigStore.setActiveModeValues(
-            RuntimeConfigStore.CoreSettingsUpdate(
-                presetMode = config.presetMode,
-                presetFile = config.presetFile,
-            ),
+        return RuntimeConfigStore.updateCoreSettings(
+            RuntimeConfigStore.CoreSettingsUpdate(activePreset = config.presetFile),
         )
     }
 
@@ -294,6 +360,9 @@ internal class RootPresetRunner @Inject constructor() : PresetRunner {
 
     override suspend fun restart(): Boolean = ServiceLifecycleController.restart().success
 
+    override suspend fun isServiceRunning(): Boolean? =
+        ServiceLifecycleController.getStatus().takeIf { it.rootGranted }?.processRunning
+
     private fun isSafeName(fileName: String): Boolean =
         RootFileIo.isSimpleFileName(fileName, ".txt")
 
@@ -324,6 +393,42 @@ internal class TransactionalPresetRepository @Inject constructor(
         (runner.snapshotFile(fileName) as? PresetFileSnapshot.Present)?.content
     }
 
+    override suspend fun preview(fileName: String, content: String): PresetPreviewOutcome {
+        if (!PresetNamePolicy.isValid(fileName)) {
+            return PresetPreviewOutcome.Rejected(PresetIssue.UNSAFE_PRESET_NAME)
+        }
+        val normalized = PresetContentPolicy.normalizedForWrite(content)
+        if (!PresetContentPolicy.isAllowed(normalized)) {
+            return PresetPreviewOutcome.Rejected(PresetIssue.PRESET_TOO_LARGE)
+        }
+        return try {
+            withContext(Dispatchers.IO) {
+                mutationGate.mutate {
+                    val candidate = previewCandidateName(fileName)
+                    val written = booleanResult { runner.writeCandidate(candidate, normalized) }
+                    if (!written) {
+                        removeOrFalse(candidate)
+                        return@mutate PresetPreviewOutcome.Failed
+                    }
+                    val outcome = try {
+                        runner.previewPreset(candidate, fileName)
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        PresetPreviewOutcome.Failed
+                    }
+                    if (removeOrFalse(candidate)) outcome else PresetPreviewOutcome.Failed
+                }
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: ModuleMutationCoordinator.MutationBlockedException) {
+            PresetPreviewOutcome.Blocked
+        } catch (_: Exception) {
+            PresetPreviewOutcome.Failed
+        }
+    }
+
     override suspend fun apply(fileName: String): PresetMutationOutcome = safelyMutate {
         if (!PresetNamePolicy.isValid(fileName)) {
             return@safelyMutate PresetMutationOutcome.Rejected(PresetIssue.UNSAFE_PRESET_NAME)
@@ -334,7 +439,8 @@ internal class TransactionalPresetRepository @Inject constructor(
             PresetValidation.ProtocolFailure -> return@safelyMutate PresetMutationOutcome.IoFailed
         }
         val oldConfig = runner.snapshotActiveConfig() ?: return@safelyMutate PresetMutationOutcome.IoFailed
-        when (writeConfigResult(ActivePresetConfig("file", fileName))) {
+        val wasRunning = runner.isServiceRunning() ?: return@safelyMutate PresetMutationOutcome.IoFailed
+        when (writeConfigResult(ActivePresetConfig(fileName))) {
             true -> Unit
             false -> return@safelyMutate PresetMutationOutcome.IoFailed
             null -> return@safelyMutate if (writeConfigOrFalse(oldConfig)) {
@@ -343,7 +449,8 @@ internal class TransactionalPresetRepository @Inject constructor(
                 PresetMutationOutcome.RollbackFailed
             }
         }
-        if (restartOrFalse()) PresetMutationOutcome.Applied
+        if (!wasRunning) PresetMutationOutcome.Saved
+        else if (restartOrFalse()) PresetMutationOutcome.Applied
         else if (writeConfigOrFalse(oldConfig)) PresetMutationOutcome.RestartFailedRolledBack
         else PresetMutationOutcome.RollbackFailed
     }
@@ -372,8 +479,9 @@ internal class TransactionalPresetRepository @Inject constructor(
             PresetFileSnapshot.Unsafe -> false
         }
         if (!sourceMatches) return@safelyMutate PresetMutationOutcome.SourceChanged
-        val oldConfig = if (applyAfterSave) runner.snapshotActiveConfig() else null
-        if (applyAfterSave && oldConfig == null) return@safelyMutate PresetMutationOutcome.IoFailed
+        val oldConfig = runner.snapshotActiveConfig() ?: return@safelyMutate PresetMutationOutcome.IoFailed
+        val shouldApply = applyAfterSave || oldConfig.presetFile == fileName
+        val wasRunning = if (shouldApply) runner.isServiceRunning() ?: return@safelyMutate PresetMutationOutcome.IoFailed else false
 
         val candidate = candidateName(fileName)
         if (!booleanResult { runner.writeCandidate(candidate, normalized) }) {
@@ -418,9 +526,9 @@ internal class TransactionalPresetRepository @Inject constructor(
                 PresetMutationOutcome.RollbackFailed
             }
         }
-        if (!applyAfterSave) return@safelyMutate PresetMutationOutcome.Saved
+        if (!shouldApply) return@safelyMutate PresetMutationOutcome.Saved
 
-        val requestedConfig = ActivePresetConfig("file", fileName)
+        val requestedConfig = ActivePresetConfig(fileName)
         when (writeConfigResult(requestedConfig)) {
             true -> Unit
             false -> return@safelyMutate if (restoreFileOrFalse(fileName, oldFile)) {
@@ -429,7 +537,7 @@ internal class TransactionalPresetRepository @Inject constructor(
                 PresetMutationOutcome.RollbackFailed
             }
             null -> {
-                val configRestored = writeConfigOrFalse(requireNotNull(oldConfig))
+                val configRestored = writeConfigOrFalse(oldConfig)
                 val fileRestored = restoreFileOrFalse(fileName, oldFile)
                 return@safelyMutate if (configRestored && fileRestored) {
                     PresetMutationOutcome.WriteFailedRolledBack
@@ -438,27 +546,12 @@ internal class TransactionalPresetRepository @Inject constructor(
                 }
             }
         }
+        if (!wasRunning) return@safelyMutate PresetMutationOutcome.Saved
         if (restartOrFalse()) return@safelyMutate PresetMutationOutcome.SavedAndApplied
 
-        val configRestored = writeConfigOrFalse(requireNotNull(oldConfig))
+        val configRestored = writeConfigOrFalse(oldConfig)
         val fileRestored = restoreFileOrFalse(fileName, oldFile)
         if (configRestored && fileRestored) PresetMutationOutcome.RestartFailedRolledBack
-        else PresetMutationOutcome.RollbackFailed
-    }
-
-    override suspend fun switchToCategories(): PresetMutationOutcome = safelyMutate {
-        val oldConfig = runner.snapshotActiveConfig() ?: return@safelyMutate PresetMutationOutcome.IoFailed
-        when (writeConfigResult(oldConfig.copy(presetMode = "categories"))) {
-            true -> Unit
-            false -> return@safelyMutate PresetMutationOutcome.IoFailed
-            null -> return@safelyMutate if (writeConfigOrFalse(oldConfig)) {
-                PresetMutationOutcome.WriteFailedRolledBack
-            } else {
-                PresetMutationOutcome.RollbackFailed
-            }
-        }
-        if (restartOrFalse()) PresetMutationOutcome.CategoriesEnabled
-        else if (writeConfigOrFalse(oldConfig)) PresetMutationOutcome.RestartFailedRolledBack
         else PresetMutationOutcome.RollbackFailed
     }
 
@@ -530,6 +623,9 @@ internal class TransactionalPresetRepository @Inject constructor(
 
     private fun candidateName(fileName: String): String =
         "_${fileName.removeSuffix(".txt").take(180)}.candidate.${System.nanoTime()}.txt"
+
+    private fun previewCandidateName(fileName: String): String =
+        "_${fileName.removeSuffix(".txt").take(180)}.preview.${System.nanoTime()}.txt"
 }
 
 @Module

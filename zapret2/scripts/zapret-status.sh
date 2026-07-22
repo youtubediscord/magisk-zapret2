@@ -49,7 +49,6 @@ load_effective_core_config_readonly >/dev/null 2>&1 || CONFIG_VALID=0
 normalize_qnum "${QNUM:-}" >/dev/null 2>&1 || CONFIG_VALID=0
 [ "$CONFIG_VALID" = 0 ] || QNUM="$QNUM_NORMALIZED"
 is_decimal "${PKT_OUT:-}" && is_decimal "${PKT_IN:-}" || CONFIG_VALID=0
-[ -n "${PORTS_TCP:-}" ] && [ -n "${PORTS_UDP:-}" ] || CONFIG_VALID=0
 read_iptables_status >/dev/null 2>&1 || true
 
 Z2_PID=""
@@ -122,9 +121,10 @@ Z2_EXPECTED_RULES=0
 if [ "$Z2_OWNER_METADATA_VERIFIED" = 1 ] && [ "$OWNER_STATE_SCHEMA_VERSION" = "$OWNER_STATE_VERSION" ]; then
     Z2_EXPECTED_RULES=$((OWNER_STATE_IPV4_RULES + OWNER_STATE_IPV6_RULES))
 else
-    Z2_EXPECTED_RULES=6
-    [ "$STATUS_FILE_IPV6_ACTIVE" = 1 ] && Z2_EXPECTED_RULES=12
-    [ "$Z2_IPV6" = 1 ] && Z2_EXPECTED_RULES=12
+    case "$STATUS_FILE_RULES_EXPECTED" in
+        ''|*[!0-9]*) Z2_EXPECTED_RULES=0 ;;
+        *) Z2_EXPECTED_RULES="$STATUS_FILE_RULES_EXPECTED" ;;
+    esac
 fi
 Z2_RULESET_VERIFIED=0
 if [ "$IPV4_VERIFIED" = 1 ] && [ "$IPV6_UNKNOWN" = 0 ]; then

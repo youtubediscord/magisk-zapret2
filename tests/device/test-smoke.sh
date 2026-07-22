@@ -484,7 +484,10 @@ ensure_object module-dir /data/adb/modules/zapret2 directory 0 2 755 0 0 none 0
 ensure_object state-dir /data/adb/zapret2-state directory 0 2 700 0 0 none 0
 ensure_object module-prop /data/adb/modules/zapret2/module.prop file 0 1 644 0 0 none 128
 ensure_object runtime /data/adb/modules/zapret2/zapret2/runtime.ini file 0 1 644 0 0 none 128
-ensure_object categories /data/adb/modules/zapret2/zapret2/categories.ini file 0 1 644 0 0 none 128
+ensure_object catalog-tcp /data/adb/modules/zapret2/zapret2/strategy-catalogs/tcp.txt file 0 1 644 0 0 none 128
+ensure_object catalog-udp /data/adb/modules/zapret2/zapret2/strategy-catalogs/udp.txt file 0 1 644 0 0 none 128
+ensure_object catalog-voice /data/adb/modules/zapret2/zapret2/strategy-catalogs/voice.txt file 0 1 644 0 0 none 128
+ensure_object catalog-http80 /data/adb/modules/zapret2/zapret2/strategy-catalogs/http80.txt file 0 1 644 0 0 none 128
 ensure_object generation /data/adb/modules/zapret2/zapret2/install-generation.meta file 0 1 600 0 0 none 128
 ensure_object wrapper-start /data/adb/modules/zapret2/system/bin/zapret2-start file 0 1 755 0 0 none 128
 ensure_object wrapper-stop /data/adb/modules/zapret2/system/bin/zapret2-stop file 0 1 755 0 0 none 128

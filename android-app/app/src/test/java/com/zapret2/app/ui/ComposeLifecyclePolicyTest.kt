@@ -11,9 +11,8 @@ class ComposeLifecyclePolicyTest {
     fun everyStatefulDestination_collectsStateLifecycleAware() {
         val statefulScreens = listOf(
             "ControlScreen.kt",
-            "StrategiesScreen.kt",
+            "ProfilesScreen.kt",
             "PresetsScreen.kt",
-            "ConfigEditorScreen.kt",
             "HostlistsScreen.kt",
             "HostsEditorScreen.kt",
             "DnsManagerScreen.kt",
@@ -82,16 +81,6 @@ class ComposeLifecyclePolicyTest {
         assertTrue(hostlist.contains("LaunchedEffect(state.searchQuery, listState)"))
         assertTrue(hostlist.contains("listState.scrollToItem(0)"))
 
-        val strategies = productionFile("ui/screen/StrategiesScreen.kt").readText()
-        assertTrue(strategies.contains("val currentOnRetry by rememberUpdatedState(onRetry)"))
-        assertTrue(
-            strategies.contains(
-                "val currentOnConsumeOrderSaved by rememberUpdatedState(onConsumeOrderSaved)",
-            ),
-        )
-        assertTrue(strategies.contains("LaunchedEffect(category.key, categoryOrderState.status)"))
-        assertTrue(strategies.contains("LaunchedEffect(category.key, searchQuery, isReorderMode)"))
-
         val snackbar = productionFile("ui/components/AppSnackbarEffect.kt").readText()
         assertTrue(
             Regex("val currentOnConsumed by rememberUpdatedState\\(onConsumed\\)")
@@ -112,58 +101,16 @@ class ComposeLifecyclePolicyTest {
             viewModelRunCatching.isEmpty(),
         )
 
-        listOf(
-            "viewmodel/StrategiesViewModel.kt",
-            "viewmodel/ConfigEditorViewModel.kt",
-        ).forEach { relativePath ->
-            val source = productionFile(relativePath).readText()
-            val adapter = Regex(
-                """private suspend fun persistRuntimeMutation[\s\S]*?\r?\n    }\r?\n""",
-            ).find(source)?.value
-
-            assertTrue("Missing runtime mutation adapter in $relativePath", adapter != null)
-            assertTrue(
-                "$relativePath must rethrow coroutine cancellation before generic failures",
-                Regex(
-                    """catch\s*\(cancelled:\s*CancellationException\)\s*\{\s*throw cancelled\s*}\s*catch\s*\(_:\s*Exception\)""",
-                ).containsMatchIn(adapter.orEmpty()),
-            )
-        }
-
-        val strategies = productionFile("viewmodel/StrategiesViewModel.kt").readText()
-        assertFalse(strategies.contains("val categoriesSaved = runCatching"))
-        assertFalse(strategies.contains("val categoriesValid = runCatching"))
-        assertFalse(strategies.contains("runCatching { ServiceLifecycleController.restart()"))
+        val profiles = productionFile("viewmodel/ProfilesViewModel.kt").readText()
         assertTrue(
             Regex(
-                """private suspend fun restoreCategories[\s\S]*?catch \(cancelled: CancellationException\)[\s\S]*?catch \(_: Exception\)[\s\S]*?false""",
-            ).containsMatchIn(strategies),
-        )
-        assertTrue(
-            Regex(
-                """private suspend fun restorePresetMode[\s\S]*?catch \(cancelled: CancellationException\)[\s\S]*?catch \(_: Exception\)[\s\S]*?false""",
-            ).containsMatchIn(strategies),
-        )
-
-        val config = productionFile("viewmodel/ConfigEditorViewModel.kt").readText()
-        assertFalse(
-            Regex("""runCatching\s*\{\s*ServiceLifecycleController\.restart\(\)""")
-                .containsMatchIn(config),
+                """catch \(cancelled: CancellationException\)\s*\{\s*throw cancelled\s*}\s*catch \(_: Exception\)""",
+            ).containsMatchIn(profiles),
         )
     }
 
     @Test
     fun saveableTransientUi_isInvalidatedWhenItsAuthorityOrOperationChanges() {
-        val config = productionFile("ui/screen/ConfigEditorScreen.kt").readText()
-        assertTrue(config.contains("state.hasAuthoritativeBinding,"))
-        assertTrue(config.contains("showExitDialog = false"))
-        assertTrue(config.contains("showReloadDialog = false"))
-        assertTrue(
-            config.contains(
-                "if (showExitDialog && state.actionsEnabled && state.hasUnsavedChanges)",
-            ),
-        )
-
         val hosts = productionFile("ui/screen/HostsEditorScreen.kt").readText()
         assertTrue(hosts.contains("state.hasAuthoritativeBaseline,"))
         assertTrue(hosts.contains("if (state.operation != null || !hasUnsavedChanges)"))
@@ -185,26 +132,6 @@ class ComposeLifecyclePolicyTest {
                 "rememberSaveable(state.currentTab) { mutableStateOf(false) }",
             ),
         )
-
-        val strategies = productionFile("ui/screen/StrategiesScreen.kt").readText()
-        assertTrue(
-            strategies.contains(
-                "LaunchedEffect(state.isLoading, state.loadError, pickingCategory)",
-            ),
-        )
-        assertTrue(strategies.contains("pickingCategoryKey = null"))
-        assertTrue(
-            strategies.contains(
-                "rememberSaveable(category.key, category.filterMode)",
-            ),
-        )
-        assertTrue(
-            strategies.contains(
-                "val canReorder = !isLoading && loadError == null && details.isNotEmpty()",
-            ),
-        )
-        assertTrue(strategies.contains("if (!isOrderSaving && canReorder)"))
-        assertTrue(strategies.contains("enabled = !isSaving && reorderEnabled"))
 
         val presetEditor = productionFile("ui/components/PresetEditorDialog.kt").readText()
         assertTrue(

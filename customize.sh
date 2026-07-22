@@ -224,30 +224,28 @@ ui_print "- Preparing Zapret2 for $ARCH_DIR"
 
 if [ -d "$LIVE_MODPATH" ]; then
     ui_print "- Preserving user configuration"
-    preserve_release_seed zapret2/categories.ini || abort "! Cannot preserve categories.ini safely"
-    preserve_release_seed zapret2/runtime.ini || abort "! Cannot preserve runtime.ini safely"
-    preserve_release_seed zapret2/config.sh || abort "! Cannot preserve config.sh safely"
+    ACTIVE_PRESET_NAME="$(package_contract_runtime_core_value "$LIVE_MODPATH" active_preset 2>/dev/null)" || ACTIVE_PRESET_NAME=""
+    if [ -n "$ACTIVE_PRESET_NAME" ]; then
+        package_contract_safe_preset_name "$ACTIVE_PRESET_NAME" ||
+            abort "! Existing runtime.ini selects an unsafe preset"
+        preserve_release_seed zapret2/runtime.ini || abort "! Cannot preserve runtime.ini safely"
+    fi
 
-    for user_lua in zapret-custom.lua init_vars.lua; do
-        preserve_bounded_file "zapret2/lua/$user_lua" 262144 ||
-            abort "! Cannot preserve $user_lua safely"
-    done
-
-    USER_CMDLINE_NAME="$(package_contract_runtime_core_value "$LIVE_MODPATH" custom_cmdline_file)" ||
-        abort "! Existing runtime.ini has an invalid custom command-line binding"
-    package_contract_safe_cmdline_name "$USER_CMDLINE_NAME" ||
-        abort "! Existing runtime.ini selects an unsafe command-line file"
-    USER_CMDLINE_SOURCE="$LIVE_ZAPRET_DIR/$USER_CMDLINE_NAME"
-    USER_CMDLINE_TARGET="$ZAPRET_DIR/$USER_CMDLINE_NAME"
-    if [ -e "$USER_CMDLINE_SOURCE" ] || [ -L "$USER_CMDLINE_SOURCE" ]; then
-        safe_preserved_regular "$USER_CMDLINE_SOURCE" 262144 ||
-            abort "! Configured command-line file is unsafe or exceeds 256 KiB"
-        [ ! -e "$USER_CMDLINE_TARGET" ] && [ ! -L "$USER_CMDLINE_TARGET" ] ||
-            abort "! Configured command-line file collides with the release"
-        cp "$USER_CMDLINE_SOURCE" "$USER_CMDLINE_TARGET" &&
-            chmod 0644 "$USER_CMDLINE_TARGET" &&
-            cmp -s "$USER_CMDLINE_SOURCE" "$USER_CMDLINE_TARGET" ||
-            abort "! Cannot preserve the configured command-line file"
+    LIVE_PRESETS="$LIVE_ZAPRET_DIR/presets"
+    if [ -e "$LIVE_PRESETS" ] || [ -L "$LIVE_PRESETS" ]; then
+        [ -d "$LIVE_PRESETS" ] && [ ! -L "$LIVE_PRESETS" ] || abort "! Existing preset directory is unsafe"
+        for USER_PRESET_SOURCE in "$LIVE_PRESETS"/*.txt; do
+            [ -e "$USER_PRESET_SOURCE" ] || [ -L "$USER_PRESET_SOURCE" ] || continue
+            USER_PRESET_NAME="${USER_PRESET_SOURCE##*/}"
+            package_contract_safe_preset_name "$USER_PRESET_NAME" || abort "! Existing preset has an unsafe name"
+            USER_PRESET_TARGET="$ZAPRET_DIR/presets/$USER_PRESET_NAME"
+            # A packaged name is built-in and is intentionally overwritten.
+            [ -e "$USER_PRESET_TARGET" ] || [ -L "$USER_PRESET_TARGET" ] || {
+                safe_preserved_regular "$USER_PRESET_SOURCE" 1048576 || abort "! Custom preset is unsafe or too large"
+                cp "$USER_PRESET_SOURCE" "$USER_PRESET_TARGET" && chmod 0644 "$USER_PRESET_TARGET" &&
+                    cmp -s "$USER_PRESET_SOURCE" "$USER_PRESET_TARGET" || abort "! Cannot preserve custom preset"
+            }
+        done
     fi
 
     LIVE_LISTS="$LIVE_ZAPRET_DIR/lists"
@@ -262,6 +260,22 @@ if [ -d "$LIVE_MODPATH" ]; then
         cp -R "$LIVE_LISTS/." "$ZAPRET_DIR/lists/" || abort "! Cannot preserve user hostlists"
     fi
 
+    PRESET_SCAN_OUTPUT="$STATE_DIR/install-preset-scan.$$"
+    sh "$SCRIPT_DIR/command-builder.sh" --scan-presets-machine "$ZAPRET_DIR" \
+        > "$PRESET_SCAN_OUTPUT" 2>/dev/null || {
+            rm -f "$PRESET_SCAN_OUTPUT"
+            abort "! Cannot validate preserved presets"
+        }
+    if grep -q "$(printf '^Z2_PRESET\tQUARANTINED\t')" "$PRESET_SCAN_OUTPUT"; then
+        rm -f "$PRESET_SCAN_OUTPUT"
+        abort "! A preserved custom preset is incompatible"
+    fi
+    grep -q "$(printf '^Z2_PRESET_SUMMARY\t1\t')" "$PRESET_SCAN_OUTPUT" || {
+        rm -f "$PRESET_SCAN_OUTPUT"
+        abort "! Preset validation returned an invalid protocol"
+    }
+    rm -f "$PRESET_SCAN_OUTPUT"
+
     LIVE_DISABLE="$LIVE_MODPATH/disable"
     if [ -e "$LIVE_DISABLE" ] || [ -L "$LIVE_DISABLE" ]; then
         safe_preserved_regular "$LIVE_DISABLE" 0 && [ ! -s "$LIVE_DISABLE" ] ||
@@ -272,29 +286,6 @@ if [ -d "$LIVE_MODPATH" ]; then
             abort "! Cannot preserve the Magisk disable marker"
     fi
 fi
-
-# Normalize the single retired legacy value in the already-staged user configuration. Runtime
-# repair remains owned by the normal boot/app mutation path, not by package installation.
-awk '
-    {
-        line=$0
-        normalized=line
-        sub(/^[[:space:]]*/, "", normalized)
-        sub(/[[:space:]]*$/, "", normalized)
-        if (normalized ~ /^\[[^]]+\]$/) section=normalized
-        if (section == "[core]" && normalized ~ /^wifi_only[[:space:]]*=[[:space:]]*1$/) {
-            print "wifi_only=0"
-            next
-        }
-        print line
-    }
-' "$ZAPRET_DIR/runtime.ini" > "$ZAPRET_DIR/.runtime.ini.install.$$" &&
-    mv "$ZAPRET_DIR/.runtime.ini.install.$$" "$ZAPRET_DIR/runtime.ini" ||
-    abort "! Cannot normalize legacy runtime settings"
-sed 's/^[[:space:]]*WIFI_ONLY[[:space:]]*=[[:space:]]*1[[:space:]]*$/WIFI_ONLY=0/' \
-    "$ZAPRET_DIR/config.sh" > "$ZAPRET_DIR/.config.sh.install.$$" &&
-    mv "$ZAPRET_DIR/.config.sh.install.$$" "$ZAPRET_DIR/config.sh" ||
-    abort "! Cannot normalize legacy bootstrap settings"
 
 NFQWS_SOURCE="$ZAPRET_DIR/bin/$ARCH_DIR/nfqws2"
 NFQWS_TEMP="$ZAPRET_DIR/.nfqws2.install.$$"
@@ -310,12 +301,21 @@ chmod 0755 "$MODPATH/service.sh" "$MODPATH/uninstall.sh" "$MODPATH/action.sh" \
     "$ZAPRET_DIR/nfqws2" "$ZAPRET_DIR/scripts/"*.sh \
     "$ZAPRET_DIR/scripts/lifecycle/"*.sh "$MODPATH/system/bin/zapret2-"* ||
     abort "! Cannot apply executable permissions"
-chmod 0644 "$ZAPRET_DIR/runtime.ini" "$ZAPRET_DIR/categories.ini" "$ZAPRET_DIR/config.sh" \
-    "$ZAPRET_DIR/lua/zapret-custom.lua" "$ZAPRET_DIR/lua/init_vars.lua" ||
+chmod 0644 "$ZAPRET_DIR/runtime.ini" "$ZAPRET_DIR/lua/zapret-custom.lua" \
+    "$ZAPRET_DIR/lua/init_vars.lua" ||
     abort "! Cannot apply user configuration permissions"
 find "$ZAPRET_DIR/lists" -type d -exec chmod 0755 {} + &&
     find "$ZAPRET_DIR/lists" -type f -exec chmod 0644 {} + ||
     abort "! Cannot apply hostlist permissions"
+
+ACTIVE_PRESET_NAME="$(package_contract_runtime_core_value "$MODPATH" active_preset)" ||
+    abort "! runtime.ini does not select a valid preset"
+package_contract_safe_preset_name "$ACTIVE_PRESET_NAME" || abort "! runtime.ini selects an unsafe preset"
+sh "$SCRIPT_DIR/command-builder.sh" --validate-strategies-machine "$ZAPRET_DIR" >/dev/null 2>&1 ||
+    abort "! Strategy catalogs are incompatible"
+sh "$SCRIPT_DIR/command-builder.sh" --preflight-preset-machine "$ZAPRET_DIR" \
+    "$ZAPRET_DIR/presets/$ACTIVE_PRESET_NAME" "$ACTIVE_PRESET_NAME" >/dev/null 2>&1 ||
+    abort "! Active preset failed validation or nfqws2 dry-run"
 
 write_install_generation || abort "! Cannot publish the installation generation"
 

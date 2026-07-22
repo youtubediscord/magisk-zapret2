@@ -88,7 +88,7 @@ normalize_positive_count() {
 
 validate_port_list() {
     local list="$1" item first last old_ifs
-    [ -n "$list" ] || return 1
+    [ -n "$list" ] || return 0
     case "$list" in *[!0-9,:]*) return 1 ;; esac
     case "$list" in ,*|*,|*,,*) return 1 ;; esac
     old_ifs="$IFS"; IFS=,; set -- $list; IFS="$old_ifs"
@@ -126,8 +126,6 @@ validate_mark() {
 validate_config() {
     normalize_qnum "$QNUM" || return 1
     QNUM="$QNUM_NORMALIZED"
-    validate_port_list "$PORTS_TCP" || return 1
-    validate_port_list "$PORTS_UDP" || return 1
     normalize_positive_count "$PKT_OUT" || return 1
     PKT_OUT="$COUNT_NORMALIZED"
     normalize_positive_count "$PKT_IN" || return 1
@@ -159,18 +157,26 @@ preflight_files() {
 }
 
 prepare_options() {
-    local capture="$ERROR_LOG.capture.$$" rcfile="$ERROR_LOG.rc.$$" dry_rc
+    local capture="$ERROR_LOG.capture.$$" rcfile="$ERROR_LOG.rc.$$" dry_rc preset_file
     [ -f "$NFQWS2" ] && [ -x "$NFQWS2" ] || return 1
     NFQWS_HELP="$("$NFQWS2" --help 2>&1)"
     [ -n "$NFQWS_HELP" ] || return 1
-    OPTS="$(build_options)" || return 1
-    [ -n "$OPTS" ] || return 1
+    is_safe_preset_file_name "$ACTIVE_PRESET" || return 1
+    preset_file="$PRESETS_DIR/$ACTIVE_PRESET"
+    state_path_is_managed_file "$COMPILED_ARGV_FILE" || return 1
+    compile_preset_artifact "$preset_file" "$ACTIVE_PRESET" "$COMPILED_ARGV_FILE" || return 1
+    read_compiled_artifact_metadata "$COMPILED_ARGV_FILE" || return 1
+    PORTS_TCP="$COMPILED_TCP_PORTS"
+    PORTS_UDP="$COMPILED_UDP_PORTS"
+    validate_port_list "$PORTS_TCP" || return 1
+    validate_port_list "$PORTS_UDP" || return 1
+    [ -n "$PORTS_TCP$PORTS_UDP" ] || return 1
     preflight_files || return 1
     prepare_private_runtime_file "$STARTUP_LOG" || return 1
     prepare_private_runtime_file "$ERROR_LOG" || return 1
     rm -f "$capture" "$rcfile" 2>/dev/null
     umask 077
-    { "$NFQWS2" --dry-run $OPTS >/dev/null; printf '%s\n' "$?" > "$rcfile"; } 2>&1 |
+    { run_compiled_artifact "$COMPILED_ARGV_FILE" dry-run >/dev/null; printf '%s\n' "$?" > "$rcfile"; } 2>&1 |
         tail -c 32768 > "$capture"
     dry_rc="$(cat "$rcfile" 2>/dev/null)"
     rm -f "$rcfile" 2>/dev/null
@@ -178,8 +184,30 @@ prepare_options() {
     chmod 0600 "$capture" 2>/dev/null || { rm -f "$capture"; return 1; }
     mv -f "$capture" "$ERROR_LOG" || { rm -f "$capture"; return 1; }
     [ "$dry_rc" -eq 0 ] 2>/dev/null || return 1
-    write_private_runtime_line "$CMDLINE_FILE" "$NFQWS2 $OPTS" || return 1
+    compiled_source_binding_current || return 1
+    {
+        printf '%s\n' "$NFQWS2"
+        if nfqws_daemon_mode_supported; then
+            printf '%s\n' '--daemon' "--pidfile=$PIDFILE"
+        fi
+        awk 'found { print } $0 == "ARGS" { found=1 }' "$COMPILED_ARGV_FILE"
+    } > "$CMDLINE_FILE.tmp.$$" || return 1
+    chmod 0600 "$CMDLINE_FILE.tmp.$$" 2>/dev/null && mv -f "$CMDLINE_FILE.tmp.$$" "$CMDLINE_FILE" || {
+        rm -f "$CMDLINE_FILE.tmp.$$"; return 1;
+    }
     return 0
+}
+
+compiled_source_binding_current() {
+    local current_source_sha current_runtime_sha
+    read_compiled_artifact_metadata "$COMPILED_ARGV_FILE" || return 1
+    [ "$ACTIVE_PRESET" = "$COMPILED_PRESET" ] || return 1
+    current_source_sha="$(sha256sum "$PRESETS_DIR/$ACTIVE_PRESET" 2>/dev/null)" || return 1
+    current_source_sha="${current_source_sha%% *}"
+    [ "$current_source_sha" = "$COMPILED_SOURCE_SHA256" ] || return 1
+    current_runtime_sha="$(sha256sum "$RUNTIME_CONFIG" 2>/dev/null)" || return 1
+    current_runtime_sha="${current_runtime_sha%% *}"
+    [ "$current_runtime_sha" = "$COMPILED_RUNTIME_SHA256" ]
 }
 
 count_family_rules() {
@@ -205,11 +233,11 @@ normal_health_ok() {
     HEALTH_PID="$VERIFIED_PID"
     HEALTH_PID_START="$VERIFIED_PID_START"
     HEALTH_GENERATION="$OWNER_STATE_GENERATION"
-    HEALTH_RULES=6
+    HEALTH_RULES="$OWNER_STATE_IPV4_RULES"
     if command -v ip6tables >/dev/null 2>&1; then
         owned_family_present ip6tables
         case $? in
-            0) owner_family_generation_healthy ip6tables ipv6 || return 1; HEALTH_IPV6=1; HEALTH_RULES=12 ;;
+            0) owner_family_generation_healthy ip6tables ipv6 || return 1; HEALTH_IPV6=1; HEALTH_RULES=$((OWNER_STATE_IPV4_RULES + OWNER_STATE_IPV6_RULES)) ;;
             1) ;;
             *) return 1 ;;
         esac
@@ -225,7 +253,7 @@ write_ok_status() {
     STATUS_OWN_PID_STARTTIME="$HEALTH_PID_START"; STATUS_OWNER_GENERATION="$HEALTH_GENERATION"
     STATUS_OWNER_METADATA_VERIFIED=1; STATUS_RULESET_VERIFIED=1; STATUS_RULES_EXPECTED="$1"
     STATUS_IPV4_ACTIVE=1; STATUS_IPV6_ACTIVE="$3"
-    STATUS_IPV4_RULES=6; STATUS_IPV6_RULES=$((6 * STATUS_IPV6_ACTIVE))
+    STATUS_IPV4_RULES="$OWNER_STATE_IPV4_RULES"; STATUS_IPV6_RULES="$OWNER_STATE_IPV6_RULES"
     STATUS_CHAINS=$((2 + 2 * STATUS_IPV6_ACTIVE)); STATUS_ANCHORS="$STATUS_CHAINS"
     STATUS_NFQUEUE_SUPPORTED=1; STATUS_QUEUE_BYPASS_SUPPORTED=1
     STATUS_CONNBYTES_SUPPORTED="${IPV4_CONNBYTES:-1}"
@@ -666,7 +694,7 @@ restore_prior_healthy_generation() {
             [ "$PRIOR_IPV6" != 1 ] || verify_family_snapshot_exact ip6tables "$PRIOR_RULES_V6" || return 1
             HEALTH_PID="$VERIFIED_PID"; HEALTH_PID_START="$VERIFIED_PID_START"
             HEALTH_GENERATION="$PRIOR_GENERATION"; HEALTH_IPV6="$PRIOR_IPV6"
-            HEALTH_RULES=$((6 + 6 * PRIOR_IPV6))
+            HEALTH_RULES=$((OWNER_STATE_IPV4_RULES + OWNER_STATE_IPV6_RULES))
             PRIOR_TORN_DOWN=0
             NEW_PID_PUBLISHED=0
             LAUNCHED_PID=""
@@ -875,6 +903,7 @@ append_nfqueue_rule() {
 append_port_set() {
     local tool="$1" chain="$2" proto="$3" direction="$4" ports="$5" packet_count="$6" cb_dir="$7"
     local old_ifs item
+    [ -n "$ports" ] || return 0
     if [ "$BUILD_MULTIPORT" = 1 ]; then
         append_nfqueue_rule "$tool" "$chain" "$proto" "$direction" "$ports" "$packet_count" "$cb_dir"
         return $?
@@ -894,28 +923,24 @@ build_detached_family() {
     tracked_create_chain "$tool" "$ZAPRET2_IN" || { cleanup_tracked_family "$tool" >/dev/null 2>&1; return 1; }
     append_port_set "$tool" "$ZAPRET2_OUT" tcp out "$PORTS_TCP" "$PKT_OUT" original || { cleanup_tracked_family "$tool" >/dev/null 2>&1; return 1; }
     append_port_set "$tool" "$ZAPRET2_OUT" udp out "$PORTS_UDP" "$PKT_OUT" original || { cleanup_tracked_family "$tool" >/dev/null 2>&1; return 1; }
-    append_port_set "$tool" "$ZAPRET2_OUT" udp out "3478,5349,19302" "$PKT_OUT" original || { cleanup_tracked_family "$tool" >/dev/null 2>&1; return 1; }
     append_port_set "$tool" "$ZAPRET2_IN" tcp in "$PORTS_TCP" "$PKT_IN" reply || { cleanup_tracked_family "$tool" >/dev/null 2>&1; return 1; }
     append_port_set "$tool" "$ZAPRET2_IN" udp in "$PORTS_UDP" "$PKT_IN" reply || { cleanup_tracked_family "$tool" >/dev/null 2>&1; return 1; }
-    append_port_set "$tool" "$ZAPRET2_IN" udp in "3478,5349,19302" "$PKT_IN" reply || { cleanup_tracked_family "$tool" >/dev/null 2>&1; return 1; }
     return 0
 }
 
 launch_nfqws2() {
     local daemon_supported=0 candidate n=0 start
-    printf '%s\n' "$NFQWS_HELP" | grep -Fq -- '--daemon' &&
-        printf '%s\n' "$NFQWS_HELP" | grep -Fq -- '--pidfile' && daemon_supported=1
+    compiled_source_binding_current || return 1
+    nfqws_daemon_mode_supported && daemon_supported=1
     [ ! -e "$PIDFILE" ] && [ ! -L "$PIDFILE" ] || return 1
     prepare_private_runtime_file "$STARTUP_LOG" || return 1
     prepare_private_runtime_file "$ERROR_LOG" || return 1
     if [ "$daemon_supported" = 1 ]; then
         LAUNCH_OWNS_PIDFILE=1
-        "$NFQWS2" --daemon --pidfile="$PIDFILE" $OPTS >/dev/null 2>&1 &
-        LAUNCHED_PID=$!
+        run_compiled_artifact "$COMPILED_ARGV_FILE" daemon || return 1
     else
         DIAGNOSTICS="${DIAGNOSTICS}daemon options unavailable; using supervised background pid; "
-        "$NFQWS2" $OPTS >/dev/null 2>&1 &
-        LAUNCHED_PID=$!
+        run_compiled_artifact "$COMPILED_ARGV_FILE" background || return 1
     fi
     LAUNCHED_PID_START="$(proc_starttime "$LAUNCHED_PID" 2>/dev/null)" || LAUNCHED_PID_START=""
     if [ -n "$LAUNCHED_PID_START" ]; then
@@ -1129,7 +1154,7 @@ main() {
         fail_start "post-commit PID identity changed"
     [ "$HEALTH_IPV6" = "$IPV6_ACTIVE" ] || fail_start "post-commit IPv6 state mismatch"
 
-    TOTAL_RULES=$((6 + 6 * IPV6_ACTIVE))
+    TOTAL_RULES=$((IPV4_RULES + IPV6_RULES))
     write_ok_status "$TOTAL_RULES" "$STARTED_PID" "$IPV6_ACTIVE" || fail_start "cannot atomically write lifecycle status"
     discard_build_tracks || fail_start "cannot retire committed detached-build tracking"
     FIREWALL_MUTATED=0

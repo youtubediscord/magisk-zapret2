@@ -1,12 +1,14 @@
 package com.zapret2.app.ui.components
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -24,6 +26,7 @@ import androidx.compose.ui.res.stringResource
 import com.zapret2.app.ui.theme.SizeTokens
 import com.zapret2.app.ui.theme.SpacingTokens
 import com.zapret2.app.R
+import com.zapret2.app.data.PresetCommandPreview
 import com.zapret2.app.ui.theme.MonospaceStyle
 
 @Composable
@@ -34,12 +37,18 @@ fun PresetEditorDialog(
     enabled: Boolean = true,
     dismissEnabled: Boolean = true,
     unavailableMessage: String? = null,
+    commandPreview: PresetCommandPreview? = null,
+    previewError: String? = null,
+    previewLoading: Boolean = false,
     onContentChange: (String) -> Unit,
+    onPreview: () -> Unit,
+    onCopyPreview: (String) -> Unit,
     onDismiss: (discardUnsavedChanges: Boolean) -> Unit,
     onSave: () -> Unit,
     onSaveAndApply: () -> Unit,
 ) {
     var showDiscardConfirmation by rememberSaveable(fileName) { mutableStateOf(false) }
+    var selectedPage by rememberSaveable(fileName) { mutableStateOf(0) }
     val hasUnsavedChanges = content != baselineContent
     val editorTextColor = MaterialTheme.colorScheme.onSurface
     val editorTextStyle = remember(editorTextColor) { MonospaceStyle.copy(color = editorTextColor) }
@@ -94,6 +103,26 @@ fun PresetEditorDialog(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Spacer(Modifier.height(SpacingTokens.Medium))
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    TextButton(
+                        onClick = { selectedPage = 0 },
+                        enabled = dismissEnabled,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text(stringResource(R.string.presets_editor_source_tab))
+                    }
+                    TextButton(
+                        onClick = {
+                            selectedPage = 1
+                            if (commandPreview == null && previewError == null && !previewLoading) onPreview()
+                        },
+                        enabled = dismissEnabled,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text(stringResource(R.string.presets_editor_command_tab))
+                    }
+                }
+                Spacer(Modifier.height(SpacingTokens.Small))
                 unavailableMessage?.let { message ->
                     Text(
                         text = message,
@@ -102,18 +131,86 @@ fun PresetEditorDialog(
                     )
                     Spacer(Modifier.height(SpacingTokens.Small))
                 }
-                OutlinedTextField(
-                    value = content,
-                    onValueChange = onContentChange,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = SizeTokens.DialogContentExtraTallMaxHeight),
-                    textStyle = editorTextStyle,
-                    enabled = enabled,
-                    label = { Text(stringResource(R.string.preset_strategy_command)) },
-                    minLines = 3,
-                    maxLines = 10,
-                )
+                if (selectedPage == 0) {
+                    OutlinedTextField(
+                        value = content,
+                        onValueChange = onContentChange,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = SizeTokens.DialogContentExtraTallMaxHeight),
+                        textStyle = editorTextStyle,
+                        enabled = enabled,
+                        label = { Text(stringResource(R.string.presets_editor_source_label)) },
+                        minLines = 3,
+                        maxLines = 10,
+                    )
+                } else {
+                    when {
+                        previewLoading -> {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = SizeTokens.DialogContentMaxHeight),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                            ) {
+                                Spacer(Modifier.height(SpacingTokens.Large))
+                                CircularProgressIndicator()
+                                Spacer(Modifier.height(SpacingTokens.Medium))
+                                Text(stringResource(R.string.presets_compiling_preview))
+                            }
+                        }
+                        commandPreview != null -> {
+                            Text(
+                                stringResource(
+                                    R.string.presets_preview_ports,
+                                    commandPreview.tcpPorts.ifBlank { "—" },
+                                    commandPreview.udpPorts.ifBlank { "—" },
+                                ),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Spacer(Modifier.height(SpacingTokens.Small))
+                            OutlinedTextField(
+                                value = commandPreview.rendered,
+                                onValueChange = {},
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(max = SizeTokens.DialogContentExtraTallMaxHeight),
+                                textStyle = editorTextStyle,
+                                readOnly = true,
+                                label = { Text(stringResource(R.string.presets_editor_command_label)) },
+                                minLines = 3,
+                                maxLines = 10,
+                            )
+                            Row(modifier = Modifier.fillMaxWidth()) {
+                                TextButton(onClick = onPreview, enabled = enabled) {
+                                    Text(stringResource(R.string.action_refresh))
+                                }
+                                TextButton(
+                                    onClick = { onCopyPreview(commandPreview.rendered) },
+                                    enabled = dismissEnabled,
+                                ) {
+                                    Text(stringResource(R.string.action_copy))
+                                }
+                            }
+                        }
+                        else -> {
+                            Text(
+                                previewError ?: stringResource(R.string.presets_preview_ready_hint),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = if (previewError == null) {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                } else {
+                                    MaterialTheme.colorScheme.error
+                                },
+                            )
+                            Spacer(Modifier.height(SpacingTokens.Medium))
+                            TextButton(onClick = onPreview, enabled = enabled) {
+                                Text(stringResource(R.string.presets_preview_build))
+                            }
+                        }
+                    }
+                }
             }
         },
         confirmButton = {

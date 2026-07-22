@@ -23,7 +23,9 @@ internal object ModuleUpdatePreservation {
         artifacts(ModulePackageContract.PreservationPolicy.BOUNDED_REGULAR_FILE).forEach { artifact ->
             appendRegularFile(artifact, sourceModuleDir, targetModuleDir, requireBound = true)
         }
-        appendConfiguredCommandLine(sourceModuleDir, targetModuleDir)
+        artifacts(ModulePackageContract.PreservationPolicy.CUSTOM_PRESETS).forEach { artifact ->
+            appendCustomPresets(artifact, sourceModuleDir, targetModuleDir)
+        }
         artifacts(ModulePackageContract.PreservationPolicy.MODULE_ROOT_MARKER).forEach { artifact ->
             appendModuleRootMarker(artifact, sourceModuleDir, targetModuleDir)
         }
@@ -121,44 +123,46 @@ internal object ModuleUpdatePreservation {
         append("fi\n")
     }
 
-    private fun StringBuilder.appendConfiguredCommandLine(
+    private fun StringBuilder.appendCustomPresets(
+        artifact: ModulePackageContract.PreservationArtifact,
         sourceModuleDir: String,
         targetModuleDir: String,
     ) {
-        val sourceDirectory = RootFileIo.shellQuote("$sourceModuleDir/zapret2")
-        val targetDirectory = RootFileIo.shellQuote("$targetModuleDir/zapret2")
+        val sourceDirectory = RootFileIo.shellQuote("$sourceModuleDir/${artifact.relativePath}")
+        val targetDirectory = RootFileIo.shellQuote("$targetModuleDir/${artifact.relativePath}")
         val packageContract = RootFileIo.shellQuote(
             "$targetModuleDir/${ModulePackageContract.PACKAGE_CONTRACT_SCRIPT_PATH}",
         )
-        val maxBytes = ModulePackageContract.MAX_PRESERVED_COMMAND_LINE_BYTES
-        append("if [ \"${'$'}status\" -eq 0 ]; then\n")
-        append("  [ -f $packageContract ] && [ ! -L $packageContract ] && . $packageContract || status=1\n")
-        append("  if [ \"${'$'}status\" -eq 0 ]; then cmdline_relative=${'$'}(package_contract_configured_cmdline_relative ")
-            .append(RootFileIo.shellQuote(sourceModuleDir)).append(") || status=1; fi\n")
-        append("  if [ \"${'$'}status\" -eq 0 ]; then cmdline_name=${'$'}{cmdline_relative#zapret2/}; fi\n")
-        append("  if [ \"${'$'}status\" -eq 0 ]; then\n")
-        append("    source_cmdline=$sourceDirectory/\"${'$'}cmdline_name\"\n")
-        append("    target_cmdline=$targetDirectory/\"${'$'}cmdline_name\"\n")
-        append("    if [ -e \"${'$'}source_cmdline\" ] || [ -L \"${'$'}source_cmdline\" ]; then\n")
-        append("      if [ -e \"${'$'}target_cmdline\" ] || [ -L \"${'$'}target_cmdline\" ]; then status=1\n")
-        append("      elif [ ! -f \"${'$'}source_cmdline\" ] || [ -L \"${'$'}source_cmdline\" ] || ")
-        append("[ \"${'$'}(stat -c %u \"${'$'}source_cmdline\" 2>/dev/null)\" != 0 ] || ")
-        append("[ \"${'$'}(stat -c %h \"${'$'}source_cmdline\" 2>/dev/null)\" != 1 ]; then status=1\n")
-        append("      else source_cmdline_mode=${'$'}(stat -c %a \"${'$'}source_cmdline\" 2>/dev/null) || status=1\n")
-        append("        case \"${'$'}source_cmdline_mode\" in 600|644) ;; *) status=1 ;; esac\n")
-        append("        if [ \"${'$'}status\" -eq 0 ]; then size=${'$'}(wc -c < \"${'$'}source_cmdline\" 2>/dev/null) || status=1; fi\n")
-        append("        case \"${'$'}size\" in ''|*[!0-9]*) status=1 ;; esac\n")
-        append("        if [ \"${'$'}status\" -eq 0 ] && [ \"${'$'}size\" -le $maxBytes ]; then\n")
-        append("          cp -f \"${'$'}source_cmdline\" \"${'$'}target_cmdline\" || status=${'$'}?\n")
-        append("          if [ \"${'$'}status\" -eq 0 ]; then chmod 0644 \"${'$'}target_cmdline\" || status=${'$'}?; fi\n")
-        append("          if [ \"${'$'}status\" -eq 0 ]; then [ -f \"${'$'}target_cmdline\" ] && [ ! -L \"${'$'}target_cmdline\" ] && ")
-        append("[ \"${'$'}(stat -c %u \"${'$'}target_cmdline\" 2>/dev/null)\" = 0 ] && ")
-        append("[ \"${'$'}(stat -c %h \"${'$'}target_cmdline\" 2>/dev/null)\" = 1 ] && ")
-        append("[ \"${'$'}(stat -c %a \"${'$'}target_cmdline\" 2>/dev/null)\" = 644 ] && ")
-        append("cmp -s \"${'$'}source_cmdline\" \"${'$'}target_cmdline\" || status=1; fi\n")
-        append("        else status=1; fi\n")
+        val commandBuilder = RootFileIo.shellQuote(
+            "$targetModuleDir/${ModulePackageContract.COMMAND_BUILDER_SCRIPT_PATH}",
+        )
+        val zapretDirectory = RootFileIo.shellQuote("$targetModuleDir/zapret2")
+        append("if [ \"${'$'}status\" -eq 0 ] && { [ -e $sourceDirectory ] || [ -L $sourceDirectory ]; }; then\n")
+        append("  if [ ! -d $sourceDirectory ] || [ -L $sourceDirectory ]; then status=1\n")
+        append("  elif find $sourceDirectory -mindepth 1 -maxdepth 1 ! -type f -print -quit | grep -q .; then status=1\n")
+        append("  elif find $sourceDirectory -mindepth 1 -maxdepth 1 -type f ! -name '*.txt' -print -quit | grep -q .; then status=1\n")
+        append("  else\n")
+        append("    [ -f $packageContract ] && [ ! -L $packageContract ] && . $packageContract || status=1\n")
+        append("    for source_preset in $sourceDirectory/*.txt; do\n")
+        append("      [ \"${'$'}status\" -eq 0 ] || break\n")
+        append("      [ -e \"${'$'}source_preset\" ] || continue\n")
+        append("      preset_name=${'$'}{source_preset##*/}\n")
+        append("      package_contract_safe_preset_name \"${'$'}preset_name\" || { status=1; break; }\n")
+        append("      target_preset=$targetDirectory/\"${'$'}preset_name\"\n")
+        append("      if [ -e \"${'$'}target_preset\" ] || [ -L \"${'$'}target_preset\" ]; then\n")
+        append("        [ -f \"${'$'}target_preset\" ] && [ ! -L \"${'$'}target_preset\" ] || status=1\n")
+        append("        continue\n")
         append("      fi\n")
-        append("    fi\n")
+        append("      [ ! -L \"${'$'}source_preset\" ] && [ \"${'$'}(stat -c %u \"${'$'}source_preset\" 2>/dev/null)\" = 0 ] && ")
+        append("[ \"${'$'}(stat -c %h \"${'$'}source_preset\" 2>/dev/null)\" = 1 ] || { status=1; break; }\n")
+        append("      size=${'$'}(wc -c < \"${'$'}source_preset\" 2>/dev/null) || { status=1; break; }\n")
+        append("      case \"${'$'}size\" in ''|*[!0-9]*) status=1; break ;; esac\n")
+        append("      [ \"${'$'}size\" -gt 0 ] && [ \"${'$'}size\" -le 1048576 ] || { status=1; break; }\n")
+        append("      cp \"${'$'}source_preset\" \"${'$'}target_preset\" && chmod 0644 \"${'$'}target_preset\" && ")
+        append("cmp -s \"${'$'}source_preset\" \"${'$'}target_preset\" || { status=1; break; }\n")
+        append("      /system/bin/sh $commandBuilder --validate-preset-machine $zapretDirectory ")
+        append("\"${'$'}target_preset\" \"${'$'}preset_name\" >/dev/null 2>&1 || { status=1; break; }\n")
+        append("    done\n")
         append("  fi\n")
         append("fi\n")
     }
