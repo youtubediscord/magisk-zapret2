@@ -155,6 +155,20 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d # v4
 
+      - name: Run Android unit tests
+        run: |
+          chmod +x gradlew
+          ./gradlew testDebugUnitTest --dependency-verification=strict --no-daemon --stacktrace
+        working-directory: android-app
+
+      - name: Build Debug APK
+        run: ./gradlew assembleDebug --dependency-verification=strict --no-daemon --stacktrace
+        working-directory: android-app
+
+      - name: Run Android lint
+        run: ./gradlew lintRelease --dependency-verification=strict --no-daemon --stacktrace
+        working-directory: android-app
+
       - name: Create keystore
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
@@ -180,26 +194,13 @@ jobs:
 
           echo "Setting version to $VERSION (code: $VERSION_CODE)"
 
-          # Update build.gradle.kts
+          # Update build.gradle.kts only after source-policy tests have checked
+          # the canonical repository placeholders.
           sed -i "s/versionCode = [0-9]*/versionCode = ${VERSION_CODE}/" app/build.gradle.kts
           sed -i "s/versionName = \"[^\"]*\"/versionName = \"${VERSION}\"/" app/build.gradle.kts
 
           # Verify changes
           grep -E "versionCode|versionName" app/build.gradle.kts
-        working-directory: android-app
-
-      - name: Run Android unit tests
-        run: |
-          chmod +x gradlew
-          ./gradlew testDebugUnitTest --dependency-verification=strict --no-daemon --stacktrace
-        working-directory: android-app
-
-      - name: Build Debug APK
-        run: ./gradlew assembleDebug --dependency-verification=strict --no-daemon --stacktrace
-        working-directory: android-app
-
-      - name: Run Android lint
-        run: ./gradlew lintRelease --dependency-verification=strict --no-daemon --stacktrace
         working-directory: android-app
 
       - name: Build Release APK
