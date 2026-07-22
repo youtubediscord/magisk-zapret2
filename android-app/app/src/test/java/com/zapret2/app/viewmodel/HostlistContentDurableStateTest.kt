@@ -3,13 +3,33 @@ package com.zapret2.app.viewmodel
 import androidx.lifecycle.SavedStateHandle
 import com.zapret2.app.R
 import com.zapret2.app.ui.UiText
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.setMain
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class HostlistContentDurableStateTest {
+
+    private val mainDispatcher = StandardTestDispatcher()
+
+    @Before
+    fun setUpMainDispatcher() {
+        Dispatchers.setMain(mainDispatcher)
+    }
+
+    @After
+    fun resetMainDispatcher() {
+        Dispatchers.resetMain()
+    }
 
     @Test
     fun invalidRouteName_isNotExposedOrLoaded() {

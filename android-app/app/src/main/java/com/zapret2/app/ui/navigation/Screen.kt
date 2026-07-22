@@ -18,7 +18,7 @@ import java.nio.charset.StandardCharsets
 
 sealed class Screen(
     val route: String,
-    @StringRes val titleRes: Int,
+    @param:StringRes val titleRes: Int,
     val icon: ImageVector,
 ) {
     object Control : Screen("control", R.string.screen_control, Icons.Default.PlayArrow)
@@ -81,6 +81,6 @@ sealed class Screen(
 }
 
 data class NavigationGroup(
-    @StringRes val titleRes: Int,
+    @param:StringRes val titleRes: Int,
     val screens: List<Screen>,
 )

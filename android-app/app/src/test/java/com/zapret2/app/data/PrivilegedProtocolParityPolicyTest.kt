@@ -157,7 +157,7 @@ class PrivilegedProtocolParityPolicyTest {
         val publication = source.indexOf("finalizedFile = outputFile", downloadStart)
         val terminalProgress = source.indexOf("progress(100)", publication)
         val ownershipRelease = source.indexOf("finalizedFile = null", terminalProgress)
-        val cleanup = source.indexOf("finalizedFile?.delete()", ownershipRelease)
+        val cleanup = source.indexOf("deleteFileBestEffort(finalizedFile)", ownershipRelease)
 
         assertTrue(downloadStart >= 0)
         assertTrue(publication > downloadStart)
@@ -399,11 +399,37 @@ class PrivilegedProtocolParityPolicyTest {
         val source = repositoryFile(
             "android-app/app/src/main/java/com/zapret2/app/data/ModuleUpdateRecovery.kt"
         ).readText()
+        val transaction = ModuleUpdateRecovery.Transaction(
+            transactionId = "policy-probe",
+            phase = "staged",
+            createdEpoch = "1",
+            preUpdateState = ModuleUpdateStatePolicy.VerifiedState.STOPPED,
+            disableMarkerExpectation = ModuleUpdatePreservation.DisableMarkerExpectation.ABSENT,
+            ownerPid = "1",
+            ownerStarttime = "1",
+            ownerCreatedEpoch = "1",
+            ownerBootId = "00000000-0000-0000-0000-000000000001",
+            updateDir = "/data/adb/modules/.zapret2-update-policy-probe",
+            backupDir = "/data/adb/modules/.zapret2-backup-policy-probe",
+            failedDir = "/data/adb/modules/.zapret2-failed-policy-probe",
+        )
+        val probe = ModuleUpdateRecovery.buildDirectoryProbe(transaction)
+        val rebind = requireNotNull(
+            ModuleUpdateRecovery.buildOwnerRebindPlan(
+                transaction = transaction,
+                expectedSha256 = "a".repeat(64),
+                ownerPid = 2,
+                ownerStarttime = "2",
+                ownerCreatedEpoch = "2",
+                ownerBootId = "00000000-0000-0000-0000-000000000002",
+                ownerToken = "policy-token",
+            ),
+        ).command
 
         assertTrue(source.contains("internal fun buildDirectoryProbe("))
-        assertTrue(source.contains("[ ! -L \"${'$'}z2_probe_path\" ]"))
-        assertTrue(source.contains("stat -c %u \"${'$'}z2_probe_path\""))
-        assertTrue(source.contains("case \"${'$'}z2_probe_mode\" in 700|711|750|751|755"))
+        assertTrue(probe.contains("[ ! -L \"${'$'}z2_probe_path\" ]"))
+        assertTrue(probe.contains("stat -c %u \"${'$'}z2_probe_path\""))
+        assertTrue(probe.contains("case \"${'$'}z2_probe_mode\" in 700|711|750|751|755"))
         assertTrue(source.contains("internal fun activeModuleIntegrityPredicate("))
         assertTrue(source.contains("internal fun moduleIntegrityPredicate("))
         assertTrue(source.contains("secureRootRegularFilePredicate"))
@@ -413,7 +439,7 @@ class PrivilegedProtocolParityPolicyTest {
         assertTrue(source.contains("moduleIntegrityPredicate(transaction.backupDir"))
         assertTrue(source.contains("moduleIntegrityPredicate(transaction.recoveryDir"))
         assertTrue(source.contains("val reboundDigest = UpdateTransactionProtocol.sha256(reboundContent)"))
-        assertTrue(source.contains("[ \"${'$'}new_digest\" = "))
+        assertTrue(rebind.contains("[ \"${'$'}new_digest\" = "))
 
         val terminal = source.indexOf("private fun recoveryTerminalPrerequisite(")
         val integrity = source.indexOf("activeModuleIntegrityPredicate(", terminal)
@@ -469,7 +495,9 @@ class PrivilegedProtocolParityPolicyTest {
         assertTrue(rollbackSource.contains("expectedTransactionDigest = retainedTransactionDigest"))
         assertFalse(rollbackSource.contains("authorizedUpdateLifecycle(marker, stopScript)"))
 
-        val ordinaryFailure = manager.substringAfter("} catch (error: Exception) {")
+        val ordinaryFailure = manager
+            .substringAfter("var transactionDigest: String? = null")
+            .substringAfter("} catch (error: Exception) {")
             .substringBefore("} finally {")
         val rollbackFence = ordinaryFailure.indexOf("val rollback = withContext(NonCancellable)")
         val restoreFence = ordinaryFailure.indexOf("val restored = withContext(NonCancellable)")
@@ -706,7 +734,7 @@ class PrivilegedProtocolParityPolicyTest {
 
         assertTrue(rootFileIo.contains("endsWith(requiredSuffix, ignoreCase = true)"))
         assertTrue(presetRepository.contains("fileName.endsWith(\".txt\")"))
-        assertTrue(hostlistRepository.contains("fileName.endsWith(\".txt\")"))
+        assertTrue(hostlistRepository.contains("fileName.endsWith(\".txt\", ignoreCase = true)"))
         assertTrue(strategyRepository.contains("RootFileIo.isSimpleFileName(hostlist, \".txt\")"))
         assertTrue(strategyRepository.contains("RootFileIo.isSimpleFileName(ipset, \".txt\")"))
         val presetValidator = commandBuilder.substringAfter("is_safe_preset_file_name() {")
@@ -740,7 +768,7 @@ class PrivilegedProtocolParityPolicyTest {
     }
 
     private fun repositoryFile(relativePath: String): File {
-        var current = File(System.getProperty("user.dir")).absoluteFile
+        var current = File(requireNotNull(System.getProperty("user.dir"))).absoluteFile
         repeat(8) {
             val candidate = File(current, relativePath)
             if (candidate.isFile) return candidate

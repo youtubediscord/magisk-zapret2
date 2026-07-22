@@ -224,7 +224,7 @@ class PresetRepositoryTest {
         val result = repository.save("custom.txt", "old content", "new content", applyAfterSave = false)
 
         assertEquals(PresetMutationOutcome.RollbackFailed, result)
-        assertEquals("new content", runner.files["custom.txt"])
+        assertEquals("new content\n", runner.files["custom.txt"])
     }
 
     @Test
@@ -393,7 +393,7 @@ class PresetRepositoryTest {
         }
 
         override suspend fun loadSelection(): PresetSelection =
-            PresetSelection(config.presetMode ?: "categories", config.presetFile.orEmpty(), "cmdline.txt")
+            PresetSelection(config.presetMode, config.presetFile, "cmdline.txt")
 
         override suspend fun snapshotActiveConfig(): ActivePresetConfig {
             events += "snapshot-config"

@@ -38,9 +38,9 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Apps
-import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.ExpandLess
@@ -1077,7 +1077,7 @@ private fun resolveCategoryIcon(key: String, type: String): ImageVector {
             normalized.contains("telegram") ||
             normalized.contains("whatsapp") ||
             normalized.contains("voice") ||
-            type == "voice" -> Icons.Default.Chat
+            type == "voice" -> Icons.AutoMirrored.Filled.Chat
         normalized.contains("facebook") ||
             normalized.contains("instagram") ||
             normalized.contains("twitter") -> Icons.Default.Public

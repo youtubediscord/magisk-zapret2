@@ -77,7 +77,7 @@ class ResourceLinkagePolicyTest {
     }
 
     private fun repositoryDirectory(relativePath: String): File {
-        var current = File(System.getProperty("user.dir")).absoluteFile
+        var current = File(requireNotNull(System.getProperty("user.dir"))).absoluteFile
         repeat(8) {
             val candidate = File(current, relativePath)
             if (candidate.isDirectory) return candidate

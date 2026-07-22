@@ -20,12 +20,12 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.FolderOff
 import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Storage
@@ -351,7 +351,7 @@ private fun hostlistIcon(filename: String): ImageVector {
             normalized.contains("tiktok") -> Icons.Default.VideoLibrary
         normalized.contains("discord") ||
             normalized.contains("telegram") ||
-            normalized.contains("whatsapp") -> Icons.Default.Chat
+            normalized.contains("whatsapp") -> Icons.AutoMirrored.Filled.Chat
         normalized.contains("facebook") ||
             normalized.contains("instagram") ||
             normalized.contains("twitter") -> Icons.Default.Public

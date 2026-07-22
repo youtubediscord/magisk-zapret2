@@ -67,7 +67,8 @@ data class HostlistContentUiState(
     val isLoading: Boolean
         get() = loadState == HostlistContentLoadState.LOADING
     val canEditContent: Boolean
-        get() = isEditing && hasAuthoritativeEditorBaseline && !isLoading && !isSaving
+        get() = isEditing && hasAuthoritativeEditorBaseline &&
+            loadState == HostlistContentLoadState.READY && !isSaving
     val canSaveContent: Boolean
         get() = canEditContent && hasUnsavedChanges
     val canLoadMore: Boolean

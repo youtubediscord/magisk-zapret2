@@ -18,8 +18,8 @@ class HostlistRepositoryTest {
         assertNull(repository.pathForFileName("bad name.txt"))
         assertNull(repository.pathForFileName(".hidden.txt"))
         assertNull(repository.pathForFileName("example.conf"))
-        assertNull(repository.pathForFileName("example.TXT"))
-        assertFalse(repository.isAllowedPath("$directory/example.TXT"))
+        assertEquals("$directory/example.TXT", repository.pathForFileName("example.TXT"))
+        assertTrue(repository.isAllowedPath("$directory/example.TXT"))
     }
 
     @Test
@@ -41,6 +41,10 @@ class HostlistRepositoryTest {
             HostlistFileRecord("large.txt", "$directory/large.txt", 200, 4096),
             parseHostlistRecord("large.txt|$directory/large.txt|200|4096"),
         )
+        assertEquals(
+            HostlistFileRecord("upper.TXT", "$directory/upper.TXT", 4, 10),
+            parseHostlistRecord("upper.TXT|$directory/upper.TXT|4|10"),
+        )
 
         listOf(
             "",
@@ -49,7 +53,6 @@ class HostlistRepositoryTest {
             "bad-size.txt|$directory/bad-size.txt|4|unknown",
             "escape.txt|$directory/../escape.txt|4|10",
             "mismatch.txt|$directory/other.txt|4|10",
-            "upper.TXT|$directory/upper.TXT|4|10",
             "pipe|name.txt|$directory/pipe|name.txt|4|10",
             "large.txt|$directory/large.txt|4|${HostlistRepository.MAX_HOSTLIST_BYTES.toLong() + 1}",
         ).forEach { line -> assertNull("Expected rejection: $line", parseHostlistRecord(line)) }

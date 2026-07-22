@@ -166,7 +166,9 @@ class ViewModelPrivilegedBoundaryPolicyTest {
         assertTrue(liveCatalog > lease)
         assertTrue(equalityGuard > liveCatalog)
         assertTrue(firstSnapshot > equalityGuard)
-        assertTrue(dns.contains("if (outcome == ApplyOutcome.CatalogChanged) loadData()"))
+        val catalogRefresh = dns.indexOf("if (outcome == ApplyOutcome.CatalogChanged) {")
+        assertTrue(catalogRefresh >= 0)
+        assertTrue(dns.indexOf("loadData()", catalogRefresh) > catalogRefresh)
     }
 
     @Test
@@ -384,7 +386,7 @@ class ViewModelPrivilegedBoundaryPolicyTest {
         assertTrue(repository.contains("snapshot.content != expectedContent"))
         assertTrue(repository.contains("Written(val persistedContent: String)"))
         assertTrue(dns.contains("clearSelectionOnSuccess = true"))
-        assertTrue(dns.contains("hostsData = if (stateUncertain) null"))
+        assertTrue(dns.contains("hostsData = if (stateUncertain || catalogChanged) null"))
         assertTrue(dns.contains("loadError = if (stateUncertain)"))
         assertTrue(dns.contains("HostsOverlayMutationOutcome.SourceChanged"))
         assertTrue(dns.contains("R.string.dns_hosts_changed"))
@@ -725,7 +727,7 @@ class ViewModelPrivilegedBoundaryPolicyTest {
     ).readText()
 
     private fun repositoryDirectory(relativePath: String): File {
-        var current = File(System.getProperty("user.dir")).absoluteFile
+        var current = File(requireNotNull(System.getProperty("user.dir"))).absoluteFile
         repeat(8) {
             val candidate = File(current, relativePath)
             if (candidate.exists()) return candidate

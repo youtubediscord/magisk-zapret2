@@ -55,7 +55,7 @@ class EditorSavedStateBudgetTest {
     }
 
     private fun viewModelSource(fileName: String): File {
-        var current = File(System.getProperty("user.dir")).absoluteFile
+        var current = File(requireNotNull(System.getProperty("user.dir"))).absoluteFile
         repeat(8) {
             val candidates = listOf(
                 File(current, "src/main/java/com/zapret2/app/viewmodel/$fileName"),

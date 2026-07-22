@@ -45,7 +45,7 @@ class VersionMetadataPolicyTest {
             ?: error("Missing version metadata pattern: $pattern")
 
     private fun repositoryFile(relativePath: String): File {
-        var current = File(System.getProperty("user.dir")).absoluteFile
+        var current = File(requireNotNull(System.getProperty("user.dir"))).absoluteFile
         repeat(8) {
             val candidate = File(current, relativePath)
             if (candidate.isFile) return candidate

@@ -14,7 +14,7 @@ import androidx.compose.ui.res.stringResource
  */
 sealed interface UiText {
     data class Resource(
-        @StringRes val id: Int,
+        @param:StringRes val id: Int,
         val arguments: List<Any> = emptyList(),
     ) : UiText
 

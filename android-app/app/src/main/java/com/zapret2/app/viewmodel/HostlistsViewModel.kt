@@ -30,7 +30,7 @@ enum class HostlistsLoadError {
     ROOT_COMMAND_FAILED,
 }
 
-enum class HostlistImportResult(@StringRes val messageRes: Int) {
+enum class HostlistImportResult(@param:StringRes val messageRes: Int) {
     IMPORTED(R.string.hostlists_import_success),
     UPDATED(R.string.hostlists_update_success),
     INVALID_NAME(R.string.hostlists_import_invalid_name),
