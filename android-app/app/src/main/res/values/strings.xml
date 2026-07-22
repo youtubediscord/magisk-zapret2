@@ -434,7 +434,6 @@
     <string name="presets_categories_file" translatable="false">categories.ini</string>
     <string name="presets_use_categories">Use categories</string>
     <string name="presets_files">Preset files</string>
-    <string name="presets_apply_item">Apply %1$s</string>
     <string name="presets_edit_item">Edit %1$s</string>
     <string name="presets_active">Active</string>
     <string name="presets_applied">Applied</string>

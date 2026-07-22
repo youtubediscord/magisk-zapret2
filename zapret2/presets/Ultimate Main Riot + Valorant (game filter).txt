@@ -1,8 +1,6 @@
-# Preset: Ultimate Main YT Discord ValFix
-# ActivePreset: Ultimate Main YT Discord ValFix
-# BuiltinVersion: 1.3
+# Preset: Ultimate Main Riot + Valorant (game filter)
+# BuiltinVersion: 2.24
 # Description: YouTube + Discord (as MAIN) + Valorant/Riot
-# Created: 2026-02-10
 # IconColor: #60cdff
 
 --lua-init=@lua/zapret-lib.lua
@@ -27,8 +25,18 @@
 # YOUTUBE (TCP)
 ################################################################################
 
+--filter-tcp=80,443-65535
+--ipset=lists/ipset-ru.txt
+--ipset=lists/ipset-dns.txt
+--ipset=lists/ipset-exclude.txt
+--out-range=-d8
+--payload=tls_client_hello
+--lua-desync=pass
+
+--new
+
 --filter-tcp=80,443
---hostlist-domains=googlevideo.com
+--hostlist=lists/googlevideo.txt
 --out-range=-d8
 --lua-desync=multidisorder:pos=1,host+2,sld+2,sld+5,sniext+1,sniext+2,endhost-2:seqovl=1
 
@@ -44,7 +52,6 @@
 ################################################################################
 # YOUTUBE (UDP / QUIC)
 ################################################################################
-
 --filter-udp=443
 --ipset=lists/ipset-youtube.txt
 --out-range=-n8
@@ -56,16 +63,15 @@
 ################################################################################
 # DISCORD
 ################################################################################
-
 --filter-tcp=443
---hostlist-domains=updates.discord.com
+--hostlist=lists/discord-updates.txt
 --out-range=-d10
 --lua-desync=hostfakesplit_multi:hosts=google.com,vimeo.com:tcp_ts=-1000:tcp_md5:repeats=2
 
 --new
 
 --filter-tcp=80,443,1080,2053,2083,2087,2096,8443
---hostlist-domains=discord.media
+--hostlist=lists/discord-media.txt
 --out-range=-d10
 --lua-desync=hostfakesplit_multi:hosts=google.com,vimeo.com:tcp_ts=-1000:tcp_md5:repeats=2
 
@@ -79,49 +85,43 @@
 --new
 
 --filter-l7=stun,discord
---payload=stun,discord_ip_discovery
 --out-range=-n8
+--payload=stun,discord_ip_discovery
 --lua-desync=fake:blob=fake_default_udp
 
 --new
 
 ################################################################################
-# RIOT / VALORANT (CRITICAL FIX)
+# RIOT / VALORANT
 ################################################################################
-
 --filter-tcp=443
---hostlist-domains=riotgames.com,valorant.com,riotcdn.net
---hostlist=lists/discord.txt
---hostlist=lists/other.txt
---hostlist=lists/soundcloud.txt
---hostlist=lists/rutracker.txt
---hostlist=lists/rutor.txt
---hostlist=lists/roblox.txt
---hostlist=lists/itch.txt
---hostlist=lists/facebook.txt
---hostlist=lists/instagram.txt
---hostlist=lists/twitter.txt
---hostlist=lists/whatsapp.txt
+--hostlist=lists/riot-valorant.txt
 --out-range=-d5
 --lua-desync=send
+--lua-desync=multidisorder:pos=1
 
 --new
 
 --filter-udp=5000-5500,7000-8000
---hostlist-domains=riotgames.com,valorant.com
+--hostlist=lists/riot-valorant.txt
 --out-range=-d5
 --payload=all
 --lua-desync=pass
 
 --new
 
+--filter-tcp=80,443-65535
+--ipset=lists/ipset-all.txt
+--out-range=-d5
+--lua-desync=send
+--lua-desync=multidisorder:pos=1
+
+--new
+
 ################################################################################
 # GLOBAL TCP (SOFT FALLBACK)
 ################################################################################
-
 --filter-tcp=443
---hostlist-exclude=lists/netrogat.txt
---hostlist=lists/other.txt
 --hostlist=lists/russia-blacklist.txt
 --out-range=-d10
 --lua-desync=send
@@ -129,51 +129,124 @@
 
 --new
 
---filter-tcp=443
---hostlist-domains=riotgames.com,valorant.com,riotcdn.net
---hostlist=lists/discord.txt
---hostlist=lists/other.txt
---hostlist=lists/soundcloud.txt
---hostlist=lists/rutracker.txt
---hostlist=lists/rutor.txt
---hostlist=lists/roblox.txt
---hostlist=lists/itch.txt
---hostlist=lists/facebook.txt
---hostlist=lists/instagram.txt
---hostlist=lists/twitter.txt
---hostlist=lists/whatsapp.txt
---out-range=-d5
---lua-desync=send
---lua-desync=multidisorder:pos=1
-
---new
-
---filter-tcp=443,444-65535
---ipset=lists/ipset-all.txt
---ipset=lists/ipset-base.txt
+--filter-tcp=80,443-65535
 --ipset=lists/ipset-discord.txt
---ipset=lists/ipset-cloudflare.txt
---ipset=lists/ipset-cloudflare1.txt
---ipset=lists/ipset-amazon.txt
---ipset=lists/ipset-roblox.txt
---ipset=lists/ipset-lol-ru.txt
---ipset=lists/ipset-lol-euw.txt
---ipset=lists/ipset-ovh.txt
---ipset=lists/ipset-whatsapp.txt
---ipset=lists/ipset-warp.txt
---ipset-exclude=lists/ipset-dns.txt
---ipset-exclude=lists/ipset-ru.txt
 --out-range=-d5
 --lua-desync=send
 --lua-desync=multidisorder:pos=1
 
 --new
 
-################################################################################
-# GLOBAL UDP
-################################################################################
+--filter-tcp=80,443-65535
+--hostlist=lists/cloudflare.txt
+--out-range=-d5
+--lua-desync=send
+--lua-desync=multidisorder:pos=1
 
---filter-udp=*
+--new
+
+--filter-tcp=80,443-65535
+--hostlist=lists/cloudfront.txt
+--out-range=-d5
+--lua-desync=send
+--lua-desync=multidisorder:pos=1
+
+--new
+
+--filter-tcp=80,443-65535
+--hostlist=lists/amazon.txt
+--out-range=-d5
+--lua-desync=send
+--lua-desync=multidisorder:pos=1
+
+--new
+
+--filter-tcp=80,443-65535
+--hostlist=lists/epicgames-fortnite.txt
+--out-range=-d5
+--lua-desync=send
+--lua-desync=multidisorder:pos=1
+
+--new
+
+--filter-tcp=80,443-65535
+--ipset=lists/ipset-roblox.txt
+--out-range=-d5
+--lua-desync=send
+--lua-desync=multidisorder:pos=1
+
+--new
+
+--filter-tcp=80,443-65535
+--ipset=lists/ipset-lol-ru.txt
+--out-range=-d5
+--lua-desync=send
+--lua-desync=multidisorder:pos=1
+
+--new
+
+--filter-tcp=80,443-65535
+--ipset=lists/ipset-lol-euw.txt
+--out-range=-d5
+--lua-desync=send
+--lua-desync=multidisorder:pos=1
+
+--new
+
+--filter-tcp=80,443-65535
+--ipset=lists/ipset-ovh.txt
+--out-range=-d5
+--lua-desync=send
+--lua-desync=multidisorder:pos=1
+
+--new
+
+--filter-tcp=80,443-65535
+--ipset=lists/ipset-whatsapp.txt
+--out-range=-d5
+--lua-desync=send
+--lua-desync=multidisorder:pos=1
+
+--new
+
+--filter-tcp=80,443-65535
+--ipset=lists/ipset-warp.txt
+--out-range=-d5
+--lua-desync=send
+--lua-desync=multidisorder:pos=1
+
+--new
+
+--filter-tcp=80,443-65535
+--ipset=lists/ipset-zapretkvn.txt
+--out-range=-d5
+--lua-desync=send
+--lua-desync=multidisorder:pos=1
+
+--new
+
+--filter-tcp=80,443-65535
+--ipset=lists/ipset-timeweb.txt
+--out-range=-d5
+--lua-desync=send
+--lua-desync=multidisorder:pos=1
+
+--new
+
+--filter-tcp=80,443-65535
+--ipset-exclude=lists/ipset-ru.txt
+--ipset-exclude=lists/ipset-dns.txt
+--ipset-exclude=lists/ipset-exclude.txt
+--out-range=-d5
+--lua-desync=send
+--lua-desync=multidisorder:pos=1
+
+--new
+
+--filter-udp=443-65535
+--ipset-exclude=lists/ipset-ru.txt
+--ipset-exclude=lists/ipset-dns.txt
+--ipset-exclude=lists/ipset-exclude.txt
 --out-range=-d10
 --payload=all
 --lua-desync=fake:blob=quic_google:repeats=4

@@ -1,6 +1,5 @@
-# Preset: general ALT9
-# ActivePreset: general ALT9
-# BuiltinVersion: 1.3
+# Preset: general ALT9 1.9.4
+# BuiltinVersion: 2.24
 # IconColor: #e6c300ff
 
 --lua-init=@lua/zapret-lib.lua
@@ -74,27 +73,51 @@
 --blob=hex_00:0x00
 
 
---filter-udp=443
+--filter-tcp=80,443-65535
+--ipset=lists/ipset-ru.txt
+--ipset=lists/ipset-dns.txt
+--ipset=lists/ipset-exclude.txt
+--out-range=-d8
+--payload=tls_client_hello
+--lua-desync=pass
+
+--new
+
+--filter-tcp=80,443-65535
+--ipset-exclude=lists/ipset-ru.txt
+--ipset-exclude=lists/ipset-dns.txt
 --ipset-exclude=lists/ipset-exclude.txt
+--out-range=-d8
+--lua-desync=hostfakesplit:host=ozon.ru:repeats=4:tcp_ts=-600000:tcp_md5
+
+--new
+
+--filter-udp=443-65535
+--ipset-exclude=lists/ipset-ru.txt
+--ipset-exclude=lists/ipset-dns.txt
+--ipset-exclude=lists/ipset-exclude.txt
+--out-range=-n8
 --payload=quic_initial
 --lua-desync=fake:blob=quic_google:repeats=6
 
 --new
 
---filter-l7=discord,stun
+--filter-l7=stun,discord
+--out-range=-n8
 --payload=stun,discord_ip_discovery
 --lua-desync=fake:blob=fake_default_udp:repeats=6
 
 --new
 
 --filter-tcp=80,443,1080,2053,2083,2087,2096,8443
---hostlist-domains=discord.media
+--out-range=-d10
+--hostlist=lists/discord-media.txt
 --lua-desync=hostfakesplit:host=ozon.ru:tcp_ts=-1000:tcp_md5:repeats=4
 
 --new
 
 --filter-tcp=80,443
---hostlist-domains=googlevideo.com
+--hostlist=lists/googlevideo.txt
 --out-range=-d8
 --lua-desync=hostfakesplit:host=ozon.ru:tcp_ts=-1000:tcp_md5:repeats=4
 
@@ -109,37 +132,75 @@
 
 --filter-tcp=80,443,1080,2053,2083,2087,2096,8443
 --hostlist=lists/discord.txt
---hostlist=lists/other.txt
---hostlist=lists/soundcloud.txt
---hostlist=lists/rutracker.txt
---hostlist=lists/rutor.txt
---hostlist=lists/roblox.txt
---hostlist=lists/itch.txt
---hostlist=lists/facebook.txt
---hostlist=lists/instagram.txt
---hostlist=lists/twitter.txt
---hostlist=lists/whatsapp.txt
+--out-range=-d8
+--lua-desync=hostfakesplit:host=ozon.ru:tcp_ts=-1000:tcp_md5:repeats=4
+
+--new
+
+--filter-tcp=80,443-65535
+--ipset=lists/ipset-all.txt
 --out-range=-d8
 --lua-desync=hostfakesplit:host=ozon.ru:tcp_ts=-1000:tcp_md5:repeats=4
 
 --new
 
 --filter-tcp=80,443
---ipset-exclude=lists/ipset-exclude.txt
---lua-desync=hostfakesplit:host=ozon.ru:repeats=4:tcp_ts=-600000:tcp_md5
-
---new
-
---filter-udp=443
---ipset=lists/ipset-all.txt
---ipset-exclude=lists/ipset-exclude.txt
---payload=quic_initial
---lua-desync=fake:blob=quic_google:repeats=6
+--hostlist=lists/soundcloud.txt
+--out-range=-d8
+--lua-desync=hostfakesplit:host=ozon.ru:tcp_ts=-1000:tcp_md5:repeats=4
 
 --new
 
 --filter-tcp=80,443
---ipset=lists/ipset-all.txt
---hostlist-exclude=lists/list-exclude.txt
---ipset-exclude=lists/ipset-exclude.txt
---lua-desync=hostfakesplit:host=ozon.ru:repeats=4:tcp_ts=-600000
+--hostlist=lists/rutracker.txt
+--out-range=-d8
+--lua-desync=hostfakesplit:host=ozon.ru:tcp_ts=-1000:tcp_md5:repeats=4
+
+--new
+
+--filter-tcp=80,443
+--hostlist=lists/rutor.txt
+--out-range=-d8
+--lua-desync=hostfakesplit:host=ozon.ru:tcp_ts=-1000:tcp_md5:repeats=4
+
+--new
+
+--filter-tcp=80,443-65535
+--hostlist=lists/roblox.txt
+--out-range=-d8
+--lua-desync=hostfakesplit:host=ozon.ru:tcp_ts=-1000:tcp_md5:repeats=4
+
+--new
+
+--filter-tcp=80,443
+--hostlist=lists/itch.txt
+--out-range=-d8
+--lua-desync=hostfakesplit:host=ozon.ru:tcp_ts=-1000:tcp_md5:repeats=4
+
+--new
+
+--filter-tcp=80,443
+--hostlist=lists/facebook.txt
+--out-range=-d8
+--lua-desync=hostfakesplit:host=ozon.ru:tcp_ts=-1000:tcp_md5:repeats=4
+
+--new
+
+--filter-tcp=80,443
+--hostlist=lists/instagram.txt
+--out-range=-d8
+--lua-desync=hostfakesplit:host=ozon.ru:tcp_ts=-1000:tcp_md5:repeats=4
+
+--new
+
+--filter-tcp=80,443
+--hostlist=lists/twitter.txt
+--out-range=-d8
+--lua-desync=hostfakesplit:host=ozon.ru:tcp_ts=-1000:tcp_md5:repeats=4
+
+--new
+
+--filter-tcp=80,443
+--hostlist=lists/whatsapp.txt
+--out-range=-d8
+--lua-desync=hostfakesplit:host=ozon.ru:tcp_ts=-1000:tcp_md5:repeats=4
