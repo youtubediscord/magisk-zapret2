@@ -46,7 +46,14 @@ def make_portable(lines: list[str], package_root: Path) -> list[str]:
             ):
                 continue
         result.append(line)
-    return result
+    compact: list[str] = []
+    for line in result:
+        if not line.strip():
+            line = ""
+            if compact and not compact[-1]:
+                continue
+        compact.append(line)
+    return compact
 
 
 def main() -> int:

@@ -15,6 +15,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -40,6 +41,8 @@ fun PresetEditorDialog(
 ) {
     var showDiscardConfirmation by rememberSaveable(fileName) { mutableStateOf(false) }
     val hasUnsavedChanges = content != baselineContent
+    val editorTextColor = MaterialTheme.colorScheme.onSurface
+    val editorTextStyle = remember(editorTextColor) { MonospaceStyle.copy(color = editorTextColor) }
     val requestDismiss = {
         when {
             !dismissEnabled -> Unit
@@ -105,7 +108,7 @@ fun PresetEditorDialog(
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(max = SizeTokens.DialogContentExtraTallMaxHeight),
-                    textStyle = MonospaceStyle.copy(color = MaterialTheme.colorScheme.onSurface),
+                    textStyle = editorTextStyle,
                     enabled = enabled,
                     label = { Text(stringResource(R.string.preset_strategy_command)) },
                     minLines = 3,

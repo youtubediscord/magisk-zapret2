@@ -11,8 +11,6 @@
 --ctrack-disable=0
 --ipcache-hostname=0
 
-
-
 --blob=tls_google:@bin/tls_clienthello_www_google_com.bin
 --blob=tls1:@bin/tls_clienthello_1.bin
 --blob=tls2:@bin/tls_clienthello_2.bin

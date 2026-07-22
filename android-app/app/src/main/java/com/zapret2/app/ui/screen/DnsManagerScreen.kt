@@ -248,7 +248,11 @@ fun DnsManagerScreen(
                         if (data.dnsServices.isEmpty()) {
                             item { EmptyServiceSection(stringResource(R.string.dns_no_services)) }
                         } else {
-                            items(data.dnsServices, key = { it.name }) { service ->
+                            items(
+                                items = data.dnsServices,
+                                key = { it.name },
+                                contentType = { "dns_service" },
+                            ) { service ->
                                 DnsServiceItem(
                                     name = service.name,
                                     info = quantityStringResource(
@@ -282,7 +286,11 @@ fun DnsManagerScreen(
                         if (data.directServices.isEmpty()) {
                             item { EmptyServiceSection(stringResource(R.string.dns_no_direct_services)) }
                         } else {
-                            items(data.directServices, key = { it.name }) { service ->
+                            items(
+                                items = data.directServices,
+                                key = { it.name },
+                                contentType = { "direct_service" },
+                            ) { service ->
                                 DnsServiceItem(
                                     name = service.name,
                                     info = quantityStringResource(
@@ -362,6 +370,7 @@ private fun DnsPresetDialog(
                     itemsIndexed(
                         items = presets,
                         key = { _, name -> name },
+                        contentType = { _, _ -> "dns_preset" },
                     ) { index, name ->
                         val selected = index == selectedIndex
                         Row(

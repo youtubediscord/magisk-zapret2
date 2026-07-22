@@ -53,6 +53,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -336,6 +337,10 @@ private fun HostlistEditContent(
     val lineCount = remember(state.editorContent) {
         if (state.editorContent.isBlank()) 0 else state.editorContent.lineSequence().count()
     }
+    val editorTextColor = MaterialTheme.colorScheme.onSurface
+    val editorHintColor = MaterialTheme.colorScheme.onSurfaceVariant
+    val editorTextStyle = remember(editorTextColor) { MonospaceStyle.copy(color = editorTextColor) }
+    val editorHintStyle = remember(editorHintColor) { MonospaceStyle.copy(color = editorHintColor) }
 
     Column(modifier = Modifier.fillMaxSize()) {
         Surface(
@@ -355,16 +360,14 @@ private fun HostlistEditContent(
                     .fillMaxSize()
                     .verticalScroll(rememberScrollState())
                     .padding(SpacingTokens.Large),
-                textStyle = MonospaceStyle.copy(color = MaterialTheme.colorScheme.onSurface),
+                textStyle = editorTextStyle,
                 cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                 decorationBox = { innerTextField ->
                     Box(modifier = Modifier.fillMaxSize()) {
                         if (state.editorContent.isEmpty()) {
                             Text(
                                 text = stringResource(R.string.hostlist_editor_hint),
-                                style = MonospaceStyle.copy(
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                ),
+                                style = editorHintStyle,
                             )
                         }
                         innerTextField()
@@ -454,12 +457,13 @@ private fun HostlistBrowseContent(
             state.canLoadMore && lastVisible >= state.entries.size - 10 && state.entries.isNotEmpty()
         }
     }
+    val currentOnLoadMore by rememberUpdatedState(onLoadMore)
 
     LaunchedEffect(listState, shouldLoadMore) {
         snapshotFlow { shouldLoadMore.value }
             .distinctUntilChanged()
             .filter { it }
-            .collect { onLoadMore() }
+            .collect { currentOnLoadMore() }
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -532,6 +536,7 @@ private fun HostlistBrowseContent(
                     itemsIndexed(
                         items = state.entries,
                         key = { index, _ -> index },
+                        contentType = { _, _ -> "hostlist_entry" },
                     ) { index, entry ->
                         Row(
                             modifier = Modifier

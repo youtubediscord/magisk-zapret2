@@ -228,7 +228,11 @@ fun PresetsScreen(
                         item { EmptyPresetState(onReload = { activeViewModel?.loadPresets() }) }
                     }
 
-                    items(state.presets, key = PresetEntry::fileName) { preset ->
+                    items(
+                        items = state.presets,
+                        key = PresetEntry::fileName,
+                        contentType = { "preset" },
+                    ) { preset ->
                         val isActive = presetModeActive && state.activePresetFile == preset.fileName
                         PresetCard(
                             preset = preset,

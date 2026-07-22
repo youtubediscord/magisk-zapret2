@@ -3,7 +3,9 @@ package com.zapret2.app.ui.components
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.platform.LocalContext
 import com.zapret2.app.ui.UiText
 import com.zapret2.app.ui.resolve
@@ -22,10 +24,11 @@ fun AppSnackbarEffect(
     onConsumed: (AppSnackbarMessage) -> Unit,
 ) {
     val context = LocalContext.current
-    LaunchedEffect(message?.sequence) {
+    val currentOnConsumed by rememberUpdatedState(onConsumed)
+    LaunchedEffect(message?.sequence, hostState, context) {
         message?.let {
             hostState.showSnackbar(it.text.resolve(context))
-            onConsumed(it)
+            currentOnConsumed(it)
         }
     }
 }
@@ -39,10 +42,11 @@ fun AppSnackbarEffect(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    LaunchedEffect(message) {
+    val currentOnConsumed by rememberUpdatedState(onConsumed)
+    LaunchedEffect(message, hostState, context) {
         message?.let {
             val resolved = it.resolve(context)
-            onConsumed()
+            currentOnConsumed()
             scope.launch { hostState.showSnackbar(resolved) }
         }
     }

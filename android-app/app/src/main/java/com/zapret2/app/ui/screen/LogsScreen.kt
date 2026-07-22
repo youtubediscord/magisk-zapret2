@@ -214,6 +214,10 @@ private fun CommandTab(
     onCopy: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val commandTextColor = MaterialTheme.colorScheme.onSurface
+    val commandTextStyle = remember(commandTextColor) {
+        MonospaceStyle.copy(color = commandTextColor)
+    }
     BoxWithConstraints(
         modifier = modifier.fillMaxWidth(),
         contentAlignment = Alignment.TopCenter,
@@ -295,9 +299,7 @@ private fun CommandTab(
                                 modifier = Modifier
                                     .fillMaxSize()
                                     .verticalScroll(rememberScrollState()),
-                                style = MonospaceStyle.copy(
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                ),
+                                style = commandTextStyle,
                             )
                         }
                     }
@@ -489,6 +491,7 @@ private fun LogStreamTab(
                             itemsIndexed(
                                 items = displayLines,
                                 key = { index, _ -> index },
+                                contentType = { _, _ -> "log_line" },
                             ) { _, line ->
                                 Text(
                                     text = line,

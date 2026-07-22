@@ -75,6 +75,28 @@ class ComposeLifecyclePolicyTest {
     }
 
     @Test
+    fun longLivedComposeEffects_useCurrentCallbacks() {
+        val hostlist = productionFile("ui/screen/HostlistContentScreen.kt").readText()
+        assertTrue(hostlist.contains("val currentOnLoadMore by rememberUpdatedState(onLoadMore)"))
+        assertTrue(hostlist.contains(".collect { currentOnLoadMore() }"))
+
+        val strategies = productionFile("ui/screen/StrategiesScreen.kt").readText()
+        assertTrue(strategies.contains("val currentOnRetry by rememberUpdatedState(onRetry)"))
+        assertTrue(
+            strategies.contains(
+                "val currentOnConsumeOrderSaved by rememberUpdatedState(onConsumeOrderSaved)",
+            ),
+        )
+
+        val snackbar = productionFile("ui/components/AppSnackbarEffect.kt").readText()
+        assertTrue(
+            Regex("val currentOnConsumed by rememberUpdatedState\\(onConsumed\\)")
+                .findAll(snackbar)
+                .count() == 2,
+        )
+    }
+
+    @Test
     fun suspendMutationAdapters_neverConvertCancellationIntoOrdinaryFailure() {
         val viewModelRunCatching = productionFile("viewmodel").walkTopDown()
             .filter { it.isFile && it.name.endsWith("ViewModel.kt") }
