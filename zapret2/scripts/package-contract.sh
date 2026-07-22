@@ -22,15 +22,22 @@ package_contract_fail() {
     return 1
 }
 
-package_contract_safe_relative_path() {
+package_contract_safe_relative_path_syntax() {
     local path="$1"
     [ -n "$path" ] || return 1
     [ "${path# }" = "$path" ] && [ "${path% }" = "$path" ] || return 1
     case "$path" in
+        *'|'*) return 1 ;;
         /*|*\\*|*//*|*/|../*|*/../*|*/..|.|./*|*/./*|*/.) return 1 ;;
     esac
-    if LC_ALL=C printf '%s' "$path" | grep -q '[[:cntrl:]|]'; then return 1; fi
     package_contract_safe_path_component_lengths "$path" || return 1
+    return 0
+}
+
+package_contract_safe_relative_path() {
+    local path="$1"
+    package_contract_safe_relative_path_syntax "$path" || return 1
+    if LC_ALL=C printf '%s' "$path" | grep -q '[[:cntrl:]]'; then return 1; fi
     return 0
 }
 
@@ -53,7 +60,7 @@ package_contract_safe_path_component_lengths() {
     return 0
 }
 
-package_contract_safe_preset_name() {
+package_contract_safe_preset_name_syntax() {
     local value="$1"
     [ -n "$value" ] && package_contract_safe_file_name_byte_length "$value" || return 1
     [ "${value# }" = "$value" ] && [ "${value% }" = "$value" ] || return 1
@@ -62,6 +69,12 @@ package_contract_safe_preset_name() {
         *.txt) ;;
         *) return 1 ;;
     esac
+    return 0
+}
+
+package_contract_safe_preset_name() {
+    local value="$1"
+    package_contract_safe_preset_name_syntax "$value" || return 1
     if LC_ALL=C printf '%s' "$value" | grep -q '[[:cntrl:]]'; then return 1; fi
     return 0
 }
@@ -139,39 +152,49 @@ package_contract_manifest_has_entry() {
     return 1
 }
 
-package_contract_file_path_collides() {
-    local seen="$1"
-    local candidate="$2"
-    local existing=""
-    while IFS= read -r existing || [ -n "$existing" ]; do
-        case "$candidate" in "$existing"/*) return 0 ;; esac
-        case "$existing" in "$candidate"/*) return 0 ;; esac
-    done < "$seen"
-    return 1
-}
-
-package_contract_record_manifest_file_path() {
-    local seen="$1"
-    local candidate="$2"
-    local detail="$3"
-    if grep -Fqx -e "$candidate" "$seen"; then
-        package_contract_fail "MANIFEST_DUPLICATE_PATH" "$detail"
-        return 1
-    fi
-    if package_contract_file_path_collides "$seen" "$candidate"; then
-        package_contract_fail "MANIFEST_PATH_COLLISION" "$detail"
-        return 1
-    fi
-    printf '%s\n' "$candidate" >> "$seen" || {
+package_contract_validate_manifest_paths_file() {
+    local paths="$1" failure="" code="" detail=""
+    failure="$(LC_ALL=C awk '
+        {
+            path=$0
+            if (seen[path]++) {
+                printf "MANIFEST_DUPLICATE_PATH|%s\n", path
+                failed=1
+                exit
+            }
+            paths[++count]=path
+        }
+        END {
+            if (failed) exit
+            for (i=1; i<=count; i++) {
+                path=paths[i]
+                remainder=path
+                prefix=""
+                while ((separator=index(remainder, "/")) > 0) {
+                    component=substr(remainder, 1, separator - 1)
+                    remainder=substr(remainder, separator + 1)
+                    prefix=(prefix == "" ? component : prefix "/" component)
+                    if (prefix in seen) {
+                        printf "MANIFEST_PATH_COLLISION|%s\n", path
+                        exit
+                    }
+                }
+            }
+        }
+    ' "$paths")" || {
         package_contract_fail "MANIFEST_TEMP_FAILED"
         return 1
     }
+    [ -z "$failure" ] && return 0
+    code="${failure%%|*}"
+    detail="${failure#*|}"
+    package_contract_fail "$code" "$detail"
 }
 
 package_contract_validate_manifest() {
     local root="$1"
     local manifest="$root/$PACKAGE_CONTRACT_MANIFEST_REL"
-    local seen=""
+    local seen="" entries="" required="" missing=""
     local class=""
     local mode=""
     local path=""
@@ -202,7 +225,18 @@ package_contract_validate_manifest() {
         package_contract_fail "MANIFEST_TOO_LARGE" "$manifest_bytes"
         return 1
     }
+    LC_ALL=C awk '
+        {
+            line=$0
+            sub(/\r$/, "", line)
+            if (line ~ /[[:cntrl:]]/) exit 1
+        }
+    ' "$manifest" || {
+        package_contract_fail "MANIFEST_CONTROL_CHARACTER" "$PACKAGE_CONTRACT_MANIFEST_REL"
+        return 1
+    }
     seen="$(mktemp)" || { package_contract_fail "MANIFEST_TEMP_FAILED"; return 1; }
+    entries="$(mktemp)" || { rm -f "$seen"; package_contract_fail "MANIFEST_TEMP_FAILED"; return 1; }
     cr=$(printf '\r')
     while IFS='|' read -r class mode path extra || [ -n "$class$mode$path$extra" ]; do
         line_number=$((line_number + 1))
@@ -211,13 +245,13 @@ package_contract_validate_manifest() {
         path="${path%"$cr"}"
         extra="${extra%"$cr"}"
         case "$class" in ""|'#'*) continue ;; esac
-        [ -z "$extra" ] || { rm -f "$seen"; package_contract_fail "MANIFEST_FIELD_COUNT" "$class"; return 1; }
+        [ -z "$extra" ] || { rm -f "$seen" "$entries"; package_contract_fail "MANIFEST_FIELD_COUNT" "$class"; return 1; }
         if [ "$class" = "schema" ]; then
             [ "$metadata_stage" -eq 0 ] && [ "$line_number" -eq 1 ] || {
-                rm -f "$seen"; package_contract_fail "MANIFEST_METADATA_ORDER" "schema"; return 1;
+                rm -f "$seen" "$entries"; package_contract_fail "MANIFEST_METADATA_ORDER" "schema"; return 1;
             }
             [ "$mode" = "1" ] && [ "$path" = "zapret2-runtime" ] || {
-                rm -f "$seen"; package_contract_fail "MANIFEST_SCHEMA" "$mode|$path"; return 1;
+                rm -f "$seen" "$entries"; package_contract_fail "MANIFEST_SCHEMA" "$mode|$path"; return 1;
             }
             schema_count=$((schema_count + 1))
             metadata_stage=1
@@ -225,62 +259,68 @@ package_contract_validate_manifest() {
         fi
         if [ "$class" = "owner_protocol" ]; then
             [ "$metadata_stage" -eq 1 ] && [ "$line_number" -eq 2 ] || {
-                rm -f "$seen"; package_contract_fail "MANIFEST_METADATA_ORDER" "owner_protocol"; return 1;
+                rm -f "$seen" "$entries"; package_contract_fail "MANIFEST_METADATA_ORDER" "owner_protocol"; return 1;
             }
             [ "$mode" = "$PACKAGE_CONTRACT_OWNER_PROTOCOL" ] && [ "$path" = "zapret2-firewall" ] || {
-                rm -f "$seen"; package_contract_fail "MANIFEST_OWNER_PROTOCOL" "$mode|$path"; return 1;
+                rm -f "$seen" "$entries"; package_contract_fail "MANIFEST_OWNER_PROTOCOL" "$mode|$path"; return 1;
             }
             owner_protocol_count=$((owner_protocol_count + 1))
             metadata_stage=2
             continue
         fi
         [ "$metadata_stage" -eq 2 ] || {
-            rm -f "$seen"; package_contract_fail "MANIFEST_METADATA_ORDER" "$class"; return 1;
+            rm -f "$seen" "$entries"; package_contract_fail "MANIFEST_METADATA_ORDER" "$class"; return 1;
         }
         case "$class" in
             immutable-file|mutable-seed|runtime-dependency-immutable|runtime-dependency-mutable-seed|preset-compatible|preset-quarantined)
-                [ "$mode" = "0644" ] || { rm -f "$seen"; package_contract_fail "MANIFEST_MODE" "$class|$mode"; return 1; }
+                [ "$mode" = "0644" ] || { rm -f "$seen" "$entries"; package_contract_fail "MANIFEST_MODE" "$class|$mode"; return 1; }
                 ;;
             immutable-exec|abi-exec|installed-exec)
-                [ "$mode" = "0755" ] || { rm -f "$seen"; package_contract_fail "MANIFEST_MODE" "$class|$mode"; return 1; }
+                [ "$mode" = "0755" ] || { rm -f "$seen" "$entries"; package_contract_fail "MANIFEST_MODE" "$class|$mode"; return 1; }
                 ;;
-            *) rm -f "$seen"; package_contract_fail "MANIFEST_CLASS" "$class"; return 1 ;;
+            *) rm -f "$seen" "$entries"; package_contract_fail "MANIFEST_CLASS" "$class"; return 1 ;;
         esac
-        package_contract_safe_relative_path "$path" || {
-            rm -f "$seen"; package_contract_fail "MANIFEST_PATH" "$path"; return 1;
+        package_contract_safe_relative_path_syntax "$path" || {
+            rm -f "$seen" "$entries"; package_contract_fail "MANIFEST_PATH" "$path"; return 1;
         }
         case "$class:$path" in
             abi-exec:zapret2/bin/'{abi}'/nfqws2) ;;
-            abi-exec:*) rm -f "$seen"; package_contract_fail "MANIFEST_ABI_TEMPLATE" "$path"; return 1 ;;
+            abi-exec:*) rm -f "$seen" "$entries"; package_contract_fail "MANIFEST_ABI_TEMPLATE" "$path"; return 1 ;;
             installed-exec:zapret2/nfqws2) ;;
-            installed-exec:*) rm -f "$seen"; package_contract_fail "MANIFEST_INSTALLED_EXEC" "$path"; return 1 ;;
+            installed-exec:*) rm -f "$seen" "$entries"; package_contract_fail "MANIFEST_INSTALLED_EXEC" "$path"; return 1 ;;
             preset-compatible:zapret2/presets/*.txt|preset-quarantined:zapret2/presets/*.txt)
-                package_contract_safe_preset_name "${path##*/}" || {
-                    rm -f "$seen"; package_contract_fail "MANIFEST_PRESET_PATH" "$path"; return 1;
+                package_contract_safe_preset_name_syntax "${path##*/}" || {
+                    rm -f "$seen" "$entries"; package_contract_fail "MANIFEST_PRESET_PATH" "$path"; return 1;
                 }
                 ;;
-            preset-compatible:*|preset-quarantined:*) rm -f "$seen"; package_contract_fail "MANIFEST_PRESET_PATH" "$path"; return 1 ;;
+            preset-compatible:*|preset-quarantined:*) rm -f "$seen" "$entries"; package_contract_fail "MANIFEST_PRESET_PATH" "$path"; return 1 ;;
         esac
         if [ "$class" = "abi-exec" ]; then
             for expanded_abi in arm64-v8a armeabi-v7a; do
                 expanded_path="zapret2/bin/$expanded_abi/nfqws2"
-                package_contract_record_manifest_file_path "$seen" "$expanded_path" "$path" || {
-                    rm -f "$seen"
-                    return 1
+                printf '%s\n' "$expanded_path" >> "$seen" || {
+                    rm -f "$seen" "$entries"; package_contract_fail "MANIFEST_TEMP_FAILED"; return 1;
                 }
             done
         else
-            package_contract_record_manifest_file_path "$seen" "$path" "$path" || {
-                rm -f "$seen"
-                return 1
+            printf '%s\n' "$path" >> "$seen" || {
+                rm -f "$seen" "$entries"; package_contract_fail "MANIFEST_TEMP_FAILED"; return 1;
             }
         fi
+        printf '%s|%s|%s\n' "$class" "$mode" "$path" >> "$entries" || {
+            rm -f "$seen" "$entries"; package_contract_fail "MANIFEST_TEMP_FAILED"; return 1;
+        }
         entry_count=$((entry_count + 1))
     done < "$manifest"
+    if ! package_contract_validate_manifest_paths_file "$seen"; then
+        rm -f "$seen" "$entries"
+        return 1
+    fi
     rm -f "$seen"
-    [ "$schema_count" -eq 1 ] || { package_contract_fail "MANIFEST_SCHEMA_COUNT" "$schema_count"; return 1; }
-    [ "$owner_protocol_count" -eq 1 ] || { package_contract_fail "MANIFEST_OWNER_PROTOCOL_COUNT" "$owner_protocol_count"; return 1; }
-    [ "$entry_count" -gt 0 ] || { package_contract_fail "MANIFEST_EMPTY"; return 1; }
+    [ "$schema_count" -eq 1 ] || { rm -f "$entries"; package_contract_fail "MANIFEST_SCHEMA_COUNT" "$schema_count"; return 1; }
+    [ "$owner_protocol_count" -eq 1 ] || { rm -f "$entries"; package_contract_fail "MANIFEST_OWNER_PROTOCOL_COUNT" "$owner_protocol_count"; return 1; }
+    [ "$entry_count" -gt 0 ] || { rm -f "$entries"; package_contract_fail "MANIFEST_EMPTY"; return 1; }
+    required="$(mktemp)" || { rm -f "$entries"; package_contract_fail "MANIFEST_TEMP_FAILED"; return 1; }
     for required_entry in \
         "immutable-file|0644|module.prop" \
         "immutable-file|0644|zapret2/runtime-manifest.tsv" \
@@ -325,11 +365,18 @@ package_contract_validate_manifest() {
         "abi-exec|0755|zapret2/bin/{abi}/nfqws2" \
         "installed-exec|0755|zapret2/nfqws2"
     do
-        package_contract_manifest_has_entry "$manifest" "$required_entry" || {
-            package_contract_fail "MANIFEST_REQUIRED_ENTRY" "$required_entry"
-            return 1
+        printf '%s\n' "$required_entry" >> "$required" || {
+            rm -f "$entries" "$required"; package_contract_fail "MANIFEST_TEMP_FAILED"; return 1;
         }
     done
+    missing="$(awk '
+        NR == FNR { present[$0]=1; next }
+        !($0 in present) { print; exit }
+    ' "$entries" "$required")" || {
+        rm -f "$entries" "$required"; package_contract_fail "MANIFEST_TEMP_FAILED"; return 1;
+    }
+    rm -f "$entries" "$required"
+    [ -z "$missing" ] || { package_contract_fail "MANIFEST_REQUIRED_ENTRY" "$missing"; return 1; }
     return 0
 }
 
@@ -430,6 +477,10 @@ package_contract_for_each_path() {
     while IFS='|' read -r class mode path extra || [ -n "$class$mode$path$extra" ]; do
         case "$class" in ""|'#'*|schema|owner_protocol) continue ;; esac
         if [ "$class" = "installed-exec" ] && [ "$profile" != "installed" ]; then continue; fi
+        # Magisk sources customize.sh from the package and then removes it from
+        # the installed module. Hot updates publish the same canonical runtime
+        # shape, so installer-only code is excluded from installed profiles.
+        if [ "$profile" = "installed" ] && [ "$path" = "customize.sh" ]; then continue; fi
         if [ "$class" = "abi-exec" ]; then
             for abi in arm64-v8a armeabi-v7a; do
                 "$callback" "$root" "$class" "$mode" "zapret2/bin/$abi/nfqws2" || return 1
@@ -443,17 +494,13 @@ package_contract_for_each_path() {
 
 package_contract_allowlist_callback() {
     local root="$1" class="$2" mode="$3" path="$4" parent=""
-    if ! grep -Fqx -e "$path" "$PACKAGE_CONTRACT_ALLOWED_FILES"; then
-        printf '%s\n' "$path" >> "$PACKAGE_CONTRACT_ALLOWED_FILES" || return 1
-    fi
+    printf '%s\n' "$path" >> "$PACKAGE_CONTRACT_ALLOWED_FILES" || return 1
     case "$path" in
         */*) parent="${path%/*}" ;;
         *) parent="" ;;
     esac
     while [ -n "$parent" ]; do
-        if ! grep -Fqx -e "$parent" "$PACKAGE_CONTRACT_ALLOWED_DIRECTORIES"; then
-            printf '%s\n' "$parent" >> "$PACKAGE_CONTRACT_ALLOWED_DIRECTORIES" || return 1
-        fi
+        printf '%s\n' "$parent" >> "$PACKAGE_CONTRACT_ALLOWED_DIRECTORIES" || return 1
         case "$parent" in
             */*) parent="${parent%/*}" ;;
             *) parent="" ;;
@@ -473,13 +520,18 @@ package_contract_build_allowlist() {
     package_contract_for_each_path "$root" "$profile" package_contract_allowlist_callback
     result=$?
     unset PACKAGE_CONTRACT_ALLOWED_FILES PACKAGE_CONTRACT_ALLOWED_DIRECTORIES
-    [ "$result" -eq 0 ] || package_contract_fail "ALLOWLIST_TEMP_FAILED"
-    return "$result"
+    [ "$result" -eq 0 ] || { package_contract_fail "ALLOWLIST_TEMP_FAILED"; return "$result"; }
+    LC_ALL=C sort -u "$files" -o "$files" && LC_ALL=C sort -u "$directories" -o "$directories" || {
+        package_contract_fail "ALLOWLIST_TEMP_FAILED"
+        return 1
+    }
+    return 0
 }
 
 package_contract_validate_exact_tree() {
     local root="${1%/}" profile="${2:-package}" meta_policy="${3:-no-meta}"
-    local files="" directories="" listing="" entry="" relative="" allowed=0 configured_cmdline=""
+    local files="" directories="" listing="" actual="" allowed_records=""
+    local entry="" relative="" configured_cmdline="" unsafe="" hardlinked="" unexpected=""
     [ -n "$root" ] && [ -d "$root" ] && [ ! -L "$root" ] || {
         package_contract_fail "PACKAGE_ROOT_INVALID" "$root"
         return 1
@@ -490,56 +542,100 @@ package_contract_validate_exact_tree() {
     listing="$(mktemp)" || {
         rm -f "$files" "$directories"; package_contract_fail "ALLOWLIST_TEMP_FAILED"; return 1;
     }
+    actual="$(mktemp)" || {
+        rm -f "$files" "$directories" "$listing"; package_contract_fail "ALLOWLIST_TEMP_FAILED"; return 1;
+    }
+    allowed_records="$(mktemp)" || {
+        rm -f "$files" "$directories" "$listing" "$actual"; package_contract_fail "ALLOWLIST_TEMP_FAILED"; return 1;
+    }
     package_contract_build_allowlist "$root" "$profile" "$files" "$directories" || {
-        rm -f "$files" "$directories" "$listing"; return 1;
+        rm -f "$files" "$directories" "$listing" "$actual" "$allowed_records"; return 1;
     }
     if [ "$profile" = installed ]; then
         configured_cmdline="$(package_contract_configured_cmdline_relative "$root")" || {
-            rm -f "$files" "$directories" "$listing"
+            rm -f "$files" "$directories" "$listing" "$actual" "$allowed_records"
             package_contract_fail "CONFIGURED_CMDLINE_BINDING_INVALID"
             return 1
         }
     fi
     find "$root" -mindepth 1 -print > "$listing" 2>/dev/null || {
-        rm -f "$files" "$directories" "$listing"; package_contract_fail "PACKAGE_ENUMERATION_FAILED"; return 1;
+        rm -f "$files" "$directories" "$listing" "$actual" "$allowed_records"
+        package_contract_fail "PACKAGE_ENUMERATION_FAILED"; return 1;
+    }
+    unsafe="$(LC_ALL=C awk -v prefix="$root/" '
+        { relative=substr($0, length(prefix) + 1) }
+        relative ~ /[[:cntrl:]|]/ { print relative; exit }
+    ' "$listing")" || {
+        rm -f "$files" "$directories" "$listing" "$actual" "$allowed_records"
+        package_contract_fail "PACKAGE_ENUMERATION_FAILED"; return 1;
+    }
+    [ -z "$unsafe" ] || {
+        rm -f "$files" "$directories" "$listing" "$actual" "$allowed_records"
+        package_contract_fail "PACKAGE_UNSAFE_ENTRY" "$unsafe"; return 1;
+    }
+    hardlinked="$(find "$root" -type f ! -links 1 -print -quit 2>/dev/null)" || {
+        rm -f "$files" "$directories" "$listing" "$actual" "$allowed_records"
+        package_contract_fail "PACKAGE_ENUMERATION_FAILED"; return 1;
+    }
+    [ -z "$hardlinked" ] || {
+        relative="${hardlinked#"$root"/}"
+        rm -f "$files" "$directories" "$listing" "$actual" "$allowed_records"
+        package_contract_fail "PACKAGE_LINK_COUNT" "$relative"; return 1;
     }
     while IFS= read -r entry || [ -n "$entry" ]; do
         relative="${entry#"$root"/}"
-        package_contract_safe_relative_path "$relative" || {
-            rm -f "$files" "$directories" "$listing"; package_contract_fail "PACKAGE_UNSAFE_ENTRY" "$relative"; return 1;
+        package_contract_safe_relative_path_syntax "$relative" || {
+            rm -f "$files" "$directories" "$listing" "$actual" "$allowed_records"
+            package_contract_fail "PACKAGE_UNSAFE_ENTRY" "$relative"; return 1;
         }
         [ ! -L "$entry" ] || {
-            rm -f "$files" "$directories" "$listing"; package_contract_fail "PACKAGE_SYMLINK" "$relative"; return 1;
+            rm -f "$files" "$directories" "$listing" "$actual" "$allowed_records"
+            package_contract_fail "PACKAGE_SYMLINK" "$relative"; return 1;
         }
-        allowed=0
         if [ -f "$entry" ]; then
-            [ "$(stat -c %h "$entry" 2>/dev/null)" = 1 ] || {
-                rm -f "$files" "$directories" "$listing"; package_contract_fail "PACKAGE_LINK_COUNT" "$relative"; return 1;
+            printf 'file|%s\n' "$relative" >> "$actual" || {
+                rm -f "$files" "$directories" "$listing" "$actual" "$allowed_records"
+                package_contract_fail "PACKAGE_ENUMERATION_FAILED"; return 1;
             }
-            grep -Fqx -e "$relative" "$files" && allowed=1
-            if [ "$allowed" -eq 0 ] && [ "$profile" = installed ]; then
-                case "$relative" in
-                    disable|zapret2/install-generation.meta|zapret2/lists/*) allowed=1 ;;
-                esac
-                [ "$relative" = "$configured_cmdline" ] && allowed=1
-            fi
-            if [ "$allowed" -eq 0 ] && [ "$meta_policy" = allow-meta ]; then
-                case "$relative" in META-INF/*) allowed=1 ;; esac
-            fi
         elif [ -d "$entry" ]; then
-            grep -Fqx -e "$relative" "$directories" && allowed=1
-            if [ "$allowed" -eq 0 ] && [ "$profile" = installed ]; then
-                case "$relative" in zapret2/lists/*) allowed=1 ;; esac
-            fi
-            if [ "$allowed" -eq 0 ] && [ "$meta_policy" = allow-meta ]; then
-                case "$relative" in META-INF|META-INF/*) allowed=1 ;; esac
-            fi
+            printf 'directory|%s\n' "$relative" >> "$actual" || {
+                rm -f "$files" "$directories" "$listing" "$actual" "$allowed_records"
+                package_contract_fail "PACKAGE_ENUMERATION_FAILED"; return 1;
+            }
+        else
+            rm -f "$files" "$directories" "$listing" "$actual" "$allowed_records"
+            package_contract_fail "PACKAGE_UNDECLARED_ENTRY" "$relative"; return 1
         fi
-        [ "$allowed" -eq 1 ] || {
-            rm -f "$files" "$directories" "$listing"; package_contract_fail "PACKAGE_UNDECLARED_ENTRY" "$relative"; return 1;
-        }
     done < "$listing"
-    rm -f "$files" "$directories" "$listing"
+    awk '{ print "file|" $0 }' "$files" > "$allowed_records" &&
+        awk '{ print "directory|" $0 }' "$directories" >> "$allowed_records" || {
+        rm -f "$files" "$directories" "$listing" "$actual" "$allowed_records"
+        package_contract_fail "ALLOWLIST_TEMP_FAILED"; return 1;
+    }
+    unexpected="$(awk -F '|' -v profile="$profile" -v meta_policy="$meta_policy" \
+        -v configured_cmdline="$configured_cmdline" '
+        NR == FNR { allowed[$0]=1; next }
+        {
+            record=$0
+            separator=index(record, "|")
+            kind=substr(record, 1, separator - 1)
+            path=substr(record, separator + 1)
+            if (record in allowed) next
+            if (profile == "installed") {
+                if (kind == "file" && (path == "disable" || path == "zapret2/install-generation.meta" ||
+                    path == configured_cmdline || index(path, "zapret2/lists/") == 1)) next
+                if (kind == "directory" && index(path, "zapret2/lists/") == 1) next
+            }
+            if (meta_policy == "allow-meta" && (path == "META-INF" || index(path, "META-INF/") == 1)) next
+            print path
+            exit
+        }
+    ' "$allowed_records" "$actual")" || {
+        rm -f "$files" "$directories" "$listing" "$actual" "$allowed_records"
+        package_contract_fail "PACKAGE_ENUMERATION_FAILED"; return 1;
+    }
+    rm -f "$files" "$directories" "$listing" "$actual" "$allowed_records"
+    [ -z "$unexpected" ] || { package_contract_fail "PACKAGE_UNDECLARED_ENTRY" "$unexpected"; return 1; }
     return 0
 }
 
@@ -600,15 +696,11 @@ package_contract_shell_exec_callback() {
     return 0
 }
 
-package_contract_mode_callback() {
-    local root="$1" class="$2" expected="$3" path="$4" actual=""
-    actual="$(stat -c '%a' "$root/$path" 2>/dev/null)" || {
-        package_contract_fail "PACKAGE_MODE_UNREADABLE" "$path"; return 1;
+package_contract_mode_record_callback() {
+    local root="$1" class="$2" expected="$3" path="$4"
+    printf '%s|%s\n' "$expected" "$path" >> "$PACKAGE_CONTRACT_EXPECTED_MODES" || {
+        package_contract_fail "PACKAGE_MODE_TEMP_FAILED"; return 1;
     }
-    [ "0$actual" = "$expected" ] || {
-        package_contract_fail "PACKAGE_MODE" "$path:$actual:$expected"; return 1;
-    }
-    return 0
 }
 
 package_contract_chmod_callback() {
@@ -616,6 +708,21 @@ package_contract_chmod_callback() {
     chmod "$mode" "$root/$path" || {
         package_contract_fail "PACKAGE_CHMOD" "$path"; return 1;
     }
+}
+
+# The Magisk installer first assigns 0644 to every staged regular file in one
+# batched find invocation. Only manifest executables need another chmod pass.
+package_contract_chmod_executable_callback() {
+    local root="$1" class="$2" mode="$3" path="$4"
+    [ "$mode" = 0755 ] || return 0
+    chmod 0755 "$root/$path" || {
+        package_contract_fail "PACKAGE_CHMOD" "$path"; return 1;
+    }
+}
+
+package_contract_apply_executable_modes() {
+    local root="$1" profile="${2:-package}"
+    package_contract_for_each_path "$root" "$profile" package_contract_chmod_executable_callback
 }
 
 package_contract_validate_configured_cmdline() {
@@ -709,9 +816,37 @@ package_contract_validate_runtime_selection() {
 }
 
 package_contract_validate_tree() {
-    local root="$1" profile="${2:-package}"
+    local root="$1" profile="${2:-package}" files="" directories="" relative="" file="" hardlinked=""
     package_contract_validate_manifest "$root" || return 1
-    package_contract_for_each_path "$root" "$profile" package_contract_content_callback || return 1
+    files="$(mktemp)" || { package_contract_fail "ALLOWLIST_TEMP_FAILED"; return 1; }
+    directories="$(mktemp)" || { rm -f "$files"; package_contract_fail "ALLOWLIST_TEMP_FAILED"; return 1; }
+    package_contract_build_allowlist "$root" "$profile" "$files" "$directories" || {
+        rm -f "$files" "$directories"
+        return 1
+    }
+    while IFS= read -r relative || [ -n "$relative" ]; do
+        file="$root/$relative"
+        if [ -L "$file" ]; then
+            rm -f "$files" "$directories"; package_contract_fail "PACKAGE_SYMLINK" "$relative"; return 1
+        fi
+        if [ ! -f "$file" ]; then
+            rm -f "$files" "$directories"; package_contract_fail "PACKAGE_MISSING" "$relative"; return 1
+        fi
+        if [ ! -s "$file" ]; then
+            rm -f "$files" "$directories"; package_contract_fail "PACKAGE_EMPTY" "$relative"; return 1
+        fi
+        if [ ! -r "$file" ]; then
+            rm -f "$files" "$directories"; package_contract_fail "PACKAGE_UNREADABLE" "$relative"; return 1
+        fi
+    done < "$files"
+    hardlinked="$(find "$root" -type f ! -links 1 -print -quit 2>/dev/null)" || {
+        rm -f "$files" "$directories"; package_contract_fail "PACKAGE_ENUMERATION_FAILED"; return 1
+    }
+    rm -f "$files" "$directories"
+    [ -z "$hardlinked" ] || {
+        relative="${hardlinked#"$root"/}"
+        package_contract_fail "PACKAGE_LINK_COUNT" "$relative"; return 1
+    }
     if [ "$profile" = installed ]; then
         package_contract_validate_runtime_selection "$root" || return 1
     fi
@@ -737,80 +872,127 @@ package_contract_extract_zip_names() {
     [ -s "$output" ] || { package_contract_fail "ZIP_LIST_EMPTY"; return 1; }
 }
 
-package_contract_zip_callback() {
-    local root="$1" class="$2" mode="$3" path="$4" count=""
-    count="$(grep -Fxc -e "$path" "$PACKAGE_CONTRACT_ZIP_NAMES" 2>/dev/null)"
-    [ "$count" -eq 1 ] || {
-        package_contract_fail "ZIP_ENTRY_COUNT" "$path:$count"; return 1;
+package_contract_validate_zip_topology_file() {
+    local records="$1" failure="" code="" detail=""
+    failure="$(LC_ALL=C awk -F '|' '
+        {
+            record=$0
+            separator=index(record, "|")
+            kind=substr(record, 1, separator - 1)
+            path=substr(record, separator + 1)
+            if (path in kinds) {
+                printf "ZIP_DUPLICATE_ENTRY|%s\n", path
+                failed=1
+                exit
+            }
+            kinds[path]=kind
+            paths[++count]=path
+        }
+        END {
+            if (failed) exit
+            for (i=1; i<=count; i++) {
+                path=paths[i]
+                remainder=path
+                prefix=""
+                while ((separator=index(remainder, "/")) > 0) {
+                    component=substr(remainder, 1, separator - 1)
+                    remainder=substr(remainder, separator + 1)
+                    prefix=(prefix == "" ? component : prefix "/" component)
+                    if ((prefix in kinds) && kinds[prefix] == "file") {
+                        printf "ZIP_PATH_COLLISION|%s\n", path
+                        exit
+                    }
+                }
+            }
+        }
+    ' "$records")" || {
+        package_contract_fail "ZIP_TOPOLOGY_SCAN_FAILED"
+        return 1
     }
-}
-
-package_contract_archive_path_collides() {
-    local records="$1"
-    local candidate="$2"
-    local candidate_kind="$3"
-    local existing_kind=""
-    local existing_path=""
-    while IFS='|' read -r existing_kind existing_path || [ -n "$existing_kind$existing_path" ]; do
-        [ -n "$existing_path" ] || continue
-        if [ "$existing_kind" = file ]; then
-            case "$candidate" in "$existing_path"/*) return 0 ;; esac
-        fi
-        if [ "$candidate_kind" = file ]; then
-            case "$existing_path" in "$candidate"/*) return 0 ;; esac
-        fi
-    done < "$records"
-    return 1
+    [ -z "$failure" ] && return 0
+    code="${failure%%|*}"
+    detail="${failure#*|}"
+    package_contract_fail "$code" "$detail"
 }
 
 package_contract_validate_zip_names() {
-    local root="$1" names="$2" result=0 files="" directories="" seen=""
-    local raw="" path="" kind="" allowed=0
+    local root="$1" names="$2" files="" directories="" actual="" allowed_records=""
+    local raw="" path="" kind="" unsafe="" missing="" unexpected=""
     package_contract_validate_manifest "$root" || return 1
     [ -f "$names" ] && [ ! -L "$names" ] && [ -s "$names" ] || { package_contract_fail "ZIP_LIST_MISSING"; return 1; }
-    PACKAGE_CONTRACT_ZIP_NAMES="$names"
-    export PACKAGE_CONTRACT_ZIP_NAMES
-    package_contract_for_each_path "$root" package package_contract_zip_callback
-    result=$?
-    unset PACKAGE_CONTRACT_ZIP_NAMES
-    [ "$result" -eq 0 ] || return "$result"
+    unsafe="$(LC_ALL=C awk '$0 ~ /[[:cntrl:]|]/ { print; exit }' "$names")" || {
+        package_contract_fail "ZIP_LIST_PARSE"
+        return 1
+    }
+    [ -z "$unsafe" ] || { package_contract_fail "ZIP_UNSAFE_ENTRY" "$unsafe"; return 1; }
     files="$(mktemp)" || { package_contract_fail "ALLOWLIST_TEMP_FAILED"; return 1; }
     directories="$(mktemp)" || { rm -f "$files"; package_contract_fail "ALLOWLIST_TEMP_FAILED"; return 1; }
-    seen="$(mktemp)" || { rm -f "$files" "$directories"; package_contract_fail "ALLOWLIST_TEMP_FAILED"; return 1; }
+    actual="$(mktemp)" || { rm -f "$files" "$directories"; package_contract_fail "ALLOWLIST_TEMP_FAILED"; return 1; }
+    allowed_records="$(mktemp)" || {
+        rm -f "$files" "$directories" "$actual"; package_contract_fail "ALLOWLIST_TEMP_FAILED"; return 1;
+    }
     package_contract_build_allowlist "$root" package "$files" "$directories" || {
-        rm -f "$files" "$directories" "$seen"; return 1;
+        rm -f "$files" "$directories" "$actual" "$allowed_records"; return 1;
     }
     while IFS= read -r raw || [ -n "$raw" ]; do
         case "$raw" in
-            */) path="${raw%/}"; kind=directory ;;
-            *) path="$raw"; kind=file ;;
+            */) path="${raw%/}"; kind="directory" ;;
+            *) path="$raw"; kind="file" ;;
         esac
-        package_contract_safe_relative_path "$path" || {
-            rm -f "$files" "$directories" "$seen"; package_contract_fail "ZIP_UNSAFE_ENTRY" "$raw"; return 1;
+        package_contract_safe_relative_path_syntax "$path" || {
+            rm -f "$files" "$directories" "$actual" "$allowed_records"
+            package_contract_fail "ZIP_UNSAFE_ENTRY" "$raw"; return 1;
         }
-        if grep -Fqx -e "file|$path" -e "directory|$path" "$seen"; then
-            rm -f "$files" "$directories" "$seen"; package_contract_fail "ZIP_DUPLICATE_ENTRY" "$path"; return 1
-        fi
-        if package_contract_archive_path_collides "$seen" "$path" "$kind"; then
-            rm -f "$files" "$directories" "$seen"; package_contract_fail "ZIP_PATH_COLLISION" "$path"; return 1
-        fi
-        printf '%s|%s\n' "$kind" "$path" >> "$seen" || {
-            rm -f "$files" "$directories" "$seen"; package_contract_fail "ALLOWLIST_TEMP_FAILED"; return 1;
-        }
-        allowed=0
-        case "$path" in
-            META-INF|META-INF/*) allowed=1 ;;
-        esac
-        if [ "$allowed" -eq 0 ] && [ "$kind" = file ]; then
-            grep -Fqx -e "$path" "$files" && allowed=1
-        elif [ "$allowed" -eq 0 ]; then
-            grep -Fqx -e "$path" "$directories" && allowed=1
-        fi
-        [ "$allowed" -eq 1 ] || {
-            rm -f "$files" "$directories" "$seen"; package_contract_fail "ZIP_UNDECLARED_ENTRY" "$path"; return 1;
+        printf '%s|%s\n' "$kind" "$path" >> "$actual" || {
+            rm -f "$files" "$directories" "$actual" "$allowed_records"
+            package_contract_fail "ALLOWLIST_TEMP_FAILED"; return 1;
         }
     done < "$names"
-    rm -f "$files" "$directories" "$seen"
+
+    missing="$(awk -F '|' '
+        NR == FNR {
+            if ($1 == "file") {
+                separator=index($0, "|")
+                counts[substr($0, separator + 1)]++
+            }
+            next
+        }
+        counts[$0] != 1 { printf "%s:%d\n", $0, counts[$0] + 0; exit }
+    ' "$actual" "$files")" || {
+        rm -f "$files" "$directories" "$actual" "$allowed_records"
+        package_contract_fail "ZIP_LIST_PARSE"; return 1;
+    }
+    [ -z "$missing" ] || {
+        rm -f "$files" "$directories" "$actual" "$allowed_records"
+        package_contract_fail "ZIP_ENTRY_COUNT" "$missing"; return 1;
+    }
+
+    if ! package_contract_validate_zip_topology_file "$actual"; then
+        rm -f "$files" "$directories" "$actual" "$allowed_records"
+        return 1
+    fi
+
+    awk '{ print "file|" $0 }' "$files" > "$allowed_records" &&
+        awk '{ print "directory|" $0 }' "$directories" >> "$allowed_records" || {
+        rm -f "$files" "$directories" "$actual" "$allowed_records"
+        package_contract_fail "ALLOWLIST_TEMP_FAILED"; return 1;
+    }
+    unexpected="$(awk -F '|' '
+        NR == FNR { allowed[$0]=1; next }
+        {
+            record=$0
+            separator=index(record, "|")
+            path=substr(record, separator + 1)
+            if (record in allowed || path == "META-INF" || index(path, "META-INF/") == 1) next
+            print path
+            exit
+        }
+    ' "$allowed_records" "$actual")" || {
+        rm -f "$files" "$directories" "$actual" "$allowed_records"
+        package_contract_fail "ZIP_LIST_PARSE"; return 1;
+    }
+    rm -f "$files" "$directories" "$actual" "$allowed_records"
+    [ -z "$unexpected" ] || { package_contract_fail "ZIP_UNDECLARED_ENTRY" "$unexpected"; return 1; }
     return 0
 }
 
@@ -821,8 +1003,48 @@ package_contract_apply_modes() {
 }
 
 package_contract_validate_modes() {
-    local root="$1" profile="${2:-package}"
-    package_contract_for_each_path "$root" "$profile" package_contract_mode_callback
+    local root="${1%/}" profile="${2:-package}" expected="" actual="" failure="" code="" detail=""
+    expected="$(mktemp)" || { package_contract_fail "PACKAGE_MODE_TEMP_FAILED"; return 1; }
+    actual="$(mktemp)" || { rm -f "$expected"; package_contract_fail "PACKAGE_MODE_TEMP_FAILED"; return 1; }
+    PACKAGE_CONTRACT_EXPECTED_MODES="$expected"
+    package_contract_for_each_path "$root" "$profile" package_contract_mode_record_callback || {
+        unset PACKAGE_CONTRACT_EXPECTED_MODES
+        rm -f "$expected" "$actual"
+        return 1
+    }
+    unset PACKAGE_CONTRACT_EXPECTED_MODES
+    find "$root" -type f -exec stat -c '%a|%n' {} + > "$actual" 2>/dev/null || {
+        rm -f "$expected" "$actual"; package_contract_fail "PACKAGE_MODE_UNREADABLE"; return 1
+    }
+    failure="$(awk -F '|' -v prefix="$root/" '
+        NR == FNR {
+            separator=index($0, "|")
+            mode=substr($0, 1, separator - 1)
+            absolute=substr($0, separator + 1)
+            if (index(absolute, prefix) == 1) actual[substr(absolute, length(prefix) + 1)]=mode
+            next
+        }
+        {
+            separator=index($0, "|")
+            expected=substr($0, 1, separator - 1)
+            path=substr($0, separator + 1)
+            if (!(path in actual)) {
+                printf "PACKAGE_MODE_UNREADABLE|%s\n", path
+                exit
+            }
+            if ("0" actual[path] != expected) {
+                printf "PACKAGE_MODE|%s:%s:%s\n", path, actual[path], expected
+                exit
+            }
+        }
+    ' "$actual" "$expected")" || {
+        rm -f "$expected" "$actual"; package_contract_fail "PACKAGE_MODE_TEMP_FAILED"; return 1
+    }
+    rm -f "$expected" "$actual"
+    [ -z "$failure" ] && return 0
+    code="${failure%%|*}"
+    detail="${failure#*|}"
+    package_contract_fail "$code" "$detail"
 }
 
 package_contract_validate_blob_catalog() {

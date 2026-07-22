@@ -143,6 +143,7 @@ cp "$TMP_ROOT/runtime-manifest.good" "$package_root/zapret2/runtime-manifest.tsv
 
 installed_root="$TMP_ROOT/installed-runtime-selection"
 cp -R "$package_root" "$installed_root"
+rm -f "$installed_root/customize.sh"
 cp "$installed_root/zapret2/bin/arm64-v8a/nfqws2" "$installed_root/zapret2/nfqws2"
 chmod 0755 "$installed_root/zapret2/nfqws2"
 sed -i 's/^preset_mode=categories$/preset_mode=cmdline/;s/^custom_cmdline_file=cmdline.txt$/custom_cmdline_file="Custom Options"/' \
@@ -178,6 +179,14 @@ if command -v zip >/dev/null 2>&1 && command -v zipinfo >/dev/null 2>&1 && comma
     printf '%s\n' 'META-INF' 'META-INF/child' >> "$names"
     if package_contract_validate_zip_names "$package_root" "$names"; then fail "ZIP file/child collision accepted"; fi
     [ "$PACKAGE_CONTRACT_CODE" = ZIP_PATH_COLLISION ] || fail "wrong ZIP collision failure: $PACKAGE_CONTRACT_CODE"
+    zipinfo -1 "$archive" > "$names"
+    printf '%s\n' 'META-INF/child' 'META-INF' >> "$names"
+    if package_contract_validate_zip_names "$package_root" "$names"; then fail "reverse-order ZIP file/child collision accepted"; fi
+    [ "$PACKAGE_CONTRACT_CODE" = ZIP_PATH_COLLISION ] || fail "wrong reverse ZIP collision failure: $PACKAGE_CONTRACT_CODE"
+    zipinfo -1 "$archive" > "$names"
+    printf '%s\n' 'META-INF/' 'META-INF/' >> "$names"
+    if package_contract_validate_zip_names "$package_root" "$names"; then fail "duplicate ZIP directory accepted"; fi
+    [ "$PACKAGE_CONTRACT_CODE" = ZIP_DUPLICATE_ENTRY ] || fail "wrong duplicate ZIP failure: $PACKAGE_CONTRACT_CODE"
     zipinfo -1 "$archive" > "$names"
     printf '%s\n' rogue > "$package_root/undeclared.txt"
     (cd "$package_root" && zip -q "$archive" undeclared.txt)
