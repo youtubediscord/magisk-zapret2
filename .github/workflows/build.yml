@@ -406,8 +406,16 @@ jobs:
           test "$(sed -n '2p' zapret2/runtime-manifest.tsv | tr -d '\r')" = 'owner_protocol|6|zapret2-firewall'
           . ./zapret2/scripts/package-contract.sh
           package_contract_apply_modes "$PWD" package
-          package_contract_validate_all "$PWD" package
-          package_contract_validate_modes "$PWD" package
+          # Runtime validators intentionally require root-owned installed files.
+          # Exercise them against a private root-owned package copy, not the
+          # developer-owned Actions checkout.
+          PACKAGE_AUDIT_ROOT="$(mktemp -d)"
+          package_contract_assemble_package "$PWD" "$PACKAGE_AUDIT_ROOT"
+          sudo chown -R 0:0 "$PACKAGE_AUDIT_ROOT"
+          sudo find "$PACKAGE_AUDIT_ROOT" -type d -exec chmod 0755 {} +
+          package_contract_validate_all "$PACKAGE_AUDIT_ROOT" package
+          package_contract_validate_modes "$PACKAGE_AUDIT_ROOT" package
+          sudo rm -rf "$PACKAGE_AUDIT_ROOT"
           # The command entry points are immutable regular package assets. The
           # Android updater validates the same two-line byte contract.
           test -d system/bin
@@ -478,6 +486,8 @@ jobs:
           PACKAGE_VALIDATE_ROOT="$(mktemp -d)"
           package_contract_validate_zip_names "$PWD" "$ZIP_LIST"
           unzip -q "$ZIP_NAME" -d "$PACKAGE_VALIDATE_ROOT"
+          sudo chown -R 0:0 "$PACKAGE_VALIDATE_ROOT"
+          sudo find "$PACKAGE_VALIDATE_ROOT" -type d -exec chmod 0755 {} +
           package_contract_validate_all "$PACKAGE_VALIDATE_ROOT" package
           package_contract_validate_exact_tree "$PACKAGE_VALIDATE_ROOT" package
           package_contract_validate_modes "$PACKAGE_VALIDATE_ROOT" package
@@ -533,7 +543,8 @@ jobs:
           unzip -p "$ZIP_NAME" "$PROVENANCE_ENTRY" > "$WRAPPER_ACTUAL"
           cmp -s "$WRAPPER_EXPECTED" "$WRAPPER_ACTUAL"
           rm -f "$ZIP_LIST" "$WRAPPER_EXPECTED" "$WRAPPER_ACTUAL"
-          rm -rf "$PACKAGE_ASSEMBLY_ROOT" "$PACKAGE_VALIDATE_ROOT"
+          rm -rf "$PACKAGE_ASSEMBLY_ROOT"
+          sudo rm -rf "$PACKAGE_VALIDATE_ROOT"
 
           sha256sum "$ZIP_NAME" > "$ZIP_NAME.sha256"
           sha256sum -c "$ZIP_NAME.sha256"
