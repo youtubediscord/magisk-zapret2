@@ -12,6 +12,8 @@ import com.zapret2.app.data.DownloadFailureReason
 import com.zapret2.app.data.MAX_PACKET_COUNT
 import com.zapret2.app.data.ModuleInstallState
 import com.zapret2.app.data.ModuleMutationCoordinator
+import com.zapret2.app.data.ModulePurgeAppDataCleaner
+import com.zapret2.app.data.ModulePurgeController
 import com.zapret2.app.data.NetworkStatsManager
 import com.zapret2.app.data.ProtectedTextRead
 import com.zapret2.app.data.RuntimeConfigStore
@@ -74,7 +76,15 @@ internal val ModuleInstallState.labelRes: Int
         ModuleInstallState.UNREADABLE -> R.string.control_module_state_unreadable
     }
 
-enum class ControlDialogKind { UPDATE, ERROR, PACKET, FULL_ROLLBACK_CONFIRM, FULL_ROLLBACK_RESULT }
+enum class ControlDialogKind {
+    UPDATE,
+    ERROR,
+    PACKET,
+    FULL_ROLLBACK_CONFIRM,
+    FULL_ROLLBACK_RESULT,
+    MODULE_PURGE_CONFIRM,
+    MODULE_PURGE_RESULT,
+}
 
 enum class PacketTarget(@StringRes val titleRes: Int) {
     OUT(R.string.term_pkt_out),
@@ -96,6 +106,8 @@ enum class ControlLastResult(@StringRes val messageRes: Int) {
     SERVICE_FAILED(R.string.control_service_operation_failed),
     ROLLBACK_COMPLETED(R.string.control_full_rollback_success_title),
     ROLLBACK_FAILED(R.string.control_full_rollback_failure_title),
+    PURGE_COMPLETED(R.string.control_purge_success_title),
+    PURGE_FAILED(R.string.control_purge_failure_title),
     UPDATE_COMPLETED(R.string.control_update_completed),
     UPDATE_REBOOT_REQUIRED(R.string.control_update_installed_reboot),
     UPDATE_APK_PENDING(R.string.control_update_apk_pending),
@@ -231,6 +243,17 @@ sealed interface FullRollbackUiState {
     ) : FullRollbackUiState
 }
 
+sealed interface ModulePurgeUiState {
+    data object Idle : ModulePurgeUiState
+    data object Confirmation : ModulePurgeUiState
+    data object InProgress : ModulePurgeUiState
+    data class Result(
+        val outcome: ModulePurgeController.Outcome,
+        val rebootRequired: Boolean,
+        val diagnostic: String,
+    ) : ModulePurgeUiState
+}
+
 internal object FullRollbackAvailabilityPolicy {
     fun isAvailable(
         status: ControlStatus,
@@ -282,11 +305,13 @@ data class ControlUiState(
     val packetTarget: PacketTarget? = null,
     val packetDraft: String = "",
     val fullRollback: FullRollbackUiState = FullRollbackUiState.Idle,
+    val modulePurge: ModulePurgeUiState = ModulePurgeUiState.Idle,
     val lastResult: ControlLastResult? = null,
     val message: UiText? = null,
 ) {
     val isModuleOperational: Boolean get() = moduleInstallState.isOperational
     val isFullRollbackInProgress: Boolean get() = fullRollback is FullRollbackUiState.InProgress
+    val isModulePurgeInProgress: Boolean get() = modulePurge is ModulePurgeUiState.InProgress
     val canEditSettings: Boolean get() = status in setOf(
         ControlStatus.RUNNING,
         ControlStatus.DEGRADED,
@@ -294,7 +319,7 @@ data class ControlUiState(
     ) && isModuleOperational && hasRootAccess &&
         hasAuthoritativeRuntimeSettings &&
         !isToggling && !isCheckingForUpdates && !isUpdating &&
-        !isSavingSettings && !isFullRollbackInProgress
+        !isSavingSettings && !isFullRollbackInProgress && !isModulePurgeInProgress
     val canFullRollback: Boolean get() = FullRollbackAvailabilityPolicy.isAvailable(
         status = status,
         hasRootAccess = hasRootAccess,
@@ -302,8 +327,15 @@ data class ControlUiState(
         isToggling = isToggling || isSavingSettings,
         isCheckingForUpdates = isCheckingForUpdates,
         isUpdating = isUpdating,
-        isRollingBack = isFullRollbackInProgress,
+        isRollingBack = isFullRollbackInProgress || isModulePurgeInProgress,
     )
+    val canPurgeModule: Boolean get() = status in setOf(
+        ControlStatus.RUNNING,
+        ControlStatus.DEGRADED,
+        ControlStatus.STOPPED,
+    ) && hasRootAccess && moduleInstallState.allowsFullRollback &&
+        !isToggling && !isCheckingForUpdates && !isUpdating && !isSavingSettings &&
+        !isFullRollbackInProgress && !isModulePurgeInProgress
 }
 
 data class ProcessStats(
@@ -324,6 +356,10 @@ private const val KEY_ROLLBACK_IN_PROGRESS = "control_full_rollback_in_progress"
 private const val KEY_ROLLBACK_OUTCOME = "control_full_rollback_outcome"
 private const val KEY_ROLLBACK_REBOOT_REQUIRED = "control_full_rollback_reboot_required"
 private const val KEY_ROLLBACK_DIAGNOSTIC = "control_full_rollback_diagnostic"
+private const val KEY_PURGE_IN_PROGRESS = "control_module_purge_in_progress"
+private const val KEY_PURGE_OUTCOME = "control_module_purge_outcome"
+private const val KEY_PURGE_REBOOT_REQUIRED = "control_module_purge_reboot_required"
+private const val KEY_PURGE_DIAGNOSTIC = "control_module_purge_diagnostic"
 private const val KEY_LAST_RESULT = "control_last_result"
 private const val MAX_ERROR_DETAIL_LENGTH = 12_000
 private const val UPDATE_STATUS_REFRESH_DELAY_MS = 1_000L
@@ -487,11 +523,41 @@ internal fun restoreControlUiState(savedStateHandle: SavedStateHandle): ControlU
         dialogKind == ControlDialogKind.FULL_ROLLBACK_CONFIRM -> FullRollbackUiState.Confirmation
         else -> FullRollbackUiState.Idle
     }
-    val restoredDialog = when (fullRollback) {
-        FullRollbackUiState.InProgress -> null
-        is FullRollbackUiState.Result -> ControlDialogKind.FULL_ROLLBACK_RESULT
-        FullRollbackUiState.Confirmation -> ControlDialogKind.FULL_ROLLBACK_CONFIRM
-        FullRollbackUiState.Idle -> when (dialogKind) {
+    val purgeResult = if (dialogKind == ControlDialogKind.MODULE_PURGE_RESULT) {
+        val outcome = savedStateHandle.restoreEnumNameOrRemove<ModulePurgeController.Outcome>(
+            KEY_PURGE_OUTCOME,
+        )
+        outcome?.let {
+            ModulePurgeUiState.Result(
+                outcome = it,
+                rebootRequired = savedStateHandle
+                    .restoreTypedOrRemove<Boolean>(KEY_PURGE_REBOOT_REQUIRED) == true,
+                diagnostic = sanitizedBoundedUiDiagnostic(
+                    savedStateHandle.restoreTypedOrRemove<String>(KEY_PURGE_DIAGNOSTIC).orEmpty(),
+                ),
+            )
+        }
+    } else {
+        null
+    }
+    val restoredPurge = when {
+        purgeResult != null -> purgeResult
+        savedStateHandle.restoreTypedOrRemove<Boolean>(KEY_PURGE_IN_PROGRESS) == true ->
+            ModulePurgeUiState.InProgress
+        dialogKind == ControlDialogKind.MODULE_PURGE_CONFIRM -> ModulePurgeUiState.Confirmation
+        else -> ModulePurgeUiState.Idle
+    }
+    // Corrupt or stale SavedState must never restore two destructive operations at once.
+    val modulePurge = restoredPurge.takeIf { fullRollback is FullRollbackUiState.Idle }
+        ?: ModulePurgeUiState.Idle
+    val restoredDialog = when {
+        fullRollback is FullRollbackUiState.InProgress -> null
+        fullRollback is FullRollbackUiState.Result -> ControlDialogKind.FULL_ROLLBACK_RESULT
+        fullRollback is FullRollbackUiState.Confirmation -> ControlDialogKind.FULL_ROLLBACK_CONFIRM
+        modulePurge is ModulePurgeUiState.InProgress -> null
+        modulePurge is ModulePurgeUiState.Result -> ControlDialogKind.MODULE_PURGE_RESULT
+        modulePurge is ModulePurgeUiState.Confirmation -> ControlDialogKind.MODULE_PURGE_CONFIRM
+        else -> when (dialogKind) {
             ControlDialogKind.UPDATE -> ControlDialogKind.UPDATE
             ControlDialogKind.PACKET -> ControlDialogKind.PACKET.takeIf { packetTarget != null }
             ControlDialogKind.ERROR -> ControlDialogKind.ERROR.takeIf {
@@ -499,6 +565,8 @@ internal fun restoreControlUiState(savedStateHandle: SavedStateHandle): ControlU
             }
             ControlDialogKind.FULL_ROLLBACK_CONFIRM,
             ControlDialogKind.FULL_ROLLBACK_RESULT,
+            ControlDialogKind.MODULE_PURGE_CONFIRM,
+            ControlDialogKind.MODULE_PURGE_RESULT,
             null,
             -> null
         }
@@ -511,6 +579,7 @@ internal fun restoreControlUiState(savedStateHandle: SavedStateHandle): ControlU
         errorKind = errorKind,
         errorDetails = errorDetails,
         fullRollback = fullRollback,
+        modulePurge = modulePurge,
     )
     return ControlUiState(
         pendingDialog = restoredDialog,
@@ -524,6 +593,7 @@ internal fun restoreControlUiState(savedStateHandle: SavedStateHandle): ControlU
             null
         },
         fullRollback = fullRollback,
+        modulePurge = modulePurge,
         lastResult = restoreControlLastResult(savedStateHandle),
     )
 }
@@ -536,6 +606,7 @@ private fun canonicalizeRestoredControlState(
     errorKind: ControlErrorKind?,
     errorDetails: UiText?,
     fullRollback: FullRollbackUiState,
+    modulePurge: ModulePurgeUiState,
 ) {
     if (dialog == null) savedStateHandle.remove<String>(KEY_DIALOG_KIND)
     else savedStateHandle[KEY_DIALOG_KIND] = dialog.name
@@ -566,6 +637,18 @@ private fun canonicalizeRestoredControlState(
     }
     if (fullRollback !is FullRollbackUiState.InProgress) {
         savedStateHandle.remove<Boolean>(KEY_ROLLBACK_IN_PROGRESS)
+    }
+    if (modulePurge !is ModulePurgeUiState.Result) {
+        savedStateHandle.remove<String>(KEY_PURGE_OUTCOME)
+        savedStateHandle.remove<Boolean>(KEY_PURGE_REBOOT_REQUIRED)
+        savedStateHandle.remove<String>(KEY_PURGE_DIAGNOSTIC)
+    } else {
+        savedStateHandle[KEY_PURGE_OUTCOME] = modulePurge.outcome.name
+        savedStateHandle[KEY_PURGE_REBOOT_REQUIRED] = modulePurge.rebootRequired
+        savedStateHandle[KEY_PURGE_DIAGNOSTIC] = modulePurge.diagnostic
+    }
+    if (modulePurge !is ModulePurgeUiState.InProgress) {
+        savedStateHandle.remove<Boolean>(KEY_PURGE_IN_PROGRESS)
     }
 }
 
@@ -638,6 +721,80 @@ internal class FullRollbackOperationCoordinator(
     }
 }
 
+internal enum class ModulePurgeLaunchReason { CONFIRMED, RESTORED }
+
+internal class ModulePurgeOperationCoordinator(
+    private val savedStateHandle: SavedStateHandle,
+    private val operationInProgress: AtomicBoolean = AtomicBoolean(false),
+) {
+    fun tryBegin(
+        reason: ModulePurgeLaunchReason,
+        state: ControlUiState,
+        launch: () -> Unit,
+    ): Boolean {
+        val eligible = when (reason) {
+            ModulePurgeLaunchReason.CONFIRMED ->
+                state.modulePurge is ModulePurgeUiState.Confirmation && state.canPurgeModule
+            ModulePurgeLaunchReason.RESTORED ->
+                state.modulePurge is ModulePurgeUiState.InProgress &&
+                    savedStateHandle.restoreTypedOrRemove<Boolean>(KEY_PURGE_IN_PROGRESS) == true
+        }
+        if (!eligible || !operationInProgress.compareAndSet(false, true)) return false
+
+        savedStateHandle[KEY_PURGE_IN_PROGRESS] = true
+        savedStateHandle.remove<String>(KEY_DIALOG_KIND)
+        savedStateHandle.remove<String>(KEY_PACKET_TARGET)
+        savedStateHandle.remove<String>(KEY_PACKET_DRAFT)
+        savedStateHandle.remove<String>(KEY_ERROR_KIND)
+        savedStateHandle.remove<Int>(KEY_ERROR_DETAIL_RESOURCE)
+        savedStateHandle.remove<String>(KEY_ERROR_DETAIL_DYNAMIC)
+        clearPersistedResult()
+
+        return try {
+            launch()
+            true
+        } catch (error: Throwable) {
+            operationInProgress.set(false)
+            throw error
+        }
+    }
+
+    fun persistTerminal(
+        result: ModulePurgeController.Result,
+        diagnostic: String,
+        lastResult: ControlLastResult,
+    ) {
+        savedStateHandle[KEY_PURGE_OUTCOME] = result.outcome.name
+        savedStateHandle[KEY_PURGE_REBOOT_REQUIRED] = result.rebootRequired
+        savedStateHandle[KEY_PURGE_DIAGNOSTIC] = diagnostic
+        savedStateHandle[KEY_LAST_RESULT] = lastResult.name
+        savedStateHandle.remove<String>(KEY_ERROR_KIND)
+        savedStateHandle.remove<Int>(KEY_ERROR_DETAIL_RESOURCE)
+        savedStateHandle.remove<String>(KEY_ERROR_DETAIL_DYNAMIC)
+        savedStateHandle[KEY_DIALOG_KIND] = ControlDialogKind.MODULE_PURGE_RESULT.name
+        savedStateHandle.remove<Boolean>(KEY_PURGE_IN_PROGRESS)
+    }
+
+    fun finishAttempt() {
+        operationInProgress.set(false)
+    }
+
+    fun retireSuccessfulTerminalState() {
+        savedStateHandle.remove<String>(KEY_DIALOG_KIND)
+        savedStateHandle.remove<Boolean>(KEY_PURGE_IN_PROGRESS)
+        savedStateHandle.remove<String>(KEY_PURGE_OUTCOME)
+        savedStateHandle.remove<Boolean>(KEY_PURGE_REBOOT_REQUIRED)
+        savedStateHandle.remove<String>(KEY_PURGE_DIAGNOSTIC)
+        savedStateHandle.remove<String>(KEY_LAST_RESULT)
+    }
+
+    private fun clearPersistedResult() {
+        savedStateHandle.remove<String>(KEY_PURGE_OUTCOME)
+        savedStateHandle.remove<Boolean>(KEY_PURGE_REBOOT_REQUIRED)
+        savedStateHandle.remove<String>(KEY_PURGE_DIAGNOSTIC)
+    }
+}
+
 @HiltViewModel
 class ControlViewModel @Inject constructor(
     private val networkStatsManager: NetworkStatsManager,
@@ -647,6 +804,7 @@ class ControlViewModel @Inject constructor(
     private val savedStateHandle: SavedStateHandle,
     private val diagnosticsRepository: ControlDiagnosticsRepository,
     private val logRepository: RuntimeLogRepository,
+    private val modulePurgeAppDataCleaner: ModulePurgeAppDataCleaner,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(restoreControlUiState(savedStateHandle))
@@ -663,12 +821,18 @@ class ControlViewModel @Inject constructor(
         savedStateHandle = savedStateHandle,
         operationInProgress = exclusiveActionInProgress,
     )
+    private val purgeOperation = ModulePurgeOperationCoordinator(
+        savedStateHandle = savedStateHandle,
+        operationInProgress = exclusiveActionInProgress,
+    )
     private val statusRefreshSequence = AtomicLong(0)
 
     init {
         loadInitialState()
         if (_uiState.value.fullRollback is FullRollbackUiState.InProgress) {
             startFullRollback(FullRollbackLaunchReason.RESTORED)
+        } else if (_uiState.value.modulePurge is ModulePurgeUiState.InProgress) {
+            startModulePurge(ModulePurgeLaunchReason.RESTORED)
         }
     }
 
@@ -696,7 +860,7 @@ class ControlViewModel @Inject constructor(
     }
 
     fun showPacketDialog(target: PacketTarget) {
-        if (_uiState.value.fullRollback is FullRollbackUiState.InProgress) return
+        if (_uiState.value.isFullRollbackInProgress || _uiState.value.isModulePurgeInProgress) return
         if (rejectConflictingOperation()) return
         if (rejectUnavailableSettingMutation()) return
         val draft = when (target) {
@@ -708,7 +872,9 @@ class ControlViewModel @Inject constructor(
         savedStateHandle[KEY_PACKET_DRAFT] = draft
         clearPersistedError()
         clearPersistedRollback()
+        clearPersistedPurge()
         savedStateHandle.remove<Boolean>(KEY_ROLLBACK_IN_PROGRESS)
+        savedStateHandle.remove<Boolean>(KEY_PURGE_IN_PROGRESS)
         _uiState.update {
             it.copy(
                 pendingDialog = ControlDialogKind.PACKET,
@@ -717,6 +883,7 @@ class ControlViewModel @Inject constructor(
                 packetTarget = target,
                 packetDraft = draft,
                 fullRollback = FullRollbackUiState.Idle,
+                modulePurge = ModulePurgeUiState.Idle,
             )
         }
     }
@@ -742,7 +909,7 @@ class ControlViewModel @Inject constructor(
 
     fun dismissDialog() {
         val state = _uiState.value
-        if (state.fullRollback is FullRollbackUiState.InProgress ||
+        if (state.isFullRollbackInProgress || state.isModulePurgeInProgress ||
             state.isUpdating ||
             ServiceLifecycleController.isAppUpdateInProgress()
         ) return
@@ -755,6 +922,7 @@ class ControlViewModel @Inject constructor(
                 packetTarget = null,
                 packetDraft = "",
                 fullRollback = FullRollbackUiState.Idle,
+                modulePurge = ModulePurgeUiState.Idle,
             )
         }
     }
@@ -768,7 +936,9 @@ class ControlViewModel @Inject constructor(
         savedStateHandle.remove<String>(KEY_PACKET_DRAFT)
         clearPersistedError()
         clearPersistedRollback()
+        clearPersistedPurge()
         savedStateHandle.remove<Boolean>(KEY_ROLLBACK_IN_PROGRESS)
+        savedStateHandle.remove<Boolean>(KEY_PURGE_IN_PROGRESS)
         _uiState.update {
             it.copy(
                 pendingDialog = ControlDialogKind.FULL_ROLLBACK_CONFIRM,
@@ -777,6 +947,7 @@ class ControlViewModel @Inject constructor(
                 packetTarget = null,
                 packetDraft = "",
                 fullRollback = FullRollbackUiState.Confirmation,
+                modulePurge = ModulePurgeUiState.Idle,
             )
         }
     }
@@ -795,6 +966,7 @@ class ControlViewModel @Inject constructor(
                     packetTarget = null,
                     packetDraft = "",
                     fullRollback = FullRollbackUiState.InProgress,
+                    modulePurge = ModulePurgeUiState.Idle,
                 )
             }
 
@@ -853,6 +1025,112 @@ class ControlViewModel @Inject constructor(
                     rebootRequired = result.rebootRequired,
                     diagnostic = diagnostic,
                 ),
+                modulePurge = ModulePurgeUiState.Idle,
+                lastResult = lastResult,
+            )
+        }
+    }
+
+    fun showModulePurgeConfirmation() {
+        if (rejectConflictingOperation()) return
+        val state = _uiState.value
+        if (!state.canPurgeModule || state.pendingDialog != null) return
+        savedStateHandle[KEY_DIALOG_KIND] = ControlDialogKind.MODULE_PURGE_CONFIRM.name
+        savedStateHandle.remove<String>(KEY_PACKET_TARGET)
+        savedStateHandle.remove<String>(KEY_PACKET_DRAFT)
+        clearPersistedError()
+        clearPersistedRollback()
+        clearPersistedPurge()
+        savedStateHandle.remove<Boolean>(KEY_ROLLBACK_IN_PROGRESS)
+        savedStateHandle.remove<Boolean>(KEY_PURGE_IN_PROGRESS)
+        _uiState.update {
+            it.copy(
+                pendingDialog = ControlDialogKind.MODULE_PURGE_CONFIRM,
+                updateRelease = null,
+                errorDialog = null,
+                packetTarget = null,
+                packetDraft = "",
+                fullRollback = FullRollbackUiState.Idle,
+                modulePurge = ModulePurgeUiState.Confirmation,
+            )
+        }
+    }
+
+    fun confirmModulePurge() {
+        startModulePurge(ModulePurgeLaunchReason.CONFIRMED)
+    }
+
+    private fun startModulePurge(reason: ModulePurgeLaunchReason) {
+        purgeOperation.tryBegin(reason, _uiState.value) {
+            _uiState.update {
+                it.copy(
+                    pendingDialog = null,
+                    updateRelease = null,
+                    errorDialog = null,
+                    packetTarget = null,
+                    packetDraft = "",
+                    fullRollback = FullRollbackUiState.Idle,
+                    modulePurge = ModulePurgeUiState.InProgress,
+                )
+            }
+
+            viewModelScope.launch {
+                try {
+                    val result = ModulePurgeController.purge(modulePurgeAppDataCleaner)
+                    if (result.report?.satisfiesCompleteContract == true) {
+                        _uiState.update {
+                            it.copy(
+                                autostart = false,
+                                isRunning = false,
+                                canStopService = false,
+                                status = ControlStatus.STOPPED,
+                                moduleInstallState = ModuleInstallState.MISSING,
+                                moduleVersion = "",
+                                hasAuthoritativeRuntimeSettings = false,
+                                iptablesActive = false,
+                                nfqueueRulesCount = 0,
+                            )
+                        }
+                    }
+                    showModulePurgeResult(result)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    showModulePurgeResult(ModulePurgeController.Result(ModulePurgeController.Outcome.ERROR))
+                } finally {
+                    purgeOperation.finishAttempt()
+                }
+            }
+        }
+    }
+
+    private fun showModulePurgeResult(result: ModulePurgeController.Result) {
+        val diagnostic = sanitizedBoundedUiDiagnostic(result.diagnosticText())
+        val lastResult = if (result.success) {
+            ControlLastResult.PURGE_COMPLETED
+        } else {
+            ControlLastResult.PURGE_FAILED
+        }
+        if (result.success) {
+            // Keep the success dialog only in memory; a clean reset must not recreate
+            // its own persisted app state after the app-owned storage was cleared.
+            purgeOperation.retireSuccessfulTerminalState()
+        } else {
+            purgeOperation.persistTerminal(result, diagnostic, lastResult)
+        }
+        _uiState.update {
+            it.copy(
+                pendingDialog = ControlDialogKind.MODULE_PURGE_RESULT,
+                updateRelease = null,
+                errorDialog = null,
+                packetTarget = null,
+                packetDraft = "",
+                fullRollback = FullRollbackUiState.Idle,
+                modulePurge = ModulePurgeUiState.Result(
+                    outcome = result.outcome,
+                    rebootRequired = result.rebootRequired,
+                    diagnostic = diagnostic,
+                ),
                 lastResult = lastResult,
             )
         }
@@ -864,6 +1142,7 @@ class ControlViewModel @Inject constructor(
         savedStateHandle.remove<String>(KEY_PACKET_DRAFT)
         clearPersistedError()
         clearPersistedRollback()
+        clearPersistedPurge()
         _uiState.update {
             it.copy(
                 pendingDialog = ControlDialogKind.UPDATE,
@@ -872,12 +1151,13 @@ class ControlViewModel @Inject constructor(
                 packetTarget = null,
                 packetDraft = "",
                 fullRollback = FullRollbackUiState.Idle,
+                modulePurge = ModulePurgeUiState.Idle,
             )
         }
     }
 
     private fun showErrorDialog(kind: ControlErrorKind, details: UiText) {
-        if (_uiState.value.fullRollback is FullRollbackUiState.InProgress) return
+        if (_uiState.value.isFullRollbackInProgress || _uiState.value.isModulePurgeInProgress) return
         val safeDetails = details.toSafeControlErrorDetails()
         when (kind) {
             ControlErrorKind.UPDATE -> recordLastResult(ControlLastResult.UPDATE_FAILED)
@@ -893,6 +1173,7 @@ class ControlViewModel @Inject constructor(
         savedStateHandle.remove<String>(KEY_PACKET_TARGET)
         savedStateHandle.remove<String>(KEY_PACKET_DRAFT)
         clearPersistedRollback()
+        clearPersistedPurge()
         savedStateHandle.persistControlErrorDetails(safeDetails)
         _uiState.update {
             it.copy(
@@ -902,6 +1183,7 @@ class ControlViewModel @Inject constructor(
                 packetTarget = null,
                 packetDraft = "",
                 fullRollback = FullRollbackUiState.Idle,
+                modulePurge = ModulePurgeUiState.Idle,
             )
         }
     }
@@ -912,7 +1194,9 @@ class ControlViewModel @Inject constructor(
         savedStateHandle.remove<String>(KEY_PACKET_DRAFT)
         clearPersistedError()
         clearPersistedRollback()
+        clearPersistedPurge()
         savedStateHandle.remove<Boolean>(KEY_ROLLBACK_IN_PROGRESS)
+        savedStateHandle.remove<Boolean>(KEY_PURGE_IN_PROGRESS)
     }
 
     private fun clearPersistedError() {
@@ -925,6 +1209,12 @@ class ControlViewModel @Inject constructor(
         savedStateHandle.remove<String>(KEY_ROLLBACK_OUTCOME)
         savedStateHandle.remove<Boolean>(KEY_ROLLBACK_REBOOT_REQUIRED)
         savedStateHandle.remove<String>(KEY_ROLLBACK_DIAGNOSTIC)
+    }
+
+    private fun clearPersistedPurge() {
+        savedStateHandle.remove<String>(KEY_PURGE_OUTCOME)
+        savedStateHandle.remove<Boolean>(KEY_PURGE_REBOOT_REQUIRED)
+        savedStateHandle.remove<String>(KEY_PURGE_DIAGNOSTIC)
     }
 
     private fun recordLastResult(result: ControlLastResult) {
@@ -1203,8 +1493,10 @@ class ControlViewModel @Inject constructor(
             _uiState.value.isCheckingForUpdates ||
             _uiState.value.isSavingSettings || settingMutationInProgress.get() ||
             _uiState.value.isFullRollbackInProgress ||
+            _uiState.value.isModulePurgeInProgress ||
             ServiceLifecycleController.isAppUpdateInProgress() ||
-            ServiceLifecycleController.isFullRollbackInProgress()
+            ServiceLifecycleController.isFullRollbackInProgress() ||
+            ModulePurgeController.isInProgress()
         ) {
             toggleInProgress.set(false)
             exclusiveActionInProgress.set(false)
@@ -1380,8 +1672,10 @@ class ControlViewModel @Inject constructor(
             _uiState.value.isUpdating ||
             _uiState.value.isSavingSettings || settingMutationInProgress.get() ||
             _uiState.value.isFullRollbackInProgress ||
+            _uiState.value.isModulePurgeInProgress ||
             ServiceLifecycleController.isAppUpdateInProgress() ||
-            ServiceLifecycleController.isFullRollbackInProgress()
+            ServiceLifecycleController.isFullRollbackInProgress() ||
+            ModulePurgeController.isInProgress()
         ) {
             publishMessage(UiText.Resource(R.string.control_wait_operation_finish))
             return
@@ -1436,10 +1730,12 @@ class ControlViewModel @Inject constructor(
         if (state.pendingDialog != null) return true
         if (!state.isCheckingForUpdates && !state.isToggling && !state.isUpdating &&
             !state.isSavingSettings && !state.isFullRollbackInProgress &&
+            !state.isModulePurgeInProgress &&
             !toggleInProgress.get() && !settingMutationInProgress.get() &&
             !updateCheckInProgress.get() && !exclusiveActionInProgress.get() &&
             !ServiceLifecycleController.isAppUpdateInProgress() &&
-            !ServiceLifecycleController.isFullRollbackInProgress()
+            !ServiceLifecycleController.isFullRollbackInProgress() &&
+            !ModulePurgeController.isInProgress()
         ) return false
         publishMessage(UiText.Resource(R.string.control_wait_operation_finish))
         return true
@@ -1462,7 +1758,9 @@ class ControlViewModel @Inject constructor(
         )
         if (
             _uiState.value.isFullRollbackInProgress ||
-            ServiceLifecycleController.isFullRollbackInProgress()
+            _uiState.value.isModulePurgeInProgress ||
+            ServiceLifecycleController.isFullRollbackInProgress() ||
+            ModulePurgeController.isInProgress()
         ) {
             return
         }
@@ -1496,7 +1794,9 @@ class ControlViewModel @Inject constructor(
             settingMutationInProgress.get() ||
             updateCheckInProgress.get() ||
             _uiState.value.isFullRollbackInProgress ||
-            ServiceLifecycleController.isFullRollbackInProgress()
+            _uiState.value.isModulePurgeInProgress ||
+            ServiceLifecycleController.isFullRollbackInProgress() ||
+            ModulePurgeController.isInProgress()
         ) {
             exclusiveActionInProgress.set(false)
             publishMessage(UiText.Resource(R.string.control_wait_operation_finish))

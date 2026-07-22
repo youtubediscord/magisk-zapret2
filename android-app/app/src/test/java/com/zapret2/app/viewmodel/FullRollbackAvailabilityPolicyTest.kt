@@ -84,6 +84,7 @@ class FullRollbackAvailabilityPolicyTest {
             canStopService = false,
         )
         assertTrue(baseline.canFullRollback)
+        assertTrue(baseline.canPurgeModule)
         assertFalse(baseline.copy(hasRootAccess = false).canFullRollback)
         assertFalse(baseline.copy(moduleInstallState = ModuleInstallState.MISSING).canFullRollback)
         assertFalse(baseline.copy(moduleInstallState = ModuleInstallState.PARTIAL).canFullRollback)
@@ -94,6 +95,14 @@ class FullRollbackAvailabilityPolicyTest {
         assertFalse(baseline.copy(isSavingSettings = true).canFullRollback)
         assertFalse(
             baseline.copy(fullRollback = FullRollbackUiState.InProgress).canFullRollback,
+        )
+        assertFalse(baseline.copy(hasRootAccess = false).canPurgeModule)
+        assertTrue(baseline.copy(moduleInstallState = ModuleInstallState.DISABLED).canPurgeModule)
+        assertFalse(baseline.copy(moduleInstallState = ModuleInstallState.MISSING).canPurgeModule)
+        assertFalse(baseline.copy(moduleInstallState = ModuleInstallState.PARTIAL).canPurgeModule)
+        assertFalse(baseline.copy(isUpdating = true).canPurgeModule)
+        assertFalse(
+            baseline.copy(modulePurge = ModulePurgeUiState.InProgress).canPurgeModule,
         )
     }
 

@@ -17,6 +17,8 @@ internal object ModulePackageContract {
     internal const val PACKAGE_CONTRACT_SCRIPT_PATH = "zapret2/scripts/package-contract.sh"
     internal const val COMMAND_BUILDER_SCRIPT_PATH = "zapret2/scripts/command-builder.sh"
     internal const val UPDATE_GUARD_PATH = "zapret2/scripts/zapret-update-guard.sh"
+    internal const val PURGE_CONTRACT_PATH = "zapret2/scripts/lifecycle/purge-contract.sh"
+    internal const val PURGE_SCRIPT_PATH = "zapret2/scripts/lifecycle/zapret-purge.sh"
     internal const val MAX_UPDATE_GUARD_BYTES = 256 * 1024
     internal const val MAX_SHELL_EXEC_BYTES = 256 * 1024
     private const val MAX_PATH_COMPONENT_BYTES = 255
@@ -69,6 +71,8 @@ internal object ModulePackageContract {
         "zapret2/scripts/zapret-status.sh",
         UPDATE_GUARD_PATH,
         "zapret2/scripts/zapret-full-rollback.sh",
+        PURGE_CONTRACT_PATH,
+        PURGE_SCRIPT_PATH,
     )
 
     private val mandatoryImmutableFiles = listOf(

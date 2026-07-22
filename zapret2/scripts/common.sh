@@ -61,6 +61,7 @@ UPDATE_CLEANUP_VERSION=2
 UPDATE_CLEANUP_LEGACY_VERSION=1
 UNINSTALL_TOMBSTONE="$STATE_DIR/uninstall.tombstone"
 UNINSTALL_TOMBSTONE_VERSION=1
+PURGE_REQUEST="$STATE_DIR/purge.request"
 FULL_ROLLBACK_TRANSACTION="$STATE_DIR/full-rollback.transaction"
 FULL_ROLLBACK_META="$STATE_DIR/full-rollback.meta"
 FULL_ROLLBACK_HOSTS_BACKUP="$STATE_DIR/hosts.rollback.backup"
@@ -83,6 +84,7 @@ export LIFECYCLE_LOCK LIFECYCLE_LOCK_OWNER LIFECYCLE_LOCK_REAPER
 export LIFECYCLE_LOCK_REAPER_RECOVERY LIFECYCLE_LOCK_REAPER_RECOVERY_QUARANTINE
 export LIFECYCLE_LOCK_QUARANTINE UPDATE_LOCK UPDATE_LOCK_REAPER
 export UPDATE_LOCK_QUARANTINE UPDATE_TRANSACTION UPDATE_CLEANUP UNINSTALL_TOMBSTONE
+export PURGE_REQUEST
 export FULL_ROLLBACK_TRANSACTION FULL_ROLLBACK_META FULL_ROLLBACK_HOSTS_BACKUP
 export INSTALL_GENERATION_META LEGACY_MIGRATION_MARKER
 export TEARDOWN_JOURNAL
@@ -606,13 +608,29 @@ audit_recovery_artifacts() {
         update:uninstall|update:full-rollback)
             # A cleanup-only committed terminal record is admitted to the
             # exact lifecycle-lock consumer below. Transactions, locks,
-            # publisher temps and mixed evidence remain fail-closed.
+            # publisher temps and every non-terminal mixed set remain fail-closed.
             [ "$update_cleanup" = 1 ] && [ "$update_lock" = 0 ] && [ "$update_tx" = 0 ] &&
                 [ "$update_extra" = 0 ] && read_update_cleanup_file "$UPDATE_CLEANUP" || {
                 RECOVERY_ARTIFACT_DIAGNOSTIC="pending update cleanup is malformed, mixed, or still owned by an update lock"
                 return 1
             }
             RECOVERY_ARTIFACT_DIAGNOSTIC="authenticated committed update cleanup awaits exact lifecycle-lock consumption"
+            return 0 ;;
+        mixed:uninstall)
+            # This is not an ambiguous mixed generation: both sides are
+            # terminal records. Uninstall consumes the authenticated cleanup
+            # only after acquiring lifecycle.lock, repeats this audit, and
+            # then authenticates/retire the completed rollback generation.
+            # Any lock, transaction, publisher temp, partial rollback, or
+            # additional artifact remains rejected by the exact shape below.
+            [ "$update_cleanup" = 1 ] && [ "$update_lock" = 0 ] && [ "$update_tx" = 0 ] &&
+                [ "$update_extra" = 0 ] && [ "$rollback_meta" = 1 ] &&
+                [ "$rollback_tx" = 0 ] && [ "$rollback_extra" = 0 ] &&
+                read_update_cleanup_file "$UPDATE_CLEANUP" || {
+                RECOVERY_ARTIFACT_DIAGNOSTIC="mixed recovery state is not the exact terminal cleanup plus completed rollback set"
+                return 1
+            }
+            RECOVERY_ARTIFACT_DIAGNOSTIC="terminal update cleanup awaits locked consumption before completed rollback retirement"
             return 0 ;;
         rollback-complete:lifecycle)
             # Completed rollback evidence is immutable until its authenticated

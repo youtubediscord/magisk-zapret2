@@ -70,6 +70,7 @@ sed -i "s/^versionCode=.*/versionCode=$VERSION_CODE/" module.prop
 # Make scripts executable
 chmod +x customize.sh service.sh uninstall.sh action.sh 2>/dev/null || true
 chmod +x zapret2/scripts/*.sh 2>/dev/null || true
+chmod +x zapret2/scripts/lifecycle/*.sh 2>/dev/null || true
 chmod 0755 system/bin/zapret2-start system/bin/zapret2-stop system/bin/zapret2-status system/bin/zapret2-restart system/bin/zapret2-full-rollback
 
 EXPECTED_OWNER_PROTOCOL_LINE='owner_protocol|6|zapret2-firewall'
@@ -121,6 +122,14 @@ test ! -L zapret2/scripts/zapret-full-rollback.sh
 test -x zapret2/scripts/zapret-full-rollback.sh
 test "$(sed -n '1p' zapret2/scripts/zapret-full-rollback.sh)" = '#!/system/bin/sh'
 if LC_ALL=C grep -q "$(printf '\r')" zapret2/scripts/zapret-full-rollback.sh; then exit 1; fi
+for purge_script in zapret2/scripts/lifecycle/purge-contract.sh zapret2/scripts/lifecycle/zapret-purge.sh; do
+    test -f "$purge_script"
+    test ! -L "$purge_script"
+    test -s "$purge_script"
+    test -x "$purge_script"
+    test "$(sed -n '1p' "$purge_script")" = '#!/system/bin/sh'
+    if LC_ALL=C grep -q "$(printf '\r')" "$purge_script"; then exit 1; fi
+done
 for command_name in start stop status restart full-rollback; do
     wrapper="system/bin/zapret2-$command_name"
     target="/data/adb/modules/zapret2/zapret2/scripts/zapret-$command_name.sh"
@@ -215,6 +224,17 @@ zipinfo -l "$ZIP_PATH" "$ROLLBACK_SCRIPT_ENTRY" | grep -Eq '^-rwxr-xr-x[[:space:
 unzip -p "$ZIP_PATH" "$ROLLBACK_SCRIPT_ENTRY" > "$WRAPPER_ACTUAL"
 cmp -s "$ROLLBACK_SCRIPT_ENTRY" "$WRAPPER_ACTUAL"
 if LC_ALL=C grep -q "$(printf '\r')" "$WRAPPER_ACTUAL"; then exit 1; fi
+for PURGE_SCRIPT_ENTRY in \
+    zapret2/scripts/lifecycle/purge-contract.sh \
+    zapret2/scripts/lifecycle/zapret-purge.sh; do
+    test "$(grep -Fxc "$PURGE_SCRIPT_ENTRY" "$ZIP_LIST")" -eq 1
+    zipinfo -l "$ZIP_PATH" "$PURGE_SCRIPT_ENTRY" | grep -Eq '^-rwxr-xr-x[[:space:]]'
+    unzip -p "$ZIP_PATH" "$PURGE_SCRIPT_ENTRY" > "$WRAPPER_ACTUAL"
+    test -s "$WRAPPER_ACTUAL"
+    cmp -s "$PURGE_SCRIPT_ENTRY" "$WRAPPER_ACTUAL"
+    test "$(sed -n '1p' "$WRAPPER_ACTUAL")" = '#!/system/bin/sh'
+    if LC_ALL=C grep -q "$(printf '\r')" "$WRAPPER_ACTUAL"; then exit 1; fi
+done
 test "$(grep -Fxc 'action.sh' "$ZIP_LIST")" -eq 1
 zipinfo -l "$ZIP_PATH" action.sh | grep -Eq '^-rwxr-xr-x[[:space:]]'
 test "$(grep -Fxc "$RECOVERY_UPDATE_BINARY" "$ZIP_LIST")" -eq 1

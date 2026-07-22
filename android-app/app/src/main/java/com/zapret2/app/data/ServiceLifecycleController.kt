@@ -222,7 +222,7 @@ object ServiceLifecycleController {
 
     internal fun classifyRootAccess(result: CommandResult, uid: String?): RootAccess {
         if (result.success && uid == "0") return RootAccess(RootAccessState.GRANTED)
-        val canonicalUid = uid?.takeIf { it.matches(Regex("(?:0|[1-9][0-9]*)"))
+        val canonicalUid = uid?.takeIf { it.matches(Regex("(?:0|[1-9][0-9]*)")) }
         val diagnostic = listOfNotNull(
             result.error,
             result.stderr.joinToString("\n").takeIf(String::isNotBlank),
@@ -239,7 +239,7 @@ object ServiceLifecycleController {
             else -> RootAccessState.SHELL_FAILURE
         }
         val message = if (result.success && canonicalUid != null) {
-            "Root access was not granted (uid=${uid ?: "unknown"})"
+            "Root access was not granted (uid=$uid)"
         } else if (result.success) {
             "Root shell returned an invalid uid"
         } else {
@@ -270,9 +270,9 @@ object ServiceLifecycleController {
     suspend fun restart(): LifecycleResult = perform(Action.RESTART)
 
     fun tryBeginAppUpdate(): Boolean {
-        if (fullRollbackInProgress.get()) return false
+        if (fullRollbackInProgress.get() || ModulePurgeController.isInProgress()) return false
         if (!appUpdateInProgress.compareAndSet(false, true)) return false
-        if (fullRollbackInProgress.get()) {
+        if (fullRollbackInProgress.get() || ModulePurgeController.isInProgress()) {
             appUpdateInProgress.set(false)
             return false
         }
@@ -308,13 +308,15 @@ object ServiceLifecycleController {
      * order. This operation never reboots the device.
      */
     suspend fun fullRollback(): FullRollbackResult {
-        if (appUpdateInProgress.get() || !fullRollbackInProgress.compareAndSet(false, true)) {
+        if (appUpdateInProgress.get() || ModulePurgeController.isInProgress() ||
+            !fullRollbackInProgress.compareAndSet(false, true)
+        ) {
             return FullRollbackResult(
                 outcome = FullRollbackOutcome.BLOCKED,
                 error = "Another update or full rollback is already in progress",
             )
         }
-        if (appUpdateInProgress.get()) {
+        if (appUpdateInProgress.get() || ModulePurgeController.isInProgress()) {
             fullRollbackInProgress.set(false)
             return FullRollbackResult(
                 outcome = FullRollbackOutcome.BLOCKED,
@@ -445,7 +447,9 @@ object ServiceLifecycleController {
         val recovery = ModuleUpdateRecovery.recoverIfNeeded()
         lifecycleMutex.lock()
         return try {
-            if (appUpdateInProgress.get() || fullRollbackInProgress.get()) {
+            if (appUpdateInProgress.get() || fullRollbackInProgress.get() ||
+                ModulePurgeController.isInProgress()
+            ) {
                 val status = getStatusLocked()
                 return LifecycleResult(
                     success = false,

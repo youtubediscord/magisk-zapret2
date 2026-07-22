@@ -13,6 +13,10 @@ SCRIPT_DIR="$ZAPRET_DIR/scripts"
 STOP_SCRIPT="$SCRIPT_DIR/zapret-stop.sh"
 COMMON_SCRIPT="$SCRIPT_DIR/common.sh"
 EXPECTED_STATE_DIR="/data/adb/zapret2-state"
+# Uninstall owns the same fixed privileged namespace as the installer. The
+# shared helpers permit STATE_DIR overrides for isolated callers, but an
+# environment inherited from a root manager must not redirect live cleanup.
+STATE_DIR="$EXPECTED_STATE_DIR"
 STOP_STATUS=127
 STOP_MAX_ATTEMPTS=3
 STOP_RETRY_DELAY_SECONDS=1
@@ -470,11 +474,6 @@ publish_uninstall_tombstone() {
     uninstall_tombstone_allows_stop
 }
 
-if [ "$STATE_DIR" != "$EXPECTED_STATE_DIR" ]; then
-    report_error "common.sh supplied an unexpected state directory; refusing uninstall cleanup"
-    exit 1
-fi
-
 if module_removal_pending; then
     if [ -f "$MODPATH/remove" ] && [ ! -L "$MODPATH/remove" ]; then
         report_notice "Magisk removal marker is present; persistent uninstall tombstoning will provide the lifecycle gate"
@@ -629,7 +628,8 @@ for state_file in \
     "$STATUS_SNAPSHOT" \
     "$IPTABLES_STATUS" \
     "$RUNTIME_OWNER_MARKER" \
-    "$LEGACY_MIGRATION_MARKER"; do
+    "$LEGACY_MIGRATION_MARKER" \
+    "$PURGE_REQUEST"; do
     if ! remove_state_regular_file "$state_file"; then
         STATE_CLEANUP_ERROR="unsafe or unremovable state entry: $state_file"
         break

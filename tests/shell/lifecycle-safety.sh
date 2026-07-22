@@ -14,7 +14,7 @@ cat > "$MOCK/iptables" <<'EOF'
 case "${Z2_QUERY_MODE:-clean}" in
     fail) exit 42 ;;
     present)
-        printf '%s\n' '-N ZAPRET2_OUT' '-A OUTPUT -j ZAPRET2_OUT'
+        printf '%s\n' "-N ${ZAPRET2_OUT:?}" "-A OUTPUT -j $ZAPRET2_OUT"
         exit 0
         ;;
     clean) exit 0 ;;
@@ -31,6 +31,10 @@ chmod 0700 "$STATE_DIR"
 PATH="$MOCK:$PATH"
 export PATH STATE_DIR
 . "$ROOT/zapret2/scripts/common.sh"
+FIREWALL_TAG=testsafety
+ZAPRET2_OUT="Z2O_$FIREWALL_TAG"
+ZAPRET2_IN="Z2I_$FIREWALL_TAG"
+export FIREWALL_TAG ZAPRET2_OUT ZAPRET2_IN
 
 Z2_QUERY_MODE=fail; export Z2_QUERY_MODE
 set +e

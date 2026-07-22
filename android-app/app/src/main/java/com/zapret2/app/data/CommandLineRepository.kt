@@ -79,7 +79,7 @@ class CommandLineRepository @Inject constructor() {
     internal fun isContentSizeAllowed(content: String): Boolean =
         (canonicalProtectedText(content) + "\n").toByteArray(Charsets.UTF_8).size <= MAX_COMMAND_BYTES
 
-    internal fun validateManual(fileName: String): CommandLineValidation {
+    internal suspend fun validateManual(fileName: String): CommandLineValidation {
         if (!isSafeFileName(fileName)) return CommandLineValidation.INVALID
         val result = ServiceLifecycleController.executeRoot(
             "/system/bin/sh ${RootFileIo.shellQuote(COMMAND_BUILDER)} --validate-cmdline-machine " +

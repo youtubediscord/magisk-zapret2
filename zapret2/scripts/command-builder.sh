@@ -1163,7 +1163,7 @@ build_category_options() {
 ##########################################################################################
 
 build_options() {
-    log_section "Building nfqws2 options"
+    log_msg "==== Building nfqws2 options ===="
 
     validate_strategy_catalogs_machine || {
         log_error "Strategy catalog validation failed"

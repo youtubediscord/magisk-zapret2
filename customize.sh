@@ -13,33 +13,30 @@ case "$MODPATH" in
 esac
 
 [ -f "$ZIPFILE" ] && [ ! -L "$ZIPFILE" ] || abort "! Module ZIP is missing or unsafe"
-INSTALL_TMP="$(mktemp -d /data/adb/zapret2-install.XXXXXX 2>/dev/null)" || abort "! Cannot create private install workspace"
-chmod 0700 "$INSTALL_TMP" || abort "! Cannot secure install workspace"
-RECOVERY_ROOT="$(mktemp -d /data/adb/zapret2-recovery.XXXXXX 2>/dev/null)" || abort "! Cannot create durable recovery workspace"
-chmod 0700 "$RECOVERY_ROOT" || abort "! Cannot secure durable recovery workspace"
-STAGE_PATH="$INSTALL_TMP/module"
-ORIGINAL_MODULE_BACKUP="$RECOVERY_ROOT/original-module"
-FAILED_MODULE_BACKUP="$RECOVERY_ROOT/failed-module"
+INSTALL_TMP=""
+RECOVERY_ROOT=""
+STAGE_PATH=""
+ORIGINAL_MODULE_BACKUP=""
+FAILED_MODULE_BACKUP=""
 INSTALL_COMMITTED=0
 COMMIT_HANDOFF=0
 OVERWRITE_STARTED=0
 ORIGINAL_WAS_PRESENT=0
 LOCK_ACQUIRED=0
 TOMBSTONE_RESTORE_REQUIRED=0
-RECOVERY_HAS_USER_DATA=0
 LIVE_PRIOR_SERVICE_STATE="none"
 LIVE_SERVICE_RESTORE_REQUIRED=0
-LIVE_STATUS_SNAPSHOT="$INSTALL_TMP/live-status.snapshot"
-DISABLE_MARKER_BAK="$RECOVERY_ROOT/disable"
-ROLLBACK_META_BAK="$RECOVERY_ROOT/full-rollback.meta"
-ROLLBACK_HOSTS_BAK="$RECOVERY_ROOT/hosts.rollback.backup"
+LIVE_STATUS_SNAPSHOT=""
+DISABLE_MARKER_BAK=""
+ROLLBACK_META_BAK=""
+ROLLBACK_HOSTS_BAK=""
 ROLLBACK_ARTIFACT_RESTORE_REQUIRED=0
 ROLLBACK_GENERATION_PENDING=0
 ROLLBACK_GENERATION=""
 ROLLBACK_ARCHIVE_SHA256=""
 INSTALL_DEFER_LEGACY_OWNER_RECOVERY=1
 INSTALL_GENERATION_META_REL="zapret2/install-generation.meta"
-INSTALL_GENERATION_META="$STAGE_PATH/$INSTALL_GENERATION_META_REL"
+INSTALL_GENERATION_META=""
 EXISTING_MODPATH="/data/adb/modules/zapret2"
 LIVE_ZAPRET_DIR="$EXISTING_MODPATH/zapret2"
 LIVE_NFQWS2="$LIVE_ZAPRET_DIR/nfqws2"
@@ -153,8 +150,22 @@ rollback_serialization_is_held() {
         [ "$LOCK_FILE_TOKEN" = "$LOCK_OWNER_TOKEN" ]
 }
 
+remove_private_installer_tree() {
+    tree="$1"
+    kind="$2"
+    case "$kind:$tree" in
+        install:/data/adb/zapret2-install.*|recovery:/data/adb/zapret2-recovery.*) ;;
+        *) return 1 ;;
+    esac
+    [ -e "$tree" ] || [ -L "$tree" ] || return 0
+    [ -d "$tree" ] && [ ! -L "$tree" ] || return 1
+    rm -rf "$tree" 2>/dev/null || return 1
+    [ ! -e "$tree" ] && [ ! -L "$tree" ]
+}
+
 finish_install() {
     rc=$?
+    manual_repair_required=0
     trap - EXIT HUP INT TERM
     if [ "$rc" -ne 0 ] && [ "$INSTALL_COMMITTED" -ne 1 ] &&
        { [ "$TOMBSTONE_RESTORE_REQUIRED" -eq 1 ] || [ "$OVERWRITE_STARTED" -eq 1 ] ||
@@ -165,17 +176,26 @@ finish_install() {
         # commit/unlock handoff, so this refusal is a final defensive barrier.
         if ! rollback_serialization_is_held; then
             rc=1
+            manual_repair_required=1
             ui_print "! Unsafe unlocked rollback was refused; recovery data remains at $RECOVERY_ROOT"
         else
-            restore_cleared_tombstone || ui_print "! Uninstall tombstone recovery requires manual repair from $RECOVERY_ROOT"
-            if restore_overwritten_module && restore_retired_rollback_generation; then
-                restore_live_service_after_rollback || {
-                    rc=1
-                    ui_print "! Previous running service could not be restored; recovery requires manual repair from $RECOVERY_ROOT"
-                }
-            else
+            if ! restore_cleared_tombstone; then
                 rc=1
+                manual_repair_required=1
+                ui_print "! Uninstall tombstone recovery requires manual repair from $RECOVERY_ROOT"
+            fi
+            if ! restore_overwritten_module; then
+                rc=1
+                manual_repair_required=1
                 ui_print "! Module or completed-rollback recovery requires manual repair from $RECOVERY_ROOT"
+            elif ! restore_retired_rollback_generation; then
+                rc=1
+                manual_repair_required=1
+                ui_print "! Completed-rollback recovery requires manual repair from $RECOVERY_ROOT"
+            elif ! restore_live_service_after_rollback; then
+                rc=1
+                manual_repair_required=1
+                ui_print "! Previous running service could not be restored; recovery requires manual repair from $RECOVERY_ROOT"
             fi
         fi
     fi
@@ -183,11 +203,20 @@ finish_install() {
         release_lifecycle_lock >/dev/null 2>&1 || rc=1
         LOCK_ACQUIRED=0
     fi
-    rm -rf "$INSTALL_TMP" 2>/dev/null
-    if [ "$rc" -eq 0 ] && [ "$INSTALL_COMMITTED" -eq 1 ]; then
-        rm -rf "$RECOVERY_ROOT" 2>/dev/null
-    elif [ -d "$RECOVERY_ROOT" ]; then
-        ui_print "! Recovery data was preserved at $RECOVERY_ROOT"
+    if [ -n "$INSTALL_TMP" ] && ! remove_private_installer_tree "$INSTALL_TMP" install; then
+        rc=1
+        ui_print "! Private install workspace could not be removed safely: $INSTALL_TMP"
+    fi
+    if [ -n "$RECOVERY_ROOT" ] && [ -d "$RECOVERY_ROOT" ]; then
+        if [ "$manual_repair_required" -eq 0 ] &&
+           { [ "$INSTALL_COMMITTED" -eq 0 ] || [ "$rc" -eq 0 ]; }; then
+            remove_private_installer_tree "$RECOVERY_ROOT" recovery || {
+                rc=1
+                ui_print "! Obsolete recovery data could not be removed from $RECOVERY_ROOT"
+            }
+        else
+            ui_print "! Recovery data was preserved at $RECOVERY_ROOT"
+        fi
     fi
     exit "$rc"
 }
@@ -197,14 +226,61 @@ trap 'ui_print "! Installation interrupted by HUP"; exit 1' HUP
 trap 'ui_print "! Installation interrupted by INT"; exit 1' INT
 trap 'ui_print "! Installation interrupted by TERM"; exit 1' TERM
 
+INSTALL_TMP="$(mktemp -d /data/adb/zapret2-install.XXXXXX 2>/dev/null)" || abort "! Cannot create private install workspace"
+chmod 0700 "$INSTALL_TMP" || abort "! Cannot secure install workspace"
+RECOVERY_ROOT="$(mktemp -d /data/adb/zapret2-recovery.XXXXXX 2>/dev/null)" || abort "! Cannot create durable recovery workspace"
+chmod 0700 "$RECOVERY_ROOT" || abort "! Cannot secure durable recovery workspace"
+STAGE_PATH="$INSTALL_TMP/module"
+ORIGINAL_MODULE_BACKUP="$RECOVERY_ROOT/original-module"
+FAILED_MODULE_BACKUP="$RECOVERY_ROOT/failed-module"
+LIVE_STATUS_SNAPSHOT="$INSTALL_TMP/live-status.snapshot"
+DISABLE_MARKER_BAK="$RECOVERY_ROOT/disable"
+ROLLBACK_META_BAK="$RECOVERY_ROOT/full-rollback.meta"
+ROLLBACK_HOSTS_BAK="$RECOVERY_ROOT/hosts.rollback.backup"
+INSTALL_GENERATION_META="$STAGE_PATH/$INSTALL_GENERATION_META_REL"
+
 mkdir "$STAGE_PATH" || abort "! Cannot create staged module tree"
 
 ZIP_LIST="$INSTALL_TMP/zip.list"
 ZIP_NAMES="$INSTALL_TMP/zip.names"
+ZIP_EARLY_NAMES="$INSTALL_TMP/zip.early-names"
 unzip -l "$ZIPFILE" > "$ZIP_LIST" 2>/dev/null || abort "! Cannot inspect module ZIP"
-if grep -Eq '(^|[[:space:]])(/|[^[:space:]]*/\.\./|\.\./)' "$ZIP_LIST"; then
-    abort "! Module ZIP contains an unsafe path"
+awk '
+    /^[[:space:]]*--------/ {
+        separators++
+        if (separators == 2) exit
+        next
+    }
+    separators == 1 {
+        name=$0
+        sub(/^[[:space:]]*[0-9]+[[:space:]]+[^[:space:]]+[[:space:]]+[^[:space:]]+[[:space:]]+/, "", name)
+        if (name != "") print name
+    }
+' "$ZIP_LIST" > "$ZIP_EARLY_NAMES" || abort "! Cannot parse module ZIP entries"
+[ -s "$ZIP_EARLY_NAMES" ] || abort "! Module ZIP entry list is empty"
+while IFS= read -r zip_entry || [ -n "$zip_entry" ]; do
+    case "$zip_entry" in
+        /*|..|../*|*/..|*/../*) abort "! Module ZIP contains an unsafe path" ;;
+    esac
+done < "$ZIP_EARLY_NAMES"
+
+# Establish module identity before loading any executable package contract.
+# This limit is installer-owned and must not depend on data from the archive.
+INSTALLER_MODULE_PROP_MAX_BYTES=4096
+module_prop_count="$(grep -Fxc 'module.prop' "$ZIP_EARLY_NAMES" 2>/dev/null)"
+[ "$module_prop_count" = 1 ] || abort "! Module ZIP has a missing or ambiguous module identity"
+module_prop_declared_bytes="$(awk '$NF == "module.prop" { print $1 }' "$ZIP_LIST")"
+case "$module_prop_declared_bytes" in ''|*[!0-9]*) abort "! Invalid declared module identity size" ;; esac
+if [ "$module_prop_declared_bytes" -le 0 ] 2>/dev/null ||
+   [ "$module_prop_declared_bytes" -gt "$INSTALLER_MODULE_PROP_MAX_BYTES" ] 2>/dev/null; then
+    abort "! Module identity exceeds the size limit"
 fi
+unzip -p "$ZIPFILE" module.prop > "$INSTALL_TMP/module.prop" 2>/dev/null || abort "! Cannot read module identity"
+module_prop_bytes="$(wc -c < "$INSTALL_TMP/module.prop" 2>/dev/null)" || abort "! Cannot size module identity"
+case "$module_prop_bytes" in ''|*[!0-9]*) abort "! Invalid extracted module identity size" ;; esac
+[ "$module_prop_bytes" = "$module_prop_declared_bytes" ] || abort "! Module identity size does not match ZIP metadata"
+grep -qx 'id=zapret2' "$INSTALL_TMP/module.prop" || abort "! Refusing ZIP with unexpected module id"
+
 CONTRACT_BOOTSTRAP_ROOT="$INSTALL_TMP/package-contract"
 mkdir -p "$CONTRACT_BOOTSTRAP_ROOT/zapret2/scripts" || abort "! Cannot prepare package contract"
 for bootstrap_entry in zapret2/runtime-manifest.tsv zapret2/scripts/package-contract.sh; do
@@ -242,12 +318,6 @@ for generated_only in disable zapret2/install-generation.meta; do
     count="$(awk -v p="$generated_only" '$NF == p { n++ } END { print n+0 }' "$ZIP_LIST")"
     [ "$count" = 0 ] || abort "! Module ZIP contains installer-owned state: $generated_only"
 done
-module_prop_declared_bytes="$(awk '$NF == "module.prop" { print $1 }' "$ZIP_LIST")"
-case "$module_prop_declared_bytes" in ''|*[!0-9]*) abort "! Invalid declared module identity size" ;; esac
-[ "$module_prop_declared_bytes" -le "$PACKAGE_CONTRACT_MAX_MODULE_PROP_BYTES" ] ||
-    abort "! Module identity exceeds the size limit"
-unzip -p "$ZIPFILE" module.prop > "$INSTALL_TMP/module.prop" 2>/dev/null || abort "! Cannot read module identity"
-grep -qx 'id=zapret2' "$INSTALL_TMP/module.prop" || abort "! Refusing ZIP with unexpected module id"
 package_contract_validate_module_prop "$INSTALL_TMP" ||
     abort "! Module identity is invalid: $PACKAGE_CONTRACT_CODE $PACKAGE_CONTRACT_DETAIL"
 
@@ -285,9 +355,14 @@ ZAPRET_DIR="$STAGE_PATH/zapret2"
 SCRIPT_DIR="$ZAPRET_DIR/scripts"
 COMMON_SCRIPT="$COMMON_BOOTSTRAP"
 MODDIR="/data/adb/modules/zapret2"
+# The installer owns this privileged namespace. Never let a root-manager or
+# caller-provided environment redirect lifecycle state before common.sh is
+# loaded; the shared helper intentionally supports STATE_DIR overrides only
+# for isolated callers such as tests.
+STATE_DIR="/data/adb/zapret2-state"
 . "$COMMON_SCRIPT" || abort "! Failed to load secure lifecycle helpers"
 command -v audit_recovery_artifacts >/dev/null 2>&1 || abort "! Lifecycle helpers lack the recovery-artifact audit"
-if [ "$STATE_DIR" != "/data/adb/zapret2-state" ] || ! ensure_state_dir; then
+if ! ensure_state_dir; then
     abort "! Failed to establish the root-only Zapret2 state directory"
 fi
 
@@ -475,17 +550,14 @@ done
 if [ -f "$EXISTING_MODPATH/zapret2/categories.ini" ]; then
     ui_print "- Backing up user strategy settings..."
     cp "$EXISTING_MODPATH/zapret2/categories.ini" "$USER_CATEGORIES_INI_BAK" || abort "! Failed to back up categories.ini"
-    RECOVERY_HAS_USER_DATA=1
 fi
 if [ -f "$EXISTING_MODPATH/zapret2/runtime.ini" ]; then
     ui_print "- Backing up user runtime settings..."
     cp "$EXISTING_MODPATH/zapret2/runtime.ini" "$USER_RUNTIME_INI_BAK" || abort "! Failed to back up runtime.ini"
-    RECOVERY_HAS_USER_DATA=1
 fi
 if [ -f "$EXISTING_MODPATH/zapret2/config.sh" ]; then
     ui_print "- Backing up user bootstrap settings..."
     cp "$EXISTING_MODPATH/zapret2/config.sh" "$USER_CONFIG_SH_BAK" || abort "! Failed to back up config.sh"
-    RECOVERY_HAS_USER_DATA=1
 fi
 if [ -f "$EXISTING_MODPATH/zapret2/runtime.ini" ]; then
     USER_CMDLINE_NAME="$(read_configured_cmdline_name "$EXISTING_MODPATH")" ||
@@ -513,7 +585,6 @@ if [ -f "$EXISTING_MODPATH/zapret2/runtime.ini" ]; then
         cp "$path" "$USER_CMDLINE_BAK" || abort "! Failed to back up configured command-line file"
         chmod 0600 "$USER_CMDLINE_BAK" || abort "! Failed to secure command-line backup"
         cmp -s "$path" "$USER_CMDLINE_BAK" || abort "! Failed to verify command-line backup"
-        RECOVERY_HAS_USER_DATA=1
     fi
 fi
 # Only these explicitly user-owned Lua extension points cross an update. Core
@@ -529,7 +600,6 @@ for user_lua in zapret-custom.lua init_vars.lua; do
     cp "$path" "$USER_LUA_BAK/$user_lua" || abort "! Failed to back up $user_lua"
     chmod 0600 "$USER_LUA_BAK/$user_lua" || abort "! Failed to secure $user_lua backup"
     cmp -s "$path" "$USER_LUA_BAK/$user_lua" || abort "! Failed to verify $user_lua backup"
-    RECOVERY_HAS_USER_DATA=1
 done
 if [ -e "$EXISTING_MODPATH/zapret2/lists" ] || [ -L "$EXISTING_MODPATH/zapret2/lists" ]; then
     [ -d "$EXISTING_MODPATH/zapret2/lists" ] && [ ! -L "$EXISTING_MODPATH/zapret2/lists" ] || abort "! Refusing unsafe hostlist directory"
@@ -537,7 +607,6 @@ if [ -e "$EXISTING_MODPATH/zapret2/lists" ] || [ -L "$EXISTING_MODPATH/zapret2/l
     ui_print "- Backing up user hostlists..."
     mkdir -p "$USER_LISTS_BAK" || abort "! Failed to create hostlist backup"
     cp -R "$EXISTING_MODPATH/zapret2/lists/." "$USER_LISTS_BAK/" || abort "! Failed to back up hostlists"
-    RECOVERY_HAS_USER_DATA=1
 fi
 
 # Extract everything into a private tree.  MODPATH is not touched until this
@@ -560,6 +629,15 @@ fi
 if LC_ALL=C grep -q "$(printf '\r')" "$STAGE_PATH/zapret2/scripts/zapret-full-rollback.sh"; then
     abort "! Full rollback script contains CR bytes"
 fi
+for purge_script in \
+    "$STAGE_PATH/zapret2/scripts/lifecycle/purge-contract.sh" \
+    "$STAGE_PATH/zapret2/scripts/lifecycle/zapret-purge.sh"; do
+    [ -s "$purge_script" ] && [ ! -L "$purge_script" ] || abort "! Purge lifecycle script is missing or unsafe"
+    [ "$(sed -n '1p' "$purge_script")" = '#!/system/bin/sh' ] || abort "! Purge lifecycle script has an invalid shebang"
+    if LC_ALL=C grep -q "$(printf '\r')" "$purge_script"; then
+        abort "! Purge lifecycle script contains CR bytes"
+    fi
+done
 if [ -e "$DISABLE_MARKER_BAK" ] || [ -L "$DISABLE_MARKER_BAK" ]; then
     [ -f "$DISABLE_MARKER_BAK" ] && [ ! -L "$DISABLE_MARKER_BAK" ] || abort "! Disable-marker snapshot became unsafe"
     [ ! -e "$STAGE_PATH/disable" ] && [ ! -L "$STAGE_PATH/disable" ] || abort "! Package contains an unexpected disable marker"
@@ -944,6 +1022,12 @@ fi
 [ -x "$MODPATH/action.sh" ] || abort "! Published module action entry is not executable"
 [ -s "$MODPATH/zapret2/scripts/zapret-update-guard.sh" ] && [ -x "$MODPATH/zapret2/scripts/zapret-update-guard.sh" ] || abort "! Published update guard script is empty or not executable"
 [ -x "$MODPATH/zapret2/scripts/zapret-full-rollback.sh" ] || abort "! Published full rollback script is not executable"
+for purge_script in \
+    "$MODPATH/zapret2/scripts/lifecycle/purge-contract.sh" \
+    "$MODPATH/zapret2/scripts/lifecycle/zapret-purge.sh"; do
+    [ -s "$purge_script" ] && [ -x "$purge_script" ] && [ ! -L "$purge_script" ] ||
+        abort "! Published purge lifecycle script is missing, unsafe, or not executable"
+done
 for command_name in start stop status restart full-rollback; do
     verify_command_wrapper "$MODPATH" "$command_name" || abort "! Published command wrapper verification failed: $command_name"
 done
@@ -972,8 +1056,8 @@ LOCK_ACQUIRED=0
 INSTALL_COMMITTED=1
 COMMIT_HANDOFF=0
 
-rm -rf "$RECOVERY_ROOT" || abort "! Installed successfully but could not remove the obsolete recovery tree"
-rm -rf "$INSTALL_TMP"
+remove_private_installer_tree "$RECOVERY_ROOT" recovery || abort "! Installed successfully but could not remove the obsolete recovery tree"
+remove_private_installer_tree "$INSTALL_TMP" install || abort "! Installed successfully but could not remove the private install tree"
 trap - EXIT HUP INT TERM
 
 ui_print ""

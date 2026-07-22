@@ -113,6 +113,9 @@ class ModulePackageContractTest {
             "runtime-dependency-immutable|0644|zapret2/lua/zapret-auto.lua",
             "runtime-dependency-immutable|0644|zapret2/lua/zapret-lib.lua",
             "runtime-dependency-immutable|0644|zapret2/lua/zapret-multishake.lua",
+            "runtime-dependency-immutable|0644|zapret2/lua/zapret-obfs.lua",
+            "runtime-dependency-immutable|0644|zapret2/lua/zapret-pcap.lua",
+            "runtime-dependency-immutable|0644|zapret2/lua/zapret-tests.lua",
             "immutable-exec|0755|customize.sh",
             "immutable-exec|0755|service.sh",
             "immutable-exec|0755|uninstall.sh",
@@ -127,6 +130,8 @@ class ModulePackageContractTest {
             "immutable-exec|0755|zapret2/scripts/zapret-status.sh",
             "immutable-exec|0755|zapret2/scripts/zapret-update-guard.sh",
             "immutable-exec|0755|zapret2/scripts/zapret-full-rollback.sh",
+            "immutable-exec|0755|zapret2/scripts/lifecycle/purge-contract.sh",
+            "immutable-exec|0755|zapret2/scripts/lifecycle/zapret-purge.sh",
             "immutable-exec|0755|system/bin/zapret2-start",
             "immutable-exec|0755|system/bin/zapret2-stop",
             "immutable-exec|0755|system/bin/zapret2-status",
@@ -163,6 +168,22 @@ class ModulePackageContractTest {
         writeValidPackage(invalidWrapper)
         File(invalidWrapper, wrapper.relativePath).appendText("# invalid\n")
         assertNotNull(ModulePackageContract.validateStaging(invalidWrapper, "arm64-v8a"))
+    }
+
+    @Test
+    fun purgeLifecycleScriptsAreNonNegotiableRuntimeExecutables() {
+        assertTrue(ModulePackageContract.PURGE_CONTRACT_PATH in ModulePackageContract.mandatoryRuntimeExecutables)
+        assertTrue(ModulePackageContract.PURGE_SCRIPT_PATH in ModulePackageContract.mandatoryRuntimeExecutables)
+
+        listOf(
+            ModulePackageContract.PURGE_CONTRACT_PATH,
+            ModulePackageContract.PURGE_SCRIPT_PATH,
+        ).forEachIndexed { index, path ->
+            val stage = temporaryFolder.newFolder("missing-purge-script-$index")
+            writeValidPackage(stage)
+            assertTrue(File(stage, path).delete())
+            assertNotNull(ModulePackageContract.validateStaging(stage, "arm64-v8a"))
+        }
     }
 
     @Test
@@ -449,8 +470,8 @@ class ModulePackageContractTest {
     @Test
     fun sourceManifestDeclaresExactCompatibleAndQuarantinedCatalog() {
         val lines = sourceManifest().lineSequence().toList()
-        assertEquals(20, lines.count { it.startsWith("preset-compatible|0644|") })
-        assertEquals(49, lines.count { it.startsWith("preset-quarantined|0644|") })
+        assertEquals(13, lines.count { it.startsWith("preset-compatible|0644|") })
+        assertEquals(85, lines.count { it.startsWith("preset-quarantined|0644|") })
         assertTrue(lines.contains("immutable-file|0644|${ModulePackageContract.RUNTIME_MANIFEST_PATH}"))
         assertTrue(lines.contains("runtime-dependency-immutable|0644|zapret2/lua/zapret-auto.lua"))
         assertTrue(lines.contains("abi-exec|0755|zapret2/bin/{abi}/nfqws2"))
