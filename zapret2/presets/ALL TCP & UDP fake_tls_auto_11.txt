@@ -1,6 +1,6 @@
 # Preset: ALL TCP & UDP fake_tls_auto_11
 # BuiltinVersion: 2.24
-# Description: 
+# Description:
 
 --lua-init=@lua/zapret-lib.lua
 --lua-init=@lua/zapret-antidpi.lua

@@ -1,5 +1,5 @@
 # Android/Magisk sources and packaged shell entry points must be byte-stable on every host.
 * text=auto eol=lf
-*.bat text eol=crlf
 *.jar binary
 *.png binary
+zapret2/bin/*.bin binary

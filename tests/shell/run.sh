@@ -31,7 +31,10 @@ assert_unsafe_machine_root --validate-strategies-machine Z2_STRATEGIES_ERROR
 assert_unsafe_machine_root --validate-cmdline-machine Z2_CMDLINE_ERROR
 
 for script in "$ROOT"/*.sh "$ROOT"/zapret2/scripts/*.sh "$ROOT"/tests/shell/*.sh; do
-    sh -n "$script" || fail "syntax: $script"
+    case "$(sed -n '1p' "$script")" in
+        *bash*) bash -n "$script" || fail "syntax: $script" ;;
+        *) sh -n "$script" || fail "syntax: $script" ;;
+    esac
 done
 
 CATEGORY_FIXTURE="$TMP/category-zapret"

@@ -17,7 +17,6 @@ class ReleaseCiPolicyTest {
         assertTrue(appBuild.contains("allWarningsAsErrors.set(true)"))
         assertTrue(appBuild.contains("warningsAsErrors = true"))
         assertTrue(attributes.contains("* text=auto eol=lf"))
-        assertTrue(attributes.contains("*.bat text eol=crlf"))
         assertTrue(attributes.contains("*.jar binary"))
         assertTrue(attributes.contains("*.png binary"))
 

@@ -1,6 +1,6 @@
 # Preset: complex multidisorder (game filter)
 # BuiltinVersion: 2.25
-# Description: 
+# Description:
 
 --lua-init=@lua/zapret-lib.lua
 --lua-init=@lua/zapret-antidpi.lua
