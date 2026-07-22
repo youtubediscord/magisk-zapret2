@@ -85,20 +85,68 @@ package_contract_apply_modes "$PWD" package || {
     echo "ERROR: source tree violates runtime manifest: $PACKAGE_CONTRACT_CODE $PACKAGE_CONTRACT_DETAIL"
     exit 1
 }
-package_contract_validate_all "$PWD" package || {
+
+# Runtime machine validators deliberately accept only root-owned installed files.
+# Validate content against a private root-owned package copy instead of weakening
+# that runtime trust boundary for a developer-owned source checkout.
+root_own_validation_tree() {
+    local tree="$1"
+    [ -d "$tree" ] && [ ! -L "$tree" ] || return 1
+    case "$tree" in */zapret2-package-validation.*) ;; *) return 1 ;; esac
+    if [ "$(id -u)" -eq 0 ]; then
+        chown -R 0:0 "$tree" && find "$tree" -type d -exec chmod 0755 {} +
+    elif command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+        sudo -n chown -R 0:0 "$tree" &&
+            sudo -n find "$tree" -type d -exec chmod 0755 {} +
+    else
+        echo "ERROR: root access is required to validate the installed package ownership contract" >&2
+        return 1
+    fi
+}
+
+remove_root_validation_tree() {
+    local tree="${1:-}"
+    [ -n "$tree" ] || return 0
+    case "$tree" in */zapret2-package-validation.*) ;; *) return 1 ;; esac
+    [ -e "$tree" ] || [ -L "$tree" ] || return 0
+    [ -d "$tree" ] && [ ! -L "$tree" ] || return 1
+    if [ "$(id -u)" -eq 0 ]; then
+        rm -rf "$tree"
+    else
+        sudo -n rm -rf "$tree"
+    fi
+}
+
+PACKAGE_SOURCE_VALIDATE_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/zapret2-package-validation.XXXXXX")"
+trap 'remove_root_validation_tree "${PACKAGE_SOURCE_VALIDATE_ROOT:-}"' EXIT
+trap 'exit 1' HUP INT TERM
+package_contract_assemble_package "$PWD" "$PACKAGE_SOURCE_VALIDATE_ROOT" || {
+    echo "ERROR: cannot assemble source validation tree: $PACKAGE_CONTRACT_CODE $PACKAGE_CONTRACT_DETAIL"
+    exit 1
+}
+root_own_validation_tree "$PACKAGE_SOURCE_VALIDATE_ROOT" || exit 1
+package_contract_validate_all "$PACKAGE_SOURCE_VALIDATE_ROOT" package || {
     echo "ERROR: source catalog violates runtime manifest: $PACKAGE_CONTRACT_CODE $PACKAGE_CONTRACT_DETAIL"
     exit 1
 }
+package_contract_validate_modes "$PACKAGE_SOURCE_VALIDATE_ROOT" package || {
+    echo "ERROR: source modes violate runtime manifest: $PACKAGE_CONTRACT_CODE $PACKAGE_CONTRACT_DETAIL"
+    exit 1
+}
+remove_root_validation_tree "$PACKAGE_SOURCE_VALIDATE_ROOT" || exit 1
+PACKAGE_SOURCE_VALIDATE_ROOT=""
+trap - EXIT HUP INT TERM
 
 WRAPPER_EXPECTED="$(mktemp)"
 WRAPPER_ACTUAL="$(mktemp)"
 ZIP_LIST="$(mktemp)"
 PACKAGE_ASSEMBLY_ROOT="$(mktemp -d)"
-PACKAGE_VALIDATE_ROOT="$(mktemp -d)"
+PACKAGE_VALIDATE_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/zapret2-package-validation.XXXXXX")"
 cleanup_build_temps() {
     rm -f "$WRAPPER_EXPECTED" "$WRAPPER_ACTUAL" "$ZIP_LIST"
+    [ -z "${PACKAGE_SOURCE_VALIDATE_ROOT:-}" ] || remove_root_validation_tree "$PACKAGE_SOURCE_VALIDATE_ROOT"
     [ -z "${PACKAGE_ASSEMBLY_ROOT:-}" ] || rm -rf "$PACKAGE_ASSEMBLY_ROOT"
-    [ -z "${PACKAGE_VALIDATE_ROOT:-}" ] || rm -rf "$PACKAGE_VALIDATE_ROOT"
+    [ -z "${PACKAGE_VALIDATE_ROOT:-}" ] || remove_root_validation_tree "$PACKAGE_VALIDATE_ROOT"
 }
 trap cleanup_build_temps EXIT
 trap 'exit 1' HUP INT TERM
@@ -167,6 +215,7 @@ package_contract_validate_zip_names "$PWD" "$ZIP_LIST" || {
     exit 1
 }
 unzip -q "$ZIP_PATH" -d "$PACKAGE_VALIDATE_ROOT"
+root_own_validation_tree "$PACKAGE_VALIDATE_ROOT" || exit 1
 package_contract_validate_all "$PACKAGE_VALIDATE_ROOT" package || {
     echo "ERROR: extracted ZIP violates runtime manifest: $PACKAGE_CONTRACT_CODE $PACKAGE_CONTRACT_DETAIL"
     exit 1

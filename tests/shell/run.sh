@@ -362,6 +362,8 @@ assert_contains "$ROOT/build.sh" "UPDATE_GUARD_ENTRY='zapret2/scripts/zapret-upd
 assert_contains "$ROOT/build.sh" 'package_contract_assemble_package "$PWD" "$PACKAGE_ASSEMBLY_ROOT"'
 assert_contains "$ROOT/build.sh" 'package_contract_validate_exact_tree "$PACKAGE_VALIDATE_ROOT" package'
 assert_contains "$ROOT/build.sh" 'recovery flashing metadata must not be published'
+assert_contains "$ROOT/build.sh" 'root_own_validation_tree "$PACKAGE_SOURCE_VALIDATE_ROOT"'
+assert_contains "$ROOT/build.sh" 'root_own_validation_tree "$PACKAGE_VALIDATE_ROOT"'
 assert_contains "$ROOT/build.sh" 'VERSION_CODE="${BASH_REMATCH[1]}"'
 assert_contains "$ROOT/build.sh" '10#$VERSION_CODE > 2100000000'
 if grep -Fq "tr -cd '0-9'" "$ROOT/build.sh"; then
@@ -371,6 +373,8 @@ assert_contains "$ROOT/.github/workflows/build.yml" "UPDATE_GUARD_ENTRY='zapret2
 assert_contains "$ROOT/.github/workflows/build.yml" 'package_contract_assemble_package "$PWD" "$PACKAGE_ASSEMBLY_ROOT"'
 assert_contains "$ROOT/.github/workflows/build.yml" 'package_contract_validate_exact_tree "$PACKAGE_VALIDATE_ROOT" package'
 assert_contains "$ROOT/.github/workflows/build.yml" 'Recovery flashing metadata must not be published'
+assert_contains "$ROOT/.github/workflows/build.yml" 'package_contract_validate_all "$PACKAGE_AUDIT_ROOT" package'
+assert_contains "$ROOT/.github/workflows/build.yml" 'sudo chown -R 0:0 "$PACKAGE_VALIDATE_ROOT"'
 assert_contains "$ROOT/action.sh" 'zapret2/scripts/lifecycle/zapret-purge.sh'
 assert_contains "$ROOT/action.sh" '--magisk-action'
 assert_not_contains "$ROOT/action.sh" 'am start'
