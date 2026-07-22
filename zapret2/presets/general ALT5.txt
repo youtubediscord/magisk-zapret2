@@ -1,6 +1,5 @@
 # Preset: general ALT5
-# ActivePreset: general ALT5
-# BuiltinVersion: 1.3
+# BuiltinVersion: 2.24
 # IconColor: #b475f0ff
 
 --lua-init=@lua/zapret-lib.lua
@@ -74,35 +73,43 @@
 --blob=hex_00:0x00
 
 
---filter-udp=443
---ipset-exclude=lists/ipset-exclude.txt
---lua-desync=fake:blob=quic_google:repeats=6
+--filter-tcp=80,443-65535
+--ipset=lists/ipset-ru.txt
+--ipset=lists/ipset-dns.txt
+--ipset=lists/ipset-exclude.txt
+--out-range=-d8
+--payload=tls_client_hello
+--lua-desync=pass
 
 --new
 
---filter-l7=discord,stun
---payload=stun,discord_ip_discovery
---lua-desync=fake:blob=fake_default_udp:repeats=6
-
---new
-
---filter-tcp=443,2053,2083,2087,2096,8443,444-65535
---ipset=lists/ipset-all.txt
+--filter-tcp=80,443-65535
+--ipset-exclude=lists/ipset-ru.txt
+--ipset-exclude=lists/ipset-dns.txt
 --ipset-exclude=lists/ipset-exclude.txt
+--out-range=-n8
 --lua-desync=syndata
 --lua-desync=multidisorder:pos=2
 
 --new
 
---filter-l3=ipv4
---filter-tcp=443,2053,2083,2087,2096,8443
---ipset=lists/ipset-all.txt
+--filter-udp=443-65535
+--ipset-exclude=lists/ipset-ru.txt
+--ipset-exclude=lists/ipset-dns.txt
 --ipset-exclude=lists/ipset-exclude.txt
---lua-desync=syndata
+--out-range=-n8
+--lua-desync=fake:blob=quic_google:repeats=6
 
 --new
 
---filter-udp=443
+--filter-l7=stun,discord
+--out-range=-n8
+--payload=stun,discord_ip_discovery
+--lua-desync=fake:blob=fake_default_udp:repeats=6
+
+--new
+
+--filter-tcp=80,443-65535
 --ipset=lists/ipset-all.txt
---ipset-exclude=lists/ipset-exclude.txt
+--out-range=-n8
 --lua-desync=fake:blob=quic_google:repeats=6

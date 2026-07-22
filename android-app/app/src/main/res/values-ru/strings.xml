@@ -453,7 +453,6 @@
     <string name="presets_source_changed">Пресет изменился вне редактора. Черновик сохранён; перед записью повторно загрузите и проверьте текущий файл.</string>
     <string name="presets_use_categories">Использовать категории</string>
     <string name="presets_files">Файлы наборов</string>
-    <string name="presets_apply_item">Применить %1$s</string>
     <string name="presets_edit_item">Редактировать %1$s</string>
     <string name="presets_active">Активен</string>
     <string name="presets_applied">Применён</string>

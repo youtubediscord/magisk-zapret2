@@ -18,21 +18,26 @@ class LegacyUiAbsencePolicyTest {
 
     @Test
     fun productionUiUsesComposeOnlyAndDeletedCompatibilitySymbolsCannotReturn() {
-        val scanned = buildList {
-            add(mainDir.resolve("java/com/zapret2/app/MainActivity.kt"))
-            addAll(kotlinFiles(mainDir.resolve("java/com/zapret2/app/ui")))
-            addAll(kotlinFiles(mainDir.resolve("java/com/zapret2/app/viewmodel")))
-            add(mainDir.resolve("java/com/zapret2/app/data/StrategyRepository.kt"))
-            add(mainDir.resolve("java/com/zapret2/app/data/NetworkStatsManager.kt"))
-            add(mainDir.resolve("java/com/zapret2/app/data/UpdateExecution.kt"))
-        }.filter(Path::isRegularFile)
+        val scanned = kotlinFiles(mainDir.resolve("java"))
 
         val forbidden = listOf(
-            "android.view.View",
-            "android.widget.Toast",
-            "androidx.fragment",
+            "android.view.",
+            "android.widget.",
+            "androidx.fragment.",
+            "androidx.appcompat.",
+            "androidx.recyclerview.",
+            "androidx.viewbinding.",
+            "androidx.databinding.",
+            "com.google.android.material.",
             "AppCompat",
-            "com.google.android.material",
+            "setContentView(",
+            "findViewById",
+            "R.layout.",
+            "LayoutInflater",
+            "RecyclerView",
+            "ViewBinding",
+            "DataBinding",
+            "kotlinx.android.synthetic",
             "R.drawable",
             "Fluent",
             "Win11",
@@ -70,6 +75,8 @@ class LegacyUiAbsencePolicyTest {
             "androidx.viewpager:viewpager",
             "androidx.viewpager2:viewpager2",
             "androidx.constraintlayout:constraintlayout",
+            "androidx.databinding:databinding-runtime",
+            "androidx.databinding:viewbinding",
             "com.google.android.material:material",
             "com.github.topjohnwu.libsu:service",
         ).forEach { dependency ->

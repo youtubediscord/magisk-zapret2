@@ -1,7 +1,5 @@
 # Preset: Preset X v2 (game filter)
-# BuiltinVersion: 1.3
-# Created: 2026-02-15T15:36:04.305281
-# Modified: 2026-02-15T15:36:04.307055
+# BuiltinVersion: 2.23
 # IconColor: #60cdff
 # Description: 
 
@@ -74,8 +72,18 @@
 --blob=hex_0f0f0f0f:0x0F0F0F0F
 --blob=hex_00:0x00
 
+--filter-tcp=80,443-65535
+--ipset=lists/ipset-ru.txt
+--ipset=lists/ipset-dns.txt
+--ipset=lists/ipset-exclude.txt
+--out-range=-d8
+--payload=tls_client_hello
+--lua-desync=pass
+
+--new
+
 --filter-tcp=80,443
---hostlist-domains=googlevideo.com
+--hostlist=lists/googlevideo.txt
 --out-range=-d8
 --lua-desync=multidisorder:pos=1,host+2,sld+2,sld+5,sniext+1,sniext+2,endhost-2:seqovl=1
 
@@ -89,7 +97,7 @@
 --new
 
 --filter-tcp=80,443,1080,2053,2083,2087,2096,8443
---hostlist-domains=discord.media
+--hostlist=lists/discord-media.txt
 --out-range=-d10
 --lua-desync=multidisorder:pos=1,host+2,sld+2,sld+5,sniext+1,sniext+2,endhost-2:seqovl=1
 
@@ -103,8 +111,8 @@
 --new
 
 --filter-l7=stun,discord
---payload=stun,discord_ip_discovery
 --out-range=-n8
+--payload=stun,discord_ip_discovery
 --lua-desync=fake:blob=fake_default_udp
 
 --new
@@ -118,7 +126,16 @@
 
 --new
 
---filter-tcp=80,443
+--filter-tcp=80,443-65535
+--hostlist=lists/epicgames-fortnite.txt
+--out-range=-n8
+--lua-desync=send:repeats=2
+--lua-desync=syndata:blob=tls_google
+--lua-desync=multidisorder:pos=1,host+2,sld+2,sld+5,sniext+1,sniext+2,endhost-2:seqovl=1
+
+--new
+
+--filter-tcp=80,443-65535
 --hostlist=lists/roblox.txt
 --out-range=-n8
 --lua-desync=send:repeats=2
@@ -127,15 +144,15 @@
 
 --new
 
---filter-udp=443,49152-65535
+--filter-udp=443-65535
 --ipset=lists/ipset-roblox.txt
 --out-range=-n8
 --payload=all
---lua-desync=fake:blob=quic_google:ip_autottl=-2,3-20:ip6_autottl=-2,3-20:payload=all:repeats=10
+--lua-desync=fake:blob=quic_google:ip_autottl=-2,3-20:ip6_autottl=-2,3-20:repeats=10:payload=all
 
 --new
 
---filter-tcp=443,853
+--filter-tcp=80,443-65535
 --ipset=lists/ipset-warp.txt
 --out-range=-n8
 --lua-desync=send:repeats=2
@@ -144,9 +161,16 @@
 
 --new
 
+--filter-tcp=80,443-65535
+--ipset=lists/ipset-all.txt
+--out-range=-n8
+--lua-desync=send:repeats=2
+--lua-desync=syndata:blob=tls_google
+--lua-desync=multisplit:seqovl=700:seqovl_pattern=tls_google:tcp_flags_unset=ack
+
+--new
+
 --filter-tcp=443
---hostlist-exclude=lists/netrogat.txt
---hostlist=lists/other.txt
 --hostlist=lists/russia-blacklist.txt
 --out-range=-d10
 --lua-desync=hostfakesplit_multi:hosts=google.com,vimeo.com:tcp_ts=-1000:tcp_md5:repeats=2
@@ -163,11 +187,7 @@
 --new
 
 --filter-tcp=80,443-65535
---ipset=lists/russia-youtube-rtmps.txt
---ipset=lists/ipset-all.txt
---ipset=lists/ipset-base.txt
---ipset=lists/ipset-discord.txt
---ipset-exclude=lists/ipset-dns.txt
+--ipset=lists/ipset-russia-youtube-rtmps.txt
 --out-range=-n8
 --lua-desync=send:repeats=2
 --lua-desync=syndata:blob=tls_google
@@ -175,13 +195,41 @@
 
 --new
 
---filter-udp=*
---ipset=lists/ipset-all.txt
---ipset=lists/ipset-base.txt
+--filter-tcp=80,443-65535
+--ipset=lists/ipset-discord.txt
+--out-range=-n8
+--lua-desync=send:repeats=2
+--lua-desync=syndata:blob=tls_google
+--lua-desync=multisplit:seqovl=700:seqovl_pattern=tls_google:tcp_flags_unset=ack
+
+--new
+
+--filter-udp=443-65535
 --ipset=lists/cloudflare-ipset.txt
---ipset=lists/ipset-cloudflare1.txt
---ipset=lists/ipset-cloudflare.txt
---ipset-exclude=lists/ipset-dns.txt
 --out-range=-n8
 --payload=all
---lua-desync=fake:blob=quic_google:ip_autottl=-2,3-20:ip6_autottl=-2,3-20:payload=all:repeats=10
+--lua-desync=fake:blob=quic_google:ip_autottl=-2,3-20:ip6_autottl=-2,3-20:repeats=10:payload=all
+
+--new
+
+--filter-udp=443-65535
+--ipset=lists/cloudflare-ipset_v6.txt
+--out-range=-n8
+--payload=all
+--lua-desync=fake:blob=quic_google:ip_autottl=-2,3-20:ip6_autottl=-2,3-20:repeats=10:payload=all
+
+--new
+
+--filter-udp=443-65535
+--ipset=lists/ipset-cloudflare1.txt
+--out-range=-n8
+--payload=all
+--lua-desync=fake:blob=quic_google:ip_autottl=-2,3-20:ip6_autottl=-2,3-20:repeats=10:payload=all
+
+--new
+
+--filter-udp=443-65535
+--ipset=lists/ipset-cloudflare.txt
+--out-range=-n8
+--payload=all
+--lua-desync=fake:blob=quic_google:ip_autottl=-2,3-20:ip6_autottl=-2,3-20:repeats=10:payload=all
