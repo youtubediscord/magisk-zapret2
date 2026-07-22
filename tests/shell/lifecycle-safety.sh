@@ -36,6 +36,21 @@ ZAPRET2_OUT="Z2O_$FIREWALL_TAG"
 ZAPRET2_IN="Z2I_$FIREWALL_TAG"
 export FIREWALL_TAG ZAPRET2_OUT ZAPRET2_IN
 
+# A stopped service must not perform the expensive exact identity proof for
+# every Android PID. The shell-builtin cmdline prefilter admits the current
+# process only when its actual argv0 prefix is selected.
+(
+    CURRENT_ARGV0="$(proc_argv0 "$$")" || fail "current argv0 unavailable"
+    NFQWS2="$CURRENT_ARGV0"
+    proc_cmdline_may_match_nfqws "$$" || fail "exact argv0 candidate was filtered out"
+    NFQWS2="${CURRENT_ARGV0}.not-the-current-process"
+    if proc_cmdline_may_match_nfqws "$$"; then fail "non-candidate argv0 prefix was admitted"; fi
+    NFQWS2=/definitely/not/a/zapret2/process
+    verify_nfqws_pid() { fail "strict PID proof ran for a non-candidate process"; }
+    scan_exact_owned_nfqws >/dev/null || fail "empty exact process scan failed"
+    [ -z "$OWNED_SCAN_PIDS" ] || fail "empty exact process scan reported an owner"
+)
+
 Z2_QUERY_MODE=fail; export Z2_QUERY_MODE
 set +e
 owned_family_present iptables

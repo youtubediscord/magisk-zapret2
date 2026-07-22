@@ -77,7 +77,8 @@ get_strategy_args_from_ini() {
     cr=$(printf '\r')
     while IFS= read -r line || [ -n "$line" ]; do
         line="${line%"$cr"}"
-        line="$(trim_config_value "$line")"
+        trim_config_value_in_place "$line"
+        line="$CONFIG_VALUE_TRIMMED"
 
         case "$line" in
             ""|"#"*|";"*)
@@ -93,7 +94,8 @@ get_strategy_args_from_ini() {
         if [ "$current_section" = "$strategy_name" ]; then
             case "$line" in
                 *=*)
-                    key="$(trim_config_value "${line%%=*}")"
+                    trim_config_value_in_place "${line%%=*}"
+                    key="$CONFIG_VALUE_TRIMMED"
                     [ "$key" = args ] || continue
                     decode_config_value "${line#*=}" || {
                         log_error "Invalid quoted args in [$strategy_name] from $ini_file"
@@ -133,7 +135,8 @@ validate_strategy_ini_file() {
     cr="$(printf '\r')"
     while IFS= read -r line || [ -n "$line" ]; do
         line="${line%"$cr"}"
-        line="$(trim_config_value "$line")"
+        trim_config_value_in_place "$line"
+        line="$CONFIG_VALUE_TRIMMED"
         case "$line" in
             ""|"#"*|";"*) continue ;;
             "["*"]")
@@ -152,7 +155,8 @@ validate_strategy_ini_file() {
                 ;;
             *=*)
                 [ -n "$current_section" ] || return 1
-                key="$(trim_config_value "${line%%=*}")"
+                trim_config_value_in_place "${line%%=*}"
+                key="$CONFIG_VALUE_TRIMMED"
                 case "$key" in ""|*[!A-Za-z0-9_-]*) return 1 ;; esac
                 case "$seen_keys" in *"|$key|"*) return 1 ;; esac
                 seen_keys="${seen_keys}${key}|"
@@ -1054,7 +1058,8 @@ parse_categories() {
     cr=$(printf '\r')
     while IFS= read -r line || [ -n "$line" ]; do
         line="${line%"$cr"}"
-        line="$(trim_config_value "$line")"
+        trim_config_value_in_place "$line"
+        line="$CONFIG_VALUE_TRIMMED"
 
         case "$line" in
             ""|"#"*|";"*)
@@ -1079,7 +1084,8 @@ parse_categories() {
                 continue
                 ;;
             *=*)
-                key="$(trim_config_value "${line%%=*}")"
+                trim_config_value_in_place "${line%%=*}"
+                key="$CONFIG_VALUE_TRIMMED"
                 decode_config_value "${line#*=}" || {
                     log_error "Invalid quoted value in [$current_section] from $ini_file"
                     return 1

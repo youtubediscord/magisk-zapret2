@@ -905,14 +905,30 @@ runtime_config_status_message() {
 }
 
 core_config_source_message() { echo "Core config source: $CORE_CONFIG_SOURCE_PATH"; }
-trim_config_value() { printf '%s' "$1" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//'; }
+
+# Configuration parsing runs on the boot path and may inspect thousands of
+# catalog lines.  Keep trimming in the current shell: spawning sed for every
+# scalar makes validation take minutes on process-heavy Android devices.
+trim_config_value_in_place() {
+    CONFIG_VALUE_TRIMMED="$1"
+    CONFIG_VALUE_TRIMMED="${CONFIG_VALUE_TRIMMED#"${CONFIG_VALUE_TRIMMED%%[![:space:]]*}"}"
+    CONFIG_VALUE_TRIMMED="${CONFIG_VALUE_TRIMMED%"${CONFIG_VALUE_TRIMMED##*[![:space:]]}"}"
+}
+
+trim_config_value() {
+    trim_config_value_in_place "$1"
+    printf '%s' "$CONFIG_VALUE_TRIMMED"
+}
 
 # Decode one INI/bootstrap scalar without eval, command substitution or escape
 # expansion. Matching outer quotes are removed; unmatched quotes are rejected.
 decode_config_value() {
-    local value first last cr newline
+    local value first last
     CONFIG_VALUE_DECODED=""
-    value="$(trim_config_value "$1")"
+    case "$1" in *'
+'*) return 1 ;; esac
+    trim_config_value_in_place "$1"
+    value="$CONFIG_VALUE_TRIMMED"
     [ -n "$value" ] || { CONFIG_VALUE_DECODED=""; return 0; }
     first="${value%"${value#?}"}"
     last="${value#"${value%?}"}"
@@ -925,11 +941,9 @@ decode_config_value() {
             ;;
         *) case "$last" in \"|\') return 1 ;; esac ;;
     esac
-    cr="$(printf '\r')"
-    newline='
-'
-    case "$value" in *"$cr"*|*"$newline"*) return 1 ;; esac
-    if LC_ALL=C printf '%s' "$value" | grep -q '[[:cntrl:]]'; then return 1; fi
+    # The character class covers embedded CR/LF and every other control byte
+    # without a command substitution for each parsed scalar.
+    case "$value" in *[[:cntrl:]]*) return 1 ;; esac
     CONFIG_VALUE_DECODED="$value"
 }
 
@@ -991,10 +1005,11 @@ is_safe_file_name_byte_length() {
 is_safe_runtime_file_name() {
     local value="$1"
     [ -n "$value" ] && is_safe_file_name_byte_length "$value" || return 1
-    [ "$value" = "$(trim_config_value "$value")" ] || return 1
+    trim_config_value_in_place "$value"
+    [ "$value" = "$CONFIG_VALUE_TRIMMED" ] || return 1
     [ "$value" != . ] && [ "$value" != .. ] || return 1
     case "$value" in */*|*\\*|*\"*|*\'*) return 1;; esac
-    if LC_ALL=C printf '%s' "$value" | grep -q '[[:cntrl:]]'; then return 1; fi
+    case "$value" in *[[:cntrl:]]*) return 1 ;; esac
     return 0
 }
 
@@ -1028,10 +1043,12 @@ parse_bootstrap_config_file() {
     cr="$(printf '\r')"
     while IFS= read -r line || [ -n "$line" ]; do
         line="${line%"$cr"}"
-        line="$(trim_config_value "$line")"
+        trim_config_value_in_place "$line"
+        line="$CONFIG_VALUE_TRIMMED"
         case "$line" in ""|"#"*|";"*|"#!"*) continue ;; esac
         case "$line" in *=*) ;; *) return 1 ;; esac
-        key="$(trim_config_value "${line%%=*}")"
+        trim_config_value_in_place "${line%%=*}"
+        key="$CONFIG_VALUE_TRIMMED"
         raw="${line#*=}"
         decode_config_value "$raw" || return 1
         apply_core_config_key "$key" "$CONFIG_VALUE_DECODED" || return 1
@@ -1078,7 +1095,8 @@ apply_runtime_core_overrides() {
     cr="$(printf '\r')"
     while IFS= read -r line || [ -n "$line" ]; do
         line="${line%"$cr"}"
-        line="$(trim_config_value "$line")"
+        trim_config_value_in_place "$line"
+        line="$CONFIG_VALUE_TRIMMED"
         case "$line" in
             ""|"#"*|";"*) continue ;;
             "["*"]")
@@ -1097,7 +1115,8 @@ apply_runtime_core_overrides() {
         [ "$current_section" = core ] || continue
         case "$line" in
             *=*)
-                key="$(trim_config_value "${line%%=*}")"
+                trim_config_value_in_place "${line%%=*}"
+                key="$CONFIG_VALUE_TRIMMED"
                 case "$key" in ""|*[!a-z0-9_-]*)
                     RUNTIME_CONFIG_ERROR="invalid runtime.ini [core] key: $key"
                     return 1
@@ -2254,6 +2273,18 @@ proc_argv0() {
     printf '%s\n' "$value"
 }
 
+# Fast, fork-free prefilter for the recovery scan. Shell variables cannot retain
+# NUL separators while reading cmdline, so an exact argv0 is
+# guaranteed to retain this prefix. Prefix collisions are harmless: the
+# candidate still goes through verify_nfqws_pid's full argv0/start/exe proof.
+proc_cmdline_may_match_nfqws() {
+    local pid="$1" runtime_nfqws2="${AUDIT_NFQWS2_OVERRIDE:-$NFQWS2}" cmdline=""
+    is_decimal "$pid" || return 1
+    [ -r "/proc/$pid/cmdline" ] || return 1
+    IFS= read -r cmdline < "/proc/$pid/cmdline" 2>/dev/null || [ -n "$cmdline" ] || return 1
+    case "$cmdline" in "$runtime_nfqws2"*) return 0 ;; *) return 1 ;; esac
+}
+
 OWNER_STATE_PID=""
 OWNER_STATE_START=""
 OWNER_STATE_ARGV_HEX=""
@@ -2768,6 +2799,10 @@ scan_exact_owned_nfqws() {
     for procdir in /proc/[0-9]*; do
         [ -d "$procdir" ] || continue
         pid="${procdir#/proc/}"
+        # The previous implementation performed multiple /proc reads plus
+        # tr/sed forks for every Android process. Filter with one shell-builtin
+        # read and reserve the strict identity proof for plausible candidates.
+        proc_cmdline_may_match_nfqws "$pid" || continue
         start="$(proc_starttime "$pid")" || continue
         if verify_nfqws_pid "$pid" "$start" "" ""; then
             if [ -n "$OWNED_SCAN_PIDS" ]; then OWNED_SCAN_PIDS="$OWNED_SCAN_PIDS $pid"
