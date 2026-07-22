@@ -1,0 +1,3 @@
+zapret-lib.lua
+zapret-antidpi.lua
+zapret-auto.lua

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths>
-    <!-- Cache directory for downloaded APK and module files -->
+    <!-- Only verified update artifacts are eligible for an explicit installer URI grant. -->
     <cache-path
-        name="cache"
-        path="." />
+        name="updates"
+        path="updates/" />
 </paths>

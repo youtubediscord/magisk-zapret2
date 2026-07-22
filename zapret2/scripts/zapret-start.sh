@@ -1,966 +1,1144 @@
 #!/system/bin/sh
-##########################################################################################
-#
-# Zapret2 Start Script
-#
-# This script starts the nfqws2 DPI bypass daemon with configured strategies.
-# It handles:
-#   - Configuration loading from runtime.ini, with bootstrap fallback only on regeneration failure
-#   - Permission fixing for dropped privileges
-#   - iptables rule application
-#   - Strategy building (preset-based or category-based)
-#   - Hostlist/ipset filtering support
-#
-##########################################################################################
-
-##########################################################################################
-# PATH CONFIGURATION
-##########################################################################################
+# Transactional zapret2 start/replace lifecycle.
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ZAPRET_DIR="$(dirname "$SCRIPT_DIR")"
 MODDIR="$(dirname "$ZAPRET_DIR")"
-
-# Load common constants (paths, runtime files, defaults)
 . "$SCRIPT_DIR/common.sh"
-
-# Fast mode is used by zapret-restart.sh to minimize restart latency.
-FAST_RESTART="${FAST_RESTART:-0}"
-
-##########################################################################################
-# LOGGING FUNCTIONS
-##########################################################################################
-
-# Log informational message
-log_msg() {
-    local msg="$1"
-    echo "[INFO] $(date '+%Y-%m-%d %H:%M:%S') $msg" >> "$LOGFILE"
-}
-
-# Log error message to Android system log (logcat)
-log_system_error() {
-    local msg="$1"
-    if command -v log >/dev/null 2>&1; then
-        log -p e -t Zapret2 "$msg" 2>/dev/null
-    fi
-}
-
-# Log error message
-log_error() {
-    local msg="$1"
-    echo "[ERROR] $(date '+%Y-%m-%d %H:%M:%S') $msg" >> "$LOGFILE"
-    log_system_error "$msg"
-}
-
-# Log debug message (only if debug mode enabled)
-log_debug() {
-    local msg="$1"
-    if [ "$DEBUG" = "1" ]; then
-        echo "[DEBUG] $(date '+%Y-%m-%d %H:%M:%S') $msg" >> "$LOGFILE"
-    fi
-}
-
-# Log section header
-log_section() {
-    local title="$1"
-    log_msg "========================================"
-    log_msg "$title"
-    log_msg "========================================"
-}
-
-log_legacy_conflict() {
-    local msg="$1"
-    log_error "LEGACY CONFLICT: $msg"
-}
-
-##########################################################################################
-# LOAD COMMAND BUILDER
-##########################################################################################
-
-# Load command builder functions (INI parsers, strategy builders, etc.)
 . "$SCRIPT_DIR/command-builder.sh"
 
-##########################################################################################
-# DEFAULT CONFIGURATION VALUES
-##########################################################################################
+set -f
+REPLACE=0
+CONTROLLED_TEARDOWN_STARTED=0
+FIREWALL_MUTATED=0
+PROBE_MUTATED=0
+PROBE_TOOL=""
+NEW_PID_PUBLISHED=0
+LAUNCHED_PID=""
+LAUNCHED_PID_START=""
+LAUNCHED_ARGV_HEX=""
+LAUNCH_OWNS_PIDFILE=0
+IPV4_BUILT=0
+IPV6_BUILT=0
+IPV4_RULES=0
+IPV6_RULES=0
+BUILD_TRACK_V4="$STATE_DIR/build-track.ipv4.$$"
+BUILD_TRACK_V6="$STATE_DIR/build-track.ipv6.$$"
+PROBE_TRACK_V4="$STATE_DIR/probe-track.ipv4.$$"
+PROBE_TRACK_V6="$STATE_DIR/probe-track.ipv6.$$"
+BUILD_TRACK_FILE=""
+BUILD_TRACK_RECORD_ID=""
+BUILD_TRACK_WRITE_SEQ=0
+BUILD_TRACK_AMBIGUOUS=0
+BUILD_TRACK_MODE=build
+TRACK_CREATOR_START=""
+TRACK_CREATOR_BOOT_ID=""
+DIAGNOSTICS=""
+PRIOR_HEALTHY=0
+PRIOR_TORN_DOWN=0
+PRIOR_ARGV_FILE="$STATE_DIR/replace.argv.$$"
+PRIOR_RULES_V4="$STATE_DIR/replace.v4.$$"
+PRIOR_RULES_V6="$STATE_DIR/replace.v6.$$"
+PRIOR_OWNER_FILE="$STATE_DIR/replace.owner.$$"
+PRIOR_GENERATION=""
+PRIOR_IPV6=0
+PRIOR_QNUM=""
+PRIOR_ARGV_HEX=""
+
+log_msg() {
+    append_lifecycle_log "[INFO] $(date '+%Y-%m-%d %H:%M:%S') $1"
+}
+
+log_error() {
+    append_lifecycle_log "[ERROR] $(date '+%Y-%m-%d %H:%M:%S') $1"
+    if command -v log >/dev/null 2>&1; then log -p e -t Zapret2 "$1" 2>/dev/null; fi
+}
+
+log_debug() {
+    [ "${DEBUG:-0}" = 1 ] && append_lifecycle_log "[DEBUG] $(date '+%Y-%m-%d %H:%M:%S') $1"
+    return 0
+}
+
+log_section() { log_msg "==== $1 ===="; }
 
 set_default_config() {
     set_core_config_defaults
-
-    # Hostlist/Ipset mode: none, hostlist, ipset
     HOSTLIST_MODE="none"
     HOSTLIST_FILES="youtube.txt"
 }
 
-##########################################################################################
-# CONFIGURATION LOADING
-##########################################################################################
-
 load_config() {
-    log_msg "Loading configuration..."
-
-    # Set defaults first
     set_default_config
-
-    load_effective_core_config
-
+    load_effective_core_config || return 1
     log_msg "$(runtime_config_status_message)"
     log_msg "$(core_config_source_message)"
-    log_msg "$(bootstrap_fallback_message)"
-    log_msg "Category state source: $CATEGORIES_FILE"
-
-    if [ "$BOOTSTRAP_FALLBACK_USED" = "1" ]; then
-        if [ -n "$RUNTIME_CONFIG_ERROR" ]; then
-            log_error "runtime.ini regeneration failed: $RUNTIME_CONFIG_ERROR"
-        fi
-
-        if shell_config_sets_key "$CONFIG" "PRESET_MODE" && shell_config_sets_key "$USER_CONFIG" "PRESET_MODE"; then
-            log_legacy_conflict "PRESET_MODE is defined in both $CONFIG and $USER_CONFIG; effective mode depends on shell source order"
-        fi
-
-        case "$PRESET_MODE" in
-            file|preset|txt)
-                log_legacy_conflict "Legacy preset-file mode is active (PRESET_MODE=$PRESET_MODE, PRESET_FILE=${PRESET_FILE:-Default.txt}); runtime.ini bootstrap regeneration is unavailable"
-                ;;
-        esac
-    else
-        log_msg "Bootstrap shell inputs are migration-only while runtime.ini is available: $CONFIG, $USER_CONFIG"
-    fi
-
-    # Verify strategy INI files exist
-    for ini_file in "$TCP_STRATEGIES_INI" "$UDP_STRATEGIES_INI" "$STUN_STRATEGIES_INI"; do
-        if [ -f "$ini_file" ]; then
-            log_msg "Found strategy file: $ini_file"
-        else
-            log_msg "WARNING: Strategy file not found: $ini_file"
-        fi
-    done
-
-    if [ "$PRESET_MODE" = "file" ] || [ "$PRESET_MODE" = "preset" ] || [ "$PRESET_MODE" = "txt" ]; then
-        local preset_path
-        preset_path="$(resolve_preset_file_path "${PRESET_FILE:-Default.txt}")"
-        if [ -f "$preset_path" ]; then
-            log_msg "Found preset file: $preset_path"
-        else
-            log_msg "WARNING: Preset file not found: $preset_path"
-        fi
-    fi
-
-    # Log current configuration
-    log_debug "QNUM=$QNUM"
-    log_debug "PORTS_TCP=$PORTS_TCP"
-    log_debug "PORTS_UDP=$PORTS_UDP"
-    log_debug "STRATEGY_PRESET=$STRATEGY_PRESET"
-    log_debug "PRESET_MODE=$PRESET_MODE"
-    log_debug "PRESET_FILE=$PRESET_FILE"
-    log_debug "NFQWS_UID=${NFQWS_UID:-<root>}"
-    log_debug "HOSTLIST_MODE=$HOSTLIST_MODE"
-    log_debug "PKT_OUT=$PKT_OUT"
-    log_debug "PKT_IN=$PKT_IN"
+    return 0
 }
 
-##########################################################################################
-# PROCESS MANAGEMENT
-##########################################################################################
+normalize_positive_count() {
+    local raw="$1" normalized
+    COUNT_NORMALIZED=""
+    is_decimal "$raw" || return 1
+    normalized="$(printf '%s' "$raw" | sed 's/^0*//')"
+    [ -n "$normalized" ] || normalized=0
+    [ "${#normalized}" -le 9 ] || return 1
+    [ "$normalized" -ge 1 ] 2>/dev/null || return 1
+    COUNT_NORMALIZED="$normalized"
+}
 
-# Check if nfqws2 is already running
-check_already_running() {
-    if [ -f "$PIDFILE" ]; then
-        local pid=$(cat "$PIDFILE")
-        if [ -d "/proc/$pid" ]; then
-            log_msg "Already running with PID $pid"
+validate_port_list() {
+    local list="$1" item first last old_ifs
+    [ -n "$list" ] || return 1
+    case "$list" in *[!0-9,:]*) return 1 ;; esac
+    case "$list" in ,*|*,|*,,*) return 1 ;; esac
+    old_ifs="$IFS"; IFS=,; set -- $list; IFS="$old_ifs"
+    [ "$#" -gt 0 ] || return 1
+    for item in "$@"; do
+        case "$item" in
+            *:*)
+                first="${item%%:*}"; last="${item#*:}"
+                case "$last" in *:*) return 1 ;; esac
+                is_decimal "$first" && is_decimal "$last" || return 1
+                [ "$first" -le 65535 ] 2>/dev/null || return 1
+                [ "$last" -le 65535 ] 2>/dev/null || return 1
+                [ "$first" -le "$last" ] 2>/dev/null || return 1
+                ;;
+            *)
+                is_decimal "$item" || return 1
+                [ "$item" -le 65535 ] 2>/dev/null || return 1
+                ;;
+        esac
+    done
+}
 
-            # Check if iptables rules are still in place
-            local ipt_count=0
-            ipt_count=$(iptables -t mangle -L OUTPUT -n 2>/dev/null | grep -c NFQUEUE || true)
-            ipt_count=$((ipt_count + $(ip6tables -t mangle -L OUTPUT -n 2>/dev/null | grep -c NFQUEUE || true)))
+validate_mark() {
+    local mark="$1" hex
+    case "$mark" in
+        0x*)
+            hex="${mark#0x}"
+            [ -n "$hex" ] || return 1
+            case "$hex" in *[!0-9A-Fa-f]*) return 1 ;; esac
+            ;;
+        *) is_decimal "$mark" || return 1 ;;
+    esac
+}
 
-            if [ "$ipt_count" -eq 0 ]; then
-                log_msg "WARNING: nfqws2 running but iptables rules missing! Re-applying..."
-                echo "Zapret2 is already running (PID: $pid) - restoring iptables rules"
-                load_config
-                apply_iptables
-            else
-                echo "Zapret2 is already running (PID: $pid)"
+validate_config() {
+    normalize_qnum "$QNUM" || return 1
+    QNUM="$QNUM_NORMALIZED"
+    validate_port_list "$PORTS_TCP" || return 1
+    validate_port_list "$PORTS_UDP" || return 1
+    normalize_positive_count "$PKT_OUT" || return 1
+    PKT_OUT="$COUNT_NORMALIZED"
+    normalize_positive_count "$PKT_IN" || return 1
+    PKT_IN="$COUNT_NORMALIZED"
+    validate_mark "$DESYNC_MARK" || return 1
+    case "$WIFI_ONLY" in 0|1) ;; *) return 1 ;; esac
+    return 0
+}
+
+preflight_wifi_only() {
+    case "$WIFI_ONLY" in
+        0) return 0 ;;
+        1)
+            # There is no configured, verified Wi-Fi interface in the core
+            # contract.  Queueing all interfaces would violate WIFI_ONLY.
+            DIAGNOSTICS="${DIAGNOSTICS}WIFI_ONLY=1 requires verified interface scoping; startup refused; "
+            return 1
+            ;;
+        *) return 1 ;;
+    esac
+}
+
+preflight_files() {
+    local path
+    for path in "$ZAPRET_DIR/lua/zapret-lib.lua" "$ZAPRET_DIR/lua/zapret-antidpi.lua"; do
+        [ -f "$path" ] && [ -r "$path" ] || return 1
+    done
+    return 0
+}
+
+prepare_options() {
+    local capture="$ERROR_LOG.capture.$$" rcfile="$ERROR_LOG.rc.$$" dry_rc
+    [ -f "$NFQWS2" ] && [ -x "$NFQWS2" ] || return 1
+    NFQWS_HELP="$("$NFQWS2" --help 2>&1)"
+    [ -n "$NFQWS_HELP" ] || return 1
+    OPTS="$(build_options)" || return 1
+    [ -n "$OPTS" ] || return 1
+    preflight_files || return 1
+    prepare_private_runtime_file "$STARTUP_LOG" || return 1
+    prepare_private_runtime_file "$ERROR_LOG" || return 1
+    rm -f "$capture" "$rcfile" 2>/dev/null
+    umask 077
+    { "$NFQWS2" --dry-run $OPTS >/dev/null; printf '%s\n' "$?" > "$rcfile"; } 2>&1 |
+        tail -c 32768 > "$capture"
+    dry_rc="$(cat "$rcfile" 2>/dev/null)"
+    rm -f "$rcfile" 2>/dev/null
+    is_decimal "$dry_rc" || { rm -f "$capture"; return 1; }
+    chmod 0600 "$capture" 2>/dev/null || { rm -f "$capture"; return 1; }
+    mv -f "$capture" "$ERROR_LOG" || { rm -f "$capture"; return 1; }
+    [ "$dry_rc" -eq 0 ] 2>/dev/null || return 1
+    write_private_runtime_line "$CMDLINE_FILE" "$NFQWS2 $OPTS" || return 1
+    return 0
+}
+
+count_family_rules() {
+    local tool="$1" count=0 n chain
+    for chain in "$ZAPRET2_OUT" "$ZAPRET2_IN"; do
+        n="$("$tool" -t mangle -S "$chain" 2>/dev/null | grep -c "^-A $chain " || true)"
+        is_decimal "$n" || n=0
+        count=$((count + n))
+    done
+    printf '%s\n' "$count"
+}
+
+normal_health_ok() {
+    HEALTH_PID=""; HEALTH_PID_START=""; HEALTH_GENERATION=""; HEALTH_IPV6=0; HEALTH_RULES=0
+    read_verified_pidfile || return 1
+    [ "$OWNER_STATE_SCHEMA_VERSION" = "$OWNER_STATE_VERSION" ] || return 1
+    read_install_generation_meta && [ "$OWNER_STATE_INSTALL_GENERATION" = "$INSTALL_META_GENERATION" ] &&
+        [ "$OWNER_STATE_INSTALL_ARCHIVE_SHA256" = "$INSTALL_META_ARCHIVE_SHA256" ] || return 1
+    [ "$OWNER_STATE_PHASE" = active ] || return 1
+    [ "$OWNER_STATE_QNUM" = "$QNUM" ] || return 1
+    command -v iptables >/dev/null 2>&1 || return 1
+    owner_family_generation_healthy iptables ipv4 || return 1
+    HEALTH_PID="$VERIFIED_PID"
+    HEALTH_PID_START="$VERIFIED_PID_START"
+    HEALTH_GENERATION="$OWNER_STATE_GENERATION"
+    HEALTH_RULES=6
+    if command -v ip6tables >/dev/null 2>&1; then
+        owned_family_present ip6tables
+        case $? in
+            0) owner_family_generation_healthy ip6tables ipv6 || return 1; HEALTH_IPV6=1; HEALTH_RULES=12 ;;
+            1) ;;
+            *) return 1 ;;
+        esac
+    elif [ "${STATUS_FILE_IPV6_ACTIVE:-0}" = 1 ]; then
+        return 1
+    fi
+    return 0
+}
+
+write_ok_status() {
+    STATUS_RULES_OK="$1"; STATUS_RULES_FAIL=0; STATUS_RULES_TOTAL="$1"
+    STATUS_ERRORS=""; STATUS_OWN_PID="$2"; STATUS_PID_VERIFIED=1; STATUS_QNUM="$QNUM"
+    STATUS_OWN_PID_STARTTIME="$HEALTH_PID_START"; STATUS_OWNER_GENERATION="$HEALTH_GENERATION"
+    STATUS_OWNER_METADATA_VERIFIED=1; STATUS_RULESET_VERIFIED=1; STATUS_RULES_EXPECTED="$1"
+    STATUS_IPV4_ACTIVE=1; STATUS_IPV6_ACTIVE="$3"
+    STATUS_IPV4_RULES=6; STATUS_IPV6_RULES=$((6 * STATUS_IPV6_ACTIVE))
+    STATUS_CHAINS=$((2 + 2 * STATUS_IPV6_ACTIVE)); STATUS_ANCHORS="$STATUS_CHAINS"
+    STATUS_NFQUEUE_SUPPORTED=1; STATUS_QUEUE_BYPASS_SUPPORTED=1
+    STATUS_CONNBYTES_SUPPORTED="${IPV4_CONNBYTES:-1}"
+    STATUS_MULTIPORT_SUPPORTED="${IPV4_MULTIPORT:-1}"
+    STATUS_MARK_SUPPORTED="${IPV4_MARK:-1}"
+    STATUS_FALLBACK_MODE="${FALLBACK_MODE:-0}"
+    STATUS_DIAGNOSTICS="$DIAGNOSTICS"
+    write_iptables_status ok
+}
+
+rollback_start() {
+    local rc=0
+    ROLLBACK_ERRORS=""
+    if [ "$PROBE_MUTATED" = 1 ]; then
+        cleanup_probe_artifacts >/dev/null 2>&1 || { rc=1; ROLLBACK_ERRORS="probe cleanup failed"; }
+    fi
+    if [ "$FIREWALL_MUTATED" = 1 ]; then
+        cleanup_tracked_family ip6tables >/dev/null 2>&1 || { rc=1; ROLLBACK_ERRORS="tracked IPv6 firewall cleanup failed"; }
+        cleanup_tracked_family iptables >/dev/null 2>&1 || { rc=1; ROLLBACK_ERRORS="${ROLLBACK_ERRORS}${ROLLBACK_ERRORS:+; }tracked IPv4 firewall cleanup failed"; }
+        cleanup_owned_firewall >/dev/null 2>&1 || { rc=1; ROLLBACK_ERRORS="owned firewall cleanup failed"; }
+    fi
+    if [ "$NEW_PID_PUBLISHED" = 1 ]; then
+        stop_pidfile_process >/dev/null 2>&1 || { rc=1; ROLLBACK_ERRORS="${ROLLBACK_ERRORS}${ROLLBACK_ERRORS:+; }owned process cleanup failed"; }
+    elif [ -n "$LAUNCHED_PID" ]; then
+        stop_failed_fallback_launch "$LAUNCHED_PID" >/dev/null 2>&1 || { rc=1; ROLLBACK_ERRORS="${ROLLBACK_ERRORS}${ROLLBACK_ERRORS:+; }failed launch process remains ambiguous"; }
+    elif [ "$PRIOR_TORN_DOWN" = 1 ]; then
+        stop_pidfile_process >/dev/null 2>&1 || { rc=1; ROLLBACK_ERRORS="${ROLLBACK_ERRORS}${ROLLBACK_ERRORS:+; }prestate process cleanup failed"; }
+    fi
+    firewall_is_clean_after_rollback || { rc=1; ROLLBACK_ERRORS="${ROLLBACK_ERRORS}${ROLLBACK_ERRORS:+; }owned firewall artifacts remain"; }
+    scan_exact_owned_nfqws >/dev/null 2>&1
+    [ -z "$OWNED_SCAN_PIDS" ] || { rc=1; ROLLBACK_ERRORS="${ROLLBACK_ERRORS}${ROLLBACK_ERRORS:+; }module-owned process remains: $OWNED_SCAN_PIDS"; }
+    [ "$rc" -ne 0 ] || retire_owner_metadata >/dev/null 2>&1 || { rc=1; ROLLBACK_ERRORS="ownership metadata cleanup failed"; }
+    return "$rc"
+}
+
+discard_prior_snapshot() {
+    state_path_is_managed_file "$PRIOR_ARGV_FILE" && rm -f "$PRIOR_ARGV_FILE" 2>/dev/null
+    state_path_is_managed_file "$PRIOR_RULES_V4" && rm -f "$PRIOR_RULES_V4" 2>/dev/null
+    state_path_is_managed_file "$PRIOR_RULES_V6" && rm -f "$PRIOR_RULES_V6" 2>/dev/null
+    state_path_is_managed_file "$PRIOR_OWNER_FILE" && rm -f "$PRIOR_OWNER_FILE" 2>/dev/null
+}
+
+build_track_for_tool() {
+    BUILD_TRACK_MODE=build
+    case "$1" in iptables) BUILD_TRACK_FILE="$BUILD_TRACK_V4";; ip6tables) BUILD_TRACK_FILE="$BUILD_TRACK_V6";; *) return 1;; esac
+}
+
+probe_track_for_tool() {
+    BUILD_TRACK_MODE=probe
+    case "$1" in iptables) BUILD_TRACK_FILE="$PROBE_TRACK_V4";; ip6tables) BUILD_TRACK_FILE="$PROBE_TRACK_V6";; *) return 1;; esac
+}
+
+begin_tracked_family() {
+    local tool="$1" tmp
+    build_track_for_tool "$tool" || return 1
+    state_path_is_managed_file "$BUILD_TRACK_FILE" || return 1
+    [ ! -e "$BUILD_TRACK_FILE" ] && [ ! -L "$BUILD_TRACK_FILE" ] || return 1
+    BUILD_TRACK_AMBIGUOUS=0
+    TRACK_CREATOR_START="$(proc_starttime "$$")" || return 1
+    read_current_boot_id || return 1
+    TRACK_CREATOR_BOOT_ID="$CURRENT_BOOT_ID"
+    BUILD_TRACK_WRITE_SEQ=$((BUILD_TRACK_WRITE_SEQ + 1))
+    tmp="$BUILD_TRACK_FILE.$BUILD_TRACK_WRITE_SEQ.tmp"
+    [ ! -e "$tmp" ] && [ ! -L "$tmp" ] || return 1
+    umask 077
+    printf 'version=2\nmode=build\ntool=%s\nmodule_dir=%s\ncreator_pid=%s\ncreator_starttime=%s\nboot_id=%s\n' \
+        "$tool" "$MODDIR" "$$" "$TRACK_CREATOR_START" "$TRACK_CREATOR_BOOT_ID" > "$tmp" || return 1
+    publish_build_track_temp "$tmp"
+}
+
+begin_probe_track() {
+    local tool="$1" tmp
+    probe_track_for_tool "$tool" || return 1
+    state_path_is_managed_file "$BUILD_TRACK_FILE" || return 1
+    [ ! -e "$BUILD_TRACK_FILE" ] && [ ! -L "$BUILD_TRACK_FILE" ] || return 1
+    BUILD_TRACK_AMBIGUOUS=0
+    TRACK_CREATOR_START="$(proc_starttime "$$")" || return 1
+    read_current_boot_id || return 1
+    TRACK_CREATOR_BOOT_ID="$CURRENT_BOOT_ID"
+    BUILD_TRACK_WRITE_SEQ=$((BUILD_TRACK_WRITE_SEQ + 1))
+    tmp="$BUILD_TRACK_FILE.$BUILD_TRACK_WRITE_SEQ.tmp"
+    [ ! -e "$tmp" ] && [ ! -L "$tmp" ] || return 1
+    umask 077
+    printf 'version=2\nmode=probe\ntool=%s\nmodule_dir=%s\ncreator_pid=%s\ncreator_starttime=%s\nboot_id=%s\n' \
+        "$tool" "$MODDIR" "$$" "$TRACK_CREATOR_START" "$TRACK_CREATOR_BOOT_ID" > "$tmp" || return 1
+    publish_build_track_temp "$tmp"
+}
+
+validate_build_track() {
+    local tool="$1"
+    [ -n "$BUILD_TRACK_FILE" ] || return 1
+    validate_track_journal_identity "$BUILD_TRACK_FILE" || return 1
+    [ "$TRACK_JOURNAL_MODE" = "$BUILD_TRACK_MODE" ] && [ "$TRACK_JOURNAL_TOOL" = "$tool" ] &&
+        [ "$TRACK_CREATOR_PID" = "$$" ] && [ "$TRACK_CREATOR_START" = "$(proc_starttime "$$")" ] &&
+        read_current_boot_id && [ "$TRACK_BOOT_ID" = "$CURRENT_BOOT_ID" ]
+}
+
+publish_build_track_temp() {
+    local tmp="$1"
+    chmod 0600 "$tmp" 2>/dev/null || { BUILD_TRACK_AMBIGUOUS=1; return 1; }
+    sync >/dev/null 2>&1 || { BUILD_TRACK_AMBIGUOUS=1; return 1; }
+    mv -f "$tmp" "$BUILD_TRACK_FILE" 2>/dev/null || { BUILD_TRACK_AMBIGUOUS=1; return 1; }
+    sync >/dev/null 2>&1 || { BUILD_TRACK_AMBIGUOUS=1; return 1; }
+    return 0
+}
+
+build_track_add_pending() {
+    local payload="$1" tmp next
+    validate_build_track "$BUILD_TRACK_TOOL" || return 1
+    next="$(awk -F '|' '$1 == "record" { n=$2 } END { print n + 1 }' "$BUILD_TRACK_FILE")" || return 1
+    BUILD_TRACK_WRITE_SEQ=$((BUILD_TRACK_WRITE_SEQ + 1))
+    tmp="$BUILD_TRACK_FILE.$BUILD_TRACK_WRITE_SEQ.tmp"
+    [ ! -e "$tmp" ] && [ ! -L "$tmp" ] || return 1
+    { cat "$BUILD_TRACK_FILE"; printf 'record|%s|pending|%s\n' "$next" "$payload"; } > "$tmp" || return 1
+    publish_build_track_temp "$tmp" || return 1
+    BUILD_TRACK_RECORD_ID="$next"
+}
+
+build_track_transition() {
+    local id="$1" from="$2" to="$3" tmp
+    validate_build_track "$BUILD_TRACK_TOOL" || { BUILD_TRACK_AMBIGUOUS=1; return 1; }
+    BUILD_TRACK_WRITE_SEQ=$((BUILD_TRACK_WRITE_SEQ + 1))
+    tmp="$BUILD_TRACK_FILE.$BUILD_TRACK_WRITE_SEQ.tmp"
+    [ ! -e "$tmp" ] && [ ! -L "$tmp" ] || { BUILD_TRACK_AMBIGUOUS=1; return 1; }
+    awk -F '|' -v OFS='|' -v id="$id" -v from="$from" -v to="$to" '
+        $1 == "record" && $2 == id && $3 == from { $3=to; changed++ }
+        { print }
+        END { if (changed != 1) exit 1 }
+    ' "$BUILD_TRACK_FILE" > "$tmp" || { BUILD_TRACK_AMBIGUOUS=1; return 1; }
+    publish_build_track_temp "$tmp" || return 1
+}
+
+tracked_create_chain() {
+    local tool="$1" chain="$2" id
+    build_track_add_pending "chain|$chain" || return 1
+    id="$BUILD_TRACK_RECORD_ID"
+    if ! "$tool" -t mangle -N "$chain" 2>/dev/null; then
+        build_track_transition "$id" pending consumed || true
+        return 1
+    fi
+    build_track_transition "$id" pending applied
+}
+
+tracked_append_anchor() {
+    local tool="$1" builtin="$2" target="$3" id
+    build_track_add_pending "anchor|$builtin|$target" || return 1
+    id="$BUILD_TRACK_RECORD_ID"
+    if ! "$tool" -t mangle -A "$builtin" -j "$target" 2>/dev/null; then
+        build_track_transition "$id" pending consumed || true
+        return 1
+    fi
+    build_track_transition "$id" pending applied
+}
+
+cleanup_tracked_family() {
+    local tool="$1" ids line record id state kind a b c d e f g h i j k rc=0
+    build_track_for_tool "$tool" || return 1
+    BUILD_TRACK_TOOL="$tool"
+    [ -e "$BUILD_TRACK_FILE" ] || return 0
+    validate_build_track "$tool" || return 1
+    [ "$BUILD_TRACK_AMBIGUOUS" = 0 ] || return 1
+    awk -F '|' '$1 == "record" && ($3 == "pending" || $3 == "consuming") { found=1 } END { exit !found }' "$BUILD_TRACK_FILE" && return 1
+    ids="$(awk -F '|' '$1 == "record" && $3 == "applied" { id[++n]=$2 } END { for (; n>0; n--) print id[n] }' "$BUILD_TRACK_FILE")" || return 1
+    for id in $ids; do
+        line="$(awk -F '|' -v id="$id" '$1 == "record" && $2 == id { print; found++ } END { if (found != 1) exit 1 }' "$BUILD_TRACK_FILE")" || { rc=1; break; }
+        IFS='|' read -r record id state kind a b c d e f g h i j k <<EOF
+$line
+EOF
+        build_track_transition "$id" applied consuming || { rc=1; break; }
+        case "$kind" in
+            rule)
+                if ! owner_rule_set "$tool" -D "$a" "$b" "$c" "$d" "$e" "$f" "$g" "$h" "$i" "$j" "$k"; then
+                    owner_rule_set "$tool" -C "$a" "$b" "$c" "$d" "$e" "$f" "$g" "$h" "$i" "$j" "$k" && rc=1
+                fi
+                ;;
+            anchor) delete_exact_anchor "$tool" "$a" "$b" || rc=1 ;;
+            chain) if owned_chain_exists "$tool" "$a"; then "$tool" -t mangle -X "$a" >/dev/null 2>&1 || rc=1; fi ;;
+            *) rc=1 ;;
+        esac
+        [ "$rc" -eq 0 ] || break
+        build_track_transition "$id" consuming consumed || { rc=1; break; }
+    done
+    if [ "$rc" -eq 0 ]; then
+        awk -F '|' '$1 == "record" && $3 != "consumed" { bad=1 } END { exit bad }' "$BUILD_TRACK_FILE" || rc=1
+    fi
+    if [ "$rc" -eq 0 ]; then
+        rm -f "$BUILD_TRACK_FILE" 2>/dev/null || rc=1
+        [ "$rc" -ne 0 ] || sync >/dev/null 2>&1 || rc=1
+    fi
+    return "$rc"
+}
+
+retire_committed_build_track() {
+    local tool="$1" required="${2:-0}" tmp
+    build_track_for_tool "$tool" || return 1
+    if [ ! -e "$BUILD_TRACK_FILE" ] && [ ! -L "$BUILD_TRACK_FILE" ]; then [ "$required" = 0 ]; return; fi
+    BUILD_TRACK_TOOL="$tool"
+    validate_build_track "$tool" || return 1
+    awk -F '|' '$1 == "record" && ($3 == "pending" || $3 == "consuming") { bad=1 } END { exit bad }' "$BUILD_TRACK_FILE" || return 1
+    BUILD_TRACK_WRITE_SEQ=$((BUILD_TRACK_WRITE_SEQ + 1))
+    tmp="$BUILD_TRACK_FILE.$BUILD_TRACK_WRITE_SEQ.tmp"
+    [ ! -e "$tmp" ] && [ ! -L "$tmp" ] || return 1
+    awk -F '|' -v OFS='|' '$1 == "record" && $3 == "applied" { $3="consumed" } { print }' \
+        "$BUILD_TRACK_FILE" > "$tmp" || return 1
+    publish_build_track_temp "$tmp" || return 1
+    validate_build_track "$tool" || return 1
+    awk -F '|' '$1 == "record" && $3 != "consumed" { bad=1 } END { exit bad }' "$BUILD_TRACK_FILE" || return 1
+    rm -f "$BUILD_TRACK_FILE" 2>/dev/null || return 1
+    sync >/dev/null 2>&1
+}
+
+discard_build_tracks() {
+    retire_committed_build_track iptables 1 || return 1
+    retire_committed_build_track ip6tables "$IPV6_ACTIVE"
+}
+
+probe_rule_exec() {
+    local tool="$1" op="$2" kind="$3" qnum="$4" pkt="$5" mark="$6"
+    case "$kind" in
+        queue_bypass) "$tool" -t mangle "$op" "$ZAPRET2_PROBE" -p tcp --dport 1 -j NFQUEUE --queue-num "$qnum" --queue-bypass >/dev/null 2>&1 ;;
+        queue) "$tool" -t mangle "$op" "$ZAPRET2_PROBE" -p tcp --dport 1 -j NFQUEUE --queue-num "$qnum" >/dev/null 2>&1 ;;
+        connbytes) "$tool" -t mangle "$op" "$ZAPRET2_PROBE" -p tcp --dport 1 -m connbytes --connbytes "1:$pkt" --connbytes-dir original --connbytes-mode packets -j ACCEPT >/dev/null 2>&1 ;;
+        multiport) "$tool" -t mangle "$op" "$ZAPRET2_PROBE" -p tcp -m multiport --dports 80,443 -j ACCEPT >/dev/null 2>&1 ;;
+        mark) "$tool" -t mangle "$op" "$ZAPRET2_PROBE" -p tcp --dport 1 -m mark ! --mark "$mark/$mark" -j ACCEPT >/dev/null 2>&1 ;;
+        *) return 1 ;;
+    esac
+}
+
+tracked_probe_append() {
+    local tool="$1" kind="$2" id
+    build_track_add_pending "probe_rule|$kind|$QNUM|$PKT_OUT|$DESYNC_MARK" || return 1
+    id="$BUILD_TRACK_RECORD_ID"
+    if ! probe_rule_exec "$tool" -A "$kind" "$QNUM" "$PKT_OUT" "$DESYNC_MARK"; then
+        build_track_transition "$id" pending consumed || return 1
+        return 2
+    fi
+    build_track_transition "$id" pending applied || return 1
+    PROBE_RULE_RECORD_ID="$id"
+}
+
+consume_probe_rule() {
+    local tool="$1" id="$2" kind="$3" qnum="$4" pkt="$5" mark="$6" rc=0
+    build_track_transition "$id" applied consuming || return 1
+    if ! probe_rule_exec "$tool" -D "$kind" "$qnum" "$pkt" "$mark"; then
+        probe_rule_exec "$tool" -C "$kind" "$qnum" "$pkt" "$mark" && rc=1
+    elif probe_rule_exec "$tool" -C "$kind" "$qnum" "$pkt" "$mark"; then
+        rc=1
+    fi
+    [ "$rc" -eq 0 ] || return 1
+    build_track_transition "$id" consuming consumed
+}
+
+consume_probe_chain() {
+    local tool="$1" id="$2"
+    build_track_transition "$id" applied consuming || return 1
+    if owned_chain_exists "$tool" "$ZAPRET2_PROBE"; then
+        "$tool" -t mangle -X "$ZAPRET2_PROBE" >/dev/null 2>&1 || return 1
+    fi
+    owned_chain_exists "$tool" "$ZAPRET2_PROBE" && return 1
+    build_track_transition "$id" consuming consumed
+}
+
+cleanup_probe_track() {
+    local tool="$1" ids line record id state kind a b c d rc=0
+    probe_track_for_tool "$tool" || return 1
+    BUILD_TRACK_TOOL="$tool"
+    [ -e "$BUILD_TRACK_FILE" ] || return 0
+    validate_build_track "$tool" || return 1
+    [ "$BUILD_TRACK_AMBIGUOUS" = 0 ] || return 1
+    awk -F '|' '$1 == "record" && ($3 == "pending" || $3 == "consuming") { found=1 } END { exit !found }' "$BUILD_TRACK_FILE" && return 1
+    ids="$(awk -F '|' '$1 == "record" && $3 == "applied" { id[++n]=$2 } END { for (; n>0; n--) print id[n] }' "$BUILD_TRACK_FILE")" || return 1
+    for id in $ids; do
+        line="$(awk -F '|' -v id="$id" '$1 == "record" && $2 == id { print; found++ } END { if (found != 1) exit 1 }' "$BUILD_TRACK_FILE")" || { rc=1; break; }
+        IFS='|' read -r record id state kind a b c d <<EOF
+$line
+EOF
+        case "$kind" in
+            probe_rule) consume_probe_rule "$tool" "$id" "$a" "$b" "$c" "$d" || rc=1 ;;
+            chain) consume_probe_chain "$tool" "$id" || rc=1 ;;
+            *) rc=1 ;;
+        esac
+        [ "$rc" -eq 0 ] || break
+    done
+    if [ "$rc" -eq 0 ]; then
+        awk -F '|' '$1 == "record" && $3 != "consumed" { bad=1 } END { exit bad }' "$BUILD_TRACK_FILE" || rc=1
+    fi
+    if [ "$rc" -eq 0 ]; then rm -f "$BUILD_TRACK_FILE" 2>/dev/null || rc=1; [ "$rc" -ne 0 ] || sync >/dev/null 2>&1 || rc=1; fi
+    return "$rc"
+}
+
+capture_prior_healthy_generation() {
+    local first size tmp="$PRIOR_ARGV_FILE.tmp.$$" rules_tmp expected_rules
+    PRIOR_HEALTHY=0
+    # Absence of an exact active owner is not an error: the normal degraded or
+    # stopped cleanup path can proceed.  Once exact owner/status evidence says
+    # a healthy generation exists, every snapshot step is mandatory.
+    if ! read_verified_pidfile || [ "$OWNER_STATE_PHASE" != active ]; then
+        return 0
+    fi
+    [ "$OWNER_STATE_SCHEMA_VERSION" = "$OWNER_STATE_VERSION" ] || return 1
+    read_install_generation_meta && [ "$OWNER_STATE_INSTALL_GENERATION" = "$INSTALL_META_GENERATION" ] &&
+        [ "$OWNER_STATE_INSTALL_ARCHIVE_SHA256" = "$INSTALL_META_ARCHIVE_SHA256" ] || return 1
+    read_iptables_status || return 1
+    [ "$STATUS_FILE_STATUS" = ok ] && [ "$STATUS_FILE_QNUM" = "$OWNER_STATE_QNUM" ] || return 1
+    [ "$STATUS_FILE_RULESET_VERIFIED" = 1 ] && [ "$STATUS_FILE_OWNER_METADATA_VERIFIED" = 1 ] || return 1
+    [ "$STATUS_FILE_IPV4_ACTIVE" = 1 ] || return 1
+    case "$STATUS_FILE_IPV6_ACTIVE" in 0|1) ;; *) return 1 ;; esac
+    expected_rules=$((OWNER_STATE_IPV4_RULES + OWNER_STATE_IPV6_RULES))
+    [ "$STATUS_FILE_RULES_TOTAL" = "$expected_rules" ] || return 1
+    [ "$STATUS_FILE_RULES_EXPECTED" = "$expected_rules" ] || return 1
+    command -v iptables >/dev/null 2>&1 || return 1
+    command -v cmp >/dev/null 2>&1 || return 1
+    owner_family_generation_healthy iptables ipv4 || return 1
+    if [ "$STATUS_FILE_IPV6_ACTIVE" = 1 ]; then
+        command -v ip6tables >/dev/null 2>&1 || return 1
+        owner_family_generation_healthy ip6tables ipv6 || return 1
+    elif command -v ip6tables >/dev/null 2>&1; then
+        owned_family_absent ip6tables || return 1
+    fi
+    HEALTH_PID="$VERIFIED_PID"; HEALTH_PID_START="$VERIFIED_PID_START"
+    HEALTH_GENERATION="$OWNER_STATE_GENERATION"; HEALTH_IPV6="$STATUS_FILE_IPV6_ACTIVE"
+    HEALTH_RULES="$expected_rules"
+    PRIOR_GENERATION="$OWNER_STATE_GENERATION"
+    PRIOR_IPV6="$STATUS_FILE_IPV6_ACTIVE"
+    PRIOR_QNUM="$OWNER_STATE_QNUM"
+    PRIOR_ARGV_HEX="$OWNER_STATE_ARGV_HEX"
+    cp "$OWNER_STATE" "$PRIOR_OWNER_FILE" 2>/dev/null || return 1
+    chmod 0600 "$PRIOR_OWNER_FILE" 2>/dev/null || { rm -f "$PRIOR_OWNER_FILE"; return 1; }
+    state_path_is_managed_file "$PRIOR_ARGV_FILE" || return 1
+    state_path_is_managed_file "$tmp" || return 1
+    [ ! -e "$tmp" ] && [ ! -L "$tmp" ] || return 1
+    umask 077
+    tr '\000' '\n' < "/proc/$HEALTH_PID/cmdline" > "$tmp" 2>/dev/null || { rm -f "$tmp"; return 1; }
+    IFS= read -r first < "$tmp" || { rm -f "$tmp"; return 1; }
+    [ "$first" = "$NFQWS2" ] || { rm -f "$tmp"; return 1; }
+    size="$(wc -c < "$tmp" 2>/dev/null)" || { rm -f "$tmp"; return 1; }
+    is_decimal "$size" && [ "$size" -gt 0 ] && [ "$size" -le "$RUNTIME_METADATA_MAX_BYTES" ] || { rm -f "$tmp"; return 1; }
+    chmod 0600 "$tmp" 2>/dev/null || { rm -f "$tmp"; return 1; }
+    mv -f "$tmp" "$PRIOR_ARGV_FILE" || { rm -f "$tmp"; return 1; }
+    rules_tmp="$PRIOR_RULES_V4.tmp.$$"
+    [ ! -e "$rules_tmp" ] && [ ! -L "$rules_tmp" ] || { discard_prior_snapshot; return 1; }
+    { iptables -t mangle -S "$ZAPRET2_OUT"; iptables -t mangle -S "$ZAPRET2_IN"; } > "$rules_tmp" 2>/dev/null || { rm -f "$rules_tmp"; discard_prior_snapshot; return 1; }
+    chmod 0600 "$rules_tmp" 2>/dev/null && mv -f "$rules_tmp" "$PRIOR_RULES_V4" || { rm -f "$rules_tmp"; discard_prior_snapshot; return 1; }
+    if [ "$PRIOR_IPV6" = 1 ]; then
+        rules_tmp="$PRIOR_RULES_V6.tmp.$$"
+        [ ! -e "$rules_tmp" ] && [ ! -L "$rules_tmp" ] || { discard_prior_snapshot; return 1; }
+        { ip6tables -t mangle -S "$ZAPRET2_OUT"; ip6tables -t mangle -S "$ZAPRET2_IN"; } > "$rules_tmp" 2>/dev/null || { rm -f "$rules_tmp"; discard_prior_snapshot; return 1; }
+        chmod 0600 "$rules_tmp" 2>/dev/null && mv -f "$rules_tmp" "$PRIOR_RULES_V6" || { rm -f "$rules_tmp"; discard_prior_snapshot; return 1; }
+    fi
+    PRIOR_HEALTHY=1
+}
+
+restore_family_snapshot() {
+    local tool="$1" file="$2" line chain spec
+    [ -f "$file" ] && [ ! -L "$file" ] || return 1
+    "$tool" -t mangle -N "$ZAPRET2_OUT" 2>/dev/null || return 1
+    "$tool" -t mangle -N "$ZAPRET2_IN" 2>/dev/null || { destroy_owned_chain "$tool" "$ZAPRET2_OUT" >/dev/null 2>&1; return 1; }
+    while IFS= read -r line || [ -n "$line" ]; do
+        case "$line" in
+            "-N $ZAPRET2_OUT"|"-N $ZAPRET2_IN") continue ;;
+            "-A $ZAPRET2_OUT "*) chain="$ZAPRET2_OUT"; spec="${line#"-A $ZAPRET2_OUT "}" ;;
+            "-A $ZAPRET2_IN "*) chain="$ZAPRET2_IN"; spec="${line#"-A $ZAPRET2_IN "}" ;;
+            *) return 1 ;;
+        esac
+        set -- $spec
+        "$tool" -t mangle -A "$chain" "$@" 2>/dev/null || return 1
+        "$tool" -t mangle -C "$chain" "$@" 2>/dev/null || return 1
+    done < "$file"
+    commit_family "$tool" || return 1
+    [ "$(exact_anchor_count "$tool" OUTPUT "$ZAPRET2_OUT")" = 1 ] || return 1
+    [ "$(exact_anchor_count "$tool" INPUT "$ZAPRET2_IN")" = 1 ] || return 1
+    [ "$(owned_chain_reference_count "$tool" "$ZAPRET2_OUT")" = 1 ] || return 1
+    [ "$(owned_chain_reference_count "$tool" "$ZAPRET2_IN")" = 1 ] || return 1
+    verify_family_snapshot_exact "$tool" "$file"
+}
+
+verify_family_snapshot_exact() {
+    local tool="$1" expected="$2" actual="$expected.verify.$$" rc=0
+    state_path_is_managed_file "$actual" || return 1
+    [ ! -e "$actual" ] && [ ! -L "$actual" ] || return 1
+    { "$tool" -t mangle -S "$ZAPRET2_OUT"; "$tool" -t mangle -S "$ZAPRET2_IN"; } > "$actual" 2>/dev/null || {
+        rm -f "$actual"
+        return 1
+    }
+    chmod 0600 "$actual" 2>/dev/null || rc=1
+    [ "$rc" -ne 0 ] || cmp -s "$expected" "$actual" 2>/dev/null || rc=1
+    rm -f "$actual" 2>/dev/null || rc=1
+    return "$rc"
+}
+
+restore_prior_healthy_generation() {
+    local line first=1 candidate="" start="" n=0 restored_argv live_owner
+    [ "$PRIOR_HEALTHY" = 1 ] && [ "$PRIOR_TORN_DOWN" = 1 ] || return 1
+    [ -f "$PRIOR_ARGV_FILE" ] && [ ! -L "$PRIOR_ARGV_FILE" ] || return 1
+    set --
+    while IFS= read -r line || [ -n "$line" ]; do
+        if [ "$first" = 1 ]; then
+            [ "$line" = "$NFQWS2" ] || return 1
+            set -- "$line"
+            first=0
+        else
+            [ -n "$line" ] || return 1
+            set -- "$@" "$line"
+        fi
+    done < "$PRIOR_ARGV_FILE"
+    [ "$#" -gt 1 ] || return 1
+    cleanup_owned_firewall >/dev/null 2>&1 || return 1
+    stop_all_exact_owned_nfqws >/dev/null 2>&1 || return 1
+    scan_exact_owned_nfqws >/dev/null 2>&1
+    [ -z "$OWNED_SCAN_PIDS" ] || return 1
+    retire_owner_metadata >/dev/null 2>&1 || return 1
+    QNUM="$PRIOR_QNUM"
+    "$@" >/dev/null 2>&1 &
+    LAUNCHED_PID=$!
+    while [ "$n" -lt 10 ]; do
+        candidate="$LAUNCHED_PID"
+        if read_live_pidfile; then candidate="$LIVE_PIDFILE_PID"; fi
+        start="$(proc_starttime "$candidate" 2>/dev/null)" || start=""
+        if [ -n "$start" ] && verify_nfqws_pid "$candidate" "$start" "" "$QNUM"; then
+            restored_argv="$(proc_cmdline_hex "$candidate" 2>/dev/null)" || restored_argv=""
+            [ -n "$restored_argv" ] && [ "$restored_argv" = "$PRIOR_ARGV_HEX" ] || return 1
+            LAUNCHED_PID="$candidate"
+            LAUNCHED_PID_START="$start"
+            LAUNCHED_ARGV_HEX="$restored_argv"
+            write_numeric_pidfile "$candidate" || return 1
+            live_owner="$OWNER_STATE"; OWNER_STATE="$PRIOR_OWNER_FILE"
+            read_owner_state || { OWNER_STATE="$live_owner"; return 1; }
+            OWNER_STATE="$live_owner"; owner_loaded_generation_for_write || return 1
+            write_owner_state "$candidate" "$start" "$restored_argv" "$QNUM" "$PRIOR_GENERATION" active || return 1
+            restore_family_snapshot iptables "$PRIOR_RULES_V4" || return 1
+            if [ "$PRIOR_IPV6" = 1 ]; then
+                restore_family_snapshot ip6tables "$PRIOR_RULES_V6" || return 1
             fi
-
+            read_verified_pidfile || return 1
+            [ "$VERIFIED_PID" = "$candidate" ] && [ "$VERIFIED_PID_START" = "$start" ] || return 1
+            [ "$OWNER_STATE_QNUM" = "$PRIOR_QNUM" ] && [ "$OWNER_STATE_ARGV_HEX" = "$PRIOR_ARGV_HEX" ] || return 1
+            verify_family_snapshot_exact iptables "$PRIOR_RULES_V4" || return 1
+            [ "$PRIOR_IPV6" != 1 ] || verify_family_snapshot_exact ip6tables "$PRIOR_RULES_V6" || return 1
+            HEALTH_PID="$VERIFIED_PID"; HEALTH_PID_START="$VERIFIED_PID_START"
+            HEALTH_GENERATION="$PRIOR_GENERATION"; HEALTH_IPV6="$PRIOR_IPV6"
+            HEALTH_RULES=$((6 + 6 * PRIOR_IPV6))
+            PRIOR_TORN_DOWN=0
+            NEW_PID_PUBLISHED=0
+            LAUNCHED_PID=""
             return 0
-        else
-            # Stale PID file, remove it
-            rm -f "$PIDFILE"
-            log_msg "Removed stale PID file"
         fi
-    fi
-    return 1
-}
-
-# Kill any orphan/stale nfqws/nfqws2 processes from previous runs
-kill_stale_nfqws() {
-    local pids
-    pids=$(pgrep -f 'nfqws' 2>/dev/null)
-    if [ -n "$pids" ]; then
-        log_msg "Killing stale nfqws processes: $pids"
-        kill $pids 2>/dev/null
-        sleep 0.1
-        # Force kill survivors
-        for p in $pids; do
-            if [ -d "/proc/$p" ]; then
-                kill -9 $p 2>/dev/null
-                log_msg "Force-killed stale process: $p"
-            fi
-        done
-    fi
-    rm -f "$PIDFILE"
-}
-
-# Verify nfqws2 binary exists and is executable
-check_binary() {
-    log_msg "Checking nfqws2 binary..."
-
-    if [ ! -f "$NFQWS2" ]; then
-        log_error "nfqws2 binary not found at $NFQWS2"
-        echo "ERROR: nfqws2 binary not found!"
-        echo "DIAGNOSTIC: nfqws2 binary not found at $NFQWS2"
-        echo "DIAGNOSTIC: Please reinstall the module or download nfqws2 from GitHub releases"
-        return 1
-    fi
-
-    if [ ! -x "$NFQWS2" ]; then
-        chmod 755 "$NFQWS2"
-        log_msg "Made nfqws2 executable"
-    fi
-
-    # In fast restart mode we skip expensive self-check probing.
-    if [ "$FAST_RESTART" = "1" ]; then
-        log_msg "Fast restart mode: skipping binary --help probe"
-        return 0
-    fi
-
-    # Verify binary responds
-    local help_out=$($NFQWS2 --help 2>&1 | head -1)
-    if [ -z "$help_out" ]; then
-        log_error "nfqws2 binary does not respond to --help"
-        echo "DIAGNOSTIC: nfqws2 binary does not respond to --help"
-        echo "DIAGNOSTIC: Binary may be corrupted or incompatible with this device architecture"
-        echo "DIAGNOSTIC: Try reinstalling the module"
-        return 1
-    else
-        log_msg "nfqws2 binary OK: $help_out"
-    fi
-
-    return 0
-}
-
-##########################################################################################
-# PERMISSION FIXING
-##########################################################################################
-
-# Refresh permissions for files that can change between updates/restarts.
-refresh_dynamic_file_permissions() {
-    # Parent directories must be traversable by dropped uid.
-    chmod 755 /data 2>/dev/null
-    chmod 755 /data/adb 2>/dev/null
-    chmod 755 /data/adb/modules 2>/dev/null
-    chmod 755 "$MODDIR" 2>/dev/null
-    chmod 755 "$ZAPRET_DIR" 2>/dev/null
-
-    # Subdirectories that must stay traversable/readable
-    chmod 755 "$ZAPRET_DIR/lua" 2>/dev/null
-    chmod 755 "$ZAPRET_DIR/bin" 2>/dev/null
-    chmod 755 "$LISTS_DIR" 2>/dev/null
-    chmod 755 "$PRESETS_DIR" 2>/dev/null
-    chmod 755 "$ZAPRET_DIR/scripts" 2>/dev/null
-
-    # Binary needs execute
-    chmod 755 "$NFQWS2" 2>/dev/null
-
-    # Lua files - READ for all
-    chmod 644 "$ZAPRET_DIR/lua/"*.lua 2>/dev/null
-    chmod 644 "$ZAPRET_DIR/lua/"*.lua.gz 2>/dev/null
-
-    # Blob files - READ for all
-    chmod 644 "$ZAPRET_DIR/bin/"*.bin 2>/dev/null
-
-    # Hostlist/ipset files - READ for all
-    chmod 644 "$LISTS_DIR/"*.txt 2>/dev/null
-
-    # Preset files - READ for all
-    chmod 644 "$PRESETS_DIR/"*.txt 2>/dev/null
-
-    # Keep SELinux labels aligned for module files
-    chcon -R u:object_r:system_file:s0 "$MODDIR" 2>/dev/null
-}
-
-# Fix permissions for non-root access after privilege drop
-# nfqws2 drops to uid 1:3003 after start, needs +x on all directories
-fix_permissions() {
-    # Fast path: permissions were already initialized earlier.
-    if [ "$FAST_RESTART" = "1" ] && [ -f "$PERM_STAMP_FILE" ]; then
-        chmod 755 "$NFQWS2" 2>/dev/null
-        refresh_dynamic_file_permissions
-        log_msg "Fast restart mode: skipped heavy pass, refreshed dynamic file permissions"
-        return
-    fi
-
-    if [ -f "$PERM_STAMP_FILE" ] && [ "${FORCE_PERM_FIX:-0}" != "1" ]; then
-        chmod 755 "$NFQWS2" 2>/dev/null
-        refresh_dynamic_file_permissions
-        log_msg "Permissions already initialized, refreshed dynamic file permissions"
-        return
-    fi
-
-    log_msg "Fixing permissions for non-root access..."
-
-    # Parent directories need +x for traversal by uid 1
-    chmod 755 /data 2>/dev/null
-    chmod 755 /data/adb 2>/dev/null
-    chmod 755 /data/adb/modules 2>/dev/null
-    chmod 755 "$MODDIR" 2>/dev/null
-    chmod 755 "$ZAPRET_DIR" 2>/dev/null
-
-    # Subdirectories
-    chmod 755 "$ZAPRET_DIR/lua" 2>/dev/null
-    chmod 755 "$ZAPRET_DIR/bin" 2>/dev/null
-    chmod 755 "$LISTS_DIR" 2>/dev/null
-    chmod 755 "$PRESETS_DIR" 2>/dev/null
-    chmod 755 "$ZAPRET_DIR/scripts" 2>/dev/null
-
-    # Lua files - READ for all (fopen "rb")
-    chmod 644 "$ZAPRET_DIR/lua/"*.lua 2>/dev/null
-    chmod 644 "$ZAPRET_DIR/lua/"*.lua.gz 2>/dev/null
-
-    # Blob files - READ for all
-    chmod 644 "$ZAPRET_DIR/bin/"*.bin 2>/dev/null
-
-    # Hostlist/ipset files - READ for all
-    chmod 644 "$LISTS_DIR/"*.txt 2>/dev/null
-
-    # Preset files - READ for all
-    chmod 644 "$PRESETS_DIR/"*.txt 2>/dev/null
-
-    # Auto-hostlist - WRITE permission (if used)
-    touch "$LISTS_DIR/autohostlist.txt" 2>/dev/null
-    chmod 666 "$LISTS_DIR/autohostlist.txt" 2>/dev/null
-
-    # Binary needs execute
-    chmod 755 "$NFQWS2" 2>/dev/null
-
-    # Fix SELinux context (critical for Android!)
-    chcon -R u:object_r:system_file:s0 "$MODDIR" 2>/dev/null
-
-    echo "$(date '+%Y-%m-%d %H:%M:%S')" > "$PERM_STAMP_FILE" 2>/dev/null
-
-    log_msg "Permissions and SELinux context fixed"
-}
-
-##########################################################################################
-# IPTABLES RULES
-##########################################################################################
-
-# Apply iptables rules for traffic interception
-apply_iptables() {
-    log_section "Applying iptables rules"
-
-    # Clean up ALL NFQUEUE rules before adding fresh rules
-    local stale_removed
-    stale_removed=$(remove_all_nfqueue_rules)
-    if [ -n "$stale_removed" ] && [ "$stale_removed" -gt 0 ] 2>/dev/null; then
-        log_msg "Removed stale NFQUEUE rules: $stale_removed"
-    fi
-
-    sysctl -w net.netfilter.nf_conntrack_tcp_be_liberal=1 2>/dev/null
-
-    # ===== PROBE KERNEL CAPABILITIES =====
-    local cap_nfqueue=1 cap_queue_bypass=1 cap_connbytes=1 cap_multiport=1 cap_mark=1
-    local diag_parts=""
-
-    # Probe 1: NFQUEUE with --queue-bypass
-    if iptables -t mangle -A OUTPUT -p tcp --dport 1 -j NFQUEUE --queue-num 65534 --queue-bypass 2>/dev/null; then
-        iptables -t mangle -D OUTPUT -p tcp --dport 1 -j NFQUEUE --queue-num 65534 --queue-bypass 2>/dev/null
-    else
-        # Try NFQUEUE without --queue-bypass
-        if iptables -t mangle -A OUTPUT -p tcp --dport 1 -j NFQUEUE --queue-num 65534 2>/dev/null; then
-            iptables -t mangle -D OUTPUT -p tcp --dport 1 -j NFQUEUE --queue-num 65534 2>/dev/null
-            cap_queue_bypass=0
-            diag_parts="${diag_parts}queue-bypass: no; "
-            log_msg "queue-bypass not supported, using NFQUEUE without it"
-        else
-            cap_nfqueue=0
-            diag_parts="${diag_parts}NFQUEUE: no; "
-            log_error "Kernel does not support NFQUEUE target"
-        fi
-    fi
-
-    # Probe 2: connbytes
-    if [ "$cap_nfqueue" = "1" ]; then
-        if iptables -t mangle -A OUTPUT -p tcp --dport 1 -m connbytes --connbytes 1:1 --connbytes-dir=original --connbytes-mode=packets -j ACCEPT 2>/dev/null; then
-            iptables -t mangle -D OUTPUT -p tcp --dport 1 -m connbytes --connbytes 1:1 --connbytes-dir=original --connbytes-mode=packets -j ACCEPT 2>/dev/null
-        else
-            cap_connbytes=0
-            diag_parts="${diag_parts}connbytes: no; "
-            log_msg "connbytes not supported, applying rules without packet limit"
-        fi
-    fi
-
-    # Probe 3: multiport
-    if [ "$cap_nfqueue" = "1" ]; then
-        if iptables -t mangle -A OUTPUT -p tcp -m multiport --dports 80,443 -j ACCEPT 2>/dev/null; then
-            iptables -t mangle -D OUTPUT -p tcp -m multiport --dports 80,443 -j ACCEPT 2>/dev/null
-        else
-            cap_multiport=0
-            diag_parts="${diag_parts}multiport: no; "
-            log_msg "multiport not supported, using individual port rules"
-        fi
-    fi
-
-    # Probe 4: mark match
-    if [ "$cap_nfqueue" = "1" ]; then
-        if iptables -t mangle -A OUTPUT -p tcp --dport 1 -m mark --mark 0x40000000/0x40000000 -j ACCEPT 2>/dev/null; then
-            iptables -t mangle -D OUTPUT -p tcp --dport 1 -m mark --mark 0x40000000/0x40000000 -j ACCEPT 2>/dev/null
-        else
-            cap_mark=0
-            diag_parts="${diag_parts}mark: no; "
-            log_msg "mark match not supported, applying rules without desync mark filter"
-        fi
-    fi
-
-    # ===== BUILD AND APPLY RULES =====
-    local rules_ok=0 rules_fail=0 fail_details="" fallback_mode=0
-
-    if [ "$cap_nfqueue" = "0" ]; then
-        rules_fail=8
-        fail_details="NFQUEUE not supported by kernel"
-    else
-        # Set fallback flag if any capability is missing
-        [ "$cap_connbytes" = "0" ] || [ "$cap_multiport" = "0" ] || [ "$cap_mark" = "0" ] || [ "$cap_queue_bypass" = "0" ] && fallback_mode=1
-
-        # Build NFQUEUE target string
-        local nfq_target="-j NFQUEUE --queue-num $QNUM"
-        [ "$cap_queue_bypass" = "1" ] && nfq_target="$nfq_target --queue-bypass"
-
-        local mode_tag=""
-        [ "$fallback_mode" = "1" ] && mode_tag=" [fallback]"
-
-        for ipt in iptables ip6tables; do
-            local label="IPv4"
-            [ "$ipt" = "ip6tables" ] && label="IPv6"
-
-            # Check binary exists
-            if ! command -v $ipt >/dev/null 2>&1; then
-                log_msg "$label: binary not found, skipping"
-                continue
-            fi
-
-            # Check mangle table works
-            if ! $ipt -t mangle -L OUTPUT -n >/dev/null 2>&1; then
-                log_msg "$label mangle table not supported, skipping"
-                continue
-            fi
-
-            # Build port lists: with multiport = single entry "80,443", without = separate "80" "443"
-            local tcp_out_ports udp_out_ports tcp_in_ports udp_in_ports
-            if [ "$cap_multiport" = "1" ]; then
-                tcp_out_ports="$PORTS_TCP"
-                udp_out_ports="$PORTS_UDP"
-                tcp_in_ports="$PORTS_TCP"
-                udp_in_ports="$PORTS_UDP"
-            else
-                tcp_out_ports=$(echo "$PORTS_TCP" | tr ',' ' ')
-                udp_out_ports=$(echo "$PORTS_UDP" | tr ',' ' ')
-                tcp_in_ports=$(echo "$PORTS_TCP" | tr ',' ' ')
-                udp_in_ports=$(echo "$PORTS_UDP" | tr ',' ' ')
-            fi
-
-            # --- OUTPUT TCP ---
-            for ports in $tcp_out_ports; do
-                local pmatch
-                [ "$cap_multiport" = "1" ] && pmatch="-m multiport --dports $ports" || pmatch="--dport $ports"
-                local extra=""
-                [ "$cap_connbytes" = "1" ] && extra="$extra -m connbytes --connbytes 1:$PKT_OUT --connbytes-dir=original --connbytes-mode=packets"
-                [ "$cap_mark" = "1" ] && extra="$extra -m mark ! --mark $DESYNC_MARK/$DESYNC_MARK"
-
-                if $ipt -t mangle -A OUTPUT -p tcp $pmatch $extra $nfq_target 2>/dev/null; then
-                    log_msg "Added $label TCP OUTPUT (ports: $ports)$mode_tag"
-                    rules_ok=$((rules_ok + 1))
-                else
-                    log_error "Failed to add $label TCP OUTPUT (ports: $ports)"
-                    fail_details="${fail_details}${label} TCP OUT($ports): failed\n"
-                    rules_fail=$((rules_fail + 1))
-                fi
-            done
-
-            # --- OUTPUT UDP (port-based) ---
-            for ports in $udp_out_ports; do
-                local pmatch
-                [ "$cap_multiport" = "1" ] && pmatch="-m multiport --dports $ports" || pmatch="--dport $ports"
-                local extra=""
-                [ "$cap_connbytes" = "1" ] && extra="$extra -m connbytes --connbytes 1:$PKT_OUT --connbytes-dir=original --connbytes-mode=packets"
-                [ "$cap_mark" = "1" ] && extra="$extra -m mark ! --mark $DESYNC_MARK/$DESYNC_MARK"
-
-                if $ipt -t mangle -A OUTPUT -p udp $pmatch $extra $nfq_target 2>/dev/null; then
-                    log_msg "Added $label UDP OUTPUT (ports: $ports)$mode_tag"
-                    rules_ok=$((rules_ok + 1))
-                else
-                    log_error "Failed to add $label UDP OUTPUT (ports: $ports)"
-                    fail_details="${fail_details}${label} UDP OUT($ports): failed\n"
-                    rules_fail=$((rules_fail + 1))
-                fi
-            done
-
-            # --- OUTPUT UDP (STUN ports for L7 detection) ---
-            # Standard STUN/TURN ports not covered by PORTS_UDP
-            # nfqws2 further filters by --payload=stun
-            local stun_ports="3478,5349,19302"
-            local stun_extra=""
-            if [ "$cap_multiport" = "1" ]; then
-                stun_extra="-m multiport --dports $stun_ports"
-            else
-                stun_extra="--dport 3478"
-            fi
-            local stun_cb=""
-            [ "$cap_connbytes" = "1" ] && stun_cb=" -m connbytes --connbytes 1:$PKT_OUT --connbytes-dir=original --connbytes-mode=packets"
-            [ "$cap_mark" = "1" ] && stun_cb="$stun_cb -m mark ! --mark $DESYNC_MARK/$DESYNC_MARK"
-
-            if $ipt -t mangle -A OUTPUT -p udp $stun_extra $stun_cb $nfq_target 2>/dev/null; then
-                log_msg "Added $label UDP OUTPUT (STUN ports: $stun_ports)$mode_tag"
-                rules_ok=$((rules_ok + 1))
-            else
-                log_error "Failed to add $label UDP OUTPUT (STUN ports)"
-                fail_details="${fail_details}${label} UDP OUT(STUN): failed\n"
-                rules_fail=$((rules_fail + 1))
-            fi
-
-            # --- INPUT TCP ---
-            for ports in $tcp_in_ports; do
-                local pmatch
-                [ "$cap_multiport" = "1" ] && pmatch="-m multiport --sports $ports" || pmatch="--sport $ports"
-                local extra=""
-                [ "$cap_connbytes" = "1" ] && extra="$extra -m connbytes --connbytes 1:$PKT_IN --connbytes-dir=reply --connbytes-mode=packets"
-
-                if $ipt -t mangle -A INPUT -p tcp $pmatch $extra $nfq_target 2>/dev/null; then
-                    log_msg "Added $label TCP INPUT (ports: $ports)$mode_tag"
-                    rules_ok=$((rules_ok + 1))
-                else
-                    log_error "Failed to add $label TCP INPUT (ports: $ports)"
-                    fail_details="${fail_details}${label} TCP IN($ports): failed\n"
-                    rules_fail=$((rules_fail + 1))
-                fi
-            done
-
-            # --- INPUT UDP (port-based) ---
-            for ports in $udp_in_ports; do
-                local pmatch
-                [ "$cap_multiport" = "1" ] && pmatch="-m multiport --sports $ports" || pmatch="--sport $ports"
-                local extra=""
-                [ "$cap_connbytes" = "1" ] && extra="$extra -m connbytes --connbytes 1:$PKT_IN --connbytes-dir=reply --connbytes-mode=packets"
-
-                if $ipt -t mangle -A INPUT -p udp $pmatch $extra $nfq_target 2>/dev/null; then
-                    log_msg "Added $label UDP INPUT (ports: $ports)$mode_tag"
-                    rules_ok=$((rules_ok + 1))
-                else
-                    log_error "Failed to add $label UDP INPUT (ports: $ports)"
-                    fail_details="${fail_details}${label} UDP IN($ports): failed\n"
-                    rules_fail=$((rules_fail + 1))
-                fi
-            done
-
-            # --- INPUT UDP (STUN ports for L7 detection) ---
-            local stun_in_pmatch=""
-            if [ "$cap_multiport" = "1" ]; then
-                stun_in_pmatch="-m multiport --sports $stun_ports"
-            else
-                stun_in_pmatch="--sport 3478"
-            fi
-            local stun_in_cb=""
-            [ "$cap_connbytes" = "1" ] && stun_in_cb=" -m connbytes --connbytes 1:$PKT_IN --connbytes-dir=reply --connbytes-mode=packets"
-
-            if $ipt -t mangle -A INPUT -p udp $stun_in_pmatch $stun_in_cb $nfq_target 2>/dev/null; then
-                log_msg "Added $label UDP INPUT (STUN ports: $stun_ports)$mode_tag"
-                rules_ok=$((rules_ok + 1))
-            else
-                log_error "Failed to add $label UDP INPUT (STUN ports)"
-                fail_details="${fail_details}${label} UDP IN(STUN): failed\n"
-                rules_fail=$((rules_fail + 1))
-            fi
-        done
-    fi
-
-    # ===== WRITE STATUS FILE =====
-    local status_file="$ZAPRET_DIR/iptables-status"
-    {
-        echo "timestamp=$(date '+%Y-%m-%d %H:%M:%S')"
-        echo "rules_ok=$rules_ok"
-        echo "rules_fail=$rules_fail"
-        echo "rules_total=$((rules_ok + rules_fail))"
-        echo "nfqueue_supported=$cap_nfqueue"
-        echo "queue_bypass_supported=$cap_queue_bypass"
-        echo "connbytes_supported=$cap_connbytes"
-        echo "multiport_supported=$cap_multiport"
-        echo "mark_supported=$cap_mark"
-        echo "fallback_mode=$fallback_mode"
-        echo "diagnostics=${diag_parts%%; }"
-        if [ "$rules_fail" -gt 0 ]; then
-            echo "status=partial"
-            echo "errors=$(printf '%s' "$fail_details" | tr '\n' '|' | sed 's/|$//')"
-        else
-            echo "status=ok"
-            echo "errors="
-        fi
-    } > "$status_file" 2>/dev/null
-    chmod 644 "$status_file" 2>/dev/null
-
-    # ===== LOG SUMMARY =====
-    if [ "$cap_nfqueue" = "0" ]; then
-        log_error "NFQUEUE not supported. DPI bypass cannot work on this device."
-    elif [ "$rules_fail" -gt 0 ] && [ "$rules_ok" -eq 0 ]; then
-        log_error "ALL iptables rules failed ($rules_fail failures). nfqws2 will not receive traffic!"
-    elif [ "$rules_fail" -gt 0 ]; then
-        log_msg "iptables rules PARTIALLY applied ($rules_ok ok, $rules_fail failed)"
-    elif [ "$fallback_mode" = "1" ]; then
-        log_msg "iptables rules applied in FALLBACK mode ($rules_ok rules)"
-    else
-        log_msg "iptables rules applied successfully ($rules_ok rules)"
-    fi
-}
-
-##########################################################################################
-# PRE-FLIGHT DIAGNOSTICS
-##########################################################################################
-
-# Run advisory diagnostics before starting nfqws2.
-# All checks are non-blocking: failures are reported but startup continues.
-preflight_check() {
-    log_msg "Running pre-flight diagnostics..."
-
-    # a) Check core Lua files exist and are readable
-    for lua_name in zapret-lib.lua zapret-antidpi.lua zapret-auto.lua; do
-        local lua_path="$ZAPRET_DIR/lua/$lua_name"
-        if [ ! -f "$lua_path" ]; then
-            local msg="DIAGNOSTIC: Missing Lua file: $lua_name. Reinstall the module."
-            echo "$msg"
-            log_error "$msg"
-        elif [ ! -r "$lua_path" ]; then
-            local msg="DIAGNOSTIC: Lua file not readable: $lua_name. Check permissions."
-            echo "$msg"
-            log_error "$msg"
-        fi
+        n=$((n + 1)); sleep 1
     done
-
-    # b) nfqws2 Lua compatibility version check
-    local lib_lua="$ZAPRET_DIR/lua/zapret-lib.lua"
-    if [ -f "$lib_lua" ] && [ -f "$NFQWS2" ] && [ -x "$NFQWS2" ]; then
-        # Extract required version: pure shell, no grep -o (busybox compat)
-        local required_ver=""
-        local req_line=$(grep 'NFQWS2_COMPAT_VER_REQUIRED' "$lib_lua" 2>/dev/null | head -1)
-        case "$req_line" in
-            *=*)
-                required_ver="${req_line##*=}"
-                required_ver="${required_ver%%[!0-9]*}"
-                ;;
-        esac
-
-        if [ -n "$required_ver" ]; then
-            # Extract binary compat version: pure shell, no grep -o (busybox compat)
-            local binary_ver=""
-            local raw_ver=$($NFQWS2 --version 2>&1 | head -1)
-            case "$raw_ver" in
-                *lua_compat_ver*)
-                    binary_ver="${raw_ver##*lua_compat_ver}"
-                    binary_ver="${binary_ver%%[!0-9]*}"
-                    ;;
-            esac
-            # Fallback: try --help
-            if [ -z "$binary_ver" ]; then
-                raw_ver=$($NFQWS2 --help 2>&1 | head -1)
-                case "$raw_ver" in
-                    *lua_compat_ver*)
-                        binary_ver="${raw_ver##*lua_compat_ver}"
-                        binary_ver="${binary_ver%%[!0-9]*}"
-                        ;;
-                esac
-            fi
-
-            if [ -n "$binary_ver" ]; then
-                if [ "$binary_ver" != "$required_ver" ]; then
-                    local msg="DIAGNOSTIC: Version mismatch. nfqws2 binary lua_compat_ver=$binary_ver, scripts require $required_ver. Update nfqws2 and Lua scripts from the same zapret release."
-                    echo "$msg"
-                    log_error "$msg"
-                else
-                    log_msg "Lua compat version OK: $binary_ver"
-                fi
-            else
-                log_msg "Could not determine nfqws2 Lua compat version, skipping check"
-            fi
-        fi
-    fi
-
-    # c) Check strategy INI files
-    if [ ! -f "$TCP_STRATEGIES_INI" ]; then
-        local msg="DIAGNOSTIC: Missing strategies-tcp.ini"
-        echo "$msg"
-        log_error "$msg"
-    fi
-
-    log_msg "Pre-flight diagnostics complete"
-    return 0
-}
-
-##########################################################################################
-# NFQWS2 STARTUP
-##########################################################################################
-
-should_retry_without_uid_drop() {
-    [ -n "${NFQWS_UID:-}" ] || return 1
-    [ "${NFQWS_UID}" != "0:0" ] || return 1
-    [ -s "$ERROR_LOG" ] || return 1
-
-    if grep -q "file_open_test: Permission denied" "$ERROR_LOG" 2>/dev/null &&
-       grep -q "cannot access \(hostlist\|ipset\) file" "$ERROR_LOG" 2>/dev/null; then
-        return 0
-    fi
-
     return 1
 }
 
-# Start nfqws2 daemon
-start_nfqws2() {
-    log_section "Starting nfqws2"
+cleanup_probe_artifacts() {
+    local rc=0
+    if [ -n "$PROBE_TOOL" ] && command -v "$PROBE_TOOL" >/dev/null 2>&1; then
+        cleanup_probe_track "$PROBE_TOOL" >/dev/null 2>&1 || rc=1
+    fi
+    [ "$rc" -ne 0 ] || PROBE_MUTATED=0
+    return "$rc"
+}
 
-    local retried_without_uid=0
+firewall_is_clean_after_rollback() {
+    [ "${TEARDOWN_COMMIT_PROVEN:-0}" = 1 ] && return 0
+    command -v iptables >/dev/null 2>&1 || return 1
+    owned_family_absent iptables || return 1
+    if command -v ip6tables >/dev/null 2>&1; then owned_family_absent ip6tables || return 1; fi
+    if ! command -v ip6tables >/dev/null 2>&1 &&
+       { [ "${IPV6_BUILT:-0}" = 1 ] || [ "${IPV6_ACTIVE:-0}" = 1 ] || [ "${STATUS_FILE_IPV6_ACTIVE:-0}" = 1 ]; }; then
+        return 1
+    fi
+    return 0
+}
 
-    while true; do
-        # Build options
-        OPTS=$(build_options)
-        if [ $? -ne 0 ]; then
-            log_error "Failed to build options"
-            echo "DIAGNOSTIC: Failed to build nfqws2 command options"
-            echo "DIAGNOSTIC: Check strategy configuration and INI files"
+snapshot_owned_state() {
+    SNAP_PID=""; SNAP_PID_START=""; SNAP_GENERATION=""; SNAP_PID_VERIFIED=0
+    SNAP_IPV4=0; SNAP_IPV6=0; SNAP_RULES=0; SNAP_CHAINS=0; SNAP_ANCHORS=0
+    if read_verified_pidfile; then
+        SNAP_PID="$VERIFIED_PID"; SNAP_PID_START="$VERIFIED_PID_START"
+        SNAP_GENERATION="$OWNER_STATE_GENERATION"; SNAP_PID_VERIFIED=1
+    else
+        scan_exact_owned_nfqws >/dev/null 2>&1
+        SNAP_PID="$OWNED_SCAN_PIDS"
+    fi
+    if command -v iptables >/dev/null 2>&1 && owned_family_present iptables; then
+        SNAP_IPV4=1
+        SNAP_RULES=$((SNAP_RULES + $(count_family_rules iptables)))
+        owned_chain_exists iptables "$ZAPRET2_OUT" && SNAP_CHAINS=$((SNAP_CHAINS + 1))
+        owned_chain_exists iptables "$ZAPRET2_IN" && SNAP_CHAINS=$((SNAP_CHAINS + 1))
+        SNAP_ANCHORS=$((SNAP_ANCHORS + $(exact_anchor_count iptables OUTPUT "$ZAPRET2_OUT") + $(exact_anchor_count iptables INPUT "$ZAPRET2_IN")))
+    fi
+    if command -v ip6tables >/dev/null 2>&1 && owned_family_present ip6tables; then
+        SNAP_IPV6=1
+        SNAP_RULES=$((SNAP_RULES + $(count_family_rules ip6tables)))
+        owned_chain_exists ip6tables "$ZAPRET2_OUT" && SNAP_CHAINS=$((SNAP_CHAINS + 1))
+        owned_chain_exists ip6tables "$ZAPRET2_IN" && SNAP_CHAINS=$((SNAP_CHAINS + 1))
+        SNAP_ANCHORS=$((SNAP_ANCHORS + $(exact_anchor_count ip6tables OUTPUT "$ZAPRET2_OUT") + $(exact_anchor_count ip6tables INPUT "$ZAPRET2_IN")))
+    elif ! command -v ip6tables >/dev/null 2>&1 &&
+         { [ "${STATUS_FILE_IPV6_ACTIVE:-0}" = 1 ] || [ "${IPV6_BUILT:-0}" = 1 ] || [ "${IPV6_ACTIVE:-0}" = 1 ]; }; then
+        SNAP_IPV6=1
+        DIAGNOSTICS="${DIAGNOSTICS}IPv6 owned-state presence cannot be disproved because ip6tables is unavailable; "
+    fi
+}
+
+fail_start() {
+    local message="$1" rollback_ready=1
+    trap '' HUP INT TERM
+    if ! rollback_legacy_migration; then
+        rollback_ready=0
+        message="$message; exact legacy-rule rollback failed; existing daemon retained"
+    fi
+    log_error "$message"
+    if [ "$CONTROLLED_TEARDOWN_STARTED" = 0 ]; then
+        if [ "$PROBE_MUTATED" = 1 ]; then
+            cleanup_probe_artifacts >/dev/null 2>&1 || message="$message; disposable probe cleanup failed"
+        fi
+        discard_prior_snapshot
+        release_lifecycle_lock
+        trap - HUP INT TERM
+        echo "ERROR: $message"
+        exit 1
+    fi
+    if [ "$PROBE_MUTATED" = 1 ] || [ "$FIREWALL_MUTATED" = 1 ] || [ "$NEW_PID_PUBLISHED" = 1 ] || [ -n "$LAUNCHED_PID" ]; then
+        rollback_start || {
+            rollback_ready=0
+            message="$message; rollback incomplete: $ROLLBACK_ERRORS"
+        }
+    fi
+    if [ "$PRIOR_HEALTHY" = 1 ] && [ "$PRIOR_TORN_DOWN" = 1 ]; then
+        if [ "$rollback_ready" = 1 ] && restore_prior_healthy_generation; then
+            DIAGNOSTICS="${DIAGNOSTICS}replace failed; prior healthy generation restored; "
+            write_ok_status "$HEALTH_RULES" "$HEALTH_PID" "$HEALTH_IPV6" >/dev/null 2>&1 || true
+            discard_prior_snapshot
+            release_lifecycle_lock
+            trap - HUP INT TERM
+            echo "ERROR: $message; prior healthy service restored"
+            exit 1
+        fi
+        cleanup_owned_firewall >/dev/null 2>&1 || true
+        if ! stop_pidfile_process >/dev/null 2>&1; then
+            stop_failed_fallback_launch "$LAUNCHED_PID" >/dev/null 2>&1 || true
+        fi
+        retire_owner_metadata >/dev/null 2>&1 || true
+        message="$message; prior healthy service restoration failed"
+    fi
+    set_owner_phase error >/dev/null 2>&1 || true
+    snapshot_owned_state
+    restore_status_facts
+    STATUS_RULES_OK=0; STATUS_RULES_FAIL=1; STATUS_RULES_TOTAL="$SNAP_RULES"
+    STATUS_ERRORS="$message"; STATUS_OWN_PID="$SNAP_PID"; STATUS_PID_VERIFIED="$SNAP_PID_VERIFIED"; STATUS_QNUM="${QNUM:-${STATUS_QNUM:-}}"
+    STATUS_OWN_PID_STARTTIME="$SNAP_PID_START"; STATUS_OWNER_GENERATION="$SNAP_GENERATION"
+    STATUS_OWNER_METADATA_VERIFIED="$SNAP_PID_VERIFIED"; STATUS_RULESET_VERIFIED=0; STATUS_RULES_EXPECTED=0
+    STATUS_IPV4_ACTIVE="$SNAP_IPV4"; STATUS_IPV6_ACTIVE="$SNAP_IPV6"; STATUS_CHAINS="$SNAP_CHAINS"; STATUS_ANCHORS="$SNAP_ANCHORS"
+    STATUS_IPV4_RULES=0; STATUS_IPV6_RULES=0
+    [ -n "${IPV4_NFQUEUE:-}" ] && STATUS_NFQUEUE_SUPPORTED="$IPV4_NFQUEUE"
+    [ -n "${IPV4_QUEUE_BYPASS:-}" ] && STATUS_QUEUE_BYPASS_SUPPORTED="$IPV4_QUEUE_BYPASS"
+    [ -n "${IPV4_CONNBYTES:-}" ] && STATUS_CONNBYTES_SUPPORTED="$IPV4_CONNBYTES"
+    [ -n "${IPV4_MULTIPORT:-}" ] && STATUS_MULTIPORT_SUPPORTED="$IPV4_MULTIPORT"
+    [ -n "${IPV4_MARK:-}" ] && STATUS_MARK_SUPPORTED="$IPV4_MARK"
+    STATUS_FALLBACK_MODE=0
+    STATUS_DIAGNOSTICS="$DIAGNOSTICS"
+    write_iptables_status error >/dev/null 2>&1 || true
+    discard_prior_snapshot
+    release_lifecycle_lock
+    trap - HUP INT TERM
+    echo "ERROR: $message"
+    exit 1
+}
+
+handle_signal() {
+    local signal="$1"
+    fail_start "start interrupted by $signal"
+}
+
+probe_family() {
+    local tool="$1" result
+    PROBE_NFQUEUE=0; PROBE_QUEUE_BYPASS=0; PROBE_CONNBYTES=0; PROBE_MULTIPORT=0; PROBE_MARK=0
+    command -v "$tool" >/dev/null 2>&1 || return 2
+    "$tool" -t mangle -L OUTPUT -n >/dev/null 2>&1 || return 2
+    PROBE_MUTATED=1; PROBE_TOOL="$tool"
+    begin_probe_track "$tool" || return 1
+    BUILD_TRACK_TOOL="$tool"
+    if ! tracked_create_chain "$tool" "$ZAPRET2_PROBE"; then cleanup_probe_track "$tool" >/dev/null 2>&1; return 1; fi
+    PROBE_CHAIN_RECORD_ID="$BUILD_TRACK_RECORD_ID"
+
+    tracked_probe_append "$tool" queue_bypass; result=$?
+    if [ "$result" = 0 ]; then
+        PROBE_NFQUEUE=1; PROBE_QUEUE_BYPASS=1
+        consume_probe_rule "$tool" "$PROBE_RULE_RECORD_ID" queue_bypass "$QNUM" "$PKT_OUT" "$DESYNC_MARK" || return 1
+    elif [ "$result" = 2 ]; then
+        tracked_probe_append "$tool" queue; result=$?
+        if [ "$result" = 0 ]; then
+            PROBE_NFQUEUE=1
+            consume_probe_rule "$tool" "$PROBE_RULE_RECORD_ID" queue "$QNUM" "$PKT_OUT" "$DESYNC_MARK" || return 1
+        elif [ "$result" != 2 ]; then
             return 1
         fi
-
-        # Save full command line to file for WebUI access
-        echo "$NFQWS2 $OPTS" > "$CMDLINE_FILE"
-        log_msg "Command saved to: $CMDLINE_FILE"
-
-        # Log full command
-        log_section "FULL COMMAND LINE"
-        log_msg "$NFQWS2 $OPTS"
-        log_section "END COMMAND LINE"
-
-        # Clear previous logs
-        > "$STARTUP_LOG"
-        > "$ERROR_LOG"
-
-        # Start nfqws2 in background, capturing output
-        $NFQWS2 $OPTS >"$STARTUP_LOG" 2>"$ERROR_LOG" &
-        PID=$!
-
-        # Quick check - nfqws2 starts in milliseconds
-        sleep 0.2
-
-        # Parse and log startup output
-        if [ "$FAST_RESTART" != "1" ]; then
-            parse_startup_output
-        else
-            log_startup_stderr_errors
-        fi
-
-        # Check if process is running
-        if [ -d "/proc/$PID" ]; then
-            echo $PID > "$PIDFILE"
-            log_msg "nfqws2 started successfully (PID: $PID)"
-
-            # Count and display active strategies
-            local new_count=$(echo "$OPTS" | grep -o '\--new' | wc -l)
-            local strategy_count=$((new_count + 1))
-            log_msg "Active strategies: $strategy_count"
-
-            if [ "$retried_without_uid" -eq 1 ]; then
-                log_msg "nfqws2 started after switching to --uid=0:0 for this run"
-                log_msg "Tip: set NFQWS_UID=\"0:0\" in $CONFIG to avoid repeated fallback"
-            fi
-
-            echo "Zapret2 started (PID: $PID)"
-            echo "Strategies: $strategy_count"
-            echo "Config file: $CMDLINE_FILE"
-            return 0
-        fi
-
-        log_error "nfqws2 failed to start (PID $PID exited)"
-
-        if [ "$retried_without_uid" -eq 0 ] && should_retry_without_uid_drop; then
-            log_msg "Detected file access error after --uid drop. Retrying with --uid=0:0..."
-            NFQWS_UID="0:0"
-            retried_without_uid=1
-            continue
-        fi
-
-        show_error_details
-        echo "ERROR: Failed to start nfqws2"
-        echo "Check logs: $LOGFILE"
-        echo "Error log: $ERROR_LOG"
+    else
         return 1
+    fi
+    tracked_probe_append "$tool" connbytes; result=$?
+    if [ "$result" = 0 ]; then PROBE_CONNBYTES=1; consume_probe_rule "$tool" "$PROBE_RULE_RECORD_ID" connbytes "$QNUM" "$PKT_OUT" "$DESYNC_MARK" || return 1
+    elif [ "$result" != 2 ]; then return 1; fi
+    tracked_probe_append "$tool" multiport; result=$?
+    if [ "$result" = 0 ]; then PROBE_MULTIPORT=1; consume_probe_rule "$tool" "$PROBE_RULE_RECORD_ID" multiport "$QNUM" "$PKT_OUT" "$DESYNC_MARK" || return 1
+    elif [ "$result" != 2 ]; then return 1; fi
+    tracked_probe_append "$tool" mark; result=$?
+    if [ "$result" = 0 ]; then PROBE_MARK=1; consume_probe_rule "$tool" "$PROBE_RULE_RECORD_ID" mark "$QNUM" "$PKT_OUT" "$DESYNC_MARK" || return 1
+    elif [ "$result" != 2 ]; then return 1; fi
+    consume_probe_chain "$tool" "$PROBE_CHAIN_RECORD_ID" || return 1
+    cleanup_probe_track "$tool" || return 1
+    PROBE_MUTATED=0; PROBE_TOOL=""
+    return 0
+}
+
+append_nfqueue_rule() {
+    local tool="$1" parent="$2" proto="$3" direction="$4" ports="$5" packet_count="$6" cb_dir="$7" id chain ordinal
+    if [ "$parent" = "$ZAPRET2_OUT" ]; then BUILD_OUT_RULES=$((BUILD_OUT_RULES + 1)); ordinal="$BUILD_OUT_RULES"
+    else BUILD_IN_RULES=$((BUILD_IN_RULES + 1)); ordinal="$BUILD_IN_RULES"; fi
+    owner_rule_chain "$parent" "$ordinal" || return 1; chain="$OWNER_RULE_CHAIN"
+    tracked_create_chain "$tool" "$chain" || return 1
+    tracked_append_anchor "$tool" "$parent" "$chain" || return 1
+    build_track_add_pending "rule|$chain|$proto|$direction|$ports|$packet_count|$cb_dir|$QNUM|$DESYNC_MARK|$BUILD_CONNBYTES|$BUILD_MULTIPORT|$BUILD_MARK" || return 1
+    id="$BUILD_TRACK_RECORD_ID"
+    set -- -t mangle -A "$chain" -p "$proto"
+    if [ "$BUILD_MULTIPORT" = 1 ]; then
+        if [ "$direction" = out ]; then set -- "$@" -m multiport --dports "$ports"
+        else set -- "$@" -m multiport --sports "$ports"; fi
+    else
+        if [ "$direction" = out ]; then set -- "$@" --dport "$ports"
+        else set -- "$@" --sport "$ports"; fi
+    fi
+    if [ "$BUILD_CONNBYTES" = 1 ]; then
+        set -- "$@" -m connbytes --connbytes "1:$packet_count" \
+            --connbytes-dir "$cb_dir" --connbytes-mode packets
+    fi
+    if [ "$BUILD_MARK" = 1 ]; then
+        set -- "$@" -m mark ! --mark "$DESYNC_MARK/$DESYNC_MARK"
+    fi
+    set -- "$@" -j NFQUEUE --queue-num "$QNUM" --queue-bypass
+    if ! "$tool" "$@" 2>/dev/null; then
+        build_track_transition "$id" pending consumed || true
+        return 1
+    fi
+    build_track_transition "$id" pending applied || return 1
+    BUILD_RULES=$((BUILD_RULES + 1))
+}
+
+append_port_set() {
+    local tool="$1" chain="$2" proto="$3" direction="$4" ports="$5" packet_count="$6" cb_dir="$7"
+    local old_ifs item
+    if [ "$BUILD_MULTIPORT" = 1 ]; then
+        append_nfqueue_rule "$tool" "$chain" "$proto" "$direction" "$ports" "$packet_count" "$cb_dir"
+        return $?
+    fi
+    old_ifs="$IFS"; IFS=,; set -- $ports; IFS="$old_ifs"
+    for item in "$@"; do
+        append_nfqueue_rule "$tool" "$chain" "$proto" "$direction" "$item" "$packet_count" "$cb_dir" || return 1
     done
 }
 
-# Parse startup output from nfqws2
-parse_startup_output() {
-    if [ -f "$STARTUP_LOG" ] && [ -s "$STARTUP_LOG" ]; then
-        log_msg "=== nfqws2 startup output ==="
-        while IFS= read -r line; do
-            log_msg "  $line"
-        done < "$STARTUP_LOG"
-        log_msg "=== end startup output ==="
-    fi
-
-    if [ -f "$ERROR_LOG" ] && [ -s "$ERROR_LOG" ]; then
-        log_msg "=== nfqws2 stderr ==="
-        while IFS= read -r line; do
-            [ -n "$line" ] && log_error "nfqws2 stderr: $line"
-        done < "$ERROR_LOG"
-        log_msg "=== end stderr ==="
-    fi
+build_detached_family() {
+    local tool="$1"
+    BUILD_RULES=0; BUILD_OUT_RULES=0; BUILD_IN_RULES=0
+    begin_tracked_family "$tool" || return 1
+    BUILD_TRACK_TOOL="$tool"
+    tracked_create_chain "$tool" "$ZAPRET2_OUT" || { cleanup_tracked_family "$tool" >/dev/null 2>&1; return 1; }
+    tracked_create_chain "$tool" "$ZAPRET2_IN" || { cleanup_tracked_family "$tool" >/dev/null 2>&1; return 1; }
+    append_port_set "$tool" "$ZAPRET2_OUT" tcp out "$PORTS_TCP" "$PKT_OUT" original || { cleanup_tracked_family "$tool" >/dev/null 2>&1; return 1; }
+    append_port_set "$tool" "$ZAPRET2_OUT" udp out "$PORTS_UDP" "$PKT_OUT" original || { cleanup_tracked_family "$tool" >/dev/null 2>&1; return 1; }
+    append_port_set "$tool" "$ZAPRET2_OUT" udp out "3478,5349,19302" "$PKT_OUT" original || { cleanup_tracked_family "$tool" >/dev/null 2>&1; return 1; }
+    append_port_set "$tool" "$ZAPRET2_IN" tcp in "$PORTS_TCP" "$PKT_IN" reply || { cleanup_tracked_family "$tool" >/dev/null 2>&1; return 1; }
+    append_port_set "$tool" "$ZAPRET2_IN" udp in "$PORTS_UDP" "$PKT_IN" reply || { cleanup_tracked_family "$tool" >/dev/null 2>&1; return 1; }
+    append_port_set "$tool" "$ZAPRET2_IN" udp in "3478,5349,19302" "$PKT_IN" reply || { cleanup_tracked_family "$tool" >/dev/null 2>&1; return 1; }
+    return 0
 }
 
-# Log nfqws2 startup stderr in fast restart mode.
-log_startup_stderr_errors() {
-    if [ -f "$ERROR_LOG" ] && [ -s "$ERROR_LOG" ]; then
-        while IFS= read -r line; do
-            [ -n "$line" ] && log_error "nfqws2 stderr: $line"
-        done < "$ERROR_LOG"
+launch_nfqws2() {
+    local daemon_supported=0 candidate n=0 start
+    printf '%s\n' "$NFQWS_HELP" | grep -Fq -- '--daemon' &&
+        printf '%s\n' "$NFQWS_HELP" | grep -Fq -- '--pidfile' && daemon_supported=1
+    [ ! -e "$PIDFILE" ] && [ ! -L "$PIDFILE" ] || return 1
+    prepare_private_runtime_file "$STARTUP_LOG" || return 1
+    prepare_private_runtime_file "$ERROR_LOG" || return 1
+    if [ "$daemon_supported" = 1 ]; then
+        LAUNCH_OWNS_PIDFILE=1
+        "$NFQWS2" --daemon --pidfile="$PIDFILE" $OPTS >/dev/null 2>&1 &
+        LAUNCHED_PID=$!
+    else
+        DIAGNOSTICS="${DIAGNOSTICS}daemon options unavailable; using supervised background pid; "
+        "$NFQWS2" $OPTS >/dev/null 2>&1 &
+        LAUNCHED_PID=$!
     fi
-}
-
-# Show detailed error information
-show_error_details() {
-    if [ -f "$ERROR_LOG" ] && [ -s "$ERROR_LOG" ]; then
-        log_error "Error details:"
-        tail -10 "$ERROR_LOG" | while IFS= read -r line; do
-            log_error "  $line"
-        done
+    LAUNCHED_PID_START="$(proc_starttime "$LAUNCHED_PID" 2>/dev/null)" || LAUNCHED_PID_START=""
+    if [ -n "$LAUNCHED_PID_START" ]; then
+        LAUNCHED_ARGV_HEX="$(proc_cmdline_hex "$LAUNCHED_PID" 2>/dev/null)" || LAUNCHED_ARGV_HEX=""
     fi
-
-    # Parse common errors and provide user-friendly diagnostics
-    if [ -f "$ERROR_LOG" ] && [ -s "$ERROR_LOG" ]; then
-        # Pattern 1: desync function not found
-        local missing_func=$(grep -o "desync function '[^']*' does not exist" "$ERROR_LOG" | head -1)
-        if [ -n "$missing_func" ]; then
-            # Extract function name between single quotes using sed
-            local func_name=$(echo "$missing_func" | sed "s/.*'\([^']*\)'.*/\1/")
-            local msg="DIAGNOSTIC: $missing_func"
-            echo "$msg"
-            log_error "$msg"
-            # Only search for function if name is non-empty
-            if [ -n "$func_name" ]; then
-                if grep -rql "function ${func_name}(" "$ZAPRET_DIR/lua/" 2>/dev/null; then
-                    local lua_file=$(grep -rl "function ${func_name}(" "$ZAPRET_DIR/lua/" 2>/dev/null | head -1)
-                    local lua_basename=$(basename "$lua_file")
-                    msg="DIAGNOSTIC: Function '$func_name' is defined in $lua_basename"
-                    echo "$msg"
-                    log_error "$msg"
-                    msg="DIAGNOSTIC: This file may not be loading. Check that all Lua files are present and compatible with your nfqws2 version."
-                    echo "$msg"
-                    log_error "$msg"
-                else
-                    msg="DIAGNOSTIC: Function '$func_name' not found in any Lua file. Check your strategy configuration."
-                    echo "$msg"
-                    log_error "$msg"
-                fi
+    while [ "$n" -lt 10 ]; do
+        candidate="$LAUNCHED_PID"
+        if [ "$daemon_supported" = 1 ]; then
+            if read_live_pidfile; then candidate="$LIVE_PIDFILE_PID"; else candidate=""; fi
+        fi
+        if [ -n "$candidate" ]; then
+            start="$(proc_starttime "$candidate")" || start=""
+            if [ -n "$start" ] && verify_nfqws_pid "$candidate" "$start" "" "$QNUM"; then
+                if ! publish_nfqws_owner "$candidate" "$VERIFIED_STARTTIME" "$QNUM" launched; then return 1; fi
+                NEW_PID_PUBLISHED=1
+                STARTED_PID="$candidate"; STARTED_PID_START="$VERIFIED_STARTTIME"
+                return 0
             fi
-            msg="DIAGNOSTIC: Try updating nfqws2 binary and Lua scripts from the same zapret release."
-            echo "$msg"
-            log_error "$msg"
         fi
-
-        # Pattern 2: Lua compatibility error
-        if grep -q "Incompatible NFQWS2_COMPAT_VER" "$ERROR_LOG" 2>/dev/null; then
-            local msg="DIAGNOSTIC: Lua scripts are incompatible with nfqws2 binary version."
-            echo "$msg"
-            log_error "$msg"
-            msg="DIAGNOSTIC: Download nfqws2 binary and Lua scripts from the same zapret release."
-            echo "$msg"
-            log_error "$msg"
-        fi
-
-        # Pattern 3: Permission denied
-        if grep -q "Permission denied" "$ERROR_LOG" 2>/dev/null; then
-            local msg="DIAGNOSTIC: Permission denied error. Try reinstalling the module or check file permissions."
-            echo "$msg"
-            log_error "$msg"
-        fi
-
-        # Pattern 4: file not found / cannot open
-        local missing_file=$(grep -o "cannot open [^ ]*\|No such file[^)]*" "$ERROR_LOG" | head -1)
-        if [ -n "$missing_file" ]; then
-            local msg="DIAGNOSTIC: $missing_file"
-            echo "$msg"
-            log_error "$msg"
-        fi
-
-        # Pattern 5: Lua syntax error
-        if grep -q "lua.*syntax error\|lua.*error loading" "$ERROR_LOG" 2>/dev/null; then
-            local msg="DIAGNOSTIC: Lua syntax error. Scripts may be corrupted. Reinstall the module."
-            echo "$msg"
-            log_error "$msg"
-        fi
-
-        # Always show raw stderr for advanced users
-        echo "DIAGNOSTIC: Raw error output:"
-        log_error "DIAGNOSTIC: Raw error output:"
-        tail -5 "$ERROR_LOG" | while IFS= read -r line; do
-            if [ -n "$line" ]; then
-                echo "DIAGNOSTIC: > $line"
-                log_error "DIAGNOSTIC: > $line"
-            fi
-        done
-    fi
+        n=$((n + 1)); sleep 1
+    done
+    return 1
 }
 
-##########################################################################################
-# MAIN ENTRY POINT
-##########################################################################################
+stop_failed_fallback_launch() {
+    local pid="$1" start argv rc=0
+    [ -n "$pid" ] || return 0
+    start="${LAUNCHED_PID_START:-}"
+    argv="${LAUNCHED_ARGV_HEX:-}"
+    if [ -n "$start" ] && verify_nfqws_pid "$pid" "$start" "$argv" "$QNUM"; then
+        stop_verified_nfqws_pid "$pid" "$start" "$argv" "$QNUM" >/dev/null 2>&1 || rc=1
+    elif kill -0 "$pid" 2>/dev/null && [ "$(proc_starttime "$pid" 2>/dev/null)" = "$start" ]; then
+        rc=1
+    fi
+    # A daemon may have forked before publishing a usable PID file.  Exact
+    # argv0/executable scanning is the mandatory second rollback identity.
+    stop_all_exact_owned_nfqws >/dev/null 2>&1 || rc=1
+    if [ "$LAUNCH_OWNS_PIDFILE" = 1 ] && state_file_is_secure "$PIDFILE"; then
+        rm -f "$PIDFILE" 2>/dev/null || rc=1
+    fi
+    return "$rc"
+}
+
+commit_family() {
+    local tool="$1"
+    build_track_for_tool "$tool" || return 1
+    BUILD_TRACK_TOOL="$tool"
+    tracked_append_anchor "$tool" OUTPUT "$ZAPRET2_OUT" || return 1
+    tracked_append_anchor "$tool" INPUT "$ZAPRET2_IN" || return 1
+    return 0
+}
 
 main() {
-    log_section "Starting Zapret2 DPI bypass"
-    log_msg "Script version: 2.0"
-    log_msg "Date: $(date)"
+    REPAIR_RUNTIME_ONLY=0
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            --replace) REPLACE=1 ;;
+            --repair-runtime-only) REPAIR_RUNTIME_ONLY=1 ;;
+            *) echo "ERROR: unknown argument: $1"; exit 2 ;;
+        esac
+        shift
+    done
+    if ! ensure_state_dir; then echo "ERROR: insecure or unavailable zapret2 state directory: $STATE_DIR"; exit 1; fi
+    if ! acquire_lifecycle_lock; then echo "ERROR: zapret2 lifecycle is busy"; exit 1; fi
+    if [ -e "$MODDIR/disable" ] || [ -L "$MODDIR/disable" ]; then
+        release_lifecycle_lock
+        echo "ERROR: start blocked because the module is disabled; re-enable it in the root manager first"
+        exit 1
+    fi
+    # Update serialization is checked before log rotation, status writes,
+    # configuration migration, probes, or any other lifecycle mutation.
+    if ! update_lock_allows_start; then
+        message="start blocked by update serialization: $UPDATE_LOCK_ERROR"
+        release_lifecycle_lock
+        echo "ERROR: $message"
+        exit 1
+    fi
+    if ! audit_recovery_artifacts lifecycle; then
+        release_lifecycle_lock
+        echo "ERROR: ${RECOVERY_ARTIFACT_DIAGNOSTIC:-recovery artifacts block start}"
+        exit 1
+    fi
+    if ! uninstall_tombstone_allows_start; then
+        message="start blocked by uninstall serialization: $UNINSTALL_TOMBSTONE_ERROR"
+        release_lifecycle_lock
+        echo "ERROR: $message"
+        exit 1
+    fi
 
-    # Load configuration
-    load_config
+    # Authenticate the installer-owned generation before status/log/config or
+    # firewall mutation. A malformed or replaced generation can never start a
+    # teardown transaction.
+    if ! read_install_generation_meta; then
+        release_lifecycle_lock
+        echo "ERROR: install generation metadata is missing, unsafe, or malformed"
+        exit 1
+    fi
+    if [ "$REPAIR_RUNTIME_ONLY" = 1 ]; then
+        if load_effective_core_config; then
+            message="$(runtime_config_status_message)"
+            release_lifecycle_lock || { echo "ERROR: runtime repair completed but lifecycle lock release failed"; exit 1; }
+            echo "$message"
+            exit 0
+        fi
+        message="runtime.ini repair failed: ${RUNTIME_CONFIG_ERROR:-invalid configuration}"
+        release_lifecycle_lock >/dev/null 2>&1 || true
+        echo "ERROR: $message"
+        exit 1
+    fi
+    trap 'handle_signal HUP' HUP
+    trap 'handle_signal INT' INT
+    trap 'handle_signal TERM' TERM
 
-    # Check if already running
-    if check_already_running; then
+    # Capture an independently verified old generation before reading the new
+    # configuration, rotating logs, probing firewall capabilities, publishing
+    # command metadata, or performing any other fallible lifecycle work.
+    capture_prior_healthy_generation || fail_start "cannot snapshot prior healthy generation before preflight"
+
+    write_runtime_owner_marker || fail_start "cannot publish secure runtime ownership marker"
+
+    if ! prepare_lifecycle_log; then
+        LOG_READY=0
+        DIAGNOSTICS="lifecycle log unavailable or unsafe; "
+        if command -v log >/dev/null 2>&1; then log -p w -t Zapret2 "Lifecycle file logging disabled: unsafe or unavailable path" 2>/dev/null; fi
+    fi
+    restore_status_facts
+
+    [ -n "$UPDATE_LOCK_DIAGNOSTIC" ] && DIAGNOSTICS="${DIAGNOSTICS}${UPDATE_LOCK_DIAGNOSTIC}; "
+
+    load_config || fail_start "configuration load failed: ${RUNTIME_CONFIG_ERROR:-invalid configuration}"
+    validate_config || fail_start "invalid core firewall configuration"
+    preflight_wifi_only || fail_start "WIFI_ONLY cannot be safely scoped to a verified Wi-Fi interface"
+    legacy_migrate_firewall || fail_start "legacy firewall migration blocked: $LEGACY_MIGRATION_ERROR"
+    [ "$LEGACY_MIGRATION_VERIFIED" = 1 ] || fail_start "legacy firewall migration did not reach a verified commit"
+
+    if [ "$REPLACE" = 0 ] && normal_health_ok; then
+        DIAGNOSTICS="already healthy; no process or firewall churn"
+        write_ok_status "$HEALTH_RULES" "$HEALTH_PID" "$HEALTH_IPV6" || fail_start "cannot write lifecycle status"
+        discard_prior_snapshot
+        release_lifecycle_lock; trap - HUP INT TERM
+        echo "Zapret2 is already running (PID: $HEALTH_PID)"
         exit 0
     fi
 
-    # Kill any stale nfqws/nfqws2 processes from old runs
-    kill_stale_nfqws
+    prepare_options || fail_start "nfqws2 preflight/dry-run failed"
 
-    # Check binary
-    if ! check_binary; then
-        exit 1
+    probe_family iptables || fail_start "mandatory IPv4 NFQUEUE probe failed"
+    IPV4_NFQUEUE="$PROBE_NFQUEUE"; IPV4_QUEUE_BYPASS="$PROBE_QUEUE_BYPASS"
+    IPV4_CONNBYTES="$PROBE_CONNBYTES"; IPV4_MULTIPORT="$PROBE_MULTIPORT"; IPV4_MARK="$PROBE_MARK"
+    [ "$IPV4_NFQUEUE" = 1 ] && [ "$IPV4_QUEUE_BYPASS" = 1 ] || fail_start "IPv4 NFQUEUE --queue-bypass is required"
+    [ "$IPV4_CONNBYTES" = 1 ] || fail_start "IPv4 connbytes packet limiter is required for safe queueing"
+    [ "$IPV4_MULTIPORT" = 1 ] || fail_start "IPv4 multiport match is required for exact scoped queueing"
+    [ "$IPV4_MARK" = 1 ] || fail_start "IPv4 mark match is required to prevent NFQUEUE recirculation"
+    FALLBACK_MODE=0
+
+    IPV6_AVAILABLE=0
+    probe_family ip6tables
+    case $? in
+        0)
+            if [ "$PROBE_NFQUEUE" = 1 ] && [ "$PROBE_QUEUE_BYPASS" = 1 ] &&
+               [ "$PROBE_CONNBYTES" = 1 ] && [ "$PROBE_MULTIPORT" = 1 ] && [ "$PROBE_MARK" = 1 ]; then
+                IPV6_AVAILABLE=1; IPV6_CONNBYTES="$PROBE_CONNBYTES"; IPV6_MULTIPORT="$PROBE_MULTIPORT"; IPV6_MARK="$PROBE_MARK"
+            else DIAGNOSTICS="${DIAGNOSTICS}IPv6 mandatory queue safety capability unavailable; IPv6 skipped; "; fi
+            ;;
+        2) DIAGNOSTICS="${DIAGNOSTICS}IPv6 unavailable; IPv6 skipped; " ;;
+        *) fail_start "IPv6 detached probe cleanup failed" ;;
+    esac
+
+    # Only now may a failure roll back module-owned process/chains.  Earlier
+    # failures preserve the old owner/status generation exactly.
+    CONTROLLED_TEARDOWN_STARTED=1
+    FIREWALL_MUTATED=1
+    cleanup_owned_firewall || fail_start "cannot remove exact owned firewall artifacts"
+    stop_pidfile_process || fail_start "cannot stop verified previous nfqws2 process"
+    [ "$PRIOR_HEALTHY" != 1 ] || PRIOR_TORN_DOWN=1
+    OWNER_WRITE_READY=0; OWNER_WRITE_QNUM=""; OWNER_WRITE_SOURCE_GENERATION=""
+    prepare_new_firewall_identity || fail_start "cannot allocate stable firewall generation identity"
+
+    BUILD_CONNBYTES="$IPV4_CONNBYTES"; BUILD_MULTIPORT="$IPV4_MULTIPORT"; BUILD_MARK="$IPV4_MARK"
+    build_detached_family iptables || fail_start "cannot build detached IPv4 chains"
+    IPV4_RULES="$BUILD_RULES"; IPV4_BUILT=1
+
+    if [ "$IPV6_AVAILABLE" = 1 ]; then
+        BUILD_CONNBYTES="$IPV6_CONNBYTES"; BUILD_MULTIPORT="$IPV6_MULTIPORT"; BUILD_MARK="$IPV6_MARK"
+        if build_detached_family ip6tables; then
+            IPV6_RULES="$BUILD_RULES"; IPV6_BUILT=1
+        else
+            owned_family_absent ip6tables || fail_start "IPv6 chain build and tracked cleanup failed"
+            DIAGNOSTICS="${DIAGNOSTICS}IPv6 chain build failed; IPv6 skipped; "
+        fi
     fi
 
-    # Fix permissions
-    fix_permissions
-
-    # Run pre-flight diagnostics (advisory only, does not block startup)
-    preflight_check
-
-    # Apply iptables rules
-    apply_iptables
-
-    # Start nfqws2
-    if ! start_nfqws2; then
-        exit 1
+    launch_nfqws2 || fail_start "nfqws2 did not produce a verified module-owned PID"
+    commit_family iptables || fail_start "mandatory IPv4 anchor commit failed"
+    IPV4_ACTIVE=1
+    IPV6_ACTIVE=0
+    if [ "$IPV6_BUILT" = 1 ]; then
+        if commit_family ip6tables; then IPV6_ACTIVE=1
+        else
+            cleanup_tracked_family ip6tables >/dev/null 2>&1 || fail_start "IPv6 commit failed and tracked state could not be cleaned"
+            owned_family_absent ip6tables || fail_start "IPv6 commit failure left owned state"
+            republish_owner_ipv6_inactive || fail_start "IPv6 skip could not atomically republish the active owner generation"
+            IPV6_RULES=0; IPV6_BUILT=0
+            DIAGNOSTICS="${DIAGNOSTICS}IPv6 commit failed; verified clean and skipped; "
+        fi
     fi
 
-    log_section "Zapret2 started successfully"
-    log_msg "HOSTLIST_MODE: $HOSTLIST_MODE"
-    log_msg "HOSTLIST_FILES: $HOSTLIST_FILES"
+    set_owner_phase active || fail_start "cannot mark verified nfqws2 owner active"
+    normal_health_ok || fail_start "post-commit ownership/ruleset verification failed"
+    [ "$HEALTH_PID" = "$STARTED_PID" ] && [ "$HEALTH_PID_START" = "$STARTED_PID_START" ] ||
+        fail_start "post-commit PID identity changed"
+    [ "$HEALTH_IPV6" = "$IPV6_ACTIVE" ] || fail_start "post-commit IPv6 state mismatch"
 
+    TOTAL_RULES=$((6 + 6 * IPV6_ACTIVE))
+    write_ok_status "$TOTAL_RULES" "$STARTED_PID" "$IPV6_ACTIVE" || fail_start "cannot atomically write lifecycle status"
+    discard_build_tracks || fail_start "cannot retire committed detached-build tracking"
+    FIREWALL_MUTATED=0
+    LAUNCHED_PID=""
+    discard_prior_snapshot
+    release_lifecycle_lock; trap - HUP INT TERM
+    log_msg "Zapret2 started with verified PID $STARTED_PID"
+    echo "Zapret2 started (PID: $STARTED_PID)"
     exit 0
 }
 
-# Run main function
 main "$@"

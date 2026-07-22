@@ -8,6 +8,9 @@ import dagger.hilt.android.HiltAndroidApp
 class ZapretApp : Application() {
 
     companion object {
+        private const val TAG = "ZapretApp"
+
+        @Volatile
         private var shellInitialized = false
     }
 
@@ -17,7 +20,9 @@ class ZapretApp : Application() {
     }
 
     private fun initShell() {
-        if (!shellInitialized) {
+        synchronized(ZapretApp::class.java) {
+            if (shellInitialized) return
+
             try {
                 Shell.setDefaultBuilder(
                     Shell.Builder.create()
@@ -25,8 +30,9 @@ class ZapretApp : Application() {
                         .setTimeout(30)
                 )
                 shellInitialized = true
-            } catch (e: Exception) {
-                e.printStackTrace()
+            } catch (_: Exception) {
+                AppDebugLog.error(TAG, "Failed to configure the root shell")
+                return
             }
         }
     }

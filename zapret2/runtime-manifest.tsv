@@ -1,0 +1,205 @@
+schema|1|zapret2-runtime
+owner_protocol|6|zapret2-firewall
+# class|mode|path
+# mutable-seed and runtime-dependency-mutable-seed are required fresh-package
+# assets whose installed contents may later be replaced by preserved user data.
+immutable-file|0644|module.prop
+immutable-exec|0755|customize.sh
+immutable-exec|0755|service.sh
+immutable-exec|0755|uninstall.sh
+immutable-exec|0755|action.sh
+immutable-file|0644|zapret2/runtime-manifest.tsv
+immutable-file|0644|zapret2/upstream-zapret2.commit
+immutable-exec|0755|zapret2/scripts/common.sh
+immutable-exec|0755|zapret2/scripts/command-builder.sh
+immutable-exec|0755|zapret2/scripts/package-contract.sh
+immutable-exec|0755|zapret2/scripts/runtime-migrate.sh
+immutable-exec|0755|zapret2/scripts/zapret-start.sh
+immutable-exec|0755|zapret2/scripts/zapret-stop.sh
+immutable-exec|0755|zapret2/scripts/zapret-restart.sh
+immutable-exec|0755|zapret2/scripts/zapret-status.sh
+immutable-exec|0755|zapret2/scripts/zapret-update-guard.sh
+immutable-exec|0755|zapret2/scripts/zapret-full-rollback.sh
+immutable-exec|0755|system/bin/zapret2-start
+immutable-exec|0755|system/bin/zapret2-stop
+immutable-exec|0755|system/bin/zapret2-restart
+immutable-exec|0755|system/bin/zapret2-status
+immutable-exec|0755|system/bin/zapret2-full-rollback
+mutable-seed|0644|zapret2/config.sh
+mutable-seed|0644|zapret2/runtime.ini
+mutable-seed|0644|zapret2/categories.ini
+mutable-seed|0644|zapret2/hosts.ini
+mutable-seed|0644|zapret2/lua/zapret-custom.lua
+mutable-seed|0644|zapret2/lua/init_vars.lua
+immutable-file|0644|zapret2/strategies-tcp.ini
+immutable-file|0644|zapret2/strategies-udp.ini
+immutable-file|0644|zapret2/strategies-stun.ini
+immutable-file|0644|zapret2/blobs.txt
+immutable-file|0644|zapret2/presets/_TEMPLATE.txt
+abi-exec|0755|zapret2/bin/{abi}/nfqws2
+installed-exec|0755|zapret2/nfqws2
+runtime-dependency-immutable|0644|zapret2/bin/dtls_clienthello_w3_org.bin
+runtime-dependency-immutable|0644|zapret2/bin/fake_quic.bin
+runtime-dependency-immutable|0644|zapret2/bin/fake_quic_1.bin
+runtime-dependency-immutable|0644|zapret2/bin/fake_quic_2.bin
+runtime-dependency-immutable|0644|zapret2/bin/fake_quic_3.bin
+runtime-dependency-immutable|0644|zapret2/bin/fake_tls_1.bin
+runtime-dependency-immutable|0644|zapret2/bin/fake_tls_2.bin
+runtime-dependency-immutable|0644|zapret2/bin/fake_tls_3.bin
+runtime-dependency-immutable|0644|zapret2/bin/fake_tls_4.bin
+runtime-dependency-immutable|0644|zapret2/bin/fake_tls_5.bin
+runtime-dependency-immutable|0644|zapret2/bin/fake_tls_6.bin
+runtime-dependency-immutable|0644|zapret2/bin/fake_tls_7.bin
+runtime-dependency-immutable|0644|zapret2/bin/fake_tls_8.bin
+runtime-dependency-immutable|0644|zapret2/bin/http_iana_org.bin
+runtime-dependency-immutable|0644|zapret2/bin/quic_1.bin
+runtime-dependency-immutable|0644|zapret2/bin/quic_2.bin
+runtime-dependency-immutable|0644|zapret2/bin/quic_3.bin
+runtime-dependency-immutable|0644|zapret2/bin/quic_4.bin
+runtime-dependency-immutable|0644|zapret2/bin/quic_5.bin
+runtime-dependency-immutable|0644|zapret2/bin/quic_6.bin
+runtime-dependency-immutable|0644|zapret2/bin/quic_7.bin
+runtime-dependency-immutable|0644|zapret2/bin/quic_initial_vk_com.bin
+runtime-dependency-immutable|0644|zapret2/bin/quic_initial_www_google_com.bin
+runtime-dependency-immutable|0644|zapret2/bin/quic_test_00.bin
+runtime-dependency-immutable|0644|zapret2/bin/stun.bin
+runtime-dependency-immutable|0644|zapret2/bin/syn_packet.bin
+runtime-dependency-immutable|0644|zapret2/bin/tls_clienthello_1.bin
+runtime-dependency-immutable|0644|zapret2/bin/tls_clienthello_10.bin
+runtime-dependency-immutable|0644|zapret2/bin/tls_clienthello_11.bin
+runtime-dependency-immutable|0644|zapret2/bin/tls_clienthello_12.bin
+runtime-dependency-immutable|0644|zapret2/bin/tls_clienthello_13.bin
+runtime-dependency-immutable|0644|zapret2/bin/tls_clienthello_14.bin
+runtime-dependency-immutable|0644|zapret2/bin/tls_clienthello_17.bin
+runtime-dependency-immutable|0644|zapret2/bin/tls_clienthello_18.bin
+runtime-dependency-immutable|0644|zapret2/bin/tls_clienthello_2.bin
+runtime-dependency-immutable|0644|zapret2/bin/tls_clienthello_2n.bin
+runtime-dependency-immutable|0644|zapret2/bin/tls_clienthello_3.bin
+runtime-dependency-immutable|0644|zapret2/bin/tls_clienthello_4.bin
+runtime-dependency-immutable|0644|zapret2/bin/tls_clienthello_4pda_to.bin
+runtime-dependency-immutable|0644|zapret2/bin/tls_clienthello_5.bin
+runtime-dependency-immutable|0644|zapret2/bin/tls_clienthello_6.bin
+runtime-dependency-immutable|0644|zapret2/bin/tls_clienthello_7.bin
+runtime-dependency-immutable|0644|zapret2/bin/tls_clienthello_8.bin
+runtime-dependency-immutable|0644|zapret2/bin/tls_clienthello_9.bin
+runtime-dependency-immutable|0644|zapret2/bin/tls_clienthello_chat_deepseek_com.bin
+runtime-dependency-immutable|0644|zapret2/bin/tls_clienthello_gosuslugi_ru.bin
+runtime-dependency-immutable|0644|zapret2/bin/tls_clienthello_iana_org.bin
+runtime-dependency-immutable|0644|zapret2/bin/tls_clienthello_max_ru.bin
+runtime-dependency-immutable|0644|zapret2/bin/tls_clienthello_sberbank_ru.bin
+runtime-dependency-immutable|0644|zapret2/bin/tls_clienthello_vk_com.bin
+runtime-dependency-immutable|0644|zapret2/bin/tls_clienthello_vk_com_kyber.bin
+runtime-dependency-immutable|0644|zapret2/bin/tls_clienthello_www_google_com.bin
+runtime-dependency-mutable-seed|0644|zapret2/lists/cloudflare-ipset.txt
+runtime-dependency-mutable-seed|0644|zapret2/lists/discord.txt
+runtime-dependency-mutable-seed|0644|zapret2/lists/facebook.txt
+runtime-dependency-mutable-seed|0644|zapret2/lists/google.txt
+runtime-dependency-mutable-seed|0644|zapret2/lists/instagram.txt
+runtime-dependency-mutable-seed|0644|zapret2/lists/ipset-all.txt
+runtime-dependency-mutable-seed|0644|zapret2/lists/ipset-amazon.txt
+runtime-dependency-mutable-seed|0644|zapret2/lists/ipset-anydesk.txt
+runtime-dependency-mutable-seed|0644|zapret2/lists/ipset-claude.txt
+runtime-dependency-mutable-seed|0644|zapret2/lists/ipset-discord.txt
+runtime-dependency-mutable-seed|0644|zapret2/lists/ipset-exclude.txt
+runtime-dependency-mutable-seed|0644|zapret2/lists/ipset-github.txt
+runtime-dependency-mutable-seed|0644|zapret2/lists/ipset-ovh.txt
+runtime-dependency-mutable-seed|0644|zapret2/lists/ipset-porn.txt
+runtime-dependency-mutable-seed|0644|zapret2/lists/ipset-roblox.txt
+runtime-dependency-mutable-seed|0644|zapret2/lists/ipset-ru.txt
+runtime-dependency-mutable-seed|0644|zapret2/lists/ipset-rutracker.txt
+runtime-dependency-mutable-seed|0644|zapret2/lists/ipset-soundcloud.txt
+runtime-dependency-mutable-seed|0644|zapret2/lists/ipset-steam.txt
+runtime-dependency-mutable-seed|0644|zapret2/lists/ipset-tankix.txt
+runtime-dependency-mutable-seed|0644|zapret2/lists/ipset-telegram.txt
+runtime-dependency-mutable-seed|0644|zapret2/lists/ipset-twitch.txt
+runtime-dependency-mutable-seed|0644|zapret2/lists/ipset-twitter.txt
+runtime-dependency-mutable-seed|0644|zapret2/lists/ipset-warp.txt
+runtime-dependency-mutable-seed|0644|zapret2/lists/ipset-whatsapp.txt
+runtime-dependency-mutable-seed|0644|zapret2/lists/ipset-youtube.txt
+runtime-dependency-mutable-seed|0644|zapret2/lists/ipset-zapretkvn.txt
+runtime-dependency-mutable-seed|0644|zapret2/lists/itch.txt
+runtime-dependency-mutable-seed|0644|zapret2/lists/netrogat.txt
+runtime-dependency-mutable-seed|0644|zapret2/lists/other.txt
+runtime-dependency-mutable-seed|0644|zapret2/lists/roblox.txt
+runtime-dependency-mutable-seed|0644|zapret2/lists/russia-blacklist.txt
+runtime-dependency-mutable-seed|0644|zapret2/lists/rutor.txt
+runtime-dependency-mutable-seed|0644|zapret2/lists/rutracker.txt
+runtime-dependency-mutable-seed|0644|zapret2/lists/soundcloud.txt
+runtime-dependency-mutable-seed|0644|zapret2/lists/speedtest.txt
+runtime-dependency-mutable-seed|0644|zapret2/lists/twitter.txt
+runtime-dependency-mutable-seed|0644|zapret2/lists/whatsapp.txt
+runtime-dependency-mutable-seed|0644|zapret2/lists/youtube.txt
+runtime-dependency-immutable|0644|zapret2/lua/custom_funcs.lua
+runtime-dependency-immutable|0644|zapret2/lua/zapret-antidpi.lua
+runtime-dependency-immutable|0644|zapret2/lua/zapret-auto.lua
+runtime-dependency-immutable|0644|zapret2/lua/zapret-lib.lua
+runtime-dependency-immutable|0644|zapret2/lua/zapret-multishake.lua
+preset-compatible|0644|zapret2/presets/ALL TCP & UDP multisplit_sni.txt
+preset-compatible|0644|zapret2/presets/ALL TCP & UDP multisplit_stun.txt
+preset-quarantined|0644|zapret2/presets/ALL TCP & UDP v1.txt
+preset-compatible|0644|zapret2/presets/ALL TCP & UDP v2.txt
+preset-compatible|0644|zapret2/presets/ALL TCP & UDP v3_1.txt
+preset-compatible|0644|zapret2/presets/ALL TCP & UDP v3_2.txt
+preset-quarantined|0644|zapret2/presets/complex multidisorder (game filter).txt
+preset-quarantined|0644|zapret2/presets/Dead by Daylight (game filter).txt
+preset-quarantined|0644|zapret2/presets/Dead by Daylight v2 (game filter).txt
+preset-quarantined|0644|zapret2/presets/Default (game filter).txt
+preset-quarantined|0644|zapret2/presets/Default multisplit_sni (game filter).txt
+preset-compatible|0644|zapret2/presets/Default multisplit_sni.txt
+preset-quarantined|0644|zapret2/presets/Default multisplit_stun (game filter).txt
+preset-compatible|0644|zapret2/presets/Default multisplit_stun.txt
+preset-quarantined|0644|zapret2/presets/Default v2 (game filter).txt
+preset-quarantined|0644|zapret2/presets/Default v3 (game filter).txt
+preset-quarantined|0644|zapret2/presets/Default v4 (game filter).txt
+preset-quarantined|0644|zapret2/presets/Default v5.txt
+preset-compatible|0644|zapret2/presets/Default.txt
+preset-quarantined|0644|zapret2/presets/Gaming (game filter).txt
+preset-quarantined|0644|zapret2/presets/general ALT (game filter).txt
+preset-quarantined|0644|zapret2/presets/general ALT.txt
+preset-quarantined|0644|zapret2/presets/general ALT10 (game filter).txt
+preset-compatible|0644|zapret2/presets/general ALT10.txt
+preset-quarantined|0644|zapret2/presets/general ALT11 (game filter).txt
+preset-compatible|0644|zapret2/presets/general ALT11.txt
+preset-quarantined|0644|zapret2/presets/general ALT2 (game filter).txt
+preset-quarantined|0644|zapret2/presets/general ALT2 + syndata.txt
+preset-quarantined|0644|zapret2/presets/general ALT2.txt
+preset-quarantined|0644|zapret2/presets/general ALT3 (game filter).txt
+preset-quarantined|0644|zapret2/presets/general ALT3.txt
+preset-quarantined|0644|zapret2/presets/general ALT4 (game filter).txt
+preset-quarantined|0644|zapret2/presets/general ALT4.txt
+preset-quarantined|0644|zapret2/presets/general ALT5 (game filter).txt
+preset-compatible|0644|zapret2/presets/general ALT5.txt
+preset-quarantined|0644|zapret2/presets/general ALT6 (game filter).txt
+preset-quarantined|0644|zapret2/presets/general ALT6.txt
+preset-quarantined|0644|zapret2/presets/general ALT7 (game filter).txt
+preset-quarantined|0644|zapret2/presets/general ALT7.txt
+preset-quarantined|0644|zapret2/presets/general ALT8 (game filter).txt
+preset-compatible|0644|zapret2/presets/general ALT8.txt
+preset-quarantined|0644|zapret2/presets/general ALT9 1.9.4 (game filter).txt
+preset-quarantined|0644|zapret2/presets/general ALT9 1.9.4.txt
+preset-quarantined|0644|zapret2/presets/general ALT9 1.9.5 (game filter).txt
+preset-quarantined|0644|zapret2/presets/general ALT9 1.9.5.txt
+preset-quarantined|0644|zapret2/presets/general FAKE TLS AUTO (game filter).txt
+preset-quarantined|0644|zapret2/presets/general FAKE TLS AUTO ALT (game filter).txt
+preset-compatible|0644|zapret2/presets/general FAKE TLS AUTO ALT.txt
+preset-quarantined|0644|zapret2/presets/general FAKE TLS AUTO ALT2 (game filter).txt
+preset-compatible|0644|zapret2/presets/general FAKE TLS AUTO ALT2.txt
+preset-quarantined|0644|zapret2/presets/general FAKE TLS AUTO ALT3 (game filter).txt
+preset-compatible|0644|zapret2/presets/general FAKE TLS AUTO ALT3.txt
+preset-quarantined|0644|zapret2/presets/general FAKE TLS AUTO v2 (game filter).txt
+preset-compatible|0644|zapret2/presets/general FAKE TLS AUTO v2.txt
+preset-compatible|0644|zapret2/presets/general FAKE TLS AUTO.txt
+preset-quarantined|0644|zapret2/presets/general SIMPLE FAKE (game filter).txt
+preset-quarantined|0644|zapret2/presets/general SIMPLE FAKE ALT (game filter).txt
+preset-compatible|0644|zapret2/presets/general SIMPLE FAKE ALT.txt
+preset-quarantined|0644|zapret2/presets/general SIMPLE FAKE ALT2 (game filter).txt
+preset-compatible|0644|zapret2/presets/general SIMPLE FAKE ALT2.txt
+preset-compatible|0644|zapret2/presets/general SIMPLE FAKE.txt
+preset-quarantined|0644|zapret2/presets/Preset X (game filter).txt
+preset-quarantined|0644|zapret2/presets/Preset X v2 (game filter).txt
+preset-quarantined|0644|zapret2/presets/Preset XY (game filter).txt
+preset-quarantined|0644|zapret2/presets/Send + Syndata (game filter).txt
+preset-quarantined|0644|zapret2/presets/Syndata + MultiDisorder legacy (game filter).txt
+preset-quarantined|0644|zapret2/presets/Syndata + MultiDisorder legacy WoW (game filter).txt
+preset-quarantined|0644|zapret2/presets/Ultimate Main Riot + Valorant (game filter).txt
+preset-quarantined|0644|zapret2/presets/Ростелеком.txt

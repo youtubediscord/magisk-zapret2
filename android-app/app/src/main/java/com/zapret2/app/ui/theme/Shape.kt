@@ -5,9 +5,12 @@ import androidx.compose.material3.Shapes
 import androidx.compose.ui.unit.dp
 
 val ZapretShapes = Shapes(
-    extraSmall = RoundedCornerShape(4.dp),   // Buttons
-    small = RoundedCornerShape(4.dp),         // Small elements
-    medium = RoundedCornerShape(8.dp),        // Cards
-    large = RoundedCornerShape(16.dp),        // Dialogs, Bottom sheets
-    extraLarge = RoundedCornerShape(16.dp)    // Large containers
+    extraSmall = RoundedCornerShape(8.dp),
+    small = RoundedCornerShape(12.dp),
+    medium = RoundedCornerShape(18.dp),
+    large = RoundedCornerShape(24.dp),
+    largeIncreased = RoundedCornerShape(32.dp),
+    extraLarge = RoundedCornerShape(36.dp),
+    extraLargeIncreased = RoundedCornerShape(48.dp),
+    extraExtraLarge = RoundedCornerShape(64.dp),
 )

@@ -19,3 +19,4 @@ p16-tiktokcdn-com.akamaized.net
 v16-tiktokcdn-com.akamaized.net
 mon.tiktokv.com
 log.tiktokv.com
+www.tiktok.com

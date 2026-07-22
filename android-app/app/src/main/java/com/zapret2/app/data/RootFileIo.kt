@@ -1,0 +1,156 @@
+package com.zapret2.app.data
+
+import com.topjohnwu.superuser.Shell
+
+internal fun canonicalProtectedText(value: String): String = value
+    .replace("\r\n", "\n")
+    .replace('\r', '\n')
+    .trimEnd('\n')
+
+/** Small, centralized boundary for root file operations used by the app. */
+internal object RootFileIo {
+
+    private const val MAX_FILE_NAME_BYTES = 255
+
+    fun shellQuote(value: String): String = "'" + value.replace("'", "'\\''") + "'"
+
+    fun isSimpleFileName(fileName: String, requiredSuffix: String? = null): Boolean {
+        if (fileName.isBlank() || fileName.length > MAX_FILE_NAME_BYTES || fileName == "." || fileName == "..") return false
+        if (fileName.toByteArray(Charsets.UTF_8).size > MAX_FILE_NAME_BYTES) return false
+        if (fileName.trim() != fileName) return false
+        if (fileName.any { it == '/' || it == '\\' || it == '\'' || it == '"' || it.isISOControl() }) return false
+        if (requiredSuffix != null && !fileName.endsWith(requiredSuffix, ignoreCase = true)) return false
+        return true
+    }
+
+    fun isDirectChildPath(path: String, parent: String, requiredSuffix: String? = null): Boolean {
+        val normalizedParent = parent.trimEnd('/')
+        if (!path.startsWith("$normalizedParent/")) return false
+        val child = path.removePrefix("$normalizedParent/")
+        return isSimpleFileName(child, requiredSuffix)
+    }
+
+    /** Reads a stable protected text file; empty authoritative files require an explicit opt-in. */
+    fun readSecureRegularText(
+        path: String,
+        maxBytes: Int,
+        allowEmpty: Boolean = false,
+    ): String? {
+        if (path.isBlank() || maxBytes <= 0) return null
+        val minimumBytes = if (allowEmpty) 0 else 1
+        val quoted = shellQuote(path)
+        val command = """
+            [ -f $quoted ] && [ ! -L $quoted ] || exit 1
+            z2_meta=${'$'}(stat -c '%d:%i:%u:%a:%h:%s' $quoted 2>/dev/null) || exit 1
+            IFS=: read -r z2_device z2_inode z2_uid z2_mode z2_links z2_size <<EOF
+            ${'$'}z2_meta
+            EOF
+            [ "${'$'}z2_uid" = 0 ] && [ "${'$'}z2_links" = 1 ] || exit 1
+            case "${'$'}z2_mode" in 600|644) ;; *) exit 1 ;; esac
+            case "${'$'}z2_size" in ''|*[!0-9]*) exit 1 ;; esac
+            [ "${'$'}z2_size" -ge $minimumBytes ] && [ "${'$'}z2_size" -le $maxBytes ] || exit 1
+            z2_digest_before=${'$'}(sha256sum $quoted 2>/dev/null) || exit 1
+            z2_digest_before=${'$'}{z2_digest_before%% *}
+            [ "${'$'}{#z2_digest_before}" -eq 64 ] || exit 1
+            case "${'$'}z2_digest_before" in *[!0-9A-Fa-f]*) exit 1 ;; esac
+            cat $quoted || exit 1
+            z2_digest_after=${'$'}(sha256sum $quoted 2>/dev/null) || exit 1
+            z2_digest_after=${'$'}{z2_digest_after%% *}
+            z2_after=${'$'}(stat -c '%d:%i:%u:%a:%h:%s' $quoted 2>/dev/null) || exit 1
+            [ "${'$'}z2_after" = "${'$'}z2_meta" ] &&
+                [ "${'$'}z2_digest_after" = "${'$'}z2_digest_before" ]
+        """.trimIndent()
+        val result = Shell.cmd(command).exec()
+        if (!result.isSuccess) return null
+        return result.out.joinToString("\n").takeIf { '\u0000' !in it }
+    }
+
+    fun ensureDirectory(path: String): Boolean {
+        ModuleMutationCoordinator.requirePrivilegedMutationContext()
+        val quoted = shellQuote(path)
+        val command = """
+            if [ -e $quoted ] || [ -L $quoted ]; then
+                [ -d $quoted ] && [ ! -L $quoted ] && [ "${'$'}(stat -c %u $quoted 2>/dev/null)" = 0 ] || exit 1
+            else
+                mkdir -p $quoted || exit 1
+            fi
+            [ -d $quoted ] && [ ! -L $quoted ] && [ "${'$'}(stat -c %u $quoted 2>/dev/null)" = 0 ]
+        """.trimIndent()
+        return Shell.cmd(command).exec().isSuccess
+    }
+
+    fun removeFile(path: String): Boolean {
+        ModuleMutationCoordinator.requirePrivilegedMutationContext()
+        val quoted = shellQuote(path)
+        val command = """
+            if [ ! -e $quoted ] && [ ! -L $quoted ]; then exit 0; fi
+            [ -f $quoted ] && [ ! -L $quoted ] &&
+                [ "${'$'}(stat -c %u $quoted 2>/dev/null)" = 0 ] &&
+                [ "${'$'}(stat -c %h $quoted 2>/dev/null)" = 1 ] || exit 1
+            rm -f $quoted || exit 1
+            [ ! -e $quoted ] && [ ! -L $quoted ]
+        """.trimIndent()
+        return Shell.cmd(command).exec().isSuccess
+    }
+
+    /**
+     * Writes to a sibling temporary file and renames it over the target. The rename is atomic on
+     * the module filesystem, and failed writes clean up their temporary file.
+     */
+    fun writeTextAtomically(
+        path: String,
+        content: String,
+        delimiterPrefix: String,
+        fileMode: String = "0644",
+    ): Boolean {
+        ModuleMutationCoordinator.requirePrivilegedMutationContext()
+        if (path.isBlank() || path.any { it == '\u0000' || it == '\n' || it == '\r' } || content.indexOf('\u0000') >= 0) {
+            return false
+        }
+        if (fileMode !in setOf("0600", "0644")) return false
+        if (!delimiterPrefix.matches(Regex("[A-Za-z0-9_]{1,80}"))) return false
+        val normalized = normalizeLineEndings(content).trimEnd('\n') + "\n"
+        val tempPath = "$path.tmp.${android.os.Process.myPid()}.${System.nanoTime()}"
+        var delimiter = delimiterPrefix
+        while (normalized.lineSequence().any { it == delimiter }) delimiter += "_X"
+
+        val quotedTemp = shellQuote(tempPath)
+        val quotedPath = shellQuote(path)
+        val safeTarget = "{ [ ! -e $quotedPath ] && [ ! -L $quotedPath ]; } || " +
+            "{ [ -f $quotedPath ] && [ ! -L $quotedPath ] && " +
+            "[ \"${'$'}(stat -c %u $quotedPath 2>/dev/null)\" = 0 ] && " +
+            "[ \"${'$'}(stat -c %h $quotedPath 2>/dev/null)\" = 1 ]; }"
+        val command = buildString {
+            append(safeTarget).append(" || exit 1\n")
+            append("[ ! -e ").append(quotedTemp).append(" ] && [ ! -L ").append(quotedTemp)
+            append(" ] || exit 1\n")
+            append("cat > ").append(quotedTemp).append(" <<'").append(delimiter).append("'\n")
+            append(normalized)
+            append(delimiter).append("\n")
+            append("status=$?\n")
+            append("if [ \"${'$'}status\" -eq 0 ]; then chmod ").append(fileMode).append(' ').append(quotedTemp)
+            append("; status=$?; fi\n")
+            append("if [ \"${'$'}status\" -eq 0 ]; then [ \"${'$'}(stat -c %u ").append(quotedTemp)
+            append(" 2>/dev/null)\" = 0 ] && [ \"${'$'}(stat -c %h ").append(quotedTemp)
+            append(" 2>/dev/null)\" = 1 ]; status=$?; fi\n")
+            append("if [ \"${'$'}status\" -eq 0 ]; then ").append(safeTarget).append("; status=$?; fi\n")
+            append("if [ \"${'$'}status\" -eq 0 ]; then mv ").append(quotedTemp).append(' ').append(quotedPath)
+            append("; status=$?; fi\n")
+            append("if [ \"${'$'}status\" -eq 0 ]; then [ \"${'$'}(stat -c %u ").append(quotedPath)
+            append(" 2>/dev/null)\" = 0 ] && [ \"${'$'}(stat -c %a ").append(quotedPath)
+            append(" 2>/dev/null)\" = ").append(fileMode.removePrefix("0")).append(" ] && ")
+            append("[ \"${'$'}(stat -c %h ").append(quotedPath).append(" 2>/dev/null)\" = 1 ]; status=$?; fi\n")
+            append("if [ \"${'$'}status\" -eq 0 ]; then sync; status=$?; fi\n")
+            append("if [ \"${'$'}status\" -ne 0 ]; then rm -f ").append(quotedTemp).append("; fi\n")
+            append("exit \"${'$'}status\"")
+        }
+        if (!Shell.cmd(command).exec().isSuccess) return false
+
+        val maxBytes = normalized.toByteArray(Charsets.UTF_8).size.coerceAtLeast(1)
+        val persisted = readSecureRegularText(path, maxBytes) ?: return false
+        return canonicalProtectedText(persisted) == canonicalProtectedText(normalized)
+    }
+
+    private fun normalizeLineEndings(text: String): String =
+        text.replace("\r\n", "\n").replace('\r', '\n')
+}
