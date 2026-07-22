@@ -17,6 +17,18 @@ case "${Z2_QUERY_MODE:-clean}" in
         printf '%s\n' "-N ${ZAPRET2_OUT:?}" "-A OUTPUT -j $ZAPRET2_OUT"
         exit 0
         ;;
+    residue)
+        printf '%s\n' \
+            '-N Z2O_Ab12Cd34Ef' \
+            '-N Z2I_Ab12Cd34Ef' \
+            '-N Z2R_Ab12Cd34Ef_O1' \
+            '-A Z2O_Ab12Cd34Ef -j Z2R_Ab12Cd34Ef_O1'
+        exit 0
+        ;;
+    lookalike)
+        printf '%s\n' '-N Z2O_short' '-N Z2R_Ab12Cd34Ef_X1' '-A OUTPUT -j Z2O_short'
+        exit 0
+        ;;
     clean) exit 0 ;;
 esac
 EOF
@@ -70,6 +82,15 @@ owned_family_absent iptables || fail "clean snapshot absence was rejected"
 Z2_QUERY_MODE=present; export Z2_QUERY_MODE
 owned_family_present iptables || fail "owned chain/anchor was not detected"
 if owned_family_absent iptables; then fail "owned state was accepted as absent"; fi
+
+Z2_QUERY_MODE=residue; export Z2_QUERY_MODE
+zapret2_namespace_present iptables || fail "detached dynamic generation residue was not detected"
+Z2_QUERY_MODE=lookalike; export Z2_QUERY_MODE
+set +e
+zapret2_namespace_present iptables
+rc=$?
+set -e
+[ "$rc" = 1 ] || fail "malformed dynamic-chain lookalike entered the owned namespace"
 
 LEGACY_QNUM=200
 Z2_QUERY_MODE=fail; export Z2_QUERY_MODE

@@ -88,6 +88,21 @@ class NetworkStatsManagerTest {
     }
 
     @Test
+    fun topology_ignoresDetachedFailedGenerationButRejectsAnyCrossGenerationAnchor() {
+        val detached = listOf(
+            "-N Z2O_Zz98Yy76Xx",
+            "-N Z2I_Zz98Yy76Xx",
+            "-N Z2R_Zz98Yy76Xx_O1",
+            "-A Z2O_Zz98Yy76Xx -j Z2R_Zz98Yy76Xx_O1",
+            "-A Z2R_Zz98Yy76Xx_O1 -p tcp --dport 443 -j NFQUEUE --queue-num 200 --queue-bypass",
+        )
+        assertTrue(verify(validTopology() + detached).topologyVerified)
+        assertFalse(
+            verify(validTopology() + detached + "-A OUTPUT -j Z2O_Zz98Yy76Xx").topologyVerified,
+        )
+    }
+
+    @Test
     fun topology_rejectsWrongOrDuplicateQueueOptions() {
         val cases = listOf(
             validTopology().map { it.replace("--queue-num 200", "--queue-num 201") },

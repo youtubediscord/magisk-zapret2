@@ -105,6 +105,10 @@ internal object OwnedIptablesTopologyVerifier {
             value == "ZAPRET2_OUT" || value == "ZAPRET2_IN" || value == "ZAPRET2_PROBE" ||
                 value.startsWith("Z2O_") || value.startsWith("Z2I_") || value.startsWith("Z2R_")
 
+        fun isCurrentGenerationName(value: String): Boolean =
+            value == identity.outChain || value == identity.inChain ||
+                value.startsWith("Z2R_${identity.tag}_")
+
         lines.forEach { rawLine ->
             val line = rawLine.trim()
             if (line.isEmpty()) return@forEach
@@ -131,14 +135,22 @@ internal object OwnedIptablesTopologyVerifier {
             }
             if (ownedNames.isNotEmpty()) {
                 hasState = true
-                if (ownedNames.any { it !in expectedChains }) foreignOwnedTopology = true
+                val crossesCurrentBoundary = source in expectedChains ||
+                    source in setOf("OUTPUT", "INPUT") ||
+                    targets.any { it in expectedChains }
+                val unexpected = ownedNames.filter { it !in expectedChains }
+                if (unexpected.any(::isCurrentGenerationName) ||
+                    crossesCurrentBoundary && unexpected.isNotEmpty()
+                ) {
+                    foreignOwnedTopology = true
+                }
             }
 
-            if (declared != null && isOwnedName(declared)) {
+            if (declared != null && declared in expectedChains) {
                 if (tokens.size != 2) malformed = true
                 declarations[declared] = (declarations[declared] ?: 0) + 1
             }
-            targets.filter(::isOwnedName).forEach { target ->
+            targets.filter { it in expectedChains }.forEach { target ->
                 references[target] = (references[target] ?: 0) + 1
             }
             source?.let { chain ->
@@ -166,14 +178,13 @@ internal object OwnedIptablesTopologyVerifier {
         }
         val expectedOutRules = outSubchains.map { listOf("-A", identity.outChain, "-j", it) }
         val expectedInRules = inSubchains.map { listOf("-A", identity.inChain, "-j", it) }
-        val declarationsValid = expectedChains.all { declarations[it] == 1 } &&
-            declarations.keys.all { it in expectedChains }
+        val declarationsValid = expectedChains.all { declarations[it] == 1 }
         val referencesValid = if (expectedRuleCount == 0) {
             references.keys.none(::isOwnedName)
         } else {
             references[identity.outChain] == 1 && references[identity.inChain] == 1 &&
                 expectedSubchains.all { references[it] == 1 } &&
-                references.keys.filter(::isOwnedName).all { it in expectedChains }
+                references.keys.all { it in expectedChains }
         }
         val topologyVerified = !malformed && !foreignOwnedTopology && declarationsValid && referencesValid &&
             if (expectedRuleCount == 0) {

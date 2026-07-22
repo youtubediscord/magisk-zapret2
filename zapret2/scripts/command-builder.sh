@@ -67,7 +67,8 @@ is_safe_preset_file_name() {
         *.txt) ;;
         *) return 1 ;;
     esac
-    ! LC_ALL=C printf '%s' "$name" | grep -q '[[:cntrl:]]'
+    case "$name" in *[[:cntrl:]]*) return 1 ;; esac
+    return 0
 }
 
 is_safe_dependency_name() {
@@ -75,7 +76,8 @@ is_safe_dependency_name() {
     [ -n "$name" ] && command_builder_safe_file_name_byte_length "$name" || return 1
     [ "${name# }" = "$name" ] && [ "${name% }" = "$name" ] || return 1
     case "$name" in .|..|*/*|*\\*|*"'"*|*'"'*) return 1 ;; esac
-    ! LC_ALL=C printf '%s' "$name" | grep -q '[[:cntrl:]]'
+    case "$name" in *[[:cntrl:]]*) return 1 ;; esac
+    return 0
 }
 
 validate_preset_dependency() {
@@ -315,32 +317,50 @@ normalize_port_union_file() {
 }
 
 collect_capture_ports() {
-    local preset_file="$1" temp_base tcp_raw udp_raw current_raw line cr
+    local preset_file="$1" temp_base tcp_raw udp_raw line cr
+    local profile_skip=0 profile_tcp="" profile_udp="" profile_voice=0
     temp_base="${STATE_DIR:-${TMPDIR:-/tmp}}/z2-ports.$$"
-    tcp_raw="$temp_base.tcp"; udp_raw="$temp_base.udp"; current_raw="$temp_base.profile"
-    : > "$tcp_raw" && : > "$udp_raw" && : > "$current_raw" || return 1
+    tcp_raw="$temp_base.tcp"; udp_raw="$temp_base.udp"
+    : > "$tcp_raw" && : > "$udp_raw" || return 1
     cr="$(printf '\r')"
     flush_profile_ports() {
-        if ! grep -Fxq -- '--skip' "$current_raw" 2>/dev/null; then
-            sed -n 's/^--filter-tcp=//p' "$current_raw" >> "$tcp_raw" || return 1
-            sed -n 's/^--filter-udp=//p' "$current_raw" >> "$udp_raw" || return 1
-            if grep -Eq '^--filter-l7=(stun|discord|stun,discord|discord,stun)$' "$current_raw"; then
-                printf '%s\n' '3478,5349,19302' >> "$udp_raw" || return 1
-            fi
+        if [ "$profile_skip" = 0 ]; then
+            [ -z "$profile_tcp" ] || printf '%s\n' "$profile_tcp" >> "$tcp_raw" || return 1
+            [ -z "$profile_udp" ] || printf '%s\n' "$profile_udp" >> "$udp_raw" || return 1
+            [ "$profile_voice" = 0 ] || printf '%s\n' '3478,5349,19302' >> "$udp_raw" || return 1
         fi
-        : > "$current_raw"
+        profile_skip=0; profile_tcp=""; profile_udp=""; profile_voice=0
     }
     while IFS= read -r line || [ -n "$line" ]; do
         line="${line%"$cr"}"
         case "$line" in
-            --new) flush_profile_ports || { rm -f "$tcp_raw" "$udp_raw" "$current_raw"; return 1; } ;;
-            --name=*|--skip|--filter-tcp=*|--filter-udp=*|--filter-l7=*) printf '%s\n' "$line" >> "$current_raw" || return 1 ;;
+            --new) flush_profile_ports || { rm -f "$tcp_raw" "$udp_raw"; return 1; } ;;
+            --skip) profile_skip=1 ;;
+            --filter-tcp=*)
+                if [ -n "$profile_tcp" ]; then
+                    profile_tcp="$profile_tcp
+${line#--filter-tcp=}"
+                else
+                    profile_tcp="${line#--filter-tcp=}"
+                fi
+                ;;
+            --filter-udp=*)
+                if [ -n "$profile_udp" ]; then
+                    profile_udp="$profile_udp
+${line#--filter-udp=}"
+                else
+                    profile_udp="${line#--filter-udp=}"
+                fi
+                ;;
+            --filter-l7=stun|--filter-l7=discord|--filter-l7=stun,discord|--filter-l7=discord,stun)
+                profile_voice=1
+                ;;
         esac
     done < "$preset_file"
-    flush_profile_ports || { rm -f "$tcp_raw" "$udp_raw" "$current_raw"; return 1; }
+    flush_profile_ports || { rm -f "$tcp_raw" "$udp_raw"; return 1; }
     COMPILED_TCP_PORTS="$(normalize_port_union_file "$tcp_raw")" || return 1
     COMPILED_UDP_PORTS="$(normalize_port_union_file "$udp_raw")" || return 1
-    rm -f "$tcp_raw" "$udp_raw" "$current_raw"
+    rm -f "$tcp_raw" "$udp_raw"
     [ -n "$COMPILED_TCP_PORTS$COMPILED_UDP_PORTS" ] || {
         preset_validation_fail NO_ENABLED_PROFILE
         return 1
@@ -564,8 +584,7 @@ validate_strategy_catalog_file() {
             'description = '*) [ -n "$section" ] && [ -n "${line#description = }" ] || return 1; descriptions=$((descriptions + 1)) ;;
             'blobs = '*)
                 [ -n "$section" ] && [ -n "${line#blobs = }" ] || return 1
-                printf '%s\n' "${line#blobs = }" |
-                    grep -Eq '^[A-Za-z0-9_.-]+([[:space:]]*,[[:space:]]*[A-Za-z0-9_.-]+)*$' || return 1
+                validate_strategy_blob_list "${line#blobs = }" || return 1
                 blobs=$((blobs + 1))
                 ;;
             --lua-desync=*) [ -n "$section" ] && [ -n "${line#*=}" ] || return 1; case "$line" in *--ipcache*) return 1 ;; esac; strategies=$((strategies + 1)) ;;
@@ -574,6 +593,24 @@ validate_strategy_catalog_file() {
     done < "$file"
     [ -n "$section" ] && [ "$names" -eq 1 ] && [ "$authors" -le 1 ] && [ "$labels" -le 1 ] &&
         [ "$descriptions" -le 1 ] && [ "$blobs" -le 1 ] && [ "$strategies" -gt 0 ]
+}
+
+# Strategy catalogs contain hundreds of sections. Keep this validation in the
+# current shell: a grep process for every `blobs =` row takes tens of seconds
+# on process-heavy Android devices and blocks every other root-backed screen.
+validate_strategy_blob_list() {
+    local remaining="$1" item
+    case "$remaining" in ''|,*|*,|*,,*) return 1 ;; esac
+    trim_config_value_in_place "$remaining"
+    [ "$CONFIG_VALUE_TRIMMED" = "$remaining" ] || return 1
+    while [ -n "$remaining" ]; do
+        item="${remaining%%,*}"
+        case "$remaining" in *','*) remaining="${remaining#*,}" ;; *) remaining="" ;; esac
+        trim_config_value_in_place "$item"
+        item="$CONFIG_VALUE_TRIMMED"
+        case "$item" in ''|*[!A-Za-z0-9_.-]*) return 1 ;; esac
+    done
+    return 0
 }
 
 validate_strategy_catalogs_machine() {
