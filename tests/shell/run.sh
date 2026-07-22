@@ -375,6 +375,8 @@ assert_contains "$ROOT/.github/workflows/build.yml" 'package_contract_validate_e
 assert_contains "$ROOT/.github/workflows/build.yml" 'Recovery flashing metadata must not be published'
 assert_contains "$ROOT/.github/workflows/build.yml" 'package_contract_validate_all "$PACKAGE_AUDIT_ROOT" package'
 assert_contains "$ROOT/.github/workflows/build.yml" 'sudo chown -R 0:0 "$PACKAGE_VALIDATE_ROOT"'
+assert_contains "$ROOT/.github/workflows/build.yml" '/local required[[:space:]]*=[[:space:]]*{/ { capture=1 }'
+assert_not_contains "$ROOT/.github/workflows/build.yml" "grep -A 20 'local required'"
 assert_contains "$ROOT/action.sh" 'zapret2/scripts/lifecycle/zapret-purge.sh'
 assert_contains "$ROOT/action.sh" '--magisk-action'
 assert_not_contains "$ROOT/action.sh" 'am start'
