@@ -40,6 +40,33 @@ class VersionMetadataPolicyTest {
         assertTrue(builder.contains("^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"))
     }
 
+    @Test
+    fun ciValidatesCanonicalSourceBeforeStampingTheReleaseVersion() {
+        val workflow = repositoryFile(".github/workflows/build.yml").readText()
+        val unitTests = workflow.indexOf("- name: Run Android unit tests")
+        val debugBuild = workflow.indexOf("- name: Build Debug APK")
+        val lint = workflow.indexOf("- name: Run Android lint")
+        val keystore = workflow.indexOf("- name: Create keystore")
+        val versionStamp = workflow.indexOf("- name: Set version from CI metadata")
+        val releaseBuild = workflow.indexOf("- name: Build Release APK")
+
+        mapOf(
+            "unit tests" to unitTests,
+            "debug build" to debugBuild,
+            "lint" to lint,
+            "keystore" to keystore,
+            "version stamp" to versionStamp,
+            "release build" to releaseBuild,
+        ).forEach { (step, index) ->
+            assertTrue("Missing CI step: $step", index >= 0)
+        }
+        assertTrue(unitTests < debugBuild)
+        assertTrue(debugBuild < lint)
+        assertTrue(lint < keystore)
+        assertTrue(keystore < versionStamp)
+        assertTrue(versionStamp < releaseBuild)
+    }
+
     private fun capture(text: String, pattern: String): String =
         Regex(pattern).find(text)?.groupValues?.get(1)
             ?: error("Missing version metadata pattern: $pattern")
