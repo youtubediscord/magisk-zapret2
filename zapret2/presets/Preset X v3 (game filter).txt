@@ -1,7 +1,7 @@
 # Preset: Preset X v3 (game filter)
 # BuiltinVersion: 2.24
 # IconColor: #60cdff
-# Description: 
+# Description:
 
 --lua-init=@lua/zapret-lib.lua
 --lua-init=@lua/zapret-antidpi.lua
