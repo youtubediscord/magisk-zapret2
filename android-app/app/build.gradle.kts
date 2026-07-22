@@ -62,6 +62,15 @@ android {
         abortOnError = true
         checkReleaseBuilds = true
         warningsAsErrors = true
+        // These checks describe external release freshness, not source
+        // correctness. Keep them visible without making a pinned build start
+        // failing merely because a newer SDK, Gradle, or dependency appeared.
+        informational += setOf(
+            "AndroidGradlePluginVersion",
+            "GradleDependency",
+            "NewerVersionAvailable",
+            "OldTargetApi",
+        )
     }
 }
 

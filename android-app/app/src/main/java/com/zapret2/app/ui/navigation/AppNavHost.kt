@@ -29,8 +29,8 @@ import com.zapret2.app.ui.theme.MotionTokens
 @Composable
 fun AppNavHost(
     navController: NavHostController,
+    modifier: Modifier = Modifier,
     reduceMotion: Boolean = false,
-    modifier: Modifier = Modifier
 ) {
     NavHost(
         navController = navController,

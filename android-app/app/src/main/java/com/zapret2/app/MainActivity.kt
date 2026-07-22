@@ -120,7 +120,11 @@ class MainActivity : ComponentActivity() {
 internal fun MainScreen(
     appContent: @Composable (NavHostController, Boolean, Modifier) -> Unit =
         { controller, reducedMotion, modifier ->
-            AppNavHost(controller, reducedMotion, modifier)
+            AppNavHost(
+                navController = controller,
+                modifier = modifier,
+                reduceMotion = reducedMotion,
+            )
         },
 ) {
     val navController = rememberNavController()

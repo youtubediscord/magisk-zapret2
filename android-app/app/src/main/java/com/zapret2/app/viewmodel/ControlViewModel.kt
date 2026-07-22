@@ -2,6 +2,7 @@ package com.zapret2.app.viewmodel
 
 import android.content.SharedPreferences
 import androidx.annotation.StringRes
+import androidx.core.content.edit
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -1660,7 +1661,7 @@ class ControlViewModel @Inject constructor(
     }
 
     fun dismissQuicBanner() {
-        prefs.edit().putBoolean("quic_banner_dismissed", true).apply()
+        prefs.edit { putBoolean("quic_banner_dismissed", true) }
         _uiState.update { it.copy(showQuicBanner = false) }
     }
 
