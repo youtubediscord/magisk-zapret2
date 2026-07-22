@@ -349,7 +349,9 @@ object ModuleUpdateRecovery {
                     if (thrown != null) {
                         thrown.addSuppressed(releaseError)
                     } else {
-                        outcome = Result.Failed("${outcome.message()}; recovery ownership release failed")
+                        outcome = Result.Failed(
+                            "${outcome.message()}; recovery ownership marker could not be released",
+                        )
                     }
                 }
             }

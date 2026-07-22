@@ -28,7 +28,7 @@ internal sealed interface HostlistImportValidation {
 
 /** Bounded Android document-provider boundary for hostlist imports. */
 class HostlistImportReader @Inject constructor(
-    @ApplicationContext private val context: Context,
+    @param:ApplicationContext private val context: Context,
 ) {
     internal fun readAndValidate(uri: Uri): HostlistImportValidation {
         val fileName = try {

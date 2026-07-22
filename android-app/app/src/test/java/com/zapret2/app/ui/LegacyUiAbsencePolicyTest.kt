@@ -274,7 +274,7 @@ class LegacyUiAbsencePolicyTest {
             "java/com/zapret2/app/ui/components/AppSnackbarEffect.kt",
         ).readText()
         val durableOverload = effect.substringAfter("Consumes durable state")
-        val consumeIndex = durableOverload.indexOf("onConsumed()")
+        val consumeIndex = durableOverload.indexOf("currentOnConsumed()")
         val independentLaunchIndex = durableOverload.indexOf("scope.launch")
         val showIndex = durableOverload.indexOf("hostState.showSnackbar")
         assertTrue(
@@ -320,8 +320,8 @@ class LegacyUiAbsencePolicyTest {
             "ControlStatus.ROOT_DENIED",
             "isLoading = true",
             "PresetsOperation.LOAD",
-            "PresetsUiState()",
-            "HostlistsUiState()",
+            "PresetsUiState(hasAuthoritativeCatalog = true)",
+            "HostlistsUiState(hasAuthoritativeCatalog = true)",
             "HostlistsLoadError.ROOT_COMMAND_FAILED",
             "DnsManagerOperation.LOAD",
             "dnsPresets = emptyList()",

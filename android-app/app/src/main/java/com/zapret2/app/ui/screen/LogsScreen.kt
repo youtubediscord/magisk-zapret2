@@ -187,8 +187,8 @@ fun LogsScreen(
                                     putExtra(Intent.EXTRA_TEXT, prepared.text)
                                 }
                                 context.startActivity(Intent.createChooser(shareIntent, shareChooserTitle))
-                            }.onFailure { activeViewModel?.reportShareFailed() }
-                            LogSharePreparation.Empty -> activeViewModel?.reportShareEmpty()
+                            }.onFailure { activeViewModel.reportShareFailed() }
+                            LogSharePreparation.Empty -> activeViewModel.reportShareEmpty()
                             LogSharePreparation.Rejected,
                             null,
                             -> Unit

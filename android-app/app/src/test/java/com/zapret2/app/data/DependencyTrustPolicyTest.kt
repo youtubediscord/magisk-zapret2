@@ -19,7 +19,7 @@ class DependencyTrustPolicyTest {
         val entries = projectFile("gradle.lockfile")
             .readLines()
             .filter { it.isNotBlank() && !it.startsWith("#") }
-        assertEquals("Unexpected locked dependency entry count", 345, entries.size)
+        assertEquals("Unexpected locked dependency entry count", 347, entries.size)
         assertTrue(entries.any { "debugRuntimeClasspath" in it })
         assertTrue(entries.any { "debugUnitTestRuntimeClasspath" in it })
         assertTrue(entries.any { "releaseRuntimeClasspath" in it })
@@ -37,12 +37,12 @@ class DependencyTrustPolicyTest {
         val components = document.getElementsByTagName("component")
         val artifacts = document.getElementsByTagName("artifact")
         val checksums = document.getElementsByTagName("sha256")
-        assertEquals("Unexpected verified component count", 585, components.length)
-        assertEquals("Unexpected verified artifact count", 956, artifacts.length)
+        assertEquals("Unexpected verified component count", 589, components.length)
+        assertEquals("Unexpected verified artifact count", 962, artifacts.length)
         assertEquals("Every resolved artifact must have exactly one SHA-256", artifacts.length, checksums.length)
         assertEquals(
             "Unexpected verification metadata bytes",
-            "a078f6bc9e01b0f02009c3483f0662acbc19e5a207fddcda1d8bed4d5fe65a61",
+            "6d11d155d0409191170649c77195c40308e34e0bb73722291dd739291d34033b",
             sha256(metadata),
         )
     }

@@ -93,7 +93,7 @@ private sealed interface LogFetchResult {
 
 @HiltViewModel
 class LogsViewModel @Inject constructor(
-    @ApplicationContext private val context: Context,
+    @param:ApplicationContext private val context: Context,
     private val serviceEventBus: ServiceEventBus,
     private val logRepository: RuntimeLogRepository = RuntimeLogRepository(),
 ) : ViewModel() {

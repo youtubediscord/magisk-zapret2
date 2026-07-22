@@ -42,7 +42,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 
-enum class ControlStatus(@StringRes val labelRes: Int) {
+enum class ControlStatus(@param:StringRes val labelRes: Int) {
     CHECKING(R.string.control_service_checking),
     RUNNING(R.string.control_service_running),
     STOPPED(R.string.control_service_stopped),
@@ -86,12 +86,12 @@ enum class ControlDialogKind {
     MODULE_PURGE_RESULT,
 }
 
-enum class PacketTarget(@StringRes val titleRes: Int) {
+enum class PacketTarget(@param:StringRes val titleRes: Int) {
     OUT(R.string.term_pkt_out),
     IN(R.string.term_pkt_in),
 }
 
-enum class ControlErrorKind(@StringRes val titleRes: Int) {
+enum class ControlErrorKind(@param:StringRes val titleRes: Int) {
     INITIALIZATION(R.string.control_initialization_failed),
     START_SERVICE(R.string.control_service_start_failed),
     STOP_SERVICE(R.string.control_service_stop_failed),
@@ -100,7 +100,7 @@ enum class ControlErrorKind(@StringRes val titleRes: Int) {
     RESTART_SERVICE(R.string.control_service_restart_failed),
 }
 
-enum class ControlLastResult(@StringRes val messageRes: Int) {
+enum class ControlLastResult(@param:StringRes val messageRes: Int) {
     SERVICE_STARTED(R.string.control_service_started),
     SERVICE_STOPPED(R.string.control_service_stopped_result),
     SERVICE_FAILED(R.string.control_service_operation_failed),

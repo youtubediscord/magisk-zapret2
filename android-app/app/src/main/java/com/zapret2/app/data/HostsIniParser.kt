@@ -433,7 +433,10 @@ object HostsIniParser {
         Regex("(?m)^${Regex.escape(marker)}\\r?$").findAll(content).toList()
 
     private fun joinHostsSegments(vararg segments: String): String {
-        val content = segments.filter(String::isNotEmpty).joinToString("\n")
+        val content = segments
+            .map { it.trim('\r', '\n') }
+            .filter(String::isNotEmpty)
+            .joinToString("\n")
         return if (content.isEmpty()) "\n" else "$content\n"
     }
 
