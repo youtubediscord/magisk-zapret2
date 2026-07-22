@@ -48,8 +48,9 @@ internal object ModulePackageContract {
 
     val wrappers = listOf("start", "stop", "status", "restart", "full-rollback").map(::Wrapper)
 
+    val installerOnlyExecutables = listOf("customize.sh")
+
     val hotUpdateRootExecutables = listOf(
-        "customize.sh",
         "service.sh",
         "uninstall.sh",
         "action.sh",
@@ -110,6 +111,7 @@ internal object ModulePackageContract {
         mandatoryImmutableFiles.forEach { add("immutable-file|0644|$it") }
         mandatoryMutableSeeds.forEach { add("mutable-seed|0644|$it") }
         mandatoryRuntimeDependencies.forEach { add("runtime-dependency-immutable|0644|$it") }
+        installerOnlyExecutables.forEach { add("immutable-exec|0755|$it") }
         hotUpdateRootExecutables.forEach { add("immutable-exec|0755|$it") }
         mandatoryRuntimeExecutables.forEach { add("immutable-exec|0755|$it") }
         wrappers.forEach { add("immutable-exec|0755|${it.relativePath}") }
@@ -201,7 +203,9 @@ internal object ModulePackageContract {
                     val rawPath = entry.name
                     val path = if (rawPath.endsWith('/')) rawPath.dropLast(1) else rawPath
                     if (!isSafeManifestPath(path)) return "Package contains unsafe entry $rawPath"
-                    if (path == "META-INF" || path.startsWith("META-INF/")) return@forEach
+                    if (path == "META-INF" || path.startsWith("META-INF/")) {
+                        return "Recovery flashing metadata is unsupported"
+                    }
                     val allowed = if (entry.isDirectory) path in allowedDirectories else path in allowedFiles
                     if (!allowed) return "Package contains undeclared entry $path"
                 }

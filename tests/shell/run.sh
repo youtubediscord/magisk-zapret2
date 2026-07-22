@@ -107,12 +107,6 @@ cp "$TMP/categories.valid" "$CATEGORY_FIXTURE/categories.ini"
 rm -f "$CATEGORY_FIXTURE/lists/youtube.txt"
 assert_fails sh "$CATEGORY_FIXTURE/scripts/command-builder.sh" --validate-categories-machine "$CATEGORY_FIXTURE"
 
-RECOVERY_UPDATE_BINARY="$ROOT/META-INF/com/google/android/update-binary"
-NORMALIZED_UPDATE_BINARY="$TMP/update-binary.lf"
-tr -d '\r' < "$RECOVERY_UPDATE_BINARY" > "$NORMALIZED_UPDATE_BINARY"
-[ "$(sed -n '1p' "$NORMALIZED_UPDATE_BINARY")" = '#!/sbin/sh' ] || fail "normalized recovery update-binary shebang is invalid"
-if LC_ALL=C grep -q "$(printf '\r')" "$NORMALIZED_UPDATE_BINARY"; then fail "recovery update-binary normalization retained CR bytes"; fi
-
 MIGRATE="$ROOT/zapret2/scripts/runtime-migrate.sh"
 CONFIG="$TMP/config.sh"
 USER_CONFIG="$TMP/user.conf"
@@ -342,19 +336,32 @@ assert_not_contains "$ROOT/zapret2/scripts/zapret-start.sh" 'log_legacy_conflict
 assert_not_contains "$ROOT/zapret2/scripts/zapret-start.sh" 'prior_family_is_healthy()'
 assert_not_contains "$ROOT/zapret2/scripts/zapret-start.sh" 'prior_chain_uses_exact_queue()'
 assert_contains "$ROOT/zapret2/scripts/zapret-stop.sh" 'update_lock_allows_stop'
-assert_contains "$ROOT/customize.sh" 'Refusing ZIP with unexpected module id'
-assert_contains "$ROOT/customize.sh" 'Module ZIP has no nfqws2 binary'
-assert_contains "$ROOT/customize.sh" 'Module extraction failed'
-assert_contains "$ROOT/customize.sh" 'COMMIT_HANDOFF=1'
-assert_contains "$ROOT/customize.sh" 'quiesce_live_module_before_publish'
-assert_contains "$ROOT/customize.sh" 'snapshot_live_service_state'
-assert_contains "$ROOT/customize.sh" 'restore_live_service_after_rollback'
-assert_contains "$ROOT/customize.sh" 'normalize_staged_legacy_wifi_only'
-assert_contains "$ROOT/customize.sh" 'zapret2/scripts/zapret-update-guard.sh'
-assert_contains "$ROOT/customize.sh" 'package_contract_validate_exact_tree "$STAGE_PATH" package'
+assert_contains "$ROOT/customize.sh" 'BOOTMODE:-false'
+assert_contains "$ROOT/customize.sh" 'EXPECTED_MODPATH="/data/adb/modules_update/zapret2"'
+assert_contains "$ROOT/customize.sh" 'LIFECYCLE_LOCK_WAIT_SECONDS=5'
+assert_contains "$ROOT/customize.sh" 'arm64) ARCH_DIR="arm64-v8a"'
+assert_contains "$ROOT/customize.sh" 'arm) ARCH_DIR="armeabi-v7a"'
+assert_contains "$ROOT/customize.sh" 'Preserving user configuration'
+assert_contains "$ROOT/customize.sh" 'package_contract_runtime_core_value "$LIVE_MODPATH" custom_cmdline_file'
+assert_contains "$ROOT/customize.sh" 'package_contract_safe_cmdline_name "$USER_CMDLINE_NAME"'
+assert_contains "$ROOT/customize.sh" 'write_install_generation'
+assert_contains "$ROOT/customize.sh" 'zapret-update-guard.sh'
+assert_not_contains "$ROOT/customize.sh" 'SKIPUNZIP=1'
+assert_not_contains "$ROOT/customize.sh" 'unzip '
+assert_not_contains "$ROOT/customize.sh" 'package_contract_validate_'
+assert_not_contains "$ROOT/customize.sh" '--scan-presets-machine'
+assert_not_contains "$ROOT/customize.sh" 'getprop '
+if [ "$(wc -l < "$ROOT/customize.sh")" -gt 450 ]; then
+    fail "boot-mode customization regressed into a full module installer"
+fi
+if grep -Fq -- '-exec chmod 0644 {} \;' "$ROOT/customize.sh" ||
+   grep -Fq -- '-exec chmod 0755 {} \;' "$ROOT/customize.sh"; then
+    fail "customization launches one chmod process per hostlist path"
+fi
 assert_contains "$ROOT/build.sh" "UPDATE_GUARD_ENTRY='zapret2/scripts/zapret-update-guard.sh'"
 assert_contains "$ROOT/build.sh" 'package_contract_assemble_package "$PWD" "$PACKAGE_ASSEMBLY_ROOT"'
-assert_contains "$ROOT/build.sh" 'package_contract_validate_exact_tree "$PACKAGE_VALIDATE_ROOT" package allow-meta'
+assert_contains "$ROOT/build.sh" 'package_contract_validate_exact_tree "$PACKAGE_VALIDATE_ROOT" package'
+assert_contains "$ROOT/build.sh" 'recovery flashing metadata must not be published'
 assert_contains "$ROOT/build.sh" 'VERSION_CODE="${BASH_REMATCH[1]}"'
 assert_contains "$ROOT/build.sh" '10#$VERSION_CODE > 2100000000'
 if grep -Fq "tr -cd '0-9'" "$ROOT/build.sh"; then
@@ -362,26 +369,17 @@ if grep -Fq "tr -cd '0-9'" "$ROOT/build.sh"; then
 fi
 assert_contains "$ROOT/.github/workflows/build.yml" "UPDATE_GUARD_ENTRY='zapret2/scripts/zapret-update-guard.sh'"
 assert_contains "$ROOT/.github/workflows/build.yml" 'package_contract_assemble_package "$PWD" "$PACKAGE_ASSEMBLY_ROOT"'
-assert_contains "$ROOT/.github/workflows/build.yml" 'package_contract_validate_exact_tree "$PACKAGE_VALIDATE_ROOT" package allow-meta'
-assert_contains "$ROOT/customize.sh" 'Published module action entry is not executable'
+assert_contains "$ROOT/.github/workflows/build.yml" 'package_contract_validate_exact_tree "$PACKAGE_VALIDATE_ROOT" package'
+assert_contains "$ROOT/.github/workflows/build.yml" 'Recovery flashing metadata must not be published'
 assert_contains "$ROOT/action.sh" 'zapret2/scripts/lifecycle/zapret-purge.sh'
 assert_contains "$ROOT/action.sh" '--magisk-action'
 assert_not_contains "$ROOT/action.sh" 'am start'
-assert_contains "$ROOT/customize.sh" 'zapret2/scripts/lifecycle/purge-contract.sh'
-assert_contains "$ROOT/customize.sh" 'zapret2/scripts/lifecycle/zapret-purge.sh'
 if grep -Eqi 'KSUWebUI|WebUI' "$ROOT/action.sh" "$ROOT/customize.sh" "$ROOT/module.prop"; then
     fail "retired module WebUI instructions remain"
 fi
 assert_contains "$ROOT/customize.sh" 'for user_lua in zapret-custom.lua init_vars.lua'
-assert_contains "$ROOT/customize.sh" 'MAX_PRESERVED_USER_LUA_BYTES=262144'
-assert_contains "$ROOT/customize.sh" 'MAX_PRESERVED_COMMAND_LINE_BYTES=262144'
-assert_contains "$ROOT/customize.sh" 'read_configured_cmdline_name'
-assert_contains "$ROOT/customize.sh" 'Configured command line preserved'
-assert_contains "$ROOT/customize.sh" 'case "$cmdline_mode" in 600|644)'
-assert_contains "$ROOT/customize.sh" 'stat -c %a "$target"'
-assert_contains "$ROOT/customize.sh" 'Refusing unsafe preserved Lua file'
-assert_contains "$ROOT/customize.sh" 'Preserved Lua file exceeds 256 KiB'
-assert_contains "$ROOT/customize.sh" 'The staged release'"'"'s core'
+assert_contains "$ROOT/customize.sh" 'preserve_bounded_file "zapret2/lua/$user_lua" 262144'
+assert_contains "$ROOT/customize.sh" 'safe_preserved_regular "$USER_CMDLINE_SOURCE" 262144'
 assert_contains "$ROOT/zapret2/scripts/command-builder.sh" 'refusing an implicit global fallback'
 assert_contains "$ROOT/zapret2/scripts/command-builder.sh" 'is missing or unsafe'
 assert_contains "$ROOT/zapret2/scripts/command-builder.sh" 'load_effective_core_config_readonly'
@@ -394,7 +392,6 @@ assert_contains "$ROOT/zapret2/scripts/command-builder.sh" 'command -v sha256sum
 assert_contains "$ROOT/zapret2/scripts/command-builder.sh" 'command -v awk'
 assert_contains "$ROOT/zapret2/scripts/command-builder.sh" '--validate-categories-machine'
 assert_contains "$ROOT/zapret2/scripts/command-builder.sh" '--validate-strategies-machine'
-assert_contains "$ROOT/customize.sh" '--validate-categories-machine'
 is_canonical_nfqws_id 0 || fail "root nfqws UID rejected"
 is_canonical_nfqws_id 2147483647 || fail "maximum nfqws UID rejected"
 if is_canonical_nfqws_id 01 || is_canonical_nfqws_id 2147483648; then
@@ -406,7 +403,6 @@ fi
 if grep -Fq 'for user_lua in zapret-lib.lua' "$ROOT/customize.sh"; then
     fail "installer preservation allowlist contains core Lua"
 fi
-assert_contains "$ROOT/build.sh" 'tr -d '\''\r'\'' < "$RECOVERY_UPDATE_BINARY"'
 assert_contains "$ROOT/.github/workflows/build.yml" 'needs.fetch-upstream.outputs.sha'
 assert_contains "$ROOT/.github/workflows/build.yml" 'zapret2/upstream-zapret2.commit'
 assert_contains "$ROOT/upstream/fetch-release.sh" '$API_ROOT/releases/latest'
@@ -430,17 +426,16 @@ assert_contains "$ROOT/zapret2/scripts/zapret-full-rollback.sh" 'Z2_RB_REBOOT_RE
 
 make_installer_zip() {
     fixture="$1" archive="$2"
-    assembly="$fixture-assembled"
-    mkdir -p "$fixture" "$assembly"
+    mkdir -p "$fixture"
     cp "$ROOT/module.prop" "$ROOT/customize.sh" "$ROOT/service.sh" "$ROOT/uninstall.sh" "$ROOT/action.sh" "$fixture/"
     cp -R "$ROOT/system" "$ROOT/zapret2" "$fixture/"
-    mkdir -p "$fixture/zapret2/bin/armeabi-v7a"
+    mkdir -p "$fixture/zapret2/bin/arm64-v8a" "$fixture/zapret2/bin/armeabi-v7a"
+    cp /bin/true "$fixture/zapret2/bin/arm64-v8a/nfqws2"
     cp "$fixture/zapret2/bin/arm64-v8a/nfqws2" "$fixture/zapret2/bin/armeabi-v7a/nfqws2"
-    (
-        . "$fixture/zapret2/scripts/package-contract.sh"
-        package_contract_assemble_package "$fixture" "$assembly"
-    )
-    (cd "$assembly" && zip -qr "$archive" module.prop customize.sh service.sh uninstall.sh action.sh system zapret2)
+    chmod 0755 "$fixture"/*.sh "$fixture"/zapret2/scripts/*.sh \
+        "$fixture"/zapret2/scripts/lifecycle/*.sh "$fixture"/system/bin/* \
+        "$fixture"/zapret2/bin/arm64-v8a/nfqws2 "$fixture"/zapret2/bin/armeabi-v7a/nfqws2
+    (cd "$fixture" && zip -qr "$archive" module.prop customize.sh service.sh uninstall.sh action.sh system zapret2)
 }
 
 assert_wrapper_package() {
@@ -449,6 +444,7 @@ assert_wrapper_package() {
     actual="$TMP/wrapper.actual"
     listing="$TMP/wrapper.list"
     zipinfo -1 "$archive" > "$listing"
+    if grep -Eq '^META-INF(/|$)' "$listing"; then fail "boot-mode package unexpectedly supports recovery flashing"; fi
     grep -Fxq 'system/bin/' "$listing" || fail "wrapper directory missing from $archive"
     [ "$(grep -Fxc 'action.sh' "$listing")" -eq 1 ] || fail "action.sh is missing or duplicated"
     zipinfo -l "$archive" action.sh | grep -Eq '^-rwxr-xr-x[[:space:]]' || fail "action.sh is not regular 0755"
@@ -493,32 +489,30 @@ if sh "$SERVICE_GATE/service.sh" >/dev/null 2>&1; then fail "special disable mar
 rmdir "$SERVICE_GATE/disable"
 
 run_customize_stubbed() {
-    archive="$1" abi="$2"
-    archive_case="${archive##*/}"
-    archive_case="${archive_case%.zip}"
+    archive="$1" magisk_arch="$2" boot_mode="${3:-true}"
+    test_modpath=/data/adb/modules_update/zapret2
+    test_livepath=/data/adb/modules/zapret2
+    test_state=/data/adb/zapret2-state
+    for test_path in "$test_modpath" "$test_livepath" "$test_state"; do
+        [ ! -e "$test_path" ] && [ ! -L "$test_path" ] || fail "installer unit-test path already exists: $test_path"
+    done
+    mkdir -p "$test_modpath"
+    unzip -q "$archive" -d "$test_modpath"
+    find "$test_modpath" -type d -exec chmod 0755 {} +
+    find "$test_modpath" -type f -exec chmod 0644 {} +
+    test_result=0
     (
-        MODPATH=/data/adb/modules_update/zapret2
+        MODPATH="$test_modpath"
         ZIPFILE="$archive"
-        abort() { echo "$*" >&2; exit 1; }
+        BOOTMODE="$boot_mode"
+        ARCH="$magisk_arch"
+        export MODPATH ZIPFILE BOOTMODE ARCH
+        abort() { echo "$*" >&2; rm -rf "$MODPATH"; exit 1; }
         ui_print() { :; }
-        getprop() { printf '%s\n' "$abi"; }
-        set_perm() { return 0; }
-        mktemp() {
-            case "${1:-}" in
-                -d)
-                    case "${2:-}" in
-                        *recovery*) suffix=recovery ;;
-                        *) suffix=install ;;
-                    esac
-                    work="$TMP/installer-work-$archive_case-$abi-$suffix"
-                    mkdir "$work"
-                    printf '%s\n' "$work"
-                    ;;
-                *) command mktemp "$@" ;;
-            esac
-        }
         . "$ROOT/customize.sh"
-    )
+    ) || test_result=$?
+    rm -rf "$test_modpath" "$test_livepath" "$test_state"
+    return "$test_result"
 }
 
 BAD_ID_ZIP="$TMP/bad-id.zip"
@@ -532,7 +526,7 @@ assert_contains "$TMP/bad-id.log" 'unexpected module id'
 BAD_ABI_ZIP="$TMP/bad-abi.zip"
 make_installer_zip "$TMP/bad-abi" "$BAD_ABI_ZIP"
 assert_wrapper_package "$BAD_ABI_ZIP"
-for bad_abi in mips64 x86 x86_64 arm64-custom armeabi-v7a-custom; do
+for bad_abi in mips64 x86 x64 riscv64 arm64-custom; do
     bad_abi_log="$TMP/bad-abi.$bad_abi.log"
     if run_customize_stubbed "$BAD_ABI_ZIP" "$bad_abi" >"$bad_abi_log" 2>&1; then
         fail "installer accepted unsupported ABI: $bad_abi"
@@ -540,13 +534,18 @@ for bad_abi in mips64 x86 x86_64 arm64-custom armeabi-v7a-custom; do
     assert_contains "$bad_abi_log" 'Unsupported architecture'
 done
 
+if run_customize_stubbed "$BAD_ABI_ZIP" arm64 false >"$TMP/recovery-install.log" 2>&1; then
+    fail "installer accepted a recovery-mode invocation"
+fi
+assert_contains "$TMP/recovery-install.log" 'recovery flashing is unsupported'
+
 MISSING_GUARD_ZIP="$TMP/missing-guard.zip"
 make_installer_zip "$TMP/missing-guard" "$MISSING_GUARD_ZIP"
 zip -qd "$MISSING_GUARD_ZIP" zapret2/scripts/zapret-update-guard.sh
-if run_customize_stubbed "$MISSING_GUARD_ZIP" arm64-v8a >"$TMP/missing-guard.log" 2>&1; then
+if run_customize_stubbed "$MISSING_GUARD_ZIP" arm64 >"$TMP/missing-guard.log" 2>&1; then
     fail "installer accepted a package without the update guard"
 fi
-assert_contains "$TMP/missing-guard.log" 'zapret2/scripts/zapret-update-guard.sh'
+assert_contains "$TMP/missing-guard.log" 'zapret-update-guard.sh'
 
 Z2_TEST_TMP="$TMP" sh "$ROOT/tests/shell/full-rollback.sh"
 Z2_TEST_TMP="$TMP" sh "$ROOT/tests/shell/purge-contract.sh"
@@ -561,6 +560,7 @@ Z2_TEST_TMP="$TMP" sh "$ROOT/tests/shell/package-owner-protocol.sh"
 Z2_TEST_TMP="$TMP" sh "$ROOT/tests/shell/update-cleanup-v2.sh"
 Z2_TEST_TMP="$TMP" sh "$ROOT/tests/shell/transactional-start.sh"
 Z2_TEST_TMP="$TMP" sh "$ROOT/tests/shell/detached-build.sh"
+Z2_TEST_TMP="$TMP" sh "$ROOT/tests/shell/magisk-boot-installer.sh"
 Z2_TEST_TMP="$TMP" sh "$ROOT/tests/shell/packaging-recovery-flow.sh"
 Z2_TEST_TMP="$TMP" sh "$ROOT/tests/shell/preset-contract.sh"
 

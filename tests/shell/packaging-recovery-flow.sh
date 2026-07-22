@@ -7,7 +7,6 @@ CASE="$TMP/packaging-recovery"
 STATE="$CASE/state"
 AUDIT_MOD="$CASE/audit-module"
 FIXTURE="$CASE/package"
-ASSEMBLY="$CASE/package-assembled"
 ARCHIVE="$CASE/module.zip"
 MOCK="$CASE/bin"
 LIVE=/data/adb/modules/zapret2
@@ -241,7 +240,7 @@ if audit_recovery_artifacts uninstall; then fail "unsafe symlink recovery artifa
 rm -f "$FULL_ROLLBACK_META"
 
 # Build a realistic installer archive from the current package contract.
-mkdir -p "$FIXTURE" "$ASSEMBLY"
+mkdir -p "$FIXTURE"
 cp "$ROOT/module.prop" "$ROOT/customize.sh" "$ROOT/service.sh" "$ROOT/uninstall.sh" \
     "$ROOT/action.sh" "$FIXTURE/"
 cp -R "$ROOT/system" "$ROOT/zapret2" "$FIXTURE/"
@@ -251,22 +250,27 @@ mkdir -p "$FIXTURE/zapret2/bin/armeabi-v7a"
 cp "$FIXTURE/zapret2/bin/arm64-v8a/nfqws2" "$FIXTURE/zapret2/bin/armeabi-v7a/nfqws2"
 rm -f "$FIXTURE/disable" "$FIXTURE/zapret2/install-generation.meta"
 chmod 0755 "$FIXTURE"/*.sh "$FIXTURE"/zapret2/scripts/*.sh "$FIXTURE"/system/bin/*
-. "$FIXTURE/zapret2/scripts/package-contract.sh"
-package_contract_assemble_package "$FIXTURE" "$ASSEMBLY" ||
-    fail "package assembly: $PACKAGE_CONTRACT_CODE $PACKAGE_CONTRACT_DETAIL"
-(cd "$ASSEMBLY" && zip -qr "$ARCHIVE" module.prop customize.sh service.sh uninstall.sh action.sh system zapret2)
+(cd "$FIXTURE" && zip -qr "$ARCHIVE" module.prop customize.sh service.sh uninstall.sh action.sh system zapret2)
 
 run_installer() {
+    rm -rf "$UPDATE"
+    mkdir -p "$UPDATE"
+    unzip -q "$ARCHIVE" -d "$UPDATE"
+    find "$UPDATE" -type d -exec chmod 0755 {} +
+    find "$UPDATE" -type f -exec chmod 0644 {} +
+    find "$UPDATE/system/bin" -type f -exec chmod 0755 {} +
     (
         MODPATH="$UPDATE"
         ZIPFILE="$ARCHIVE"
-        export MODPATH ZIPFILE
-        abort() { echo "$*" >&2; exit 1; }
+        BOOTMODE=true
+        ARCH=arm64
+        export MODPATH ZIPFILE BOOTMODE ARCH
+        abort() { echo "$*" >&2; rm -rf "$MODPATH"; exit 1; }
         ui_print() { :; }
-        getprop() { printf '%s\n' arm64-v8a; }
-        set_perm() { chown "$2:$3" "$1" && chmod "$4" "$1"; }
         . "$ROOT/customize.sh"
-    )
+    ) || return $?
+    # Magisk removes installer-only files after customize.sh returns.
+    rm -f "$UPDATE/customize.sh"
 }
 
 # The installer is an Android program and invokes its validated package
@@ -280,9 +284,15 @@ elif [ ! -x /system/bin/sh ]; then
     fail "/system exists without a usable /system/bin/sh"
 fi
 
-# A root-manager disable fence must survive a standard modules_update install
-# byte-for-byte and remain the exact root-private, empty marker.
-mkdir -p "$LIVE"
+# A fresh boot-mode install publishes only to modules_update.
+run_installer || fail "fresh standard install failed"
+[ -f "$UPDATE/zapret2/install-generation.meta" ] || fail "fresh install generation was not published"
+grep -Eq '^archive_sha256=[0-9a-f]{64}$' "$UPDATE/zapret2/install-generation.meta" || fail "archive hash is invalid"
+[ ! -e "$UPDATE/customize.sh" ] || fail "installer-only customize.sh remained in the installed shape"
+mv "$UPDATE" "$LIVE"
+
+# A root-manager disable fence on a complete live module must survive a
+# standard modules_update install byte-for-byte.
 : > "$LIVE/disable"
 chmod 0600 "$LIVE/disable"
 run_installer || fail "disabled standard install failed"

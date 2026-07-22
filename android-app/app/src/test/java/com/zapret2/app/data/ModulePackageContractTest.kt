@@ -86,9 +86,10 @@ class ModulePackageContractTest {
     }
 
     @Test
-    fun hotUpdateExecutableContractIncludesEveryRootExecutable() {
+    fun packageAndInstalledRootExecutablesAreSeparated() {
+        assertEquals(setOf("customize.sh"), ModulePackageContract.installerOnlyExecutables.toSet())
         assertEquals(
-            setOf("customize.sh", "service.sh", "uninstall.sh", "action.sh"),
+            setOf("service.sh", "uninstall.sh", "action.sh"),
             ModulePackageContract.hotUpdateRootExecutables.toSet(),
         )
         assertEquals(listOf(ModulePackageContract.RUNTIME_MANIFEST_PATH), ModulePackageContract.requiredRegularFiles)
@@ -504,6 +505,20 @@ class ModulePackageContractTest {
                     unsafeMeta,
                     "unsafe-meta-entry.zip",
                     mapOf("META-INF/../escape" to byteArrayOf(1)),
+                ),
+                "arm64-v8a",
+            ),
+        )
+
+        val recoveryMeta = temporaryFolder.newFolder("recovery-meta-entry")
+        writeValidPackage(recoveryMeta)
+        assertEquals(
+            "Recovery flashing metadata is unsupported",
+            ModulePackageContract.validateArchive(
+                zip(
+                    recoveryMeta,
+                    "recovery-meta-entry.zip",
+                    mapOf("META-INF/com/google/android/update-binary" to byteArrayOf(1)),
                 ),
                 "arm64-v8a",
             ),

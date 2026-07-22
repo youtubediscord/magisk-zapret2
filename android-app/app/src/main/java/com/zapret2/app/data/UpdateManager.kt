@@ -1012,6 +1012,15 @@ class UpdateManager(private val context: Context) {
                 append("cp -R ").append(RootFileIo.shellQuote("${stagingDir.absolutePath}/.")).append(' ')
                     .append(RootFileIo.shellQuote(updateDir)).append("\n")
                 append("status=${'$'}?\n")
+                val installerOnlyCandidate = "$updateDir/customize.sh"
+                append("if [ \"${'$'}status\" -eq 0 ]; then\n")
+                append("  [ -f ").append(RootFileIo.shellQuote(installerOnlyCandidate))
+                    .append(" ] && [ ! -L ").append(RootFileIo.shellQuote(installerOnlyCandidate))
+                    .append(" ] || status=1\n")
+                append("  if [ \"${'$'}status\" -eq 0 ]; then rm -f ")
+                    .append(RootFileIo.shellQuote(installerOnlyCandidate))
+                    .append(" || status=${'$'}?; fi\n")
+                append("fi\n")
                 append(ModuleUpdatePreservation.buildShell(MODULE_DIR, updateDir))
                 append(InstallGenerationMetadata.buildPublicationShell(updateDir, installGeneration))
                 append("if [ \"${'$'}status\" -eq 0 ]; then\n")
@@ -1402,19 +1411,11 @@ class UpdateManager(private val context: Context) {
         }.distinct().joinToString(" ", transform = RootFileIo::shellQuote)
         val result = ServiceLifecycleController.executeRoot(
             """
-                z2_count=0
-                z2_root=
-                for z2_candidate in ${RootFileIo.shellQuote(MODULE_DIR)} ${RootFileIo.shellQuote(MODULE_UPDATE_DIR)}; do
-                    if [ -e "${'$'}z2_candidate" ] || [ -L "${'$'}z2_candidate" ]; then
-                        [ -d "${'$'}z2_candidate" ] && [ ! -L "${'$'}z2_candidate" ] &&
-                            [ "${'$'}(stat -c %u "${'$'}z2_candidate" 2>/dev/null)" = 0 ] &&
-                            z2_root_mode=${'$'}(stat -c %a "${'$'}z2_candidate" 2>/dev/null) || exit 1
-                        case "${'$'}z2_root_mode" in 700|711|750|751|755) ;; *) exit 1 ;; esac
-                        z2_count=${'$'}((z2_count + 1))
-                        z2_root=${'$'}z2_candidate
-                    fi
-                done
-                [ "${'$'}z2_count" = 1 ] || exit 1
+                z2_root=${RootFileIo.shellQuote(MODULE_UPDATE_DIR)}
+                [ -d "${'$'}z2_root" ] && [ ! -L "${'$'}z2_root" ] &&
+                    [ "${'$'}(stat -c %u "${'$'}z2_root" 2>/dev/null)" = 0 ] &&
+                    z2_root_mode=${'$'}(stat -c %a "${'$'}z2_root" 2>/dev/null) || exit 1
+                case "${'$'}z2_root_mode" in 700|711|750|751|755) ;; *) exit 1 ;; esac
                 for z2_relative in $regularFiles; do
                     z2_file="${'$'}z2_root/${'$'}z2_relative"
                     [ -f "${'$'}z2_file" ] && [ ! -L "${'$'}z2_file" ] && [ -s "${'$'}z2_file" ] &&
@@ -1439,7 +1440,7 @@ class UpdateManager(private val context: Context) {
         val installedRoot = result.stdout.singleOrNull()
             ?.takeIf { result.success && it.startsWith("Z2_STANDARD_INSTALL_ROOT=") }
             ?.removePrefix("Z2_STANDARD_INSTALL_ROOT=")
-            ?.takeIf { it in setOf(MODULE_DIR, MODULE_UPDATE_DIR) }
+            ?.takeIf { it == MODULE_UPDATE_DIR }
             ?: return false
         val installedVersion = RootFileIo.readSecureRegularText(
             "$installedRoot/module.prop",

@@ -403,18 +403,11 @@ jobs:
           chmod +x zapret2/scripts/*.sh
           chmod +x zapret2/scripts/lifecycle/*.sh
           chmod +x system/bin/zapret2-start system/bin/zapret2-stop system/bin/zapret2-status system/bin/zapret2-restart system/bin/zapret2-full-rollback
-          chmod 0755 META-INF/com/google/android/update-binary
           test "$(sed -n '2p' zapret2/runtime-manifest.tsv | tr -d '\r')" = 'owner_protocol|6|zapret2-firewall'
           . ./zapret2/scripts/package-contract.sh
           package_contract_apply_modes "$PWD" package
           package_contract_validate_all "$PWD" package
           package_contract_validate_modes "$PWD" package
-          test "$(sed -n '1p' META-INF/com/google/android/update-binary)" = '#!/sbin/sh'
-          if LC_ALL=C grep -q $'\r' META-INF/com/google/android/update-binary; then
-            echo "Recovery update-binary contains CR bytes" >&2
-            exit 1
-          fi
-
           # The command entry points are immutable regular package assets. The
           # Android updater validates the same two-line byte contract.
           test -d system/bin
@@ -471,18 +464,11 @@ jobs:
           . ./zapret2/scripts/package-contract.sh
           PACKAGE_ASSEMBLY_ROOT="$(mktemp -d)"
           package_contract_assemble_package "$PWD" "$PACKAGE_ASSEMBLY_ROOT"
-          mkdir -p "$PACKAGE_ASSEMBLY_ROOT/META-INF/com/google/android"
-          cp META-INF/com/google/android/updater-script \
-            "$PACKAGE_ASSEMBLY_ROOT/META-INF/com/google/android/updater-script"
-          cp META-INF/com/google/android/update-binary \
-            "$PACKAGE_ASSEMBLY_ROOT/META-INF/com/google/android/update-binary"
-          chmod 0644 "$PACKAGE_ASSEMBLY_ROOT/META-INF/com/google/android/updater-script"
-          chmod 0755 "$PACKAGE_ASSEMBLY_ROOT/META-INF/com/google/android/update-binary"
           rm -f "$ZIP_NAME"
           (
             cd "$PACKAGE_ASSEMBLY_ROOT"
             zip -r "$GITHUB_WORKSPACE/$ZIP_NAME" \
-              META-INF module.prop customize.sh service.sh uninstall.sh action.sh system zapret2
+              module.prop customize.sh service.sh uninstall.sh action.sh system zapret2
           )
 
           # Print and assert the distributable layout, file type, mode, and
@@ -493,7 +479,7 @@ jobs:
           package_contract_validate_zip_names "$PWD" "$ZIP_LIST"
           unzip -q "$ZIP_NAME" -d "$PACKAGE_VALIDATE_ROOT"
           package_contract_validate_all "$PACKAGE_VALIDATE_ROOT" package
-          package_contract_validate_exact_tree "$PACKAGE_VALIDATE_ROOT" package allow-meta
+          package_contract_validate_exact_tree "$PACKAGE_VALIDATE_ROOT" package
           package_contract_validate_modes "$PACKAGE_VALIDATE_ROOT" package
           grep -Fxq 'system/bin/' "$ZIP_LIST"
           WRAPPER_EXPECTED="$(mktemp)"
@@ -537,12 +523,10 @@ jobs:
           done
           test "$(grep -Fxc 'action.sh' "$ZIP_LIST")" -eq 1
           zipinfo -l "$ZIP_NAME" action.sh | grep -Eq '^-rwxr-xr-x[[:space:]]'
-          RECOVERY_ENTRY='META-INF/com/google/android/update-binary'
-          test "$(grep -Fxc "$RECOVERY_ENTRY" "$ZIP_LIST")" -eq 1
-          zipinfo -l "$ZIP_NAME" "$RECOVERY_ENTRY" | grep -Eq '^-rwxr-xr-x[[:space:]]'
-          unzip -p "$ZIP_NAME" "$RECOVERY_ENTRY" > "$WRAPPER_ACTUAL"
-          test "$(sed -n '1p' "$WRAPPER_ACTUAL")" = '#!/sbin/sh'
-          if LC_ALL=C grep -q $'\r' "$WRAPPER_ACTUAL"; then exit 1; fi
+          if grep -Eq '^META-INF(/|$)' "$ZIP_LIST"; then
+            echo "Recovery flashing metadata must not be published" >&2
+            exit 1
+          fi
           PROVENANCE_ENTRY='zapret2/upstream-zapret2.commit'
           test "$(grep -Fxc "$PROVENANCE_ENTRY" "$ZIP_LIST")" -eq 1
           printf '%s\n' "$UPSTREAM_ZAPRET2_SHA" > "$WRAPPER_EXPECTED"

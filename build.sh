@@ -59,7 +59,7 @@ for arch in arm64-v8a armeabi-v7a; do
 done
 
 if [ $MISSING_BIN -eq 1 ]; then
-    echo "Refusing to create a module ZIP that customize.sh cannot install."
+    echo "Refusing to create a module ZIP without both supported ABI binaries."
     exit 1
 fi
 
@@ -93,21 +93,18 @@ package_contract_validate_all "$PWD" package || {
 WRAPPER_EXPECTED="$(mktemp)"
 WRAPPER_ACTUAL="$(mktemp)"
 ZIP_LIST="$(mktemp)"
-UPDATE_BINARY_ACTUAL="$(mktemp)"
-PACKAGE_META_ROOT="$(mktemp -d)"
 PACKAGE_ASSEMBLY_ROOT="$(mktemp -d)"
 PACKAGE_VALIDATE_ROOT="$(mktemp -d)"
 cleanup_build_temps() {
-    rm -f "$WRAPPER_EXPECTED" "$WRAPPER_ACTUAL" "$ZIP_LIST" "$UPDATE_BINARY_ACTUAL"
-    [ -z "${PACKAGE_META_ROOT:-}" ] || rm -rf "$PACKAGE_META_ROOT"
+    rm -f "$WRAPPER_EXPECTED" "$WRAPPER_ACTUAL" "$ZIP_LIST"
     [ -z "${PACKAGE_ASSEMBLY_ROOT:-}" ] || rm -rf "$PACKAGE_ASSEMBLY_ROOT"
     [ -z "${PACKAGE_VALIDATE_ROOT:-}" ] || rm -rf "$PACKAGE_VALIDATE_ROOT"
 }
 trap cleanup_build_temps EXIT
 trap 'exit 1' HUP INT TERM
 
-# Match the immutable command-entry contract enforced by customize.sh, the
-# Android hot updater, and the release workflow.
+# Match the immutable command-entry contract enforced by the Android hot
+# updater and the release workflow.
 test -d system/bin
 test ! -L system
 test ! -L system/bin
@@ -149,32 +146,17 @@ ZIP_PATH="$OUTPUT_DIR_ABS/$ZIP_NAME"
 
 echo "Creating $ZIP_NAME..."
 
-RECOVERY_UPDATE_BINARY="META-INF/com/google/android/update-binary"
-NORMALIZED_UPDATE_BINARY="$PACKAGE_META_ROOT/$RECOVERY_UPDATE_BINARY"
-test -f "$RECOVERY_UPDATE_BINARY"
-test ! -L "$RECOVERY_UPDATE_BINARY"
-mkdir -p "$(dirname "$NORMALIZED_UPDATE_BINARY")"
-tr -d '\r' < "$RECOVERY_UPDATE_BINARY" > "$NORMALIZED_UPDATE_BINARY"
-chmod 0755 "$NORMALIZED_UPDATE_BINARY"
-test "$(sed -n '1p' "$NORMALIZED_UPDATE_BINARY")" = '#!/sbin/sh'
-if LC_ALL=C grep -q "$(printf '\r')" "$NORMALIZED_UPDATE_BINARY"; then exit 1; fi
-
 package_contract_assemble_package "$PWD" "$PACKAGE_ASSEMBLY_ROOT" || {
     echo "ERROR: cannot assemble exact runtime-manifest package: $PACKAGE_CONTRACT_CODE $PACKAGE_CONTRACT_DETAIL"
     exit 1
 }
-mkdir -p "$PACKAGE_ASSEMBLY_ROOT/META-INF/com/google/android"
-cp META-INF/com/google/android/updater-script "$PACKAGE_ASSEMBLY_ROOT/META-INF/com/google/android/updater-script"
-cp "$NORMALIZED_UPDATE_BINARY" "$PACKAGE_ASSEMBLY_ROOT/$RECOVERY_UPDATE_BINARY"
-chmod 0644 "$PACKAGE_ASSEMBLY_ROOT/META-INF/com/google/android/updater-script"
-chmod 0755 "$PACKAGE_ASSEMBLY_ROOT/$RECOVERY_UPDATE_BINARY"
 
 # Never update an existing archive in place: Info-ZIP otherwise retains files
 # deleted from the exact manifest-derived assembly tree.
 rm -f "$ZIP_PATH"
 (
     cd "$PACKAGE_ASSEMBLY_ROOT"
-    zip -r "$ZIP_PATH" META-INF module.prop customize.sh service.sh uninstall.sh action.sh system zapret2
+    zip -r "$ZIP_PATH" module.prop customize.sh service.sh uninstall.sh action.sh system zapret2
 )
 
 # Fail locally on the same missing/duplicate/type/mode/content regressions that
@@ -189,7 +171,7 @@ package_contract_validate_all "$PACKAGE_VALIDATE_ROOT" package || {
     echo "ERROR: extracted ZIP violates runtime manifest: $PACKAGE_CONTRACT_CODE $PACKAGE_CONTRACT_DETAIL"
     exit 1
 }
-package_contract_validate_exact_tree "$PACKAGE_VALIDATE_ROOT" package allow-meta || {
+package_contract_validate_exact_tree "$PACKAGE_VALIDATE_ROOT" package || {
     echo "ERROR: extracted ZIP contains undeclared entries: $PACKAGE_CONTRACT_CODE $PACKAGE_CONTRACT_DETAIL"
     exit 1
 }
@@ -237,12 +219,10 @@ for PURGE_SCRIPT_ENTRY in \
 done
 test "$(grep -Fxc 'action.sh' "$ZIP_LIST")" -eq 1
 zipinfo -l "$ZIP_PATH" action.sh | grep -Eq '^-rwxr-xr-x[[:space:]]'
-test "$(grep -Fxc "$RECOVERY_UPDATE_BINARY" "$ZIP_LIST")" -eq 1
-zipinfo -l "$ZIP_PATH" "$RECOVERY_UPDATE_BINARY" | grep -Eq '^-rwxr-xr-x[[:space:]]'
-unzip -p "$ZIP_PATH" "$RECOVERY_UPDATE_BINARY" > "$UPDATE_BINARY_ACTUAL"
-cmp -s "$NORMALIZED_UPDATE_BINARY" "$UPDATE_BINARY_ACTUAL"
-test "$(sed -n '1p' "$UPDATE_BINARY_ACTUAL")" = '#!/sbin/sh'
-if LC_ALL=C grep -q "$(printf '\r')" "$UPDATE_BINARY_ACTUAL"; then exit 1; fi
+if grep -Eq '^META-INF(/|$)' "$ZIP_LIST"; then
+    echo "ERROR: recovery flashing metadata must not be published" >&2
+    exit 1
+fi
 
 echo ""
 echo "Build complete: $ZIP_PATH"

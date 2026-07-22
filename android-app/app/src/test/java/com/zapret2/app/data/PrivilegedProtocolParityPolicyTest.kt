@@ -691,7 +691,8 @@ class PrivilegedProtocolParityPolicyTest {
                 .contains("local LC_ALL=C")
         )
         assertTrue(packageContract.contains("package_contract_safe_path_component_lengths \"\$path\""))
-        assertTrue(packageContract.contains("package_contract_safe_preset_name \"\${path##*/}\""))
+        assertTrue(packageContract.contains("package_contract_safe_preset_name_syntax \"\${path##*/}\""))
+        assertTrue(packageContract.contains("MANIFEST_CONTROL_CHARACTER"))
         assertTrue(packageContract.contains("package_contract_safe_preset_name \"\$preset\""))
         assertTrue(commandBuilder.contains("command_builder_safe_file_name_byte_length \"\$name\""))
         assertTrue(
@@ -705,8 +706,13 @@ class PrivilegedProtocolParityPolicyTest {
         assertTrue(modulePackageContract.contains("expandedPaths.size != expandedPaths.toSet().size"))
         assertTrue(updateManager.contains("size > MAX_ARCHIVE_PATH_COMPONENT_BYTES"))
         assertTrue(updateManager.contains("ModulePackageContract.archivePathTopologyIsValid(archivePaths)"))
-        assertTrue(packageContract.contains("package_contract_file_path_collides"))
-        assertTrue(packageContract.contains("package_contract_archive_path_collides"))
+        assertTrue(packageContract.contains("package_contract_validate_manifest_paths_file"))
+        assertTrue(packageContract.contains("package_contract_validate_zip_topology_file"))
+        val zipValidator = packageContract
+            .substringAfter("package_contract_validate_zip_names() {")
+            .substringBefore("package_contract_apply_modes() {")
+        assertFalse(zipValidator.contains("grep -Fxc"))
+        assertFalse(zipValidator.contains("package_contract_archive_path_collides"))
         assertFalse(RootFileIo.isSimpleFileName("delete\u007fname.txt", ".txt"))
         assertFalse(RuntimeConfigStore.isSafeCommandLineFileName("delete\u007fname.txt"))
 
@@ -742,8 +748,8 @@ class PrivilegedProtocolParityPolicyTest {
         assertTrue(presetValidator.contains("*.TXT|*.Txt|*.tXt|*.txT|*.TXt|*.TxT|*.tXT"))
         assertTrue(presetValidator.contains("*.txt) ;;"))
         val packagePresetValidator = packageContract
-            .substringAfter("package_contract_safe_preset_name() {")
-            .substringBefore("package_contract_safe_cmdline_name() {")
+            .substringAfter("package_contract_safe_preset_name_syntax() {")
+            .substringBefore("package_contract_safe_preset_name() {")
         assertTrue(packagePresetValidator.contains("*.TXT|*.Txt|*.tXt|*.txT|*.TXt|*.TxT|*.tXT"))
         assertTrue(packagePresetValidator.contains("*.txt) ;;"))
         val categoryValidator = commandBuilder.substringAfter("is_safe_category_txt_name() {")
