@@ -330,7 +330,8 @@ class ViewModelPrivilegedBoundaryPolicyTest {
         assertTrue(preferenceRead > ioBoundary)
         assertTrue(statePublication > preferenceRead)
         assertFalse(control.contains("showQuicBanner = !prefs.getBoolean"))
-        assertTrue(control.contains("prefs.edit().putBoolean(\"quic_banner_dismissed\", true).apply()"))
+        assertTrue(control.contains("import androidx.core.content.edit"))
+        assertTrue(control.contains("prefs.edit { putBoolean(\"quic_banner_dismissed\", true) }"))
     }
 
     @Test

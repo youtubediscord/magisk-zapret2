@@ -1,7 +1,6 @@
 package com.zapret2.app.ui.screen
 
 import android.content.Intent
-import android.net.Uri
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
@@ -44,6 +43,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.core.net.toUri
 import com.zapret2.app.ui.theme.SizeTokens
 import com.zapret2.app.ui.theme.SpacingTokens
 import com.zapret2.app.BuildConfig
@@ -60,7 +60,7 @@ fun AboutScreen() {
     val openDestination: (AboutDestination) -> Unit = { destination ->
         runCatching {
             context.startActivity(
-                Intent(Intent.ACTION_VIEW, Uri.parse(destination.httpsUrl)).apply {
+                Intent(Intent.ACTION_VIEW, destination.httpsUrl.toUri()).apply {
                     addCategory(Intent.CATEGORY_BROWSABLE)
                 },
             )
