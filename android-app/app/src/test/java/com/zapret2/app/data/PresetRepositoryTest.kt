@@ -65,6 +65,13 @@ class PresetRepositoryTest {
             ),
         )
         assertEquals(
+            PresetValidation.Quarantined(PresetIssue.FORBIDDEN_IPCACHE_OPTION),
+            PresetMachineProtocol.parseValidation(
+                listOf("Z2_PRESET_VALIDATION\t0\tFORBIDDEN_IPCACHE_OPTION\tgood.txt"),
+                "good.txt",
+            ),
+        )
+        assertEquals(
             PresetValidation.ProtocolFailure,
             PresetMachineProtocol.parseValidation(
                 listOf("Z2_PRESET_VALIDATION\t1\tOK\tother.txt"),

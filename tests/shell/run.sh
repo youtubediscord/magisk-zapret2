@@ -37,6 +37,13 @@ for script in "$ROOT"/*.sh "$ROOT"/zapret2/scripts/*.sh "$ROOT"/tests/shell/*.sh
     esac
 done
 
+for strategy_catalog in "$ROOT"/zapret2/strategies-*.ini; do
+    if grep -q -- '--ipcache' "$strategy_catalog"; then
+        fail "forbidden ipcache option remains in $strategy_catalog"
+    fi
+done
+assert_not_contains "$ROOT/zapret2/scripts/command-builder.sh" 'OPTS="$OPTS --ipcache'
+
 CATEGORY_FIXTURE="$TMP/category-zapret"
 cp -R "$ROOT/zapret2" "$CATEGORY_FIXTURE"
 CATEGORY_OUTPUT="$(sh "$CATEGORY_FIXTURE/scripts/command-builder.sh" --validate-categories-machine "$CATEGORY_FIXTURE")" ||
@@ -85,6 +92,18 @@ CMDLINE_MACHINE_OK="$(sh "$CMDLINE_MACHINE_FIXTURE/scripts/command-builder.sh" \
     fail "valid custom cmdline machine validation failed"
 [ "$CMDLINE_MACHINE_OK" = "$(printf 'Z2_CMDLINE\t1\tOK\tValid.txt')" ] ||
     fail "custom cmdline OK output is not exact"
+for FORBIDDEN_IPCACHE_OPTION in '--ipcache-hostname' '--ipcache-lifetime=1'; do
+    printf '%s\n' "$FORBIDDEN_IPCACHE_OPTION" > "$CMDLINE_MACHINE_FIXTURE/Forbidden.txt"
+    if CMDLINE_MACHINE_FORBIDDEN="$(sh "$CMDLINE_MACHINE_FIXTURE/scripts/command-builder.sh" \
+        --validate-cmdline-machine "$CMDLINE_MACHINE_FIXTURE" Forbidden.txt)"; then
+        fail "custom cmdline accepted forbidden ipcache option"
+    else
+        CMDLINE_MACHINE_RC=$?
+    fi
+    [ "$CMDLINE_MACHINE_RC" -eq 1 ] || fail "forbidden ipcache option did not exit 1"
+    [ "$CMDLINE_MACHINE_FORBIDDEN" = "$(printf 'Z2_CMDLINE\t1\tINVALID\tForbidden.txt')" ] ||
+        fail "forbidden ipcache option output is not exact"
+done
 printf '%s\n' '--filter-tcp=bad' > "$CMDLINE_MACHINE_FIXTURE/Invalid.txt"
 if CMDLINE_MACHINE_INVALID="$(sh "$CMDLINE_MACHINE_FIXTURE/scripts/command-builder.sh" \
     --validate-cmdline-machine "$CMDLINE_MACHINE_FIXTURE" Invalid.txt)"; then
@@ -111,6 +130,9 @@ printf '%s\n' '[default]' 'args=--lua-desync=duplicate' >> "$CATEGORY_FIXTURE/st
 assert_fails sh "$CATEGORY_FIXTURE/scripts/command-builder.sh" --validate-strategies-machine "$CATEGORY_FIXTURE"
 cp "$TMP/strategies-tcp.valid" "$CATEGORY_FIXTURE/strategies-tcp.ini"
 sed '0,/^args=/s/^args=.*/args=/' "$TMP/strategies-tcp.valid" > "$CATEGORY_FIXTURE/strategies-tcp.ini"
+assert_fails sh "$CATEGORY_FIXTURE/scripts/command-builder.sh" --validate-strategies-machine "$CATEGORY_FIXTURE"
+cp "$TMP/strategies-tcp.valid" "$CATEGORY_FIXTURE/strategies-tcp.ini"
+sed '0,/^args=/s/^args=/args=--ipcache-hostname /' "$TMP/strategies-tcp.valid" > "$CATEGORY_FIXTURE/strategies-tcp.ini"
 assert_fails sh "$CATEGORY_FIXTURE/scripts/command-builder.sh" --validate-strategies-machine "$CATEGORY_FIXTURE"
 cp "$TMP/strategies-tcp.valid" "$CATEGORY_FIXTURE/strategies-tcp.ini"
 cp "$CATEGORY_FIXTURE/categories.ini" "$TMP/categories.valid"
@@ -390,6 +412,9 @@ assert_contains "$ROOT/build.sh" 'root_own_validation_tree "$PACKAGE_SOURCE_VALI
 assert_contains "$ROOT/build.sh" 'root_own_validation_tree "$PACKAGE_VALIDATE_ROOT"'
 assert_contains "$ROOT/build.sh" 'VERSION_CODE="${BASH_REMATCH[1]}"'
 assert_contains "$ROOT/build.sh" '10#$VERSION_CODE > 2100000000'
+assert_contains "$ROOT/build.sh" "EXPECTED_OWNER_PROTOCOL_LINE='owner_protocol|7|zapret2-firewall'"
+assert_contains "$ROOT/zapret2/scripts/package-contract.sh" 'PACKAGE_CONTRACT_OWNER_PROTOCOL=7'
+assert_contains "$ROOT/.github/workflows/build.yml" "owner_protocol|7|zapret2-firewall"
 if grep -Fq "tr -cd '0-9'" "$ROOT/build.sh"; then
     fail "local builder derives versionCode by concatenating unrelated version segments"
 fi

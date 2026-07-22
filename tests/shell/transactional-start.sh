@@ -39,11 +39,11 @@ case "$1" in
     post|signal)
         CONTROLLED_TEARDOWN_STARTED=1; FIREWALL_MUTATED=1
         PRIOR_HEALTHY=1; PRIOR_TORN_DOWN=1; PRIOR_GENERATION=prior-generation
-        PRIOR_QNUM=200; PRIOR_ARGV_HEX=0011; PRIOR_IPV6=0
+        PRIOR_QNUM=200; PRIOR_ARGV_SHA256=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; PRIOR_IPV6=0
         rollback_start() { echo rollback-new >> "$LOG"; FIREWALL_MUTATED=0; return 0; }
         restore_prior_healthy_generation() {
             [ "$PRIOR_GENERATION" = prior-generation ] && [ "$PRIOR_QNUM" = 200 ] &&
-                [ "$PRIOR_ARGV_HEX" = 0011 ] && [ "$PRIOR_IPV6" = 0 ] || return 1
+                [ "$PRIOR_ARGV_SHA256" = aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa ] && [ "$PRIOR_IPV6" = 0 ] || return 1
             echo exact-prior-restored >> "$LOG"
             HEALTH_RULES=6; HEALTH_PID=42; HEALTH_IPV6=0
             PRIOR_TORN_DOWN=0

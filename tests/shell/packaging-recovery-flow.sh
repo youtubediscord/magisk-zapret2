@@ -311,7 +311,7 @@ mkdir -p "$LIVE/system/etc" "$LIVE_STATE"
 chmod 0700 "$LIVE_STATE"
 
 # A standard Magisk update is staged below modules_update while the currently
-# installed service can remain live.  Owner v6 must authenticate against the
+# installed service can remain live. Owner v7 must authenticate against the
 # exact packaged live path, never the candidate/staging binary, and the
 # installer must neither stop nor rewrite that live publication.
 rm -f "$LIVE/disable"
@@ -335,10 +335,10 @@ kill -0 "$LIVE_TEST_PID" 2>/dev/null || fail "live owner fixture process did not
     IPV6_CONNBYTES=1; IPV6_MULTIPORT=1; IPV6_MARK=1
     prepare_owner_generation_spec 1 0 || exit 41
     owner_starttime=$(proc_starttime "$LIVE_TEST_PID") || exit 42
-    owner_argv=$(proc_cmdline_hex "$LIVE_TEST_PID") || exit 43
-    write_owner_state "$LIVE_TEST_PID" "$owner_starttime" "$owner_argv" 200 running-modules-update active || exit 44
+    owner_argv_sha256=$(proc_cmdline_sha256 "$LIVE_TEST_PID") || exit 43
+    write_owner_state "$LIVE_TEST_PID" "$owner_starttime" "$owner_argv_sha256" 200 running-modules-update active || exit 44
     write_numeric_pidfile "$LIVE_TEST_PID" || exit 45
-) || fail "could not publish exact live owner v6 fixture"
+) || fail "could not publish exact live owner v7 fixture"
 grep -Fxq "exe=$LIVE/zapret2/nfqws2" "$LIVE_STATE/owner.meta" || fail "live owner fixture used a non-canonical exe"
 cp "$LIVE_STATE/owner.meta" "$CASE/running-owner.before"
 run_installer || fail "standard modules_update install rejected a valid running live owner"

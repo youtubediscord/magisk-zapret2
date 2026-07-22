@@ -4,8 +4,13 @@ import java.security.MessageDigest
 
 /** Schema shared by every Android-side verifier of owner.meta. */
 internal object OwnerStateSchema {
-    const val VERSION = 6
+    const val VERSION = 7
     const val CURRENT_FIELD_COUNT = 33
+    // Read-only compatibility for legacy schemas that hex-encoded up to
+    // 256 KiB of argv. Current records contain only the digest and are tighter.
+    const val MAX_FILE_BYTES = 1024 * 1024
+    const val MAX_CURRENT_FILE_BYTES = 64 * 1024
+    const val LEGACY_V6_VERSION = 6
     const val LEGACY_V5_VERSION = 5
     const val LEGACY_V4_VERSION = 4
     const val LEGACY_V3_VERSION = 3
@@ -32,11 +37,12 @@ internal object OwnerStateSchema {
         add("boot_id")
         addAll(legacyV4Fields.drop(7))
     }
-    val currentFields = buildList {
+    val legacyV6Fields = buildList {
         addAll(legacyV5Fields.take(11))
         addAll(listOf("firewall_tag", "out_chain", "in_chain"))
         addAll(legacyV5Fields.drop(11))
     }
+    val currentFields = legacyV6Fields.map { if (it == "argv_hex") "argv_sha256" else it }
     val fields = currentFields.toSet()
 
     init {
@@ -46,6 +52,7 @@ internal object OwnerStateSchema {
 
     enum class Disposition {
         CURRENT,
+        COMPATIBLE_READ_ONLY,
         LEGACY_RECOVERY_REQUIRED,
         INVALID_RECOVERY_REQUIRED,
     }
@@ -55,16 +62,17 @@ internal object OwnerStateSchema {
         val values: Map<String, String>,
     ) {
         val isHealthyCandidate: Boolean
-            get() = disposition == Disposition.CURRENT
+            get() = disposition == Disposition.CURRENT || disposition == Disposition.COMPATIBLE_READ_ONLY
 
         val recoveryRequired: Boolean
-            get() = disposition != Disposition.CURRENT
+            get() = !isHealthyCandidate
     }
 
     fun accepts(rawVersion: String): Boolean = rawVersion == VERSION.toString()
 
     /** Strict, side-effect-free classification used by Android owner reconciliation. */
     fun reconcile(lines: List<String>, currentBootId: String): Reconciliation {
+        if (canonicalWireBytes(lines) !in 1..MAX_FILE_BYTES) return invalid()
         val pairs = lines.map { line ->
             val separator = line.indexOf('=')
             if (separator <= 0) return invalid()
@@ -82,11 +90,23 @@ internal object OwnerStateSchema {
                 val bootId = values["boot_id"].orEmpty()
                 if (keys == legacyV5Fields && isValidBootId(bootId)) legacy(values) else invalid(values)
             }
+            LEGACY_V6_VERSION.toString() -> {
+                val bootId = values["boot_id"].orEmpty()
+                when {
+                    keys != legacyV6Fields || !isValidBootId(bootId) || !isValidBootId(currentBootId) ->
+                        invalid(values)
+                    bootId != currentBootId -> legacy(values)
+                    hasValidFirewallIdentity(values) && hasValidPayload(values, "argv_hex") ->
+                        Reconciliation(Disposition.COMPATIBLE_READ_ONLY, values)
+                    else -> invalid(values)
+                }
+            }
             VERSION.toString() -> {
                 val bootId = values["boot_id"].orEmpty()
                 if (keys == currentFields && isValidBootId(bootId) &&
                     isValidBootId(currentBootId) && bootId == currentBootId &&
-                    hasValidFirewallIdentity(values) && hasValidCurrentPayload(values)
+                    canonicalWireBytes(lines) <= MAX_CURRENT_FILE_BYTES &&
+                    hasValidFirewallIdentity(values) && hasValidPayload(values, "argv_sha256")
                 ) {
                     Reconciliation(Disposition.CURRENT, values)
                 } else {
@@ -106,7 +126,10 @@ internal object OwnerStateSchema {
             values["out_chain"] == "Z2O_$tag" && values["in_chain"] == "Z2I_$tag"
     }
 
-    private fun hasValidCurrentPayload(values: Map<String, String>): Boolean {
+    private fun canonicalWireBytes(lines: List<String>): Int =
+        lines.sumOf { it.toByteArray(Charsets.UTF_8).size + 1 }
+
+    private fun hasValidPayload(values: Map<String, String>, commandIdentityField: String): Boolean {
         fun canonicalPositive(name: String, maxDigits: Int = 19): Long? = values[name]
             ?.takeIf { it.matches(Regex("[1-9][0-9]{0,${maxDigits - 1}}")) }
             ?.toLongOrNull()
@@ -134,7 +157,12 @@ internal object OwnerStateSchema {
         val ipv4Rules = values["ipv4_rules"]?.takeIf(ProtocolDecimal::isCanonicalNonNegativeLong)?.toLong() ?: return false
         val ipv6Rules = values["ipv6_rules"]?.takeIf(ProtocolDecimal::isCanonicalNonNegativeLong)?.toLong() ?: return false
         if (pid <= 0 || starttime.isEmpty() || qnum !in 1..65535 || pktOut <= 0 || pktIn <= 0) return false
-        if (!values["argv_hex"].orEmpty().matches(Regex("[0-9A-Fa-f]+"))) return false
+        val commandIdentity = values[commandIdentityField].orEmpty()
+        if (commandIdentityField == "argv_sha256") {
+            if (!commandIdentity.matches(Regex("[0-9a-f]{64}"))) return false
+        } else if (!commandIdentity.matches(Regex("[0-9A-Fa-f]+"))) {
+            return false
+        }
         if (values["exe"] != NFQWS_FILE || !generation.matches(Regex("[A-Za-z0-9._-]+"))) return false
         if (values["phase"] !in setOf("launched", "active", "stopping", "error")) return false
         if (!installGeneration.matches(Regex("[A-Za-z0-9._-]{1,128}"))) return false

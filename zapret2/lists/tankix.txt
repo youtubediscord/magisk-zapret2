@@ -1,0 +1,3 @@
+resources.txrevive.com
+main.txrevive.com
+txrevive.com

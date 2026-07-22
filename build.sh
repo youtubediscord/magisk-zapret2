@@ -73,7 +73,7 @@ chmod +x zapret2/scripts/*.sh 2>/dev/null || true
 chmod +x zapret2/scripts/lifecycle/*.sh 2>/dev/null || true
 chmod 0755 system/bin/zapret2-start system/bin/zapret2-stop system/bin/zapret2-status system/bin/zapret2-restart system/bin/zapret2-full-rollback
 
-EXPECTED_OWNER_PROTOCOL_LINE='owner_protocol|6|zapret2-firewall'
+EXPECTED_OWNER_PROTOCOL_LINE='owner_protocol|7|zapret2-firewall'
 ACTUAL_OWNER_PROTOCOL_LINE="$(sed -n '2p' zapret2/runtime-manifest.tsv)"
 ACTUAL_OWNER_PROTOCOL_LINE="${ACTUAL_OWNER_PROTOCOL_LINE%"$(printf '\r')"}"
 [ "$ACTUAL_OWNER_PROTOCOL_LINE" = "$EXPECTED_OWNER_PROTOCOL_LINE" ] || {

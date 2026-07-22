@@ -51,16 +51,16 @@ class ModulePackageContractTest {
     @Test
     fun runtimeManifestMetadata_isExactAdjacentOrderedAndUniqueForStagingAndArchive() {
         val schema = "schema|1|zapret2-runtime"
-        val ownerProtocol = "owner_protocol|6|zapret2-firewall"
+        val ownerProtocol = "owner_protocol|7|zapret2-firewall"
         val validManifest = sourceManifest()
         assertTrue(validManifest.startsWith("$schema\n$ownerProtocol\n"))
         val allowlist = validManifest.removePrefix("$schema\n$ownerProtocol\n")
         val invalidManifests = listOf(
             "missing-schema" to "$ownerProtocol\n$allowlist",
             "missing-owner-protocol" to "$schema\n$allowlist",
-            "owner-protocol-v5" to "$schema\nowner_protocol|5|zapret2-firewall\n$allowlist",
-            "owner-protocol-non-6" to "$schema\nowner_protocol|7|zapret2-firewall\n$allowlist",
-            "owner-protocol-wrong-namespace" to "$schema\nowner_protocol|6|zapret2-runtime\n$allowlist",
+            "owner-protocol-v6" to "$schema\nowner_protocol|6|zapret2-firewall\n$allowlist",
+            "owner-protocol-non-7" to "$schema\nowner_protocol|8|zapret2-firewall\n$allowlist",
+            "owner-protocol-wrong-namespace" to "$schema\nowner_protocol|7|zapret2-runtime\n$allowlist",
             "metadata-reordered" to "$ownerProtocol\n$schema\n$allowlist",
             "duplicate-schema" to "$schema\n$ownerProtocol\n$schema\n$allowlist",
             "duplicate-owner-protocol" to "$schema\n$ownerProtocol\n$ownerProtocol\n$allowlist",
@@ -471,8 +471,8 @@ class ModulePackageContractTest {
     @Test
     fun sourceManifestDeclaresExactCompatibleAndQuarantinedCatalog() {
         val lines = sourceManifest().lineSequence().toList()
-        assertEquals(13, lines.count { it.startsWith("preset-compatible|0644|") })
-        assertEquals(85, lines.count { it.startsWith("preset-quarantined|0644|") })
+        assertEquals(98, lines.count { it.startsWith("preset-compatible|0644|") })
+        assertEquals(0, lines.count { it.startsWith("preset-quarantined|0644|") })
         assertTrue(lines.contains("immutable-file|0644|${ModulePackageContract.RUNTIME_MANIFEST_PATH}"))
         assertTrue(lines.contains("runtime-dependency-immutable|0644|zapret2/lua/zapret-auto.lua"))
         assertTrue(lines.contains("abi-exec|0755|zapret2/bin/{abi}/nfqws2"))

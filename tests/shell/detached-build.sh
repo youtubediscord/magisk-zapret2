@@ -147,7 +147,7 @@ scan_exact_owned_nfqws() { OWNED_SCAN_PIDS="${Z2_MOCK_OWNED_PROCESS:-}"; printf 
 QNUM=200; PORTS_TCP=80,443; PORTS_UDP=443; PKT_OUT=20; PKT_IN=10; DESYNC_MARK=0x40000000
 BUILD_CONNBYTES=1; BUILD_MULTIPORT=1; BUILD_MARK=1
 new_lifecycle_token() { printf '%s\n' 'AbCdEf1234-generation'; }
-prepare_new_firewall_identity || fail "could not prepare schema-v6 firewall identity"
+prepare_new_firewall_identity || fail "could not prepare schema-v7 firewall identity"
 Z2_OUT_CHAIN="$ZAPRET2_OUT"; Z2_IN_CHAIN="$ZAPRET2_IN"
 Z2_FIREWALL_TAG="$FIREWALL_TAG"
 export FIREWALL_TAG ZAPRET2_OUT ZAPRET2_IN Z2_OUT_CHAIN Z2_IN_CHAIN Z2_FIREWALL_TAG

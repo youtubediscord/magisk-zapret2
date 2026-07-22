@@ -80,8 +80,17 @@ class PrivilegedProtocolParityPolicyTest {
         assertEquals(OwnerStateSchema.legacyV3Fields, shellValue(common, "OWNER_STATE_V3_FIELD_SEQUENCE").split('|'))
         assertEquals(OwnerStateSchema.legacyV4Fields, shellValue(common, "OWNER_STATE_V4_FIELD_SEQUENCE").split('|'))
         assertEquals(OwnerStateSchema.legacyV5Fields, shellValue(common, "OWNER_STATE_V5_FIELD_SEQUENCE").split('|'))
-        assertEquals(OwnerStateSchema.currentFields, shellValue(common, "OWNER_STATE_V6_FIELD_SEQUENCE").split('|'))
+        assertEquals(OwnerStateSchema.legacyV6Fields, shellValue(common, "OWNER_STATE_V6_FIELD_SEQUENCE").split('|'))
+        assertEquals(OwnerStateSchema.currentFields, shellValue(common, "OWNER_STATE_V7_FIELD_SEQUENCE").split('|'))
         assertEquals(33, OwnerStateSchema.currentFields.size)
+        assertEquals(
+            OwnerStateSchema.MAX_FILE_BYTES.toString(),
+            shellValue(common, "OWNER_STATE_MAX_BYTES"),
+        )
+        assertEquals(
+            OwnerStateSchema.MAX_CURRENT_FILE_BYTES.toString(),
+            shellValue(common, "OWNER_STATE_CURRENT_MAX_BYTES"),
+        )
 
         assertEquals(UpdateLockProtocol.VERSION, shellValue(common, "UPDATE_LOCK_VERSION"))
         assertEquals(UpdateLockProtocol.LEGACY_VERSION, shellValue(common, "UPDATE_LOCK_LEGACY_VERSION"))
@@ -309,6 +318,8 @@ class PrivilegedProtocolParityPolicyTest {
         assertTrue(source.contains("[ \"\${'\$'}z2_owner_uid\" = 0 ]"))
         assertTrue(source.contains("[ \"\${'\$'}z2_owner_mode\" = 600 ]"))
         assertTrue(source.contains("[ \"\${'\$'}z2_owner_links\" = 1 ]"))
+        assertTrue(source.contains("OwnerStateSchema.MAX_FILE_BYTES"))
+        assertFalse(source.contains("-le 4096"))
         assertTrue(source.contains("z2_owner_digest_before="))
         assertTrue(source.contains("z2_owner_digest_after="))
         assertTrue(source.contains("[ \"\${'\$'}z2_owner_after\" = \"\${'\$'}z2_owner_meta\" ]"))

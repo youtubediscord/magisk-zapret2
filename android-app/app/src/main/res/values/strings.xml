@@ -483,6 +483,7 @@
     <string name="presets_issue_too_large">preset larger than 1 MB</string>
     <string name="presets_editor_too_large">The preset must be 1 MB or smaller.</string>
     <string name="presets_issue_unreadable">unreadable file</string>
+    <string name="presets_issue_ipcache_forbidden">IP cache options are prohibited</string>
     <string name="presets_issue_unknown">unknown validation issue</string>
     <string name="presets_validation_rejected">The preset is incompatible; no active configuration was changed</string>
     <string name="presets_restart_failed_rolled_back">Restart failed; the previous preset configuration and file were restored</string>

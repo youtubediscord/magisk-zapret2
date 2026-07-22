@@ -12,7 +12,7 @@ internal object ModulePackageContract {
     internal const val MAX_MODULE_PROP_BYTES = 4 * 1024
     internal const val MAX_RUNTIME_MANIFEST_BYTES = 256 * 1024
     private const val RUNTIME_MANIFEST_SCHEMA = "schema|1|zapret2-runtime"
-    private const val RUNTIME_MANIFEST_OWNER_PROTOCOL = "owner_protocol|6|zapret2-firewall"
+    private const val RUNTIME_MANIFEST_OWNER_PROTOCOL = "owner_protocol|7|zapret2-firewall"
     const val RUNTIME_MANIFEST_PATH = "zapret2/runtime-manifest.tsv"
     internal const val PACKAGE_CONTRACT_SCRIPT_PATH = "zapret2/scripts/package-contract.sh"
     internal const val COMMAND_BUILDER_SCRIPT_PATH = "zapret2/scripts/command-builder.sh"

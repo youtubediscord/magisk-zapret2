@@ -11,8 +11,8 @@ class OwnerStateSchemaTest {
     private val bootId = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
 
     @Test
-    fun currentV6_requiresCanonicalShapeCurrentBootAndBoundChains() {
-        val current = linesFor(OwnerStateSchema.currentFields, "6", bootId)
+    fun currentV7_requiresCanonicalShapeCurrentBootAndBoundChains() {
+        val current = linesFor(OwnerStateSchema.currentFields, OwnerStateSchema.VERSION.toString(), bootId)
 
         val result = OwnerStateSchema.reconcile(current, bootId)
 
@@ -25,7 +25,13 @@ class OwnerStateSchemaTest {
     }
 
     @Test
-    fun legacyV3V4AndBootBoundV5_areReadOnlyRecoveryRequired() {
+    fun ownerFileBound_coversOnlyCompactMetadata() {
+        assertEquals(1024 * 1024, OwnerStateSchema.MAX_FILE_BYTES)
+        assertEquals(64 * 1024, OwnerStateSchema.MAX_CURRENT_FILE_BYTES)
+    }
+
+    @Test
+    fun legacyV3ThroughV5RequireRecoveryWhileSameBootV6IsReadOnlyCompatible() {
         val v3 = OwnerStateSchema.reconcile(
             linesFor(OwnerStateSchema.legacyV3Fields, "3"),
             bootId,
@@ -46,21 +52,39 @@ class OwnerStateSchemaTest {
                 listOf("firewall_tag=abcdefghij", "out_chain=Z2O_abcdefghij", "in_chain=Z2I_abcdefghij"),
             bootId,
         )
+        val v6 = OwnerStateSchema.reconcile(
+            linesFor(OwnerStateSchema.legacyV6Fields, "6", bootId), bootId,
+        )
+        val v6CrossBoot = OwnerStateSchema.reconcile(
+            linesFor(OwnerStateSchema.legacyV6Fields, "6", bootId),
+            "22222222-2222-2222-2222-222222222222",
+        )
+        val malformedV6 = OwnerStateSchema.reconcile(
+            linesFor(OwnerStateSchema.legacyV6Fields, "6", bootId).map {
+                if (it.startsWith("argv_hex=")) "argv_hex=not-hex" else it
+            },
+            bootId,
+        )
 
         assertEquals(OwnerStateSchema.Disposition.LEGACY_RECOVERY_REQUIRED, v3.disposition)
         assertEquals(OwnerStateSchema.Disposition.LEGACY_RECOVERY_REQUIRED, v4.disposition)
         assertEquals(OwnerStateSchema.Disposition.LEGACY_RECOVERY_REQUIRED, v5SameBoot.disposition)
         assertEquals(OwnerStateSchema.Disposition.LEGACY_RECOVERY_REQUIRED, v5CrossBoot.disposition)
+        assertEquals(OwnerStateSchema.Disposition.COMPATIBLE_READ_ONLY, v6.disposition)
+        assertEquals(OwnerStateSchema.Disposition.LEGACY_RECOVERY_REQUIRED, v6CrossBoot.disposition)
+        assertEquals(OwnerStateSchema.Disposition.INVALID_RECOVERY_REQUIRED, malformedV6.disposition)
         assertEquals(OwnerStateSchema.Disposition.INVALID_RECOVERY_REQUIRED, v5WithV6Identity.disposition)
         assertFalse(v3.isHealthyCandidate)
         assertFalse(v4.isHealthyCandidate)
         assertTrue(v3.recoveryRequired)
         assertTrue(v4.recoveryRequired)
+        assertTrue(v6.isHealthyCandidate)
+        assertFalse(v6.recoveryRequired)
     }
 
     @Test
-    fun currentV6_rejectsMissingMalformedDuplicateUnknownReorderedCrossBootAndBadChains() {
-        val canonical = linesFor(OwnerStateSchema.currentFields, "6", bootId)
+    fun currentV7_rejectsMissingMalformedDuplicateUnknownReorderedCrossBootAndBadChains() {
+        val canonical = linesFor(OwnerStateSchema.currentFields, OwnerStateSchema.VERSION.toString(), bootId)
         val mutations = listOf(
             canonical.filterNot { it.startsWith("boot_id=") },
             canonical.map { if (it.startsWith("boot_id=")) "boot_id=NOT-A-UUID" else it },
@@ -76,6 +100,9 @@ class OwnerStateSchemaTest {
             canonical.map { if (it.startsWith("ipv4_rules=")) "ipv4_rules=5" else it },
             canonical.map { if (it.startsWith("ipv4_rules=")) "ipv4_rules=06" else it },
             canonical.map { if (it.startsWith("firewall_fingerprint=")) "firewall_fingerprint=${"0".repeat(64)}" else it },
+            canonical.map {
+                if (it.startsWith("generation=")) "generation=${"a".repeat(OwnerStateSchema.MAX_CURRENT_FILE_BYTES)}" else it
+            },
             canonical,
         )
         val currentBoots = List(mutations.size - 1) { bootId } +
@@ -121,6 +148,7 @@ class OwnerStateSchemaTest {
             "pid" to "1234",
             "starttime" to "5678",
             "argv_hex" to "2f62696e2f6e667177733200",
+            "argv_sha256" to "f".repeat(64),
             "qnum" to "200",
             "exe" to "/data/adb/modules/zapret2/zapret2/nfqws2",
             "generation" to "generation-1",

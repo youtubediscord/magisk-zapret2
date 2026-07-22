@@ -25,6 +25,8 @@ local.properties
 *.keystore
 *.p12
 *.pfx
+__pycache__/
+*.py[cod]
 *.apk
 /upstream-payload/
 /zapret2/lua/zapret-antidpi.lua

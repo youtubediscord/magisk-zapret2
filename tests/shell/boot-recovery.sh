@@ -143,7 +143,7 @@ EOF
         IPV4_CONNBYTES=1; IPV4_MULTIPORT=1; IPV4_MARK=1
         IPV6_CONNBYTES=1; IPV6_MULTIPORT=1; IPV6_MARK=1
         prepare_owner_generation_spec 1 0 || exit 31
-        write_owner_state 999999 1 00 200 boot-recovery-owner active || exit 32
+        write_owner_state 999999 1 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 200 boot-recovery-owner active || exit 32
         write_numeric_pidfile 999999 || exit 33
         read_owner_state || exit 34
         iptables() {

@@ -414,7 +414,7 @@ jobs:
           chmod +x zapret2/scripts/*.sh
           chmod +x zapret2/scripts/lifecycle/*.sh
           chmod +x system/bin/zapret2-start system/bin/zapret2-stop system/bin/zapret2-status system/bin/zapret2-restart system/bin/zapret2-full-rollback
-          test "$(sed -n '2p' zapret2/runtime-manifest.tsv | tr -d '\r')" = 'owner_protocol|6|zapret2-firewall'
+          test "$(sed -n '2p' zapret2/runtime-manifest.tsv | tr -d '\r')" = 'owner_protocol|7|zapret2-firewall'
           . ./zapret2/scripts/package-contract.sh
           package_contract_apply_modes "$PWD" package
           # Runtime validators intentionally require root-owned installed files.

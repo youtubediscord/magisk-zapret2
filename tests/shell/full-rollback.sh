@@ -286,7 +286,8 @@ chmod 0755 "$MOD/zapret2/nfqws2"
 "$MOD/zapret2/nfqws2" -c 'trap "exit 0" TERM INT; while :; do sleep 1; done' --qnum=200 &
 nf_pid=$!
 nf_start=$(awk '{print $22}' "/proc/$nf_pid/stat")
-nf_argv=$(od -An -v -tx1 "/proc/$nf_pid/cmdline" | tr -d '[:space:]')
+nf_argv_sha256=$(sha256sum "/proc/$nf_pid/cmdline")
+nf_argv_sha256=${nf_argv_sha256%% *}
 printf '%s\n' "$nf_pid" > "$STATE/nfqws2.pid"
 cat > "$STATE/runtime.owner" <<EOF
 version=1
@@ -295,7 +296,7 @@ nfqws=$MOD/zapret2/nfqws2
 EOF
 STATE_DIR="$STATE" SCRIPT_DIR="$MOD/zapret2/scripts" ZAPRET_DIR="$MOD/zapret2" MODDIR="$MOD" \
     sh -c '. "$SCRIPT_DIR/common.sh"; QNUM=200; PORTS_TCP=80,443; PORTS_UDP=443; PKT_OUT=20; PKT_IN=10; DESYNC_MARK=0x40000000; IPV4_CONNBYTES=1; IPV4_MULTIPORT=1; IPV4_MARK=1; IPV6_CONNBYTES=1; IPV6_MULTIPORT=1; IPV6_MARK=1; prepare_owner_generation_spec 1 0 && write_owner_state "$1" "$2" "$3" 200 foreign-audit active' \
-    sh "$nf_pid" "$nf_start" "$nf_argv" || fail "could not publish valid v6 owner generation"
+    sh "$nf_pid" "$nf_start" "$nf_argv_sha256" || fail "could not publish valid v7 owner generation"
 chmod 0600 "$STATE/nfqws2.pid" "$STATE/runtime.owner" "$STATE/owner.meta"
 mock_out_chain="$(awk -F= '$1 == "out_chain" { print $2 }' "$STATE/owner.meta")"
 [ -n "$mock_out_chain" ] || fail "owner generation did not publish its output chain"

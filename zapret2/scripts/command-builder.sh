@@ -167,6 +167,9 @@ validate_strategy_ini_file() {
                         [ -z "$value" ] || return 1
                     else
                         [ -n "$value" ] && [ "${#value}" -le 65536 ] || return 1
+                        # Project policy: the experimental upstream IP cache is
+                        # never allowed in packaged strategy arguments.
+                        case "$value" in *--ipcache*) return 1 ;; esac
                     fi
                     args_count=1
                 fi
@@ -539,6 +542,13 @@ validate_preset_file() {
                 ;;
         esac
 
+        case "$line" in
+            --ipcache*)
+                preset_validation_fail "FORBIDDEN_IPCACHE_OPTION" "$logical_name"
+                return 1
+                ;;
+        esac
+
         # Skip Windows-only options
         case "$line" in
             --wf-*|*windivert*)
@@ -549,7 +559,7 @@ validate_preset_file() {
 
         # Accept only options known to work in Android nfqws2 mode
         case "$line" in
-            --new|--lua-init=*|--blob=*|--ctrack-disable=*|--ipcache-lifetime=*|--ipcache-hostname|--ipcache-hostname=*|--filter-l3=*|--filter-tcp=*|--filter-udp=*|--filter-l7=*|--hostlist=*|--hostlist-domains=*|--hostlist-exclude=*|--ipset=*|--ipset-exclude=*|--out-range=*|--payload=*|--lua-desync=*)
+            --new|--lua-init=*|--blob=*|--ctrack-disable=*|--filter-l3=*|--filter-tcp=*|--filter-udp=*|--filter-l7=*|--hostlist=*|--hostlist-domains=*|--hostlist-exclude=*|--ipset=*|--ipset-exclude=*|--out-range=*|--payload=*|--lua-desync=*)
                 ;;
             *)
                 log_debug "Skipping unsupported preset option: $line"
@@ -727,13 +737,18 @@ EOF
         line="${line%"$cr"}"
         line="$(trim_config_value "$line")"
         case "$line" in ""|"#"*|";"*) continue ;; esac
+        case "$line" in --ipcache*)
+            log_error "Forbidden custom cmdline option: $line"
+            return 1
+            ;;
+        esac
         case "$line" in *[!A-Za-z0-9_@%+=:,./-]*)
             log_error "Unsafe custom cmdline token rejected: $line"
             return 1
             ;;
         esac
         case "$line" in
-            --new|--lua-init=@*|--blob=*|--ctrack-disable=*|--ipcache-lifetime=*|--ipcache-hostname|--ipcache-hostname=*|--filter-l3=*|--filter-tcp=*|--filter-udp=*|--filter-l7=*|--hostlist=*|--hostlist-domains=*|--hostlist-exclude=*|--ipset=*|--ipset-exclude=*|--out-range=*|--payload=*|--lua-desync=*) ;;
+            --new|--lua-init=@*|--blob=*|--ctrack-disable=*|--filter-l3=*|--filter-tcp=*|--filter-udp=*|--filter-l7=*|--hostlist=*|--hostlist-domains=*|--hostlist-exclude=*|--ipset=*|--ipset-exclude=*|--out-range=*|--payload=*|--lua-desync=*) ;;
             *) log_error "Unsupported custom cmdline option: $line"; return 1 ;;
         esac
         file_option=0
@@ -1189,9 +1204,6 @@ build_options() {
     local effective_uid="${NFQWS_UID:-0:0}"
     OPTS="$OPTS --uid=$effective_uid"
 
-    # IP cache for better performance
-    OPTS="$OPTS --ipcache-lifetime=84600 --ipcache-hostname=1"
-
     # Add debug options
     local debug_opts=$(build_debug_opts)
     if [ -n "$debug_opts" ]; then
@@ -1255,6 +1267,14 @@ build_options() {
         log_msg "Packet count (--out-range): $PKT_OUT"
         build_category_options || return 1
     fi
+
+    # Keep the policy invariant at the final assembly boundary as defense in
+    # depth for future option sources.
+    case " $OPTS " in *" --ipcache"*)
+        log_error "Forbidden ipcache option reached the final nfqws2 command"
+        return 1
+        ;;
+    esac
 
     # Log final statistics
     local new_count=$(echo "$OPTS" | grep -o '\--new' | wc -l)

@@ -37,7 +37,7 @@ class ResourceLinkagePolicyTest {
             .sorted()
 
         assertTrue("Production references missing resources: $missing", missing.isEmpty())
-        assertEquals(521, references.filter { it.source.extension == "kt" }.distinctBy {
+        assertEquals(522, references.filter { it.source.extension == "kt" }.distinctBy {
             ResourceName(it.type, it.name)
         }.size)
         assertEquals(22, references.count { it.source.extension == "xml" })

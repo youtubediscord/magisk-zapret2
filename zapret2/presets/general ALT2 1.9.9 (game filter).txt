@@ -6,17 +6,82 @@
 --lua-init=@lua/zapret-antidpi.lua
 --lua-init=@lua/zapret-auto.lua
 --lua-init=@lua/custom_funcs.lua
+--lua-init=@lua/fakemultisplit.lua
+--lua-init=@lua/fakemultidisorder.lua
 --lua-init=@lua/zapret-multishake.lua
 
 --ctrack-disable=0
---ipcache-lifetime=8400
---ipcache-hostname=1
 
---blob=quic_google:@bin/quic_initial_www_google_com.bin
+--blob=dtls_w3:@bin/dtls_clienthello_w3_org.bin
 --blob=fake_dbankcloud:@bin/quic_initial_dbankcloud_ru.bin
+--blob=fake_default_udp:0x00000000000000000000000000000000
+--blob=fake_http_max:@bin/tls_clienthello_max_ru.bin
+--blob=fake_quic:@bin/fake_quic.bin
+--blob=fake_quic_1:@bin/fake_quic_1.bin
+--blob=fake_quic_2:@bin/fake_quic_2.bin
+--blob=fake_quic_3:@bin/fake_quic_3.bin
+--blob=fake_stun:@bin/stun.bin
+--blob=fake_stun_as_tls:@bin/stun.bin
+--blob=fake_tls:@bin/fake_tls_1.bin
+--blob=fake_tls_1:@bin/fake_tls_1.bin
+--blob=fake_tls_2:@bin/fake_tls_2.bin
+--blob=fake_tls_3:@bin/fake_tls_3.bin
+--blob=fake_tls_4:@bin/fake_tls_4.bin
+--blob=fake_tls_5:@bin/fake_tls_5.bin
+--blob=fake_tls_6:@bin/fake_tls_6.bin
+--blob=fake_tls_7:@bin/fake_tls_7.bin
+--blob=fake_tls_8:@bin/fake_tls_8.bin
+--blob=hex_00:0x00
+--blob=hex_0e0e0f0e:0x0E0E0F0E
+--blob=hex_0f0e0e0f:0x0F0E0E0F
+--blob=hex_0f0f0f0f:0x0F0F0F0F
+--blob=http_max:@bin/tls_clienthello_max_ru.bin
+--blob=http_req:@bin/http_iana_org.bin
+--blob=quic1:@bin/quic_1.bin
+--blob=quic2:@bin/quic_2.bin
+--blob=quic3:@bin/quic_3.bin
+--blob=quic4:@bin/quic_4.bin
+--blob=quic5:@bin/quic_5.bin
+--blob=quic6:@bin/quic_6.bin
+--blob=quic7:@bin/quic_7.bin
+--blob=quic_google:@bin/quic_initial_www_google_com.bin
+--blob=quic_test:@bin/quic_test_00.bin
+--blob=quic_vk:@bin/quic_initial_vk_com.bin
+--blob=stun_pat:@bin/stun.bin
+--blob=syn_packet:@bin/syn_packet.bin
+--blob=syndata3:@bin/tls_clienthello_3.bin
+--blob=tls1:@bin/tls_clienthello_1.bin
+--blob=tls10:@bin/tls_clienthello_10.bin
+--blob=tls11:@bin/tls_clienthello_11.bin
+--blob=tls12:@bin/tls_clienthello_12.bin
+--blob=tls13:@bin/tls_clienthello_13.bin
+--blob=tls14:@bin/tls_clienthello_14.bin
+--blob=tls17:@bin/tls_clienthello_17.bin
+--blob=tls18:@bin/tls_clienthello_18.bin
+--blob=tls2:@bin/tls_clienthello_2.bin
+--blob=tls2n:@bin/tls_clienthello_2n.bin
+--blob=tls3:@bin/tls_clienthello_3.bin
+--blob=tls4:@bin/tls_clienthello_4.bin
+--blob=tls5:@bin/tls_clienthello_5.bin
+--blob=tls6:@bin/tls_clienthello_6.bin
+--blob=tls7:@bin/tls_clienthello_7.bin
+--blob=tls8:@bin/tls_clienthello_8.bin
+--blob=tls9:@bin/tls_clienthello_9.bin
+--blob=tls_4pda:@bin/tls_clienthello_4pda_to.bin
+--blob=tls_deepseek:@bin/tls_clienthello_chat_deepseek_com.bin
 --blob=tls_google:@bin/tls_clienthello_www_google_com.bin
+--blob=tls_gosuslugi:@bin/tls_clienthello_gosuslugi_ru.bin
+--blob=tls_iana:@bin/tls_clienthello_iana_org.bin
+--blob=tls_max:@bin/tls_clienthello_max_ru.bin
+--blob=tls_sber:@bin/tls_clienthello_sberbank_ru.bin
+--blob=tls_stun:@bin/stun.bin
+--blob=tls_vk:@bin/tls_clienthello_vk_com.bin
+--blob=tls_vk_kyber:@bin/tls_clienthello_vk_com_kyber.bin
+--blob=tls_zero4:0x00000000
+--blob=zero256:@bin/zero_256.bin
 --blob=zero64:0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 
+--name=Исключения (RU сайты)
 --filter-tcp=80,443-65535
 --ipset=lists/ipset-ru.txt
 --ipset=lists/ipset-dns.txt
@@ -27,6 +92,7 @@
 
 --new
 
+--name=googlevideo.com (CDN сервера)
 --filter-tcp=80,443
 --hostlist=lists/googlevideo.txt
 --payload=all
@@ -34,6 +100,7 @@
 
 --new
 
+--name=youtube.com (интерфейс)
 --filter-tcp=80,443
 --hostlist=lists/youtube.txt
 --payload=all
@@ -41,6 +108,7 @@
 
 --new
 
+--name=youtube.com (QUIC)
 --filter-udp=443
 --ipset=lists/ipset-youtube.txt
 --payload=all
@@ -48,6 +116,7 @@
 
 --new
 
+--name=discord.media (voice RTC)
 --filter-tcp=80,443,1080,2053,2083,2087,2096,8443
 --hostlist=lists/discord-media.txt
 --payload=all
@@ -55,6 +124,7 @@
 
 --new
 
+--name=updates.discord.com
 --filter-tcp=443
 --hostlist=lists/discord-updates.txt
 --payload=all
@@ -62,6 +132,7 @@
 
 --new
 
+--name=discord.com
 --filter-tcp=80,443,1080,2053,2083,2087,2096,8443
 --hostlist=lists/discord.txt
 --payload=all
@@ -69,6 +140,7 @@
 
 --new
 
+--name=Discord UDP (обычно не нужно)
 --filter-udp=443-65535
 --ipset=lists/ipset-discord.txt
 --out-range=-n2
@@ -79,12 +151,14 @@
 
 --new
 
+--name=Голосовые звонки/чаты
 --filter-l7=stun,discord
 --payload=all
 --lua-desync=fake:blob=fake_dbankcloud:repeats=6
 
 --new
 
+--name=Telegram
 --filter-tcp=80,443,5222
 --ipset=lists/ipset-telegram.txt
 --payload=all
@@ -92,6 +166,7 @@
 
 --new
 
+--name=WhatsApp
 --filter-tcp=80,443
 --hostlist=lists/whatsapp.txt
 --payload=all
@@ -99,6 +174,7 @@
 
 --new
 
+--name=WhatsApp UDP wide
 --filter-udp=443-65535
 --ipset=lists/ipset-whatsapp.txt
 --out-range=-n2
@@ -109,6 +185,7 @@
 
 --new
 
+--name=Twitter Images (twimg.com)
 --filter-tcp=80,443
 --hostlist=lists/twimg.txt
 --payload=all
@@ -116,6 +193,7 @@
 
 --new
 
+--name=Facebook
 --filter-tcp=80,443
 --hostlist=lists/facebook.txt
 --payload=all
@@ -123,6 +201,7 @@
 
 --new
 
+--name=Instagram
 --filter-tcp=80,443
 --hostlist=lists/instagram.txt
 --payload=all
@@ -130,6 +209,7 @@
 
 --new
 
+--name=Twitter/X
 --filter-tcp=80,443
 --ipset=lists/ipset-twitter.txt
 --payload=all
@@ -137,6 +217,7 @@
 
 --new
 
+--name=Steam
 --filter-tcp=80,443
 --hostlist=lists/steam.txt
 --out-range=-n3
@@ -145,6 +226,7 @@
 
 --new
 
+--name=Tanki X
 --filter-tcp=80,443-65535
 --hostlist=lists/tankix.txt
 --out-range=-n3
@@ -153,6 +235,7 @@
 
 --new
 
+--name=Tanki X UDP
 --filter-udp=443-65535
 --ipset=lists/ipset-tankix.txt
 --out-range=-n2
@@ -163,6 +246,7 @@
 
 --new
 
+--name=Roblox TCP
 --filter-tcp=80,443-65535
 --hostlist=lists/roblox.txt
 --out-range=-n3
@@ -171,6 +255,7 @@
 
 --new
 
+--name=itch.io
 --filter-tcp=80,443
 --hostlist=lists/itch.txt
 --out-range=-n3
@@ -179,6 +264,7 @@
 
 --new
 
+--name=League of Legends RU TCP
 --filter-tcp=80,443-65535
 --ipset=lists/ipset-lol-ru.txt
 --out-range=-n3
@@ -187,6 +273,7 @@
 
 --new
 
+--name=League of Legends EUW TCP
 --filter-tcp=80,443-65535
 --ipset=lists/ipset-lol-euw.txt
 --out-range=-n3
@@ -195,6 +282,7 @@
 
 --new
 
+--name=Roblox UDP
 --filter-udp=443-65535
 --ipset=lists/ipset-roblox.txt
 --out-range=-n2
@@ -205,6 +293,7 @@
 
 --new
 
+--name=League of Legends RU UDP
 --filter-udp=443-65535
 --ipset=lists/ipset-lol-ru.txt
 --out-range=-n2
@@ -215,6 +304,7 @@
 
 --new
 
+--name=League of Legends EUW UDP
 --filter-udp=443-65535
 --ipset=lists/ipset-lol-euw.txt
 --out-range=-n2
@@ -225,6 +315,7 @@
 
 --new
 
+--name=Riot / Valorant TCP
 --filter-tcp=443
 --hostlist=lists/riot-valorant.txt
 --out-range=-n3
@@ -233,6 +324,7 @@
 
 --new
 
+--name=Riot / Valorant UDP
 --filter-udp=5000-5500,7000-8000
 --out-range=-n2
 --payload=all
@@ -242,6 +334,7 @@
 
 --new
 
+--name=Cloudflare TCP
 --filter-tcp=80,443-65535
 --hostlist=lists/cloudflare.txt
 --payload=all
@@ -249,6 +342,7 @@
 
 --new
 
+--name=cloudfront.net
 --filter-tcp=80,443-65535
 --hostlist=lists/cloudfront.txt
 --payload=all
@@ -256,6 +350,7 @@
 
 --new
 
+--name=Amazon TCP
 --filter-tcp=80,443-65535
 --hostlist=lists/amazon.txt
 --payload=all
@@ -263,6 +358,7 @@
 
 --new
 
+--name=EpicGames & Fortnite
 --filter-tcp=80,443-65535
 --hostlist=lists/epicgames-fortnite.txt
 --payload=all
@@ -270,6 +366,7 @@
 
 --new
 
+--name=OVH TCP
 --filter-tcp=80,443-65535
 --ipset=lists/ipset-ovh.txt
 --payload=all
@@ -277,6 +374,7 @@
 
 --new
 
+--name=WARP TCP
 --filter-tcp=80,443-65535
 --ipset=lists/ipset-warp.txt
 --payload=all
@@ -284,6 +382,7 @@
 
 --new
 
+--name=Cloudflare UDP
 --filter-udp=443-65535
 --ipset=lists/ipset-cloudflare.txt
 --out-range=-n2
@@ -294,6 +393,7 @@
 
 --new
 
+--name=Cloudflare legacy UDP
 --filter-udp=443-65535
 --ipset=lists/cloudflare-ipset.txt
 --out-range=-n2
@@ -304,6 +404,7 @@
 
 --new
 
+--name=Cloudflare IPv6 legacy UDP
 --filter-udp=443-65535
 --ipset=lists/cloudflare-ipset_v6.txt
 --out-range=-n2
@@ -314,6 +415,7 @@
 
 --new
 
+--name=Cloudflare alt UDP
 --filter-udp=443-65535
 --ipset=lists/ipset-cloudflare1.txt
 --out-range=-n2
@@ -324,6 +426,7 @@
 
 --new
 
+--name=Amazon UDP
 --filter-udp=443-65535
 --ipset=lists/ipset-amazon.txt
 --out-range=-n2
@@ -334,6 +437,7 @@
 
 --new
 
+--name=OVH UDP
 --filter-udp=443-65535
 --ipset=lists/ipset-ovh.txt
 --out-range=-n2
@@ -344,6 +448,7 @@
 
 --new
 
+--name=WARP UDP
 --filter-udp=443-65535
 --ipset=lists/ipset-warp.txt
 --out-range=-n2
@@ -354,6 +459,7 @@
 
 --new
 
+--name=ntc.party
 --filter-tcp=80,443
 --hostlist-domains=ntc.party
 --payload=all
@@ -361,6 +467,7 @@
 
 --new
 
+--name=18+ сайты
 --filter-tcp=80,443
 --ipset=lists/ipset-porn.txt
 --payload=all
@@ -368,6 +475,7 @@
 
 --new
 
+--name=SoundCloud
 --filter-tcp=80,443
 --hostlist=lists/soundcloud.txt
 --payload=all
@@ -375,6 +483,7 @@
 
 --new
 
+--name=rutracker.org
 --filter-tcp=80,443
 --hostlist=lists/rutracker.txt
 --payload=all
@@ -382,6 +491,7 @@
 
 --new
 
+--name=rutor.info (.is)
 --filter-tcp=80,443
 --hostlist=lists/rutor.txt
 --payload=all
@@ -389,6 +499,7 @@
 
 --new
 
+--name=Russia blacklist TCP 443
 --filter-tcp=443
 --hostlist=lists/russia-blacklist.txt
 --payload=all
@@ -396,6 +507,7 @@
 
 --new
 
+--name=Мои сайты
 --filter-tcp=80,443-65535
 --hostlist=lists/other.txt
 --payload=all
@@ -403,6 +515,7 @@
 
 --new
 
+--name=AnyDesk UDP
 --filter-udp=443,6568,50000-51000
 --ipset=lists/ipset-anydesk.txt
 --out-range=-n2
@@ -413,6 +526,7 @@
 
 --new
 
+--name=Google (сервисы)
 --filter-tcp=80,443
 --hostlist=lists/google.txt
 --payload=all
@@ -420,6 +534,7 @@
 
 --new
 
+--name=7tv (10tv)
 --filter-tcp=80,443
 --hostlist-domains=7tv.app,7tv.io,10tv.app
 --payload=all
@@ -427,6 +542,7 @@
 
 --new
 
+--name=obsidian.md
 --filter-tcp=80,443
 --hostlist=lists/obsidian.txt
 --payload=all
@@ -434,6 +550,7 @@
 
 --new
 
+--name=GitHub
 --filter-tcp=443
 --hostlist=lists/github.txt
 --payload=all
@@ -441,6 +558,7 @@
 
 --new
 
+--name=githubusercontent.com
 --filter-tcp=443
 --hostlist=lists/githubusercontent.txt
 --payload=all
@@ -448,6 +566,7 @@
 
 --new
 
+--name=AnyDesk TCP
 --filter-tcp=80,443,6568
 --ipset=lists/ipset-anydesk.txt
 --payload=all
@@ -455,6 +574,7 @@
 
 --new
 
+--name=Twitch
 --filter-tcp=443
 --hostlist=lists/twitch.txt
 --payload=all
@@ -462,6 +582,7 @@
 
 --new
 
+--name=Speedtest
 --filter-tcp=443,8080
 --hostlist=lists/speedtest.txt
 --payload=all
@@ -469,6 +590,7 @@
 
 --new
 
+--name=DeepSeek
 --filter-tcp=80,443-65535
 --hostlist=lists/deepseek.txt
 --payload=all
@@ -476,6 +598,7 @@
 
 --new
 
+--name=Ubisoft
 --filter-tcp=80,443-65535
 --hostlist=lists/ubisoft.txt
 --payload=all
@@ -483,6 +606,7 @@
 
 --new
 
+--name=Мои сайты
 --filter-tcp=80,443-65535
 --ipset=lists/ipset-all.txt
 --payload=all
@@ -490,6 +614,7 @@
 
 --new
 
+--name=Russia blacklist TCP wide
 --filter-tcp=80,443-65535
 --hostlist=lists/russia-blacklist.txt
 --payload=all
@@ -497,6 +622,7 @@
 
 --new
 
+--name=ZapretKVN TCP
 --filter-tcp=80,443-65535
 --ipset=lists/ipset-zapretkvn.txt
 --payload=all
@@ -504,6 +630,7 @@
 
 --new
 
+--name=Timeweb TCP
 --filter-tcp=80,443-65535
 --ipset=lists/ipset-timeweb.txt
 --payload=all
@@ -511,6 +638,7 @@
 
 --new
 
+--name=ZapretKVN UDP
 --filter-udp=443-65535
 --ipset=lists/ipset-zapretkvn.txt
 --out-range=-n2
@@ -521,6 +649,7 @@
 
 --new
 
+--name=Timeweb UDP
 --filter-udp=443-65535
 --ipset=lists/ipset-timeweb.txt
 --out-range=-n2

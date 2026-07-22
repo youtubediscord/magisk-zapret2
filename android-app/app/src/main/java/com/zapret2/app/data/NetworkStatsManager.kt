@@ -587,7 +587,8 @@ class NetworkStatsManager(context: Context) {
             [ "${'$'}z2_owner_uid" = 0 ] && [ "${'$'}z2_owner_mode" = 600 ] &&
                 [ "${'$'}z2_owner_links" = 1 ] || exit 1
             case "${'$'}z2_owner_size" in ''|*[!0-9]*) exit 1 ;; esac
-            [ "${'$'}z2_owner_size" -gt 0 ] && [ "${'$'}z2_owner_size" -le 4096 ] || exit 1
+            [ "${'$'}z2_owner_size" -gt 0 ] &&
+                [ "${'$'}z2_owner_size" -le ${OwnerStateSchema.MAX_FILE_BYTES} ] || exit 1
             z2_owner_digest_before=${'$'}(sha256sum $ownerFile 2>/dev/null) || exit 1
             z2_owner_digest_before=${'$'}{z2_owner_digest_before%% *}
             [ "${'$'}{#z2_owner_digest_before}" -eq 64 ] || exit 1
