@@ -79,6 +79,8 @@ class ComposeLifecyclePolicyTest {
         val hostlist = productionFile("ui/screen/HostlistContentScreen.kt").readText()
         assertTrue(hostlist.contains("val currentOnLoadMore by rememberUpdatedState(onLoadMore)"))
         assertTrue(hostlist.contains(".collect { currentOnLoadMore() }"))
+        assertTrue(hostlist.contains("LaunchedEffect(state.searchQuery, listState)"))
+        assertTrue(hostlist.contains("listState.scrollToItem(0)"))
 
         val strategies = productionFile("ui/screen/StrategiesScreen.kt").readText()
         assertTrue(strategies.contains("val currentOnRetry by rememberUpdatedState(onRetry)"))
@@ -87,6 +89,8 @@ class ComposeLifecyclePolicyTest {
                 "val currentOnConsumeOrderSaved by rememberUpdatedState(onConsumeOrderSaved)",
             ),
         )
+        assertTrue(strategies.contains("LaunchedEffect(category.key, categoryOrderState.status)"))
+        assertTrue(strategies.contains("LaunchedEffect(category.key, searchQuery, isReorderMode)"))
 
         val snackbar = productionFile("ui/components/AppSnackbarEffect.kt").readText()
         assertTrue(

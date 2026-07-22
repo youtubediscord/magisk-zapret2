@@ -33,6 +33,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material.icons.Icons
@@ -454,7 +455,7 @@ private fun StrategyPickerView(
         currentOnRetry()
     }
 
-    LaunchedEffect(categoryOrderState.status) {
+    LaunchedEffect(category.key, categoryOrderState.status) {
         if (categoryOrderState.status == StrategyOrderSaveStatus.SAVED) {
             isReorderMode = false
             currentOnConsumeOrderSaved()
@@ -481,6 +482,11 @@ private fun StrategyPickerView(
                 }
             }
         }
+    }
+    val listState = rememberLazyListState()
+
+    LaunchedEffect(category.key, searchQuery, isReorderMode) {
+        listState.scrollToItem(0)
     }
 
     fun saveOrderAndExit() {
@@ -617,6 +623,7 @@ private fun StrategyPickerView(
                 displayList.isEmpty() -> StrategySearchEmptyState(query = searchQuery)
                 else -> {
                     LazyColumn(
+                        state = listState,
                         modifier = Modifier
                             .fillMaxSize()
                             .then(if (isReorderMode) Modifier else Modifier.selectableGroup()),

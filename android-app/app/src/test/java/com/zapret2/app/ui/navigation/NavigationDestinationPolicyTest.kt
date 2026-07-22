@@ -56,6 +56,12 @@ class NavigationDestinationPolicyTest {
             Screen.Hostlists.route,
             Screen.navigationSelectionForRoute(Screen.HostlistContent.createRoute("verified.txt")),
         )
+
+        val hostlists = repositoryFile(
+            "android-app/app/src/main/java/com/zapret2/app/ui/screen/HostlistsScreen.kt",
+        ).readText()
+        assertTrue(hostlists.contains("Screen.HostlistContent.createRoute("))
+        assertTrue(hostlists.contains("launchSingleTop = true"))
     }
 
     private fun repositoryFile(relativePath: String): File {

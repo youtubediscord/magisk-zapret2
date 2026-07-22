@@ -1,5 +1,6 @@
 package com.zapret2.app.ui.screen
 
+import android.icu.text.CompactDecimalFormat
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -43,6 +44,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
@@ -66,8 +68,6 @@ import com.zapret2.app.ui.theme.SpacingTokens
 import com.zapret2.app.ui.theme.ZapretTheme
 import com.zapret2.app.viewmodel.HostlistsViewModel
 import com.zapret2.app.viewmodel.HostlistsUiState
-import android.icu.text.CompactDecimalFormat
-import java.util.Locale
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -80,7 +80,7 @@ fun HostlistsScreen(
     val runtimeState = activeViewModel?.uiState?.collectAsStateWithLifecycle()
     val state = previewState ?: runtimeState?.value ?: HostlistsUiState()
     val reduceMotion = LocalReducedMotionEnabled.current
-    val locale = Locale.getDefault()
+    val locale = LocalConfiguration.current.locales[0]
     val compactNumberFormat = remember(locale) {
         CompactDecimalFormat.getInstance(locale, CompactDecimalFormat.CompactStyle.SHORT)
     }
@@ -241,7 +241,9 @@ fun HostlistsScreen(
                                 Screen.HostlistContent.createRoute(
                                     hostlist.filename,
                                 ),
-                            )
+                            ) {
+                                launchSingleTop = true
+                            }
                         },
                     )
                 }

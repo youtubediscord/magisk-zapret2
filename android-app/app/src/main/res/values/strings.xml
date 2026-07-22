@@ -164,6 +164,7 @@
     <string name="cd_dismiss_quic_notice">Dismiss QUIC notice</string>
     <string name="control_error_details">Error details</string>
     <string name="control_copied">Copied to clipboard</string>
+    <string name="control_copy_failed">Could not copy to the clipboard</string>
     <string name="control_packet_count">Packet count</string>
     <string name="control_packet_range">Enter a value from 1 to 999,999,999</string>
     <string name="control_status_degraded">Service degraded</string>

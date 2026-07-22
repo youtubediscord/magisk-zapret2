@@ -459,6 +459,10 @@ private fun HostlistBrowseContent(
     }
     val currentOnLoadMore by rememberUpdatedState(onLoadMore)
 
+    LaunchedEffect(state.searchQuery, listState) {
+        listState.scrollToItem(0)
+    }
+
     LaunchedEffect(listState, shouldLoadMore) {
         snapshotFlow { shouldLoadMore.value }
             .distinctUntilChanged()
