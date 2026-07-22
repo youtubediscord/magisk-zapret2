@@ -377,12 +377,23 @@ jobs:
           UPSTREAM_GLOBALS="DLOG b_debug VERDICT_PASS VERDICT_DROP HEXDUMP_DLOG_MAX resolve_range instance_cutoff"
           ALL_UPSTREAM="$UPSTREAM_FUNCS $UPSTREAM_GLOBALS"
 
-          # Check each custom Lua file's required functions list
+          # Check every explicit custom-Lua required-functions declaration.
+          # Files without this optional declaration intentionally produce an
+          # empty set; that is not a grep/pipeline failure under pipefail.
           for lua_file in $CUSTOM_LUA; do
             [ -f "$lua_file" ] || continue
             BASENAME=$(basename "$lua_file")
-            # Extract the required functions from the compatibility check block
-            REQUIRED=$(grep -A 20 'local required' "$lua_file" 2>/dev/null | grep -o '"[a-zA-Z_][a-zA-Z0-9_]*"' | tr -d '"' | sort -u)
+            REQUIRED=$(awk '
+              /local required[[:space:]]*=[[:space:]]*{/ { capture=1 }
+              capture {
+                line=$0
+                while (match(line, /"[a-zA-Z_][a-zA-Z0-9_]*"/)) {
+                  print substr(line, RSTART + 1, RLENGTH - 2)
+                  line=substr(line, RSTART + RLENGTH)
+                }
+                if ($0 ~ /^[[:space:]]*}[,]?[[:space:]]*$/) exit
+              }
+            ' "$lua_file" | sort -u)
             for func in $REQUIRED; do
               if ! echo "$ALL_UPSTREAM" | tr ' ' '\n' | grep -qx "$func"; then
                 echo "::error file=$lua_file::Function '$func' required by $BASENAME not found in upstream core Lua files"
