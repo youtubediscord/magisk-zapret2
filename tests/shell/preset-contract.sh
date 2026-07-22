@@ -16,19 +16,24 @@ assert_invalid_code() {
     grep -Fq "$expected" "$output" || fail "wrong validation reason; expected $expected"
 }
 
-[ "$(grep -c '^preset-compatible|0644|' "$ROOT/zapret2/runtime-manifest.tsv")" -eq 20 ] || fail "compatible manifest count"
-[ "$(grep -c '^preset-quarantined|0644|' "$ROOT/zapret2/runtime-manifest.tsv")" -eq 49 ] || fail "quarantined manifest count"
+[ "$(grep -c '^preset-compatible|0644|' "$ROOT/zapret2/runtime-manifest.tsv")" -eq 13 ] || fail "compatible manifest count"
+[ "$(grep -c '^preset-quarantined|0644|' "$ROOT/zapret2/runtime-manifest.tsv")" -eq 85 ] || fail "quarantined manifest count"
 if grep -R -q -- '--lua-init=@lua/custom_diag.lua' "$ROOT/zapret2/presets"; then fail "custom_diag reference remains"; fi
+if grep -R -q -- '--lua-init=@lua/fakemultisplit.lua' "$ROOT/zapret2/presets"; then fail "fakemultisplit reference remains"; fi
+if grep -R -q -- '--lua-init=@lua/fakemultidisorder.lua' "$ROOT/zapret2/presets"; then fail "fakemultidisorder reference remains"; fi
+if grep -R -q -- '^--wf-' "$ROOT/zapret2/presets"; then fail "WinDivert filter option remains"; fi
+if grep -R -q -- '^--name=' "$ROOT/zapret2/presets"; then fail "unsupported profile name remains"; fi
+if grep -R -q -- '^--in-range=' "$ROOT/zapret2/presets"; then fail "inbound range remains"; fi
+if grep -R -q -- '^--lua-desync=circular:' "$ROOT/zapret2/presets"; then fail "circular strategy remains"; fi
 if grep -R -q -- 'russia-youtube-ipset.txt' "$ROOT/zapret2/presets"; then fail "stale russia-youtube ipset name remains"; fi
-grep -Fq -- '--ipset=lists/ipset-russia-youtube.txt' "$ROOT/zapret2/presets/ALL TCP & UDP v1.txt" || fail "corrected ipset reference missing"
 
 scan="$TMP_ROOT/repository-preset-scan"
 sh "$ROOT/zapret2/scripts/command-builder.sh" --scan-presets-machine "$ROOT/zapret2" > "$scan"
-[ "$(awk -F '\t' '$1 == "Z2_PRESET" && $2 == "VALID" { n++ } END { print n+0 }' "$scan")" -eq 20 ] || fail "scanner valid count"
-[ "$(awk -F '\t' '$1 == "Z2_PRESET" && $2 == "QUARANTINED" { n++ } END { print n+0 }' "$scan")" -eq 49 ] || fail "scanner quarantined count"
-grep -Fq 'valid=20' "$scan" || fail "scanner summary valid count"
-grep -Fq 'quarantined=49' "$scan" || fail "scanner summary quarantined count"
-grep -Fq 'total=69' "$scan" || fail "scanner summary total count"
+[ "$(awk -F '\t' '$1 == "Z2_PRESET" && $2 == "VALID" { n++ } END { print n+0 }' "$scan")" -eq 13 ] || fail "scanner valid count"
+[ "$(awk -F '\t' '$1 == "Z2_PRESET" && $2 == "QUARANTINED" { n++ } END { print n+0 }' "$scan")" -eq 85 ] || fail "scanner quarantined count"
+grep -Fq 'valid=13' "$scan" || fail "scanner summary valid count"
+grep -Fq 'quarantined=85' "$scan" || fail "scanner summary quarantined count"
+grep -Fq 'total=98' "$scan" || fail "scanner summary total count"
 
 . "$ROOT/zapret2/scripts/package-contract.sh"
 package_contract_validate_manifest "$ROOT" || fail "manifest invalid: $PACKAGE_CONTRACT_CODE $PACKAGE_CONTRACT_DETAIL"

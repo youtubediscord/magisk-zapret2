@@ -65,7 +65,7 @@ import com.zapret2.app.viewmodel.HostsEditorUiState
 
 @Composable
 fun HostsEditorScreen(
-    onNavigateBack: () -> Unit = {},
+    onNavigateBack: () -> Unit,
     viewModel: HostsEditorViewModel? = null,
     previewState: HostsEditorUiState? = null,
 ) {

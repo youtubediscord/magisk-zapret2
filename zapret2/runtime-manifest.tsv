@@ -133,73 +133,105 @@ runtime-dependency-immutable|0644|zapret2/lua/custom_funcs.lua
 runtime-dependency-immutable|0644|zapret2/lua/zapret-antidpi.lua
 runtime-dependency-immutable|0644|zapret2/lua/zapret-auto.lua
 runtime-dependency-immutable|0644|zapret2/lua/zapret-lib.lua
+runtime-dependency-immutable|0644|zapret2/lua/zapret-obfs.lua
+runtime-dependency-immutable|0644|zapret2/lua/zapret-pcap.lua
+runtime-dependency-immutable|0644|zapret2/lua/zapret-tests.lua
 runtime-dependency-immutable|0644|zapret2/lua/zapret-multishake.lua
+preset-compatible|0644|zapret2/presets/ALL TCP & UDP YTDisBystro_3_4_v1.txt
+preset-compatible|0644|zapret2/presets/ALL TCP & UDP discord_urgent_sni.txt
+preset-compatible|0644|zapret2/presets/ALL TCP & UDP fake_tls_auto_11.txt
+preset-compatible|0644|zapret2/presets/ALL TCP & UDP hostfakesplit.txt
+preset-compatible|0644|zapret2/presets/ALL TCP & UDP hostfakesplit_multi_syndata.txt
+preset-compatible|0644|zapret2/presets/ALL TCP & UDP multidisorder complex.txt
 preset-compatible|0644|zapret2/presets/ALL TCP & UDP multisplit_sni.txt
 preset-compatible|0644|zapret2/presets/ALL TCP & UDP multisplit_stun.txt
-preset-quarantined|0644|zapret2/presets/ALL TCP & UDP v1.txt
-preset-compatible|0644|zapret2/presets/ALL TCP & UDP v2.txt
+preset-compatible|0644|zapret2/presets/ALL TCP & UDP v1.txt
+preset-quarantined|0644|zapret2/presets/ALL TCP & UDP v2.txt
 preset-compatible|0644|zapret2/presets/ALL TCP & UDP v3_1.txt
 preset-compatible|0644|zapret2/presets/ALL TCP & UDP v3_2.txt
-preset-quarantined|0644|zapret2/presets/complex multidisorder (game filter).txt
 preset-quarantined|0644|zapret2/presets/Dead by Daylight (game filter).txt
 preset-quarantined|0644|zapret2/presets/Dead by Daylight v2 (game filter).txt
 preset-quarantined|0644|zapret2/presets/Default (game filter).txt
 preset-quarantined|0644|zapret2/presets/Default multisplit_sni (game filter).txt
-preset-compatible|0644|zapret2/presets/Default multisplit_sni.txt
+preset-quarantined|0644|zapret2/presets/Default multisplit_sni.txt
 preset-quarantined|0644|zapret2/presets/Default multisplit_stun (game filter).txt
-preset-compatible|0644|zapret2/presets/Default multisplit_stun.txt
+preset-quarantined|0644|zapret2/presets/Default multisplit_stun.txt
+preset-quarantined|0644|zapret2/presets/Default v1 (game filter).txt
 preset-quarantined|0644|zapret2/presets/Default v2 (game filter).txt
 preset-quarantined|0644|zapret2/presets/Default v3 (game filter).txt
 preset-quarantined|0644|zapret2/presets/Default v4 (game filter).txt
-preset-quarantined|0644|zapret2/presets/Default v5.txt
-preset-compatible|0644|zapret2/presets/Default.txt
+preset-quarantined|0644|zapret2/presets/Default v5 (game filter).txt
 preset-quarantined|0644|zapret2/presets/Gaming (game filter).txt
+preset-quarantined|0644|zapret2/presets/Preset X (game filter).txt
+preset-quarantined|0644|zapret2/presets/Preset X v2 (game filter).txt
+preset-quarantined|0644|zapret2/presets/Preset X v3 (game filter).txt
+preset-quarantined|0644|zapret2/presets/Preset XY (game filter).txt
+preset-quarantined|0644|zapret2/presets/Preset.X1.txt
+preset-quarantined|0644|zapret2/presets/Send + Syndata (game filter).txt
+preset-quarantined|0644|zapret2/presets/Syndata + MultiDisorder legacy (game filter).txt
+preset-quarantined|0644|zapret2/presets/Syndata + MultiDisorder legacy WoW (game filter).txt
+preset-quarantined|0644|zapret2/presets/TESTERSKIY BY SSB.txt
+preset-quarantined|0644|zapret2/presets/Ultimate Main Riot + Valorant (game filter).txt
+preset-quarantined|0644|zapret2/presets/complex multidisorder (game filter).txt
+preset-quarantined|0644|zapret2/presets/general 1.9.9 (game filter).txt
 preset-quarantined|0644|zapret2/presets/general ALT (game filter).txt
 preset-quarantined|0644|zapret2/presets/general ALT.txt
+preset-quarantined|0644|zapret2/presets/general ALT1 1.9.9 (game filter).txt
 preset-quarantined|0644|zapret2/presets/general ALT10 (game filter).txt
-preset-compatible|0644|zapret2/presets/general ALT10.txt
+preset-quarantined|0644|zapret2/presets/general ALT10 1.9.9 (game filter).txt
+preset-quarantined|0644|zapret2/presets/general ALT10.txt
 preset-quarantined|0644|zapret2/presets/general ALT11 (game filter).txt
-preset-compatible|0644|zapret2/presets/general ALT11.txt
+preset-quarantined|0644|zapret2/presets/general ALT11 1.9.9 (game filter).txt
+preset-quarantined|0644|zapret2/presets/general ALT11.txt
+preset-quarantined|0644|zapret2/presets/general ALT12 1.9.9 (game filter).txt
 preset-quarantined|0644|zapret2/presets/general ALT2 (game filter).txt
 preset-quarantined|0644|zapret2/presets/general ALT2 + syndata.txt
+preset-quarantined|0644|zapret2/presets/general ALT2 1.9.9 (game filter).txt
 preset-quarantined|0644|zapret2/presets/general ALT2.txt
 preset-quarantined|0644|zapret2/presets/general ALT3 (game filter).txt
+preset-quarantined|0644|zapret2/presets/general ALT3 1.9.9 (game filter).txt
 preset-quarantined|0644|zapret2/presets/general ALT3.txt
 preset-quarantined|0644|zapret2/presets/general ALT4 (game filter).txt
+preset-quarantined|0644|zapret2/presets/general ALT4 1.9.9 (game filter).txt
 preset-quarantined|0644|zapret2/presets/general ALT4.txt
 preset-quarantined|0644|zapret2/presets/general ALT5 (game filter).txt
 preset-compatible|0644|zapret2/presets/general ALT5.txt
 preset-quarantined|0644|zapret2/presets/general ALT6 (game filter).txt
+preset-quarantined|0644|zapret2/presets/general ALT6 1.9.9 (game filter).txt
 preset-quarantined|0644|zapret2/presets/general ALT6.txt
 preset-quarantined|0644|zapret2/presets/general ALT7 (game filter).txt
+preset-quarantined|0644|zapret2/presets/general ALT7 1.9.9 (game filter).txt
 preset-quarantined|0644|zapret2/presets/general ALT7.txt
 preset-quarantined|0644|zapret2/presets/general ALT8 (game filter).txt
-preset-compatible|0644|zapret2/presets/general ALT8.txt
+preset-quarantined|0644|zapret2/presets/general ALT8 1.9.9 (game filter).txt
+preset-quarantined|0644|zapret2/presets/general ALT8.txt
 preset-quarantined|0644|zapret2/presets/general ALT9 1.9.4 (game filter).txt
 preset-quarantined|0644|zapret2/presets/general ALT9 1.9.4.txt
 preset-quarantined|0644|zapret2/presets/general ALT9 1.9.5 (game filter).txt
 preset-quarantined|0644|zapret2/presets/general ALT9 1.9.5.txt
+preset-quarantined|0644|zapret2/presets/general ALT9 1.9.9 (game filter).txt
 preset-quarantined|0644|zapret2/presets/general FAKE TLS AUTO (game filter).txt
+preset-quarantined|0644|zapret2/presets/general FAKE TLS AUTO 1.9.9 (game filter).txt
 preset-quarantined|0644|zapret2/presets/general FAKE TLS AUTO ALT (game filter).txt
-preset-compatible|0644|zapret2/presets/general FAKE TLS AUTO ALT.txt
+preset-quarantined|0644|zapret2/presets/general FAKE TLS AUTO ALT 1.9.9 (game filter).txt
+preset-quarantined|0644|zapret2/presets/general FAKE TLS AUTO ALT.txt
 preset-quarantined|0644|zapret2/presets/general FAKE TLS AUTO ALT2 (game filter).txt
-preset-compatible|0644|zapret2/presets/general FAKE TLS AUTO ALT2.txt
+preset-quarantined|0644|zapret2/presets/general FAKE TLS AUTO ALT2 1.9.9 (game filter).txt
+preset-quarantined|0644|zapret2/presets/general FAKE TLS AUTO ALT2.txt
 preset-quarantined|0644|zapret2/presets/general FAKE TLS AUTO ALT3 (game filter).txt
-preset-compatible|0644|zapret2/presets/general FAKE TLS AUTO ALT3.txt
+preset-quarantined|0644|zapret2/presets/general FAKE TLS AUTO ALT3 1.9.9 (game filter).txt
+preset-quarantined|0644|zapret2/presets/general FAKE TLS AUTO ALT3.txt
 preset-quarantined|0644|zapret2/presets/general FAKE TLS AUTO v2 (game filter).txt
-preset-compatible|0644|zapret2/presets/general FAKE TLS AUTO v2.txt
-preset-compatible|0644|zapret2/presets/general FAKE TLS AUTO.txt
+preset-quarantined|0644|zapret2/presets/general FAKE TLS AUTO v2.txt
+preset-quarantined|0644|zapret2/presets/general FAKE TLS AUTO.txt
 preset-quarantined|0644|zapret2/presets/general SIMPLE FAKE (game filter).txt
+preset-quarantined|0644|zapret2/presets/general SIMPLE FAKE 1.9.9 (game filter).txt
 preset-quarantined|0644|zapret2/presets/general SIMPLE FAKE ALT (game filter).txt
-preset-compatible|0644|zapret2/presets/general SIMPLE FAKE ALT.txt
+preset-quarantined|0644|zapret2/presets/general SIMPLE FAKE ALT 1.9.9 (game filter).txt
+preset-quarantined|0644|zapret2/presets/general SIMPLE FAKE ALT.txt
 preset-quarantined|0644|zapret2/presets/general SIMPLE FAKE ALT2 (game filter).txt
-preset-compatible|0644|zapret2/presets/general SIMPLE FAKE ALT2.txt
-preset-compatible|0644|zapret2/presets/general SIMPLE FAKE.txt
-preset-quarantined|0644|zapret2/presets/Preset X (game filter).txt
-preset-quarantined|0644|zapret2/presets/Preset X v2 (game filter).txt
-preset-quarantined|0644|zapret2/presets/Preset XY (game filter).txt
-preset-quarantined|0644|zapret2/presets/Send + Syndata (game filter).txt
-preset-quarantined|0644|zapret2/presets/Syndata + MultiDisorder legacy (game filter).txt
-preset-quarantined|0644|zapret2/presets/Syndata + MultiDisorder legacy WoW (game filter).txt
-preset-quarantined|0644|zapret2/presets/Ultimate Main Riot + Valorant (game filter).txt
+preset-quarantined|0644|zapret2/presets/general SIMPLE FAKE ALT2 1.9.9 (game filter).txt
+preset-quarantined|0644|zapret2/presets/general SIMPLE FAKE ALT2.txt
+preset-quarantined|0644|zapret2/presets/general SIMPLE FAKE.txt
+preset-compatible|0644|zapret2/presets/special for loop-uh.txt
 preset-quarantined|0644|zapret2/presets/Ростелеком.txt

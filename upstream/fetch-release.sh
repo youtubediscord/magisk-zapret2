@@ -3,8 +3,9 @@ set -euo pipefail
 
 readonly UPSTREAM_REPOSITORY="bol-van/zapret2"
 readonly API_ROOT="https://api.github.com/repos/${UPSTREAM_REPOSITORY}"
-readonly SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
-readonly CORE_LUA_LIST="${SCRIPT_DIR}/core-lua.txt"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+readonly SCRIPT_DIR
+readonly UPSTREAM_LUA_LIST="${SCRIPT_DIR}/lua-files.txt"
 readonly BINARY_MAP="${SCRIPT_DIR}/android-binaries.tsv"
 
 usage() {
@@ -73,10 +74,10 @@ verify_elf() {
 readonly OUTPUT_DIR="$1"
 [[ -n "$OUTPUT_DIR" && "$OUTPUT_DIR" != / ]] || fail "unsafe output directory"
 
-for command_name in curl jq tar sha256sum awk readelf install mktemp; do
+for command_name in curl jq tar sha256sum awk readelf install mktemp find; do
     require_command "$command_name"
 done
-[[ -f "$CORE_LUA_LIST" && ! -L "$CORE_LUA_LIST" ]] || fail "invalid core Lua allowlist"
+[[ -f "$UPSTREAM_LUA_LIST" && ! -L "$UPSTREAM_LUA_LIST" ]] || fail "invalid upstream Lua allowlist"
 [[ -f "$BINARY_MAP" && ! -L "$BINARY_MAP" ]] || fail "invalid Android binary map"
 
 if [[ -e "$OUTPUT_DIR" ]]; then
@@ -87,24 +88,31 @@ else
     mkdir -p -- "$OUTPUT_DIR"
 fi
 
-readonly TEMP_DIR="$(mktemp -d)"
+TEMP_DIR="$(mktemp -d)"
+readonly TEMP_DIR
 trap 'rm -rf -- "$TEMP_DIR"' EXIT HUP INT TERM
 
 readonly RELEASE_JSON="$TEMP_DIR/release.json"
 api_get "$API_ROOT/releases/latest" > "$RELEASE_JSON"
 
-readonly RELEASE_TAG="$(jq -er '.tag_name' "$RELEASE_JSON")"
+RELEASE_TAG="$(jq -er '.tag_name' "$RELEASE_JSON")"
+readonly RELEASE_TAG
 [[ "$RELEASE_TAG" =~ ^v[0-9]+([.][0-9]+){1,3}([._-][0-9A-Za-z]+)*$ ]] \
     || fail "unsafe latest release tag: $RELEASE_TAG"
 
-readonly RELEASE_SHA="$(api_get "$API_ROOT/commits/$RELEASE_TAG" | jq -er '.sha')"
+RELEASE_SHA="$(api_get "$API_ROOT/commits/$RELEASE_TAG" | jq -er '.sha')"
+readonly RELEASE_SHA
 [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]] || fail "invalid release commit SHA"
 
 readonly ARCHIVE_NAME="zapret2-${RELEASE_TAG}.tar.gz"
-readonly ARCHIVE_URL="$(jq -er --arg name "$ARCHIVE_NAME" '.assets[] | select(.name == $name) | .browser_download_url' "$RELEASE_JSON")"
-readonly ARCHIVE_DIGEST="$(jq -er --arg name "$ARCHIVE_NAME" '.assets[] | select(.name == $name) | .digest' "$RELEASE_JSON")"
-readonly CHECKSUM_URL="$(jq -er '.assets[] | select(.name == "sha256sum.txt") | .browser_download_url' "$RELEASE_JSON")"
-readonly CHECKSUM_DIGEST="$(jq -er '.assets[] | select(.name == "sha256sum.txt") | .digest' "$RELEASE_JSON")"
+ARCHIVE_URL="$(jq -er --arg name "$ARCHIVE_NAME" '.assets[] | select(.name == $name) | .browser_download_url' "$RELEASE_JSON")"
+readonly ARCHIVE_URL
+ARCHIVE_DIGEST="$(jq -er --arg name "$ARCHIVE_NAME" '.assets[] | select(.name == $name) | .digest' "$RELEASE_JSON")"
+readonly ARCHIVE_DIGEST
+CHECKSUM_URL="$(jq -er '.assets[] | select(.name == "sha256sum.txt") | .browser_download_url' "$RELEASE_JSON")"
+readonly CHECKSUM_URL
+CHECKSUM_DIGEST="$(jq -er '.assets[] | select(.name == "sha256sum.txt") | .digest' "$RELEASE_JSON")"
+readonly CHECKSUM_DIGEST
 readonly ARCHIVE_FILE="$TEMP_DIR/$ARCHIVE_NAME"
 readonly CHECKSUM_FILE="$TEMP_DIR/sha256sum.txt"
 
@@ -122,7 +130,7 @@ while IFS= read -r lua_name || [[ -n "$lua_name" ]]; do
     [[ -z "$lua_name" || "$lua_name" == \#* ]] && continue
     [[ "$lua_name" =~ ^[a-zA-Z0-9._-]+[.]lua$ ]] || fail "unsafe Lua allowlist entry: $lua_name"
     MEMBERS+=("$ARCHIVE_ROOT/lua/$lua_name")
-done < "$CORE_LUA_LIST"
+done < "$UPSTREAM_LUA_LIST"
 
 while IFS=$'\t' read -r module_abi archive_path elf_class elf_machine extra || [[ -n "$module_abi$archive_path$elf_class$elf_machine$extra" ]]; do
     [[ -z "$module_abi" || "$module_abi" == \#* ]] && continue
@@ -133,9 +141,11 @@ while IFS=$'\t' read -r module_abi archive_path elf_class elf_machine extra || [
 done < "$BINARY_MAP"
 
 [[ ${#MEMBERS[@]} -ge 5 ]] || fail "upstream payload allowlists are incomplete"
+readonly ARCHIVE_LIST="$TEMP_DIR/archive.list"
+tar -tzf "$ARCHIVE_FILE" > "$ARCHIVE_LIST"
 for member in "${MEMBERS[@]}"; do
-    tar -tzf "$ARCHIVE_FILE" | grep -Fqx -- "$member" \
-        || fail "release archive is missing $member"
+    [[ "$(grep -Fxc -- "$member" "$ARCHIVE_LIST")" -eq 1 ]] \
+        || fail "release archive is missing or duplicates $member"
 done
 tar --extract --gzip --file "$ARCHIVE_FILE" --directory "$EXTRACT_ROOT" \
     --no-same-owner --no-same-permissions -- "${MEMBERS[@]}"
@@ -146,7 +156,7 @@ while IFS= read -r lua_name || [[ -n "$lua_name" ]]; do
     [[ -f "$source_file" && ! -L "$source_file" && -s "$source_file" ]] \
         || fail "unsafe or empty upstream Lua file: $lua_name"
     install -D -m 0644 -- "$source_file" "$OUTPUT_DIR/lua/$lua_name"
-done < "$CORE_LUA_LIST"
+done < "$UPSTREAM_LUA_LIST"
 
 while IFS=$'\t' read -r module_abi archive_path elf_class elf_machine extra || [[ -n "$module_abi$archive_path$elf_class$elf_machine$extra" ]]; do
     [[ -z "$module_abi" || "$module_abi" == \#* ]] && continue

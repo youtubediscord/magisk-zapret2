@@ -45,6 +45,12 @@ class AppBackPolicyTest {
         val navHost = repositoryFile(
             "android-app/app/src/main/java/com/zapret2/app/ui/navigation/AppNavHost.kt"
         ).readText()
+        val configEditor = repositoryFile(
+            "android-app/app/src/main/java/com/zapret2/app/ui/screen/ConfigEditorScreen.kt"
+        ).readText()
+        val hostsEditor = repositoryFile(
+            "android-app/app/src/main/java/com/zapret2/app/ui/screen/HostsEditorScreen.kt"
+        ).readText()
 
         assertTrue(policy.contains("if (popBackStack(route, inclusive = false)) return"))
         assertTrue(policy.contains("popToOrOpen(Screen.Hostlists.route)"))
@@ -58,6 +64,8 @@ class AppBackPolicyTest {
                 .findAll(navHost)
                 .count() == 2,
         )
+        assertFalse(configEditor.contains("onNavigateBack: () -> Unit = {}"))
+        assertFalse(hostsEditor.contains("onNavigateBack: () -> Unit = {}"))
         assertFalse(detail.contains("else navController.popBackStack()"))
         assertFalse(navHost.contains("if (!navController.popBackStack())"))
     }
