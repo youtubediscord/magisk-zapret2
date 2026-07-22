@@ -32,7 +32,6 @@ import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.SystemUpdate
-import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -288,15 +287,6 @@ fun ControlScreen(
                             onCheckedChange = { activeViewModel?.setAutostart(it) },
                             icon = Icons.Default.PowerSettingsNew,
                             enabled = state.canEditSettings,
-                        )
-                        Spacer(Modifier.height(SpacingTokens.Small))
-                        SettingToggleRow(
-                            title = stringResource(R.string.control_wifi_only),
-                            checked = false,
-                            onCheckedChange = {},
-                            icon = Icons.Default.Wifi,
-                            subtitle = stringResource(R.string.control_wifi_only_body),
-                            enabled = false,
                         )
                     }
                 }

@@ -1,3 +1,6 @@
 zapret-lib.lua
 zapret-antidpi.lua
 zapret-auto.lua
+zapret-obfs.lua
+zapret-pcap.lua
+zapret-tests.lua

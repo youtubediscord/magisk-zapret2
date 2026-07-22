@@ -123,8 +123,6 @@
     <string name="control_not_available">N/A</string>
     <string name="control_settings">Settings</string>
     <string name="control_autostart">Autostart on boot</string>
-    <string name="control_wifi_only">Wi-Fi only</string>
-    <string name="control_wifi_only_body">Unavailable: the module cannot safely scope NFQUEUE rules to a verified Wi-Fi interface yet</string>
     <string name="control_packet_interception">Packet interception</string>
     <string name="control_outgoing_packets">Outgoing packets</string>
     <string name="control_incoming_packets">Incoming packets</string>

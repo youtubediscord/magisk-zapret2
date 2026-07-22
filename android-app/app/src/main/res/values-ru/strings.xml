@@ -125,8 +125,6 @@
     <string name="control_not_available">Нет данных</string>
     <string name="control_settings">Настройки</string>
     <string name="control_autostart">Автозапуск при загрузке</string>
-    <string name="control_wifi_only">Только Wi-Fi</string>
-    <string name="control_wifi_only_body">Недоступно: модуль пока не умеет безопасно привязывать правила NFQUEUE к проверенному интерфейсу Wi-Fi</string>
     <string name="control_packet_interception">Перехват пакетов</string>
     <string name="control_outgoing_packets">Исходящие пакеты</string>
     <string name="control_incoming_packets">Входящие пакеты</string>

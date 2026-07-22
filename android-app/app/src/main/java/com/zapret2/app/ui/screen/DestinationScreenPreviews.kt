@@ -165,6 +165,7 @@ private fun DnsFullScreenPreview() = PreviewDestination {
 @Composable
 private fun HostsEditorFullScreenPreview() = PreviewDestination {
     HostsEditorScreen(
+        onNavigateBack = {},
         previewState = HostsEditorUiState(
             content = "127.0.0.1 localhost\n1.1.1.1 example.org",
             hasAuthoritativeBaseline = true,
@@ -177,6 +178,7 @@ private fun HostsEditorFullScreenPreview() = PreviewDestination {
 @Composable
 private fun ConfigEditorFullScreenPreview() = PreviewDestination {
     ConfigEditorScreen(
+        onNavigateBack = {},
         previewState = ConfigEditorUiState(
             commandText = "nfqws2 --qnum=200 --lua-init=@zapret-antidpi.lua",
             hasUnsavedChanges = true,
@@ -394,6 +396,7 @@ private fun DnsEmptyPreview() = PreviewDestination {
 @Composable
 private fun HostsEditorDisabledPreview() = PreviewDestination {
     HostsEditorScreen(
+        onNavigateBack = {},
         previewState = HostsEditorUiState(
             operation = HostsEditorOperation.LOAD,
         ),
@@ -404,6 +407,7 @@ private fun HostsEditorDisabledPreview() = PreviewDestination {
 @Composable
 private fun HostsEditorErrorPreview() = PreviewDestination {
     HostsEditorScreen(
+        onNavigateBack = {},
         previewState = HostsEditorUiState(
             hasAuthoritativeBaseline = false,
             baselineLoadAttempted = true,
@@ -417,6 +421,7 @@ private fun HostsEditorErrorPreview() = PreviewDestination {
 @Composable
 private fun HostsEditorEmptyPreview() = PreviewDestination {
     HostsEditorScreen(
+        onNavigateBack = {},
         previewState = HostsEditorUiState(
             hasAuthoritativeBaseline = true,
             result = HostsEditorResult.EMPTY,
@@ -429,6 +434,7 @@ private fun HostsEditorEmptyPreview() = PreviewDestination {
 @Composable
 private fun HostsEditorInvalidPreview() = PreviewDestination {
     HostsEditorScreen(
+        onNavigateBack = {},
         previewState = HostsEditorUiState(
             content = "not-a-valid-hosts-line",
             hasAuthoritativeBaseline = true,
@@ -443,6 +449,7 @@ private fun HostsEditorInvalidPreview() = PreviewDestination {
 @Composable
 private fun ConfigEditorDisabledPreview() = PreviewDestination {
     ConfigEditorScreen(
+        onNavigateBack = {},
         previewState = ConfigEditorUiState(
             operation = ConfigEditorOperation.LOAD,
             actionsEnabled = false,
@@ -454,6 +461,7 @@ private fun ConfigEditorDisabledPreview() = PreviewDestination {
 @Composable
 private fun ConfigEditorErrorPreview() = PreviewDestination {
     ConfigEditorScreen(
+        onNavigateBack = {},
         previewState = ConfigEditorUiState(
             result = ConfigEditorResult.LOAD_FAILED,
             bindingLoadAttempted = true,
@@ -466,6 +474,7 @@ private fun ConfigEditorErrorPreview() = PreviewDestination {
 @Composable
 private fun ConfigEditorEmptyPreview() = PreviewDestination {
     ConfigEditorScreen(
+        onNavigateBack = {},
         previewState = ConfigEditorUiState(
             result = ConfigEditorResult.EMPTY,
             message = UiText.Resource(R.string.config_command_empty),

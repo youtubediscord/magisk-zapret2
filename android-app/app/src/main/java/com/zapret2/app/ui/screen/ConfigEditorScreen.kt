@@ -65,7 +65,7 @@ import kotlinx.coroutines.launch
 
 @Composable
 fun ConfigEditorScreen(
-    onNavigateBack: () -> Unit = {},
+    onNavigateBack: () -> Unit,
     viewModel: ConfigEditorViewModel? = null,
     previewState: ConfigEditorUiState? = null,
 ) {

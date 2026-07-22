@@ -113,6 +113,14 @@ class LegacyUiAbsencePolicyTest {
                 .toList()
         }
         assertTrue("Duplicate round launcher resources returned: $roundLaunchers", roundLaunchers.isEmpty())
+
+        val controlScreen = mainDir.resolve(
+            "java/com/zapret2/app/ui/screen/ControlScreen.kt",
+        ).readText()
+        val defaultStrings = mainDir.resolve("res/values/strings.xml").readText()
+        assertFalse(controlScreen.contains("onCheckedChange = {}"))
+        assertFalse(defaultStrings.contains("name=\"control_wifi_only\""))
+        assertFalse(defaultStrings.contains("name=\"control_wifi_only_body\""))
     }
 
     @Test

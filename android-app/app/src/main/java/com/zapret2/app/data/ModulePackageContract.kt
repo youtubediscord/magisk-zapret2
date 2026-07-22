@@ -93,6 +93,9 @@ internal object ModulePackageContract {
         "zapret2/lua/zapret-antidpi.lua",
         "zapret2/lua/zapret-auto.lua",
         "zapret2/lua/zapret-lib.lua",
+        "zapret2/lua/zapret-obfs.lua",
+        "zapret2/lua/zapret-pcap.lua",
+        "zapret2/lua/zapret-tests.lua",
         "zapret2/lua/zapret-multishake.lua",
     )
 

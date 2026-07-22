@@ -297,6 +297,9 @@ package_contract_validate_manifest() {
         "runtime-dependency-immutable|0644|zapret2/lua/zapret-antidpi.lua" \
         "runtime-dependency-immutable|0644|zapret2/lua/zapret-auto.lua" \
         "runtime-dependency-immutable|0644|zapret2/lua/zapret-lib.lua" \
+        "runtime-dependency-immutable|0644|zapret2/lua/zapret-obfs.lua" \
+        "runtime-dependency-immutable|0644|zapret2/lua/zapret-pcap.lua" \
+        "runtime-dependency-immutable|0644|zapret2/lua/zapret-tests.lua" \
         "runtime-dependency-immutable|0644|zapret2/lua/zapret-multishake.lua" \
         "immutable-exec|0755|customize.sh" \
         "immutable-exec|0755|service.sh" \
