@@ -144,12 +144,15 @@ fun ControlScreen(
             title = stringResource(error.kind.titleRes),
             details = details,
             onCopy = {
-                context.getSystemService(ClipboardManager::class.java)?.setPrimaryClip(
-                    ClipData.newPlainText(errorDetailsLabel, details),
-                )
+                val copied = runCatching {
+                    requireNotNull(context.getSystemService(ClipboardManager::class.java))
+                        .setPrimaryClip(ClipData.newPlainText(errorDetailsLabel, details))
+                }.isSuccess
                 localSnackbar = AppSnackbarMessage(
                     sequence = System.nanoTime(),
-                    text = UiText.Resource(R.string.control_copied),
+                    text = UiText.Resource(
+                        if (copied) R.string.control_copied else R.string.control_copy_failed,
+                    ),
                 )
             },
             onDismiss = { activeViewModel?.dismissDialog() },

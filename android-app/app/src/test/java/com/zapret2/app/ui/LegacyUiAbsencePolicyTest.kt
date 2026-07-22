@@ -121,6 +121,8 @@ class LegacyUiAbsencePolicyTest {
         assertFalse(controlScreen.contains("onCheckedChange = {}"))
         assertFalse(defaultStrings.contains("name=\"control_wifi_only\""))
         assertFalse(defaultStrings.contains("name=\"control_wifi_only_body\""))
+        assertTrue(controlScreen.contains("requireNotNull(context.getSystemService(ClipboardManager::class.java))"))
+        assertTrue(controlScreen.contains("if (copied) R.string.control_copied else R.string.control_copy_failed"))
     }
 
     @Test
