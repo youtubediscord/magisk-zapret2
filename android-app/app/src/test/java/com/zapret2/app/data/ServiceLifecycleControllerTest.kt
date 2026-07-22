@@ -46,6 +46,22 @@ class ServiceLifecycleControllerTest {
             ),
             uid = null,
         )
+        val deniedWithoutShellDiagnostic = ServiceLifecycleController.classifyRootAccess(
+            ServiceLifecycleController.CommandResult(
+                success = false,
+                error = "Root command exited unsuccessfully",
+            ),
+            uid = null,
+            appGrantedRoot = false,
+        )
+        val failedGrantedShell = ServiceLifecycleController.classifyRootAccess(
+            ServiceLifecycleController.CommandResult(
+                success = false,
+                error = "Root shell disconnected",
+            ),
+            uid = null,
+            appGrantedRoot = true,
+        )
         val malformedUid = ServiceLifecycleController.classifyRootAccess(
             ServiceLifecycleController.CommandResult(success = true),
             uid = "root",
@@ -60,6 +76,18 @@ class ServiceLifecycleControllerTest {
         )
         assertEquals(ServiceLifecycleController.RootAccessState.TIMEOUT, timedOut.state)
         assertEquals(ServiceLifecycleController.RootAccessState.SHELL_FAILURE, shellFailure.state)
+        assertEquals(
+            ServiceLifecycleController.RootAccessState.DENIED,
+            deniedWithoutShellDiagnostic.state,
+        )
+        assertEquals(
+            "Root access was not granted by the root manager",
+            deniedWithoutShellDiagnostic.error,
+        )
+        assertEquals(
+            ServiceLifecycleController.RootAccessState.SHELL_FAILURE,
+            failedGrantedShell.state,
+        )
         assertEquals(ServiceLifecycleController.RootAccessState.SHELL_FAILURE, malformedUid.state)
     }
 
