@@ -1,0 +1,307 @@
+package com.zapret2.app.data
+
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.ThreadContextElement
+import kotlinx.coroutines.withContext
+import java.util.UUID
+import kotlin.coroutines.AbstractCoroutineContextElement
+import kotlin.coroutines.CoroutineContext
+
+/** Serializes every app-process mutation of the installed module. */
+object ModuleMutationCoordinator {
+
+    const val STATE_DIR = OwnerStateSchema.STATE_DIR
+    // Must match UPDATE_LOCK in the module lifecycle scripts.
+    const val UPDATE_LOCK = "$STATE_DIR/update.lock"
+    const val UPDATE_TRANSACTION = "$STATE_DIR/update.transaction"
+    const val UPDATE_CLEANUP = "$STATE_DIR/update.cleanup"
+    const val FULL_ROLLBACK_TRANSACTION = "$STATE_DIR/full-rollback.transaction"
+    const val UNINSTALL_TOMBSTONE = "$STATE_DIR/uninstall.tombstone"
+    const val MAGISK_REMOVE_MARKER = "${ServiceLifecycleController.MODULE_DIR}/remove"
+    const val MODULE_DISABLE_MARKER = "${ServiceLifecycleController.MODULE_DIR}/disable"
+
+    class MutationBlockedException(message: String) : IllegalStateException(message)
+
+    internal data class SafetyProbe(
+        val updateLock: Boolean,
+        val updateTransaction: Boolean,
+        val updateCleanup: Boolean,
+        val fullRollbackTransaction: Boolean,
+        val uninstallTombstone: Boolean,
+        val magiskRemove: Boolean,
+        val moduleDisabled: Boolean,
+    )
+
+    internal enum class Operation {
+        MUTATION,
+        UPDATE,
+        RECOVERY,
+        LIFECYCLE_SCRIPT,
+    }
+
+    private class Ownership(
+        val operation: Operation,
+        val lease: LifecycleMutationLockProtocol.Lease?,
+    ) : AbstractCoroutineContextElement(Key), ThreadContextElement<Ownership?> {
+        companion object Key : CoroutineContext.Key<Ownership>
+
+        override fun updateThreadContext(context: CoroutineContext): Ownership? =
+            threadOwnership.get().also { threadOwnership.set(this) }
+
+        override fun restoreThreadContext(context: CoroutineContext, oldState: Ownership?) {
+            if (oldState == null) threadOwnership.remove() else threadOwnership.set(oldState)
+        }
+    }
+
+    private val mutex = Mutex()
+    private val threadOwnership = ThreadLocal<Ownership?>()
+
+    suspend fun <T> withMutation(block: suspend () -> T): T =
+        withExclusive(Operation.MUTATION, checkUpdateState = true, checkRemovalState = true, block)
+
+    /**
+     * Runs a multi-step module mutation to its commit or rollback outcome after ownership is
+     * admitted. Callers must use this boundary for snapshot/write/verify/restore sequences so a
+     * screen or ViewModel cancellation cannot release the lifecycle lease between those steps.
+     */
+    suspend fun <T> withNonCancellableMutation(block: suspend () -> T): T =
+        withMutation { withContext(NonCancellable) { block() } }
+
+    suspend fun <T> withModuleUpdate(block: suspend () -> T): T =
+        withExclusive(Operation.UPDATE, checkUpdateState = false, checkRemovalState = true, block)
+
+    suspend fun <T> withRecovery(block: suspend () -> T): T =
+        withExclusive(Operation.RECOVERY, checkUpdateState = false, checkRemovalState = false, block)
+
+    /** Lifecycle scripts acquire lifecycle.lock themselves and must not be wrapped in an app lease. */
+    suspend fun <T> withLifecycleScript(block: suspend () -> T): T =
+        withExclusive(Operation.LIFECYCLE_SCRIPT, checkUpdateState = false, checkRemovalState = false, block)
+
+    private suspend fun <T> withExclusive(
+        operation: Operation,
+        checkUpdateState: Boolean,
+        checkRemovalState: Boolean,
+        block: suspend () -> T
+    ): T {
+        val inherited = currentCoroutineContext()[Ownership]
+        if (inherited != null) {
+            if (operation == Operation.UPDATE && inherited.operation != Operation.UPDATE) {
+                throw MutationBlockedException("A module update cannot start inside another module mutation")
+            }
+            if (operation == Operation.LIFECYCLE_SCRIPT && inherited.lease != null) {
+                throw MutationBlockedException("A full lifecycle transaction cannot start inside a module write")
+            }
+            return block()
+        }
+
+        mutex.lock()
+        return try {
+            if (requiresCrossProcessLease(operation)) {
+                CancellationSafeMutationLease.run(
+                    acquire = ::acquireCrossProcessLease,
+                    release = ::releaseCrossProcessLease,
+                ) { lease ->
+                    withContext(Ownership(operation, lease)) {
+                        ensureMutationAllowed(checkUpdateState = true, checkRemovalState = true)
+                        block()
+                    }
+                }
+            } else {
+                withContext(Ownership(operation, lease = null)) {
+                    if (checkUpdateState || checkRemovalState) {
+                        ensureMutationAllowed(checkUpdateState, checkRemovalState)
+                    }
+                    block()
+                }
+            }
+        } finally {
+            mutex.unlock()
+        }
+    }
+
+    internal fun requiresCrossProcessLease(operation: Operation): Boolean =
+        operation == Operation.MUTATION
+
+    /** RootFileIo calls this synchronously on the coroutine thread before every privileged write. */
+    internal fun requirePrivilegedMutationContext() {
+        check(threadOwnership.get()?.lease != null) {
+            "Privileged module write attempted without cross-process lifecycle ownership"
+        }
+    }
+
+    /** Allows a nested start/stop/restart script to inherit, but never release, the app lease. */
+    internal fun inheritLifecycleLock(command: String): String {
+        val lease = threadOwnership.get()?.lease ?: return command
+        return buildInheritedLifecycleCommand(command, lease)
+    }
+
+    internal fun buildInheritedLifecycleCommand(
+        command: String,
+        lease: LifecycleMutationLockProtocol.Lease,
+    ): String {
+        return buildString {
+            append("ZAPRET2_LIFECYCLE_TOKEN=").append(RootFileIo.shellQuote(lease.token)).append(' ')
+            append("ZAPRET2_LIFECYCLE_OWNER_PID=").append(RootFileIo.shellQuote(lease.pid)).append(' ')
+            append("ZAPRET2_LIFECYCLE_OWNER_START=").append(RootFileIo.shellQuote(lease.starttime)).append(' ')
+            append(command)
+        }
+    }
+
+    private suspend fun acquireCrossProcessLease(): LifecycleMutationLockProtocol.Lease {
+        val pid = android.os.Process.myPid()
+        val token = "app.${UUID.randomUUID().toString().replace("-", "")}"
+        val command = LifecycleMutationLockProtocol.buildAcquireCommand(pid, token)
+            ?: throw MutationBlockedException("Unable to create valid lifecycle ownership metadata")
+        val result = ServiceLifecycleController.executeRoot(command)
+        val lease = result.takeIf { it.success }
+            ?.let { LifecycleMutationLockProtocol.parseAcquireOutput(it.stdout, pid, token) }
+        if (lease != null) return lease
+
+        // The publication is the commit point, not stdout delivery. If the command result is
+        // truncated or fails after publication, retire only our exact live record before failing.
+        probePublishedLease(pid, token)?.let { published ->
+            releaseCrossProcessLease(published)
+        }
+        throw MutationBlockedException(
+            result.diagnosticText().ifBlank {
+                if (result.success) {
+                    "Lifecycle ownership response was invalid; changes were not started"
+                } else {
+                    "Another module lifecycle operation is active; changes were not saved"
+                }
+            }
+        )
+    }
+
+    private suspend fun probePublishedLease(
+        pid: Int,
+        token: String,
+    ): LifecycleMutationLockProtocol.Lease? {
+        val command = LifecycleMutationLockProtocol.buildOwnedLeaseProbeCommand(pid, token) ?: return null
+        val result = ServiceLifecycleController.executeRoot(command)
+        return result.takeIf { it.success }
+            ?.let { LifecycleMutationLockProtocol.parseAcquireOutput(it.stdout, pid, token) }
+    }
+
+    private suspend fun releaseCrossProcessLease(lease: LifecycleMutationLockProtocol.Lease) {
+        val releaseToken = UUID.randomUUID().toString().replace("-", "")
+        val command = LifecycleMutationLockProtocol.buildReleaseCommand(lease, releaseToken)
+            ?: throw MutationBlockedException("Unable to create lifecycle release metadata")
+        val result = ServiceLifecycleController.executeRoot(command)
+        if (!result.success || !LifecycleMutationLockProtocol.parseReleaseOutput(result.stdout)) {
+            throw MutationBlockedException(
+                result.diagnosticText().ifBlank { "Lifecycle ownership release could not be verified" }
+            )
+        }
+    }
+
+    private suspend fun ensureMutationAllowed(checkUpdateState: Boolean, checkRemovalState: Boolean) {
+        if (checkUpdateState && ServiceLifecycleController.isAppUpdateInProgress()) {
+            throw MutationBlockedException("Module update is in progress; your changes were not saved")
+        }
+
+        val result = ServiceLifecycleController.executeRoot(
+            """
+                if [ -e ${RootFileIo.shellQuote(UPDATE_LOCK)} ] || [ -L ${RootFileIo.shellQuote(UPDATE_LOCK)} ]; then
+                    echo Z2_UPDATE_LOCK=1
+                else
+                    echo Z2_UPDATE_LOCK=0
+                fi
+                if [ -e ${RootFileIo.shellQuote(UPDATE_TRANSACTION)} ] || [ -L ${RootFileIo.shellQuote(UPDATE_TRANSACTION)} ]; then
+                    echo Z2_UPDATE_TRANSACTION=1
+                else
+                    echo Z2_UPDATE_TRANSACTION=0
+                fi
+                if [ -e ${RootFileIo.shellQuote(UPDATE_CLEANUP)} ] || [ -L ${RootFileIo.shellQuote(UPDATE_CLEANUP)} ]; then
+                    echo Z2_UPDATE_CLEANUP=1
+                else
+                    echo Z2_UPDATE_CLEANUP=0
+                fi
+                if [ -e ${RootFileIo.shellQuote(FULL_ROLLBACK_TRANSACTION)} ] || [ -L ${RootFileIo.shellQuote(FULL_ROLLBACK_TRANSACTION)} ]; then
+                    echo Z2_FULL_ROLLBACK_TRANSACTION=1
+                else
+                    echo Z2_FULL_ROLLBACK_TRANSACTION=0
+                fi
+                if [ -e ${RootFileIo.shellQuote(UNINSTALL_TOMBSTONE)} ] || [ -L ${RootFileIo.shellQuote(UNINSTALL_TOMBSTONE)} ]; then
+                    echo Z2_UNINSTALL_TOMBSTONE=1
+                else
+                    echo Z2_UNINSTALL_TOMBSTONE=0
+                fi
+                if [ -e ${RootFileIo.shellQuote(MAGISK_REMOVE_MARKER)} ] || [ -L ${RootFileIo.shellQuote(MAGISK_REMOVE_MARKER)} ]; then
+                    echo Z2_MAGISK_REMOVE=1
+                else
+                    echo Z2_MAGISK_REMOVE=0
+                fi
+                if [ -e ${RootFileIo.shellQuote(MODULE_DISABLE_MARKER)} ] || [ -L ${RootFileIo.shellQuote(MODULE_DISABLE_MARKER)} ]; then
+                    echo Z2_MODULE_DISABLED=1
+                else
+                    echo Z2_MODULE_DISABLED=0
+                fi
+                echo Z2_MUTATION_PROBE_COMPLETE=1
+            """.trimIndent()
+        )
+        val probe = result.takeIf { it.success }?.let { parseSafetyProbe(it.stdout) }
+        if (probe == null) {
+            throw MutationBlockedException(
+                result.diagnosticText().ifBlank { "Unable to verify module mutation safety; changes were not saved" }
+            )
+        }
+        if (checkRemovalState && probe.uninstallTombstone) {
+            throw MutationBlockedException("Module uninstall tombstone is present; changes were not saved")
+        }
+        if (checkRemovalState && probe.magiskRemove) {
+            throw MutationBlockedException("Magisk module removal is pending; changes were not saved")
+        }
+        if (checkUpdateState && probe.updateLock) {
+            throw MutationBlockedException("Module update marker is present; your changes were not saved")
+        }
+        if (checkUpdateState && probe.updateTransaction) {
+            throw MutationBlockedException("An interrupted module update requires recovery; your changes were not saved")
+        }
+        if (checkUpdateState && probe.updateCleanup) {
+            throw MutationBlockedException("Committed update cleanup requires recovery; your changes were not saved")
+        }
+        if (checkUpdateState && probe.fullRollbackTransaction) {
+            throw MutationBlockedException("A full rollback transaction requires recovery; your changes were not saved")
+        }
+        if (checkUpdateState && probe.moduleDisabled) {
+            throw MutationBlockedException("The module is disabled; changes were not saved")
+        }
+    }
+
+    internal fun parseSafetyProbe(lines: List<String>): SafetyProbe? {
+        val completion = "Z2_MUTATION_PROBE_COMPLETE"
+        val keys = setOf(
+            "Z2_UPDATE_LOCK",
+            "Z2_UPDATE_TRANSACTION",
+            "Z2_UPDATE_CLEANUP",
+            "Z2_FULL_ROLLBACK_TRANSACTION",
+            "Z2_UNINSTALL_TOMBSTONE",
+            "Z2_MAGISK_REMOVE",
+            "Z2_MODULE_DISABLED",
+            completion,
+        )
+        if (lines.size != keys.size || lines.lastOrNull() != "$completion=1") return null
+        val pairs = lines.map { line ->
+            val separator = line.indexOf('=')
+            if (separator <= 0) return null
+            line.substring(0, separator) to line.substring(separator + 1)
+        }
+        val counts = pairs.groupingBy { it.first }.eachCount()
+        val values = pairs.toMap()
+        if (counts.keys != keys || keys.any { counts[it] != 1 } ||
+            keys.any { values[it] != "0" && values[it] != "1" } || values[completion] != "1"
+        ) return null
+        return SafetyProbe(
+            updateLock = values["Z2_UPDATE_LOCK"] == "1",
+            updateTransaction = values["Z2_UPDATE_TRANSACTION"] == "1",
+            updateCleanup = values["Z2_UPDATE_CLEANUP"] == "1",
+            fullRollbackTransaction = values["Z2_FULL_ROLLBACK_TRANSACTION"] == "1",
+            uninstallTombstone = values["Z2_UNINSTALL_TOMBSTONE"] == "1",
+            magiskRemove = values["Z2_MAGISK_REMOVE"] == "1",
+            moduleDisabled = values["Z2_MODULE_DISABLED"] == "1",
+        )
+    }
+}

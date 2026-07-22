@@ -1,9 +1,53 @@
 #!/system/bin/sh
 # Command builder for nfqws2
 # Source: functions extracted from zapret-start.sh
-# Requires: common.sh must be sourced first
-
-[ -z "$ZAPRET_DIR" ] && { echo "ERROR: source common.sh first"; exit 1; }
+# Requires: common.sh must be sourced first for normal runtime use.  The
+# machine interfaces below bootstrap only the immutable paths they need:
+#   --scan-presets-machine <zapret-dir>
+#   --validate-preset-machine <zapret-dir> <candidate-path> <logical-name>
+#   --validate-categories-machine <zapret-dir>
+#   --validate-strategies-machine <zapret-dir>
+#   --validate-cmdline-machine <zapret-dir> <file-name>
+COMMAND_BUILDER_CLI_MODE=0
+COMMAND_BUILDER_ERROR_PREFIX=Z2_PRESET_ERROR
+STRATEGY_CATALOG_MAX_BYTES=1048576
+CATEGORIES_MAX_BYTES=1048576
+CUSTOM_CMDLINE_MAX_BYTES=262144
+case "${1:-}" in
+    --scan-presets-machine|--validate-preset-machine|--validate-categories-machine|--validate-strategies-machine|--validate-cmdline-machine)
+        COMMAND_BUILDER_CLI_MODE=1
+        case "$1" in
+            --validate-categories-machine) COMMAND_BUILDER_ERROR_PREFIX=Z2_CATEGORIES_ERROR ;;
+            --validate-strategies-machine) COMMAND_BUILDER_ERROR_PREFIX=Z2_STRATEGIES_ERROR ;;
+            --validate-cmdline-machine) COMMAND_BUILDER_ERROR_PREFIX=Z2_CMDLINE_ERROR ;;
+        esac
+        ZAPRET_DIR="${2:-}"
+        case "$ZAPRET_DIR" in
+            /*) ;;
+            *) printf '%s\tUNSAFE_ROOT\n' "$COMMAND_BUILDER_ERROR_PREFIX" >&2; exit 2 ;;
+        esac
+        case "$ZAPRET_DIR" in *'/../'*|*'/./'*|*/..|*/.)
+            printf '%s\tUNSAFE_ROOT\n' "$COMMAND_BUILDER_ERROR_PREFIX" >&2
+            exit 2
+            ;;
+        esac
+        PRESETS_DIR="$ZAPRET_DIR/presets"
+        LISTS_DIR="$ZAPRET_DIR/lists"
+        if [ "$1" = --validate-categories-machine ] || [ "$1" = --validate-strategies-machine ] ||
+           [ "$1" = --validate-cmdline-machine ]; then
+            SCRIPT_DIR="$ZAPRET_DIR/scripts"
+            MODDIR="$(dirname "$ZAPRET_DIR")"
+            . "$SCRIPT_DIR/common.sh" || exit 2
+            [ "$1" != --validate-categories-machine ] || set_core_config_defaults
+        fi
+        log_msg() { :; }
+        log_error() { :; }
+        log_debug() { :; }
+        ;;
+    *)
+        [ -z "$ZAPRET_DIR" ] && { echo "ERROR: source common.sh first"; exit 1; }
+        ;;
+esac
 
 ##########################################################################################
 # INI PARSERS
@@ -17,24 +61,23 @@ get_strategy_args_from_ini() {
     local strategy_name="$2"
     local current_section=""
     local line=""
+    local key=""
     local args=""
-    local cr
+    local cr size
 
-    if [ ! -f "$ini_file" ]; then
-        log_debug "INI file not found: $ini_file"
-        return
-    fi
+    is_readable_file "$ini_file" || { log_error "INI file is missing or unsafe: $ini_file"; return 1; }
+    size="$(wc -c < "$ini_file" 2>/dev/null)" || return 1
+    case "$size" in ""|*[!0-9]*) return 1 ;; esac
+    [ "$size" -gt 0 ] 2>/dev/null && [ "$size" -le "$STRATEGY_CATALOG_MAX_BYTES" ] 2>/dev/null || return 1
 
-    # Handle "default" strategy - look up [default] section
-    if [ "$strategy_name" = "default" ] || [ -z "$strategy_name" ]; then
-        strategy_name="default"
-    fi
+    [ -n "$strategy_name" ] || { log_error "Empty strategy name"; return 1; }
 
     log_debug "Looking for strategy [$strategy_name] in $ini_file"
 
     cr=$(printf '\r')
     while IFS= read -r line || [ -n "$line" ]; do
         line="${line%"$cr"}"
+        line="$(trim_config_value "$line")"
 
         case "$line" in
             ""|"#"*|";"*)
@@ -49,8 +92,14 @@ get_strategy_args_from_ini() {
 
         if [ "$current_section" = "$strategy_name" ]; then
             case "$line" in
-                args=*)
-                    args="${line#args=}"
+                *=*)
+                    key="$(trim_config_value "${line%%=*}")"
+                    [ "$key" = args ] || continue
+                    decode_config_value "${line#*=}" || {
+                        log_error "Invalid quoted args in [$strategy_name] from $ini_file"
+                        return 1
+                    }
+                    args="$CONFIG_VALUE_DECODED"
                     echo "$args"
                     log_debug "Found args for [$strategy_name]"
                     return
@@ -63,28 +112,89 @@ get_strategy_args_from_ini() {
     echo ""
 }
 
+validate_strategy_ini_file() {
+    local ini_file="$1"
+    local current_section=""
+    local line=""
+    local key=""
+    local value=""
+    local seen_sections="|"
+    local seen_keys="|"
+    local section_count=0
+    local usable_count=0
+    local args_count=0
+    local cr
+    local size
+
+    is_readable_file "$ini_file" || return 1
+    size="$(wc -c < "$ini_file" 2>/dev/null)" || return 1
+    case "$size" in ""|*[!0-9]*) return 1 ;; esac
+    [ "$size" -gt 0 ] 2>/dev/null && [ "$size" -le "$STRATEGY_CATALOG_MAX_BYTES" ] 2>/dev/null || return 1
+    cr="$(printf '\r')"
+    while IFS= read -r line || [ -n "$line" ]; do
+        line="${line%"$cr"}"
+        line="$(trim_config_value "$line")"
+        case "$line" in
+            ""|"#"*|";"*) continue ;;
+            "["*"]")
+                if [ -n "$current_section" ]; then
+                    [ "$args_count" -eq 1 ] || return 1
+                    [ "$current_section" = disabled ] || usable_count=$((usable_count + 1))
+                fi
+                current_section="${line#[}"
+                current_section="${current_section%]}"
+                case "$current_section" in ""|*[!A-Za-z0-9_]*) return 1 ;; esac
+                case "$seen_sections" in *"|$current_section|"*) return 1 ;; esac
+                seen_sections="${seen_sections}${current_section}|"
+                seen_keys="|"
+                args_count=0
+                section_count=$((section_count + 1))
+                ;;
+            *=*)
+                [ -n "$current_section" ] || return 1
+                key="$(trim_config_value "${line%%=*}")"
+                case "$key" in ""|*[!A-Za-z0-9_-]*) return 1 ;; esac
+                case "$seen_keys" in *"|$key|"*) return 1 ;; esac
+                seen_keys="${seen_keys}${key}|"
+                decode_config_value "${line#*=}" || return 1
+                value="$CONFIG_VALUE_DECODED"
+                if [ "$key" = args ]; then
+                    if [ "$current_section" = disabled ]; then
+                        [ -z "$value" ] || return 1
+                    else
+                        [ -n "$value" ] && [ "${#value}" -le 65536 ] || return 1
+                    fi
+                    args_count=1
+                fi
+                ;;
+            *) return 1 ;;
+        esac
+    done < "$ini_file"
+    [ "$section_count" -gt 0 ] && [ "$args_count" -eq 1 ] || return 1
+    [ "$current_section" = disabled ] || usable_count=$((usable_count + 1))
+    [ "$usable_count" -gt 0 ]
+}
+
+validate_strategy_catalogs_machine() {
+    validate_strategy_ini_file "$ZAPRET_DIR/strategies-tcp.ini" || return 1
+    validate_strategy_ini_file "$ZAPRET_DIR/strategies-udp.ini" || return 1
+    validate_strategy_ini_file "$ZAPRET_DIR/strategies-stun.ini" || return 1
+    return 0
+}
+
 # Get TCP strategy options
 # Usage: get_tcp_strategy_options <strategy_name> <filter>
 # Returns: filter + strategy args
 get_tcp_strategy_options() {
     local strategy_name="$1"
     local filter="$2"
-    local requested_strategy="$strategy_name"
-
-    local args=$(get_strategy_args_from_ini "$TCP_STRATEGIES_INI" "$strategy_name")
-
-    if [ -n "$args" ]; then
-        echo "$filter $args"
-    else
-        if [ -n "$requested_strategy" ] && [ "$requested_strategy" != "default" ]; then
-            log_msg "WARNING: TCP strategy [$requested_strategy] not found in $TCP_STRATEGIES_INI, falling back to [default]"
-        fi
-        # Fallback to default strategy
-        args=$(get_strategy_args_from_ini "$TCP_STRATEGIES_INI" "default")
-        if [ -n "$args" ]; then
-            echo "$filter $args"
-        fi
-    fi
+    local args=""
+    args="$(get_strategy_args_from_ini "$TCP_STRATEGIES_INI" "$strategy_name")" || return 1
+    [ -n "$args" ] || {
+        log_error "TCP strategy [$strategy_name] is missing or empty in $TCP_STRATEGIES_INI"
+        return 1
+    }
+    echo "$filter $args"
 }
 
 # Get UDP strategy options
@@ -93,22 +203,13 @@ get_tcp_strategy_options() {
 get_udp_strategy_options() {
     local strategy_name="$1"
     local filter="$2"
-    local requested_strategy="$strategy_name"
-
-    local args=$(get_strategy_args_from_ini "$UDP_STRATEGIES_INI" "$strategy_name")
-
-    if [ -n "$args" ]; then
-        echo "$filter $args"
-    else
-        if [ -n "$requested_strategy" ] && [ "$requested_strategy" != "default" ]; then
-            log_msg "WARNING: UDP strategy [$requested_strategy] not found in $UDP_STRATEGIES_INI, falling back to [default]"
-        fi
-        # Fallback to default strategy
-        args=$(get_strategy_args_from_ini "$UDP_STRATEGIES_INI" "default")
-        if [ -n "$args" ]; then
-            echo "$filter $args"
-        fi
-    fi
+    local args=""
+    args="$(get_strategy_args_from_ini "$UDP_STRATEGIES_INI" "$strategy_name")" || return 1
+    [ -n "$args" ] || {
+        log_error "UDP strategy [$strategy_name] is missing or empty in $UDP_STRATEGIES_INI"
+        return 1
+    }
+    echo "$filter $args"
 }
 
 # Get STUN strategy options
@@ -117,30 +218,17 @@ get_udp_strategy_options() {
 get_stun_strategy_options() {
     local strategy_name="$1"
     local filter="$2"
-    local requested_strategy="$strategy_name"
-
-    local args=$(get_strategy_args_from_ini "$STUN_STRATEGIES_INI" "$strategy_name")
-
-    if [ -n "$args" ]; then
-        # STUN args already include --payload and --out-range, just add filter if any
-        if [ -n "$filter" ]; then
-            echo "$filter $args"
-        else
-            echo "$args"
-        fi
+    local args=""
+    args="$(get_strategy_args_from_ini "$STUN_STRATEGIES_INI" "$strategy_name")" || return 1
+    [ -n "$args" ] || {
+        log_error "STUN strategy [$strategy_name] is missing or empty in $STUN_STRATEGIES_INI"
+        return 1
+    }
+    # STUN args already include --payload and --out-range, just add filter if any.
+    if [ -n "$filter" ]; then
+        echo "$filter $args"
     else
-        if [ -n "$requested_strategy" ] && [ "$requested_strategy" != "default" ]; then
-            log_msg "WARNING: STUN strategy [$requested_strategy] not found in $STUN_STRATEGIES_INI, falling back to [default]"
-        fi
-        # Fallback to default strategy
-        args=$(get_strategy_args_from_ini "$STUN_STRATEGIES_INI" "default")
-        if [ -n "$args" ]; then
-            if [ -n "$filter" ]; then
-                echo "$filter $args"
-            else
-                echo "$args"
-            fi
-        fi
+        echo "$args"
     fi
 }
 
@@ -257,48 +345,172 @@ is_preset_file_mode() {
     esac
 }
 
-# Resolve PRESET_FILE to absolute path.
-resolve_preset_file_path() {
-    local preset_name="$1"
+is_cmdline_mode() {
+    [ "${PRESET_MODE:-categories}" = cmdline ]
+}
 
-    case "$preset_name" in
-        /*)
-            echo "$preset_name"
+# Stable result exported by every preset validation call.
+PRESET_VALIDATION_CODE="OK"
+PRESET_VALIDATION_DETAIL=""
+
+preset_validation_fail() {
+    PRESET_VALIDATION_CODE="$1"
+    PRESET_VALIDATION_DETAIL="${2:-}"
+    return 1
+}
+
+command_builder_safe_file_name_byte_length() {
+    local value="$1"
+    local LC_ALL=C
+    [ "${#value}" -le 255 ] 2>/dev/null
+}
+
+is_safe_preset_file_name() {
+    local name="$1"
+    [ -n "$name" ] && command_builder_safe_file_name_byte_length "$name" || return 1
+    [ "$name" != "." ] && [ "$name" != ".." ] || return 1
+    [ "${name# }" = "$name" ] && [ "${name% }" = "$name" ] || return 1
+    case "$name" in
+        _*|*/*|*\\*|*"'"*|*'"'*|*.TXT|*.Txt|*.tXt|*.txT|*.TXt|*.TxT|*.tXT) return 1 ;;
+        *.txt) ;;
+        *) return 1 ;;
+    esac
+    if LC_ALL=C printf '%s' "$name" | grep -q '[[:cntrl:]]'; then return 1; fi
+    return 0
+}
+
+is_safe_dependency_name() {
+    local name="$1"
+    [ -n "$name" ] && command_builder_safe_file_name_byte_length "$name" || return 1
+    [ "$name" != "." ] && [ "$name" != ".." ] || return 1
+    [ "${name# }" = "$name" ] && [ "${name% }" = "$name" ] || return 1
+    case "$name" in */*|*\\*|*"'"*|*'"'*) return 1 ;; esac
+    if LC_ALL=C printf '%s' "$name" | grep -q '[[:cntrl:]]'; then return 1; fi
+    return 0
+}
+
+validate_preset_dependency() {
+    local dependency_class="$1"
+    local raw="$2"
+    local relative=""
+    local base=""
+
+    case "$dependency_class:$raw" in
+        lua:@lua/*)
+            relative="${raw#@lua/}"
+            base="$ZAPRET_DIR/lua"
+            ;;
+        blob:@bin/*)
+            relative="${raw#@bin/}"
+            base="$ZAPRET_DIR/bin"
+            ;;
+        list:lists/*)
+            relative="${raw#lists/}"
+            base="$LISTS_DIR"
             ;;
         *)
-            echo "$PRESETS_DIR/$preset_name"
+            preset_validation_fail "UNSAFE_DEPENDENCY_PATH" "$raw"
+            return 1
             ;;
     esac
+
+    if ! is_safe_dependency_name "$relative"; then
+        preset_validation_fail "UNSAFE_DEPENDENCY_PATH" "$raw"
+        return 1
+    fi
+
+    PRESET_DEPENDENCY_PATH="$base/$relative"
+    PRESET_DEPENDENCY_RELATIVE="zapret2/${base##*/}/$relative"
+    if [ -n "${PRESET_ALLOWED_DEPENDENCIES_FILE:-}" ]; then
+        if [ ! -f "$PRESET_ALLOWED_DEPENDENCIES_FILE" ] ||
+           ! grep -Fqx "$PRESET_DEPENDENCY_RELATIVE" "$PRESET_ALLOWED_DEPENDENCIES_FILE"; then
+            preset_validation_fail "DEPENDENCY_NOT_DECLARED" "$raw"
+            return 1
+        fi
+    fi
+    if [ -L "$PRESET_DEPENDENCY_PATH" ]; then
+        preset_validation_fail "DEPENDENCY_SYMLINK" "$raw"
+        return 1
+    fi
+    if [ ! -f "$PRESET_DEPENDENCY_PATH" ]; then
+        preset_validation_fail "DEPENDENCY_MISSING" "$raw"
+        return 1
+    fi
+    if [ ! -s "$PRESET_DEPENDENCY_PATH" ]; then
+        preset_validation_fail "DEPENDENCY_EMPTY" "$raw"
+        return 1
+    fi
+    if [ ! -r "$PRESET_DEPENDENCY_PATH" ]; then
+        preset_validation_fail "DEPENDENCY_UNREADABLE" "$raw"
+        return 1
+    fi
+    return 0
 }
 
-# Returns 0 if file exists and is readable.
+# Resolve PRESET_FILE to a direct child of the packaged preset catalog.
+resolve_preset_file_path() {
+    local preset_name="$1"
+    is_safe_preset_file_name "$preset_name" || return 1
+    echo "$PRESETS_DIR/$preset_name"
+}
+
+# Returns 0 only for a root-owned, single-link readable regular file with the
+# same 0600/0644 mode contract enforced by the Android protected-file reader.
 is_readable_file() {
     local file_path="$1"
-    [ -f "$file_path" ] && [ -r "$file_path" ]
+    [ -f "$file_path" ] && [ ! -L "$file_path" ] && [ -r "$file_path" ] &&
+        case "$(stat -c '%u:%a:%h' "$file_path" 2>/dev/null)" in
+            0:600:1|0:644:1) true ;;
+            *) false ;;
+        esac
 }
 
-# Build options from a Windows-style preset TXT file.
-# Modifies global: OPTS, PRESET_HAS_LUA, PRESET_HAS_BLOB
-build_preset_file_options() {
-    local preset_name="${PRESET_FILE:-Default.txt}"
-    local preset_file=""
+# Validate one direct-child Windows-style preset TXT file and optionally append
+# its normalized Android options.  Dependencies are confined to direct regular
+# files below the release-owned lua/bin/lists roots.
+# Modifies: PRESET_VALIDATION_*, PRESET_HAS_LUA, PRESET_HAS_BLOB, and OPTS when
+# append_options=1.
+validate_preset_file() {
+    local preset_file="$1"
+    local logical_name="$2"
+    local append_options="${3:-0}"
+    local candidate_name=""
     local line=""
     local resolved=""
+    local raw=""
+    local option=""
     local cr
     local kept=0
     local skipped=0
 
+    PRESET_VALIDATION_CODE="OK"
+    PRESET_VALIDATION_DETAIL=""
     PRESET_HAS_LUA=0
     PRESET_HAS_BLOB=0
 
-    preset_file="$(resolve_preset_file_path "$preset_name")"
-
+    if ! is_safe_preset_file_name "$logical_name"; then
+        preset_validation_fail "UNSAFE_PRESET_NAME" "$logical_name"
+        return 1
+    fi
+    case "$preset_file" in
+        "$PRESETS_DIR"/*) candidate_name="${preset_file#"$PRESETS_DIR"/}" ;;
+        *) preset_validation_fail "PRESET_NOT_DIRECT_CHILD" "$preset_file"; return 1 ;;
+    esac
+    case "$candidate_name" in ""|*/*|*\\*) preset_validation_fail "PRESET_NOT_DIRECT_CHILD" "$preset_file"; return 1 ;; esac
+    if [ -L "$preset_file" ]; then
+        preset_validation_fail "PRESET_SYMLINK" "$logical_name"
+        return 1
+    fi
     if [ ! -f "$preset_file" ]; then
-        log_error "Preset file not found: $preset_file"
+        preset_validation_fail "PRESET_MISSING" "$logical_name"
+        return 1
+    fi
+    if [ ! -s "$preset_file" ]; then
+        preset_validation_fail "PRESET_EMPTY" "$logical_name"
         return 1
     fi
     if [ ! -r "$preset_file" ]; then
-        log_error "Preset file is not readable: $preset_file"
+        preset_validation_fail "PRESET_UNREADABLE" "$logical_name"
         return 1
     fi
 
@@ -331,13 +543,6 @@ build_preset_file_options() {
                 ;;
         esac
 
-        # Normalize module-relative paths
-        line=$(echo "$line" | sed \
-            -e "s|@lua/|@$ZAPRET_DIR/lua/|g" \
-            -e "s|@bin/|@$ZAPRET_DIR/bin/|g" \
-            -e "s|=lists/|=$LISTS_DIR/|g" \
-            -e "s|@lists/|@$LISTS_DIR/|g")
-
         # Accept only options known to work in Android nfqws2 mode
         case "$line" in
             --new|--lua-init=*|--blob=*|--ctrack-disable=*|--ipcache-lifetime=*|--ipcache-hostname|--ipcache-hostname=*|--filter-l3=*|--filter-tcp=*|--filter-udp=*|--filter-l7=*|--hostlist=*|--hostlist-domains=*|--hostlist-exclude=*|--ipset=*|--ipset-exclude=*|--out-range=*|--payload=*|--lua-desync=*)
@@ -349,49 +554,25 @@ build_preset_file_options() {
                 ;;
         esac
 
-        # Validate path-based options and skip missing files.
+        # Validate and normalize path-based options.
         case "$line" in
-            --lua-init=@*)
-                resolved="${line#--lua-init=@}"
-                if [ ! -f "$resolved" ]; then
-                    log_msg "Skipping missing Lua file in preset: $resolved"
-                    skipped=$((skipped + 1))
-                    continue
-                fi
-                if [ ! -r "$resolved" ]; then
-                    log_msg "Skipping unreadable Lua file in preset: $resolved"
-                    skipped=$((skipped + 1))
-                    continue
-                fi
+            --lua-init=*)
+                raw="${line#--lua-init=}"
+                validate_preset_dependency lua "$raw" || return 1
+                line="--lua-init=@$PRESET_DEPENDENCY_PATH"
                 PRESET_HAS_LUA=1
                 ;;
             --blob=*:@*)
-                resolved="${line##*:}"
-                resolved="${resolved#@}"
-                if [ ! -f "$resolved" ]; then
-                    log_msg "Skipping missing blob file in preset: $resolved"
-                    skipped=$((skipped + 1))
-                    continue
-                fi
-                if [ ! -r "$resolved" ]; then
-                    log_msg "Skipping unreadable blob file in preset: $resolved"
-                    skipped=$((skipped + 1))
-                    continue
-                fi
+                raw="${line##*:}"
+                validate_preset_dependency blob "$raw" || return 1
+                line="${line%:*}:@$PRESET_DEPENDENCY_PATH"
                 PRESET_HAS_BLOB=1
                 ;;
             --hostlist=*|--hostlist-exclude=*|--ipset=*|--ipset-exclude=*)
-                resolved="${line#*=}"
-                if [ ! -f "$resolved" ]; then
-                    log_msg "Skipping missing list file in preset: $resolved"
-                    skipped=$((skipped + 1))
-                    continue
-                fi
-                if [ ! -r "$resolved" ]; then
-                    log_msg "Skipping unreadable list file in preset: $resolved"
-                    skipped=$((skipped + 1))
-                    continue
-                fi
+                option="${line%%=*}"
+                raw="${line#*=}"
+                validate_preset_dependency list "$raw" || return 1
+                line="$option=$PRESET_DEPENDENCY_PATH"
                 ;;
             --blob=*)
                 PRESET_HAS_BLOB=1
@@ -408,18 +589,235 @@ build_preset_file_options() {
             esac
         fi
 
-        OPTS="$OPTS $line"
+        if [ "$append_options" -eq 1 ]; then
+            OPTS="$OPTS $line"
+        fi
         kept=$((kept + 1))
     done < "$preset_file"
 
     log_msg "Preset options loaded: kept=$kept skipped=$skipped"
 
     if [ "$kept" -eq 0 ]; then
-        log_error "Preset file produced zero valid options: $preset_file"
+        preset_validation_fail "NO_VALID_OPTIONS" "$logical_name"
         return 1
     fi
 
     return 0
+}
+
+# Build options from the selected packaged preset using the same validator used
+# by catalog scans and pre-save candidate validation.
+build_preset_file_options() {
+    local preset_name="${PRESET_FILE:-Default.txt}"
+    local preset_file=""
+
+    preset_file="$(resolve_preset_file_path "$preset_name")" || {
+        PRESET_VALIDATION_CODE="UNSAFE_PRESET_NAME"
+        PRESET_VALIDATION_DETAIL="$preset_name"
+        log_error "Unsafe preset name: $preset_name"
+        return 1
+    }
+    if ! validate_preset_file "$preset_file" "$preset_name" 1; then
+        log_error "Preset validation failed ($PRESET_VALIDATION_CODE): $PRESET_VALIDATION_DETAIL"
+        return 1
+    fi
+    return 0
+}
+
+scan_presets_machine() {
+    local preset_file=""
+    local preset_name=""
+    local valid=0
+    local quarantined=0
+    local total=0
+
+    [ -d "$PRESETS_DIR" ] && [ ! -L "$PRESETS_DIR" ] || {
+        printf 'Z2_PRESET_ERROR\tPRESET_CATALOG_MISSING\n'
+        return 2
+    }
+
+    for preset_file in "$PRESETS_DIR"/*.txt; do
+        [ -e "$preset_file" ] || [ -L "$preset_file" ] || continue
+        preset_name="${preset_file##*/}"
+        case "$preset_name" in _*) continue ;; esac
+        total=$((total + 1))
+        if validate_preset_file "$preset_file" "$preset_name" 0; then
+            valid=$((valid + 1))
+            printf 'Z2_PRESET\tVALID\tOK\t%s\n' "$preset_name"
+        else
+            quarantined=$((quarantined + 1))
+            printf 'Z2_PRESET\tQUARANTINED\t%s\t%s\n' "$PRESET_VALIDATION_CODE" "$preset_name"
+        fi
+    done
+    printf 'Z2_PRESET_SUMMARY\t1\tvalid=%s\tquarantined=%s\ttotal=%s\n' "$valid" "$quarantined" "$total"
+    return 0
+}
+
+validate_preset_machine() {
+    local candidate_path="$1"
+    local logical_name="$2"
+    if validate_preset_file "$candidate_path" "$logical_name" 0; then
+        printf 'Z2_PRESET_VALIDATION\t1\tOK\t%s\n' "$logical_name"
+        return 0
+    fi
+    printf 'Z2_PRESET_VALIDATION\t0\t%s\t%s\n' "$PRESET_VALIDATION_CODE" "$logical_name"
+    return 1
+}
+
+# Load a custom option file without eval/source. Each non-comment line is one
+# supported nfqws2 argument. Whitespace and shell syntax are rejected; qnum,
+# fwmark, uid and debug remain controlled by the validated core config.
+build_validated_cmdline_options() {
+    local name="${CUSTOM_CMDLINE_FILE:-cmdline.txt}" file line cr kept=0 resolved original_resolved
+    local reference_root reference_child
+    local file_option=0
+    local before after before_sha after_sha device inode uid mode links size
+    is_safe_cmdline_file_name "$name" || {
+        log_error "Custom cmdline has an invalid file name: $name"
+        return 1
+    }
+    file="$ZAPRET_DIR/$name"
+    [ -f "$file" ] && [ ! -L "$file" ] && [ -r "$file" ] || {
+        log_error "Custom cmdline is missing, unreadable, or not a regular single file: $file"
+        return 1
+    }
+    before="$(stat -c '%d:%i:%u:%a:%h:%s' "$file" 2>/dev/null)" || {
+        log_error "Custom cmdline metadata is unavailable: $file"
+        return 1
+    }
+    IFS=: read -r device inode uid mode links size <<EOF
+$before
+EOF
+    [ -n "$device" ] && [ -n "$inode" ] && [ "$uid" = 0 ] && [ "$links" = 1 ] || {
+        log_error "Custom cmdline is not a root-owned single-link file: $file"
+        return 1
+    }
+    case "$mode" in 600|644) ;; *)
+        log_error "Custom cmdline has an unsafe mode: $file"
+        return 1
+        ;;
+    esac
+    case "$size" in ""|*[!0-9]*)
+        log_error "Custom cmdline size is invalid: $file"
+        return 1
+        ;;
+    esac
+    [ "$size" -gt 0 ] 2>/dev/null && [ "$size" -le "$CUSTOM_CMDLINE_MAX_BYTES" ] 2>/dev/null || {
+        log_error "Custom cmdline is empty or exceeds 256 KiB: $file"
+        return 1
+    }
+    command -v sha256sum >/dev/null 2>&1 || {
+        log_error "Custom cmdline integrity verifier is unavailable"
+        return 1
+    }
+    before_sha="$(sha256sum "$file" 2>/dev/null | awk 'NR == 1 { print $1 }')" || {
+        log_error "Custom cmdline integrity could not be measured: $file"
+        return 1
+    }
+    is_lower_sha256 "$before_sha" || {
+        log_error "Custom cmdline integrity result is invalid: $file"
+        return 1
+    }
+    cr="$(printf '\r')"
+    while IFS= read -r line || [ -n "$line" ]; do
+        line="${line%"$cr"}"
+        line="$(trim_config_value "$line")"
+        case "$line" in ""|"#"*|";"*) continue ;; esac
+        case "$line" in *[!A-Za-z0-9_@%+=:,./-]*)
+            log_error "Unsafe custom cmdline token rejected: $line"
+            return 1
+            ;;
+        esac
+        case "$line" in
+            --new|--lua-init=@*|--blob=*|--ctrack-disable=*|--ipcache-lifetime=*|--ipcache-hostname|--ipcache-hostname=*|--filter-l3=*|--filter-tcp=*|--filter-udp=*|--filter-l7=*|--hostlist=*|--hostlist-domains=*|--hostlist-exclude=*|--ipset=*|--ipset-exclude=*|--out-range=*|--payload=*|--lua-desync=*) ;;
+            *) log_error "Unsupported custom cmdline option: $line"; return 1 ;;
+        esac
+        file_option=0
+        reference_root=""
+        case "$line" in
+            --lua-init=@*)
+                resolved="${line#--lua-init=@}"; file_option=1; reference_root="$ZAPRET_DIR/lua"
+                ;;
+            --hostlist=*|--hostlist-exclude=*|--ipset=*|--ipset-exclude=*)
+                resolved="${line#*=}"; file_option=1; reference_root="$ZAPRET_DIR/lists"
+                ;;
+            --blob=*:@*)
+                resolved="${line##*:@}"; file_option=1; reference_root="$ZAPRET_DIR/bin"
+                ;;
+            *) resolved="" ;;
+        esac
+        if [ "$file_option" -eq 1 ]; then
+            [ -n "$resolved" ] || {
+                log_error "Custom cmdline contains an empty file reference: $line"
+                return 1
+            }
+            original_resolved="$resolved"
+            case "$resolved" in
+                .|..|./*|../*|*'/./'*|*'/../'*|*/.|*/..)
+                    log_error "Custom cmdline contains a traversing file reference: $resolved"
+                    return 1
+                    ;;
+                /*) ;;
+                lua/*|bin/*|lists/*) resolved="$ZAPRET_DIR/$resolved" ;;
+                *)
+                    resolved="$reference_root/$resolved"
+                    ;;
+            esac
+            case "$resolved" in
+                "$reference_root"/*)
+                    reference_child="${resolved#"$reference_root"/}"
+                    case "$reference_child" in ""|*/*)
+                        log_error "Custom cmdline file reference is not a direct approved child: $resolved"
+                        return 1
+                        ;;
+                    esac
+                    ;;
+                *)
+                    log_error "Custom cmdline file reference is outside its approved root: $resolved"
+                    return 1
+                    ;;
+            esac
+            case "$line" in
+                --lua-init=@*) case "$reference_child" in *.lua) ;; *)
+                    log_error "Custom cmdline Lua reference must be a direct .lua file: $resolved"
+                    return 1
+                    ;;
+                esac ;;
+                --hostlist=*|--hostlist-exclude=*|--ipset=*|--ipset-exclude=*)
+                    case "$reference_child" in *.txt) ;; *)
+                        log_error "Custom cmdline list reference must be a direct .txt file: $resolved"
+                        return 1
+                        ;;
+                    esac
+                    ;;
+            esac
+            line="${line%"$original_resolved"}$resolved"
+            if ! is_readable_file "$resolved"; then
+                log_error "Custom cmdline references an unsafe or unreadable file: $resolved"
+                return 1
+            fi
+        fi
+        OPTS="$OPTS $line"
+        kept=$((kept + 1))
+    done < "$file"
+    after="$(stat -c '%d:%i:%u:%a:%h:%s' "$file" 2>/dev/null)" || {
+        log_error "Custom cmdline metadata could not be revalidated: $file"
+        return 1
+    }
+    [ "$after" = "$before" ] || {
+        log_error "Custom cmdline changed while it was being validated: $file"
+        return 1
+    }
+    after_sha="$(sha256sum "$file" 2>/dev/null | awk 'NR == 1 { print $1 }')" || {
+        log_error "Custom cmdline integrity could not be revalidated: $file"
+        return 1
+    }
+    [ "$after_sha" = "$before_sha" ] || {
+        log_error "Custom cmdline content changed while it was being validated: $file"
+        return 1
+    }
+    [ "$kept" -gt 0 ] || { log_error "Custom cmdline contains no valid options: $file"; return 1; }
+    log_msg "Validated custom cmdline options: $kept"
 }
 
 ##########################################################################################
@@ -433,36 +831,32 @@ build_category_filter() {
 
     case "$filter_mode" in
         hostlist-domains)
-            if [ -n "$filter_file" ]; then
-                filter_opts="--hostlist-domains=$filter_file"
-                log_debug "Using hostlist-domains: $filter_file"
-            fi
+            [ -n "$filter_file" ] || { log_error "hostlist-domains filter is empty"; return 1; }
+            case "$filter_file" in *[!A-Za-z0-9.,_-]*|,*|*,|*,,*)
+                log_error "hostlist-domains filter is invalid: $filter_file"
+                return 1
+                ;;
+            esac
+            filter_opts="--hostlist-domains=$filter_file"
+            log_debug "Using hostlist-domains: $filter_file"
             ;;
         hostlist)
-            if [ -n "$filter_file" ] && is_readable_file "$LISTS_DIR/$filter_file"; then
-                filter_opts="--hostlist=$LISTS_DIR/$filter_file"
-                log_debug "Using hostlist: $filter_file"
-            elif [ -n "$filter_file" ] && [ -f "$LISTS_DIR/$filter_file" ]; then
-                log_msg "WARNING: Hostlist file is not readable: $LISTS_DIR/$filter_file"
-            elif [ -n "$filter_file" ]; then
-                log_debug "Hostlist file not found: $LISTS_DIR/$filter_file"
-            fi
+            is_safe_category_txt_name "$filter_file" || { log_error "Hostlist file name is invalid: $filter_file"; return 1; }
+            is_readable_file "$LISTS_DIR/$filter_file" || { log_error "Hostlist file is missing or unsafe: $LISTS_DIR/$filter_file"; return 1; }
+            filter_opts="--hostlist=$LISTS_DIR/$filter_file"
+            log_debug "Using hostlist: $filter_file"
             ;;
         ipset)
-            # filter_file is the ipset filename directly from categories.ini
-            if [ -n "$filter_file" ] && is_readable_file "$LISTS_DIR/$filter_file"; then
-                filter_opts="--ipset=$LISTS_DIR/$filter_file"
-                log_debug "Using ipset: $filter_file"
-            elif [ -n "$filter_file" ] && [ -f "$LISTS_DIR/$filter_file" ]; then
-                log_msg "WARNING: Ipset file is not readable: $LISTS_DIR/$filter_file"
-            elif [ -n "$filter_file" ]; then
-                log_debug "Ipset file not found: $LISTS_DIR/$filter_file"
-            fi
+            is_safe_category_txt_name "$filter_file" || { log_error "Ipset file name is invalid: $filter_file"; return 1; }
+            is_readable_file "$LISTS_DIR/$filter_file" || { log_error "Ipset file is missing or unsafe: $LISTS_DIR/$filter_file"; return 1; }
+            filter_opts="--ipset=$LISTS_DIR/$filter_file"
+            log_debug "Using ipset: $filter_file"
             ;;
-        none|*)
-            # No filtering
+        none)
+            [ -z "$filter_file" ] || { log_error "filter_mode=none has unexpected filter data"; return 1; }
             log_debug "No domain/IP filtering for this category"
             ;;
+        *) log_error "Unsupported category filter mode: $filter_mode"; return 1 ;;
     esac
 
     echo "$filter_opts"
@@ -478,11 +872,11 @@ build_category_options_single() {
     local filter_value="$4"
     local strategy_name="$5"
 
-    # Skip if strategy_name is empty
     if [ -z "$strategy_name" ]; then
-        log_msg "WARNING: Empty strategy_name for category: $category"
-        return
+        log_error "Empty strategy_name for enabled category: $category"
+        return 1
     fi
+    case "$strategy_name" in *[!A-Za-z0-9_]*) log_error "Invalid strategy name for category $category: $strategy_name"; return 1 ;; esac
 
     # Determine protocol filter based on PROTOCOL field (not category name!)
     local proto_filter=""
@@ -494,13 +888,14 @@ build_category_options_single() {
             local full_filter=""
 
             # Add filtering options if specified (usually none for STUN)
-            local filter_opts=$(build_category_filter "$filter_mode" "$filter_value")
+            local filter_opts=""
+            filter_opts="$(build_category_filter "$filter_mode" "$filter_value")" || return 1
             if [ -n "$filter_opts" ]; then
                 full_filter="$filter_opts"
             fi
 
             # Get STUN strategy options from strategies-stun.ini
-            strat_opts=$(get_stun_strategy_options "$strategy_name" "$full_filter")
+            strat_opts="$(get_stun_strategy_options "$strategy_name" "$full_filter")" || return 1
             ;;
         udp)
             # UDP/QUIC - use get_udp_strategy_options
@@ -508,33 +903,36 @@ build_category_options_single() {
             local full_filter="--out-range=-n$PKT_OUT $proto_filter"
 
             # Add filtering options if specified
-            local filter_opts=$(build_category_filter "$filter_mode" "$filter_value")
+            local filter_opts=""
+            filter_opts="$(build_category_filter "$filter_mode" "$filter_value")" || return 1
             if [ -n "$filter_opts" ]; then
                 full_filter="$full_filter $filter_opts"
             fi
 
             # Get UDP strategy options
-            strat_opts=$(get_udp_strategy_options "$strategy_name" "$full_filter")
+            strat_opts="$(get_udp_strategy_options "$strategy_name" "$full_filter")" || return 1
             ;;
-        tcp|*)
-            # TCP (default) - use get_tcp_strategy_options
+        tcp)
+            # TCP - use get_tcp_strategy_options
             proto_filter="--filter-tcp=53,80,443,5222"
             local full_filter="--out-range=-n$PKT_OUT $proto_filter"
 
             # Add filtering options if specified
-            local filter_opts=$(build_category_filter "$filter_mode" "$filter_value")
+            local filter_opts=""
+            filter_opts="$(build_category_filter "$filter_mode" "$filter_value")" || return 1
             if [ -n "$filter_opts" ]; then
                 full_filter="$full_filter $filter_opts"
             fi
 
             # Get TCP strategy options
-            strat_opts=$(get_tcp_strategy_options "$strategy_name" "$full_filter")
+            strat_opts="$(get_tcp_strategy_options "$strategy_name" "$full_filter")" || return 1
             ;;
+        *) log_error "Unsupported protocol for category $category: $protocol"; return 1 ;;
     esac
 
     if [ -z "$strat_opts" ]; then
-        log_msg "WARNING: No options for category $category with strategy $strategy_name"
-        return
+        log_error "No options for category $category with strategy $strategy_name"
+        return 1
     fi
 
     # Add --new separator if not first strategy
@@ -552,6 +950,13 @@ build_category_options_single() {
 ##########################################################################################
 
 # Build options for a parsed category section.
+is_safe_category_txt_name() {
+    local normalized
+    is_safe_runtime_file_name "$1" || return 1
+    normalized="$(LC_ALL=C printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" || return 1
+    case "$normalized" in *.txt) return 0 ;; *) return 1 ;; esac
+}
+
 process_category_section() {
     local current_section="$1"
     local protocol="$2"
@@ -563,21 +968,13 @@ process_category_section() {
     local filter_file=""
     local effective_filter_mode="$filter_mode"
 
-    [ -z "$current_section" ] && return
-    [ -z "$strategy" ] && return
-    [ "$strategy" = "disabled" ] && return
-
-    if [ -z "$effective_filter_mode" ]; then
-        if [ -n "$hostlist_domains" ]; then
-            effective_filter_mode="hostlist-domains"
-        elif [ -n "$hostlist" ]; then
-            effective_filter_mode="hostlist"
-        elif [ -n "$ipset" ]; then
-            effective_filter_mode="ipset"
-        else
-            effective_filter_mode="none"
-        fi
-    fi
+    [ -z "$current_section" ] && return 0
+    case "$current_section" in *[!A-Za-z0-9_]*) log_error "Invalid category section name: $current_section"; return 1 ;; esac
+    [ -n "$protocol" ] || { log_error "Category [$current_section] has no explicit protocol"; return 1; }
+    [ -n "$strategy" ] || { log_error "Category [$current_section] has no explicit strategy"; return 1; }
+    [ -n "$filter_mode" ] || { log_error "Category [$current_section] has no explicit filter_mode"; return 1; }
+    case "$strategy" in *[!A-Za-z0-9_]*) log_error "Category [$current_section] has an invalid strategy name: $strategy"; return 1 ;; esac
+    case "$protocol" in tcp|udp|stun) ;; *) log_error "Category [$current_section] has an unsupported protocol: $protocol"; return 1 ;; esac
 
     case "$effective_filter_mode" in
         hostlist-domains)
@@ -589,29 +986,42 @@ process_category_section() {
         hostlist)
             filter_file="$hostlist"
             ;;
-        none|*)
+        none)
             filter_file=""
             ;;
+        *) log_error "Category [$current_section] has an unsupported filter mode: $effective_filter_mode"; return 1 ;;
     esac
 
     case "$effective_filter_mode" in
-        hostlist|ipset)
-            if [ -z "$filter_file" ]; then
-                log_msg "WARNING: Skipping category [$current_section]: filter_mode=$effective_filter_mode requires a file, but none is set"
-                return
-            fi
-            if [ ! -f "$LISTS_DIR/$filter_file" ]; then
-                log_msg "WARNING: Skipping category [$current_section]: $effective_filter_mode file not found: $LISTS_DIR/$filter_file"
-                return
-            fi
-            if [ ! -r "$LISTS_DIR/$filter_file" ]; then
-                log_msg "WARNING: Skipping category [$current_section]: $effective_filter_mode file is not readable: $LISTS_DIR/$filter_file"
-                return
-            fi
+        hostlist)
+            [ -n "$hostlist" ] || { log_error "Category [$current_section] has no active hostlist binding"; return 1; }
             ;;
+        ipset)
+            [ -n "$ipset" ] || { log_error "Category [$current_section] has no active ipset binding"; return 1; }
+            ;;
+        hostlist-domains)
+            [ -n "$hostlist_domains" ] || { log_error "Category [$current_section] has no active hostlist-domains binding"; return 1; }
+            ;;
+        none) ;;
     esac
 
-    build_category_options_single "$current_section" "$protocol" "$effective_filter_mode" "$filter_file" "$strategy"
+    if [ -n "$hostlist" ]; then
+        is_safe_category_txt_name "$hostlist" || { log_error "Category [$current_section] has an invalid hostlist file name"; return 1; }
+    fi
+    if [ -n "$ipset" ]; then
+        is_safe_category_txt_name "$ipset" || { log_error "Category [$current_section] has an invalid ipset file name"; return 1; }
+    fi
+    if [ -n "$hostlist_domains" ]; then
+        case "$hostlist_domains" in *[!A-Za-z0-9.,_-]*|,*|*,|*,,*)
+            log_error "Category [$current_section] has invalid hostlist domains"
+            return 1
+            ;;
+        esac
+    fi
+
+    [ "$strategy" = disabled ] && return 0
+    build_category_options_single "$current_section" "$protocol" "$effective_filter_mode" "$filter_file" "$strategy" || return 1
+    return 0
 }
 
 # Parse categories.ini file and build options for each category
@@ -620,7 +1030,7 @@ process_category_section() {
 parse_categories() {
     local ini_file="$CATEGORIES_FILE"
     local current_section=""
-    local protocol="tcp"
+    local protocol=""
     local hostlist=""
     local ipset=""
     local hostlist_domains=""
@@ -628,7 +1038,10 @@ parse_categories() {
     local strategy=""
     local line=""
     local key=""
+    local semantic_key=""
     local value=""
+    local seen_keys="|"
+    local seen_sections="|"
     local cr
 
     if [ ! -f "$ini_file" ]; then
@@ -641,17 +1054,22 @@ parse_categories() {
     cr=$(printf '\r')
     while IFS= read -r line || [ -n "$line" ]; do
         line="${line%"$cr"}"
+        line="$(trim_config_value "$line")"
 
         case "$line" in
             ""|"#"*|";"*)
                 continue
                 ;;
             "["*"]")
-                process_category_section "$current_section" "$protocol" "$hostlist" "$ipset" "$hostlist_domains" "$filter_mode" "$strategy"
+                process_category_section "$current_section" "$protocol" "$hostlist" "$ipset" "$hostlist_domains" "$filter_mode" "$strategy" || return 1
 
                 current_section="${line#[}"
                 current_section="${current_section%]}"
-                protocol="tcp"
+                case "$current_section" in ""|*[!A-Za-z0-9_]*) log_error "Invalid category section: $current_section"; return 1 ;; esac
+                case "$seen_sections" in *"|$current_section|"*) log_error "Duplicate category section: $current_section"; return 1 ;; esac
+                seen_sections="${seen_sections}${current_section}|"
+                seen_keys="|"
+                protocol=""
                 hostlist=""
                 ipset=""
                 hostlist_domains=""
@@ -661,10 +1079,23 @@ parse_categories() {
                 continue
                 ;;
             *=*)
-                key="${line%%=*}"
-                value="${line#*=}"
+                key="$(trim_config_value "${line%%=*}")"
+                decode_config_value "${line#*=}" || {
+                    log_error "Invalid quoted value in [$current_section] from $ini_file"
+                    return 1
+                }
+                value="$CONFIG_VALUE_DECODED"
 
+                [ -n "$current_section" ] || { log_error "Category key appears before the first section: $key"; return 1; }
                 case "$key" in
+                    protocol|hostlist|ipset|filter_mode|strategy) semantic_key="$key" ;;
+                    hostlist-domains|hostlist_domains) semantic_key="hostlist-domains" ;;
+                    *) log_error "Unknown category key [$key] in [$current_section]"; return 1 ;;
+                esac
+                case "$seen_keys" in *"|$semantic_key|"*) log_error "Duplicate category key [$semantic_key] in [$current_section]"; return 1 ;; esac
+                seen_keys="${seen_keys}${semantic_key}|"
+
+                case "$semantic_key" in
                     protocol)
                         protocol="$value"
                         ;;
@@ -674,7 +1105,7 @@ parse_categories() {
                     ipset)
                         ipset="$value"
                         ;;
-                    hostlist-domains|hostlist_domains)
+                    hostlist-domains)
                         hostlist_domains="$value"
                         ;;
                     filter_mode)
@@ -685,10 +1116,14 @@ parse_categories() {
                         ;;
                 esac
                 ;;
+            *)
+                log_error "Malformed categories.ini line in [$current_section]: $line"
+                return 1
+                ;;
         esac
     done < "$ini_file"
 
-    process_category_section "$current_section" "$protocol" "$hostlist" "$ipset" "$hostlist_domains" "$filter_mode" "$strategy"
+    process_category_section "$current_section" "$protocol" "$hostlist" "$ipset" "$hostlist_domains" "$filter_mode" "$strategy" || return 1
     return 0
 }
 
@@ -697,32 +1132,30 @@ parse_categories() {
 ##########################################################################################
 
 build_category_options() {
+    local size
     first=1
 
-    if [ ! -f "$CATEGORIES_FILE" ]; then
+    if ! is_readable_file "$CATEGORIES_FILE"; then
         log_error "Categories file not found: $CATEGORIES_FILE"
-        log_msg "Using [default] strategy from strategies-tcp.ini"
-        # Use default TCP strategy as fallback
-        local default_args=$(get_strategy_args_from_ini "$TCP_STRATEGIES_INI" "default")
-        if [ -n "$default_args" ]; then
-            OPTS="$OPTS --out-range=-n$PKT_OUT --filter-tcp=80,443 $default_args"
-            first=0
-        fi
-        return
+        return 1
     fi
+    size="$(wc -c < "$CATEGORIES_FILE" 2>/dev/null)" || return 1
+    case "$size" in ""|*[!0-9]*) return 1 ;; esac
+    [ "$size" -gt 0 ] 2>/dev/null && [ "$size" -le "$CATEGORIES_MAX_BYTES" ] 2>/dev/null || {
+        log_error "Categories file size is outside the supported range"
+        return 1
+    }
 
     log_msg "Building category-based options from categories.ini..."
-    parse_categories
+    parse_categories || return 1
 
     if [ $first -eq 0 ]; then
         log_msg "Categories loaded successfully"
     else
-        log_msg "No enabled categories found, using [default] strategy"
-        local default_args=$(get_strategy_args_from_ini "$TCP_STRATEGIES_INI" "default")
-        if [ -n "$default_args" ]; then
-            OPTS="$OPTS --out-range=-n$PKT_OUT --filter-tcp=80,443 $default_args"
-        fi
+        log_error "No enabled categories are configured; refusing an implicit global fallback"
+        return 1
     fi
+    return 0
 }
 
 ##########################################################################################
@@ -731,6 +1164,11 @@ build_category_options() {
 
 build_options() {
     log_section "Building nfqws2 options"
+
+    validate_strategy_catalogs_machine || {
+        log_error "Strategy catalog validation failed"
+        return 1
+    }
 
     if runtime_config_exists; then
         log_msg "Detected runtime config: $RUNTIME_CONFIG"
@@ -777,9 +1215,21 @@ build_options() {
                 fi
             fi
         else
-            log_error "Preset file mode failed, falling back to categories.ini"
+            log_error "Selected preset file mode failed"
+            return 1
         fi
     fi
+
+    if is_cmdline_mode; then
+        log_msg "Mode: validated custom cmdline"
+        build_validated_cmdline_options || return 1
+        used_preset_mode=1
+    fi
+
+    case "${PRESET_MODE:-categories}" in
+        categories|file|preset|txt|cmdline) ;;
+        *) log_error "Unsupported preset_mode: $PRESET_MODE"; return 1 ;;
+    esac
 
     if [ "$used_preset_mode" -eq 0 ]; then
         # Add Lua init options
@@ -797,7 +1247,7 @@ build_options() {
         # Build strategy options from categories.ini
         log_msg "Mode: Category-based configuration (categories.ini)"
         log_msg "Packet count (--out-range): $PKT_OUT"
-        build_category_options
+        build_category_options || return 1
     fi
 
     # Log final statistics
@@ -806,13 +1256,90 @@ build_options() {
     log_msg "Total strategies configured: $strategy_count"
     log_msg "Final command length: $(echo "$OPTS" | wc -c) chars"
 
-    # Save active config to cmdline.txt for inspection (one option per line)
-    echo "$OPTS" | sed 's/ --/\n--/g' > "$ZAPRET_DIR/cmdline.txt" 2>/dev/null
-    log_msg "Active config saved to $ZAPRET_DIR/cmdline.txt"
-
-    # Clear old debug log
-    > "$DEBUG_LOG" 2>/dev/null
+    # Runtime common.sh publishes the final executable command atomically after
+    # the dry-run succeeds. Machine validators must remain read-only.
+    if [ "$COMMAND_BUILDER_CLI_MODE" -eq 0 ]; then
+        prepare_private_runtime_file "$DEBUG_LOG" || return 1
+        log_msg "Active command will be published to $CMDLINE_FILE"
+    fi
 
     echo "$OPTS"
     return 0
 }
+
+if [ "$COMMAND_BUILDER_CLI_MODE" -eq 1 ]; then
+    case "$1" in
+        --scan-presets-machine)
+            [ "$#" -eq 2 ] || { printf 'Z2_PRESET_ERROR\tINVALID_ARGUMENTS\n'; exit 2; }
+            scan_presets_machine
+            exit $?
+            ;;
+        --validate-preset-machine)
+            [ "$#" -eq 4 ] || { printf 'Z2_PRESET_ERROR\tINVALID_ARGUMENTS\n'; exit 2; }
+            validate_preset_machine "$3" "$4"
+            exit $?
+            ;;
+        --validate-categories-machine)
+            [ "$#" -eq 2 ] || { printf 'Z2_CATEGORIES_ERROR\tINVALID_ARGUMENTS\n'; exit 2; }
+            OPTS=""
+            if validate_strategy_catalogs_machine && build_category_options; then
+                printf 'Z2_CATEGORIES\tOK\n'
+                exit 0
+            fi
+            printf 'Z2_CATEGORIES_ERROR\tINVALID_CONFIGURATION\n'
+            exit 1
+            ;;
+        --validate-strategies-machine)
+            [ "$#" -eq 2 ] || { printf 'Z2_STRATEGIES_ERROR\tINVALID_ARGUMENTS\n'; exit 2; }
+            if validate_strategy_catalogs_machine; then
+                printf 'Z2_STRATEGIES\tOK\n'
+                exit 0
+            fi
+            printf 'Z2_STRATEGIES_ERROR\tINVALID_CONFIGURATION\n'
+            exit 1
+            ;;
+        --validate-cmdline-machine)
+            [ "$#" -eq 3 ] || { printf 'Z2_CMDLINE_ERROR\tINVALID_ARGUMENTS\n'; exit 2; }
+            CUSTOM_CMDLINE_FILE="$3"
+            load_effective_core_config_readonly || {
+                printf 'Z2_CMDLINE_ERROR\tRUNTIME_UNAVAILABLE\n'
+                exit 2
+            }
+            PRESET_MODE=cmdline
+            CUSTOM_CMDLINE_FILE="$3"
+            # A validator must not open the configured debug sink. Logging
+            # does not affect packet-option validity.
+            LOG_MODE=none
+            nfqws_meta="$(stat -c '%u:%a:%h' "$NFQWS2" 2>/dev/null)" || nfqws_meta=""
+            if [ "$nfqws_meta" != 0:755:1 ] || [ ! -f "$NFQWS2" ] || [ -L "$NFQWS2" ] ||
+               [ ! -x "$NFQWS2" ]; then
+                printf 'Z2_CMDLINE_ERROR\tBINARY_UNAVAILABLE\n'
+                exit 2
+            fi
+            if ! command -v sha256sum >/dev/null 2>&1 ||
+               ! command -v awk >/dev/null 2>&1; then
+                printf 'Z2_CMDLINE_ERROR\tINTEGRITY_UNAVAILABLE\n'
+                exit 2
+            fi
+            OPTS=""
+            if ! build_validated_cmdline_options; then
+                printf 'Z2_CMDLINE\t1\tINVALID\t%s\n' "$CUSTOM_CMDLINE_FILE"
+                exit 1
+            fi
+            built_options="$(build_options)" || {
+                printf 'Z2_CMDLINE_ERROR\tBUILD_UNAVAILABLE\n'
+                exit 2
+            }
+            [ -n "$built_options" ] || {
+                printf 'Z2_CMDLINE_ERROR\tEMPTY_BUILD\n'
+                exit 2
+            }
+            if "$NFQWS2" --dry-run $built_options >/dev/null 2>&1; then
+                printf 'Z2_CMDLINE\t1\tOK\t%s\n' "$CUSTOM_CMDLINE_FILE"
+                exit 0
+            fi
+            printf 'Z2_CMDLINE\t1\tINVALID\t%s\n' "$CUSTOM_CMDLINE_FILE"
+            exit 1
+            ;;
+    esac
+fi

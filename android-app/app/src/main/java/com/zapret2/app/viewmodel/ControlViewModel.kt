@@ -1,14 +1,34 @@
 package com.zapret2.app.viewmodel
 
 import android.content.SharedPreferences
+import androidx.annotation.StringRes
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.topjohnwu.superuser.Shell
+import com.zapret2.app.R
+import com.zapret2.app.data.ArtifactValidationReason
+import com.zapret2.app.data.ControlDiagnosticsRepository
+import com.zapret2.app.data.DownloadFailureReason
+import com.zapret2.app.data.MAX_PACKET_COUNT
+import com.zapret2.app.data.ModuleInstallState
+import com.zapret2.app.data.ModuleMutationCoordinator
 import com.zapret2.app.data.NetworkStatsManager
+import com.zapret2.app.data.ProtectedTextRead
 import com.zapret2.app.data.RuntimeConfigStore
+import com.zapret2.app.data.RuntimeConfigRollbackException
+import com.zapret2.app.data.RuntimeLogRepository
 import com.zapret2.app.data.ServiceEventBus
+import com.zapret2.app.data.ServiceLifecycleController
+import com.zapret2.app.data.UpdateFailure
 import com.zapret2.app.data.UpdateManager
+import com.zapret2.app.data.UpdateProgress
+import com.zapret2.app.data.UpdateStage
+import com.zapret2.app.data.UpdateTerminalOutcome
+import com.zapret2.app.data.toTerminalOutcome
+import com.zapret2.app.ui.UiText
+import com.zapret2.app.ui.labelRes
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -16,32 +36,275 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
+
+enum class ControlStatus(@StringRes val labelRes: Int) {
+    CHECKING(R.string.control_service_checking),
+    RUNNING(R.string.control_service_running),
+    STOPPED(R.string.control_service_stopped),
+    DEGRADED(R.string.control_status_degraded),
+    ROOT_DENIED(R.string.control_status_root_denied),
+    ROOT_MANAGER_UNAVAILABLE(R.string.control_status_root_manager_unavailable),
+    ROOT_SHELL_FAILED(R.string.control_status_root_shell_failed),
+    ROOT_TIMEOUT(R.string.control_status_root_timeout),
+    UNAVAILABLE(R.string.control_status_unavailable),
+}
+
+internal fun ServiceLifecycleController.RootAccessState.toControlStatus(): ControlStatus = when (this) {
+    ServiceLifecycleController.RootAccessState.GRANTED -> ControlStatus.UNAVAILABLE
+    ServiceLifecycleController.RootAccessState.DENIED -> ControlStatus.ROOT_DENIED
+    ServiceLifecycleController.RootAccessState.MANAGER_UNAVAILABLE ->
+        ControlStatus.ROOT_MANAGER_UNAVAILABLE
+    ServiceLifecycleController.RootAccessState.SHELL_FAILURE -> ControlStatus.ROOT_SHELL_FAILED
+    ServiceLifecycleController.RootAccessState.TIMEOUT -> ControlStatus.ROOT_TIMEOUT
+}
+
+internal val ModuleInstallState.labelRes: Int
+    @StringRes get() = when (this) {
+        ModuleInstallState.UNKNOWN -> R.string.control_module_state_unknown
+        ModuleInstallState.MISSING -> R.string.control_module_state_missing
+        ModuleInstallState.READY -> R.string.control_module_state_ready
+        ModuleInstallState.DISABLED -> R.string.control_module_state_disabled
+        ModuleInstallState.REMOVAL_PENDING -> R.string.control_module_state_removal_pending
+        ModuleInstallState.UPDATING -> R.string.control_module_state_updating
+        ModuleInstallState.PARTIAL -> R.string.control_module_state_partial
+        ModuleInstallState.UNSUPPORTED_ABI -> R.string.control_module_state_unsupported_abi
+        ModuleInstallState.UNREADABLE -> R.string.control_module_state_unreadable
+    }
+
+enum class ControlDialogKind { UPDATE, ERROR, PACKET, FULL_ROLLBACK_CONFIRM, FULL_ROLLBACK_RESULT }
+
+enum class PacketTarget(@StringRes val titleRes: Int) {
+    OUT(R.string.term_pkt_out),
+    IN(R.string.term_pkt_in),
+}
+
+enum class ControlErrorKind(@StringRes val titleRes: Int) {
+    INITIALIZATION(R.string.control_initialization_failed),
+    START_SERVICE(R.string.control_service_start_failed),
+    STOP_SERVICE(R.string.control_service_stop_failed),
+    SERVICE_OPERATION(R.string.control_service_operation_failed),
+    UPDATE(R.string.control_update_failed),
+    RESTART_SERVICE(R.string.control_service_restart_failed),
+}
+
+enum class ControlLastResult(@StringRes val messageRes: Int) {
+    SERVICE_STARTED(R.string.control_service_started),
+    SERVICE_STOPPED(R.string.control_service_stopped_result),
+    SERVICE_FAILED(R.string.control_service_operation_failed),
+    ROLLBACK_COMPLETED(R.string.control_full_rollback_success_title),
+    ROLLBACK_FAILED(R.string.control_full_rollback_failure_title),
+    UPDATE_COMPLETED(R.string.control_update_completed),
+    UPDATE_REBOOT_REQUIRED(R.string.control_update_installed_reboot),
+    UPDATE_APK_PENDING(R.string.control_update_apk_pending),
+    UPDATE_APK_PENDING_REBOOT(R.string.control_update_apk_pending_reboot),
+    UPDATE_PARTIAL(R.string.control_update_partial),
+    UPDATE_PARTIAL_REBOOT(R.string.control_update_partial_reboot),
+    UPDATE_FAILED(R.string.control_update_failed),
+}
+
+internal fun UpdateProgress.toUiText(): UiText = when (stage) {
+    UpdateStage.DOWNLOADING_MODULE -> normalizedPercent?.let {
+        UiText.resource(R.string.update_stage_downloading_module_percent, it)
+    } ?: UiText.Resource(R.string.update_stage_downloading_module)
+    UpdateStage.INSTALLING_MODULE -> UiText.Resource(R.string.update_stage_installing_module)
+    UpdateStage.MODULE_INSTALLED -> UiText.Resource(R.string.update_stage_module_installed)
+    UpdateStage.DOWNLOADING_APK -> normalizedPercent?.let {
+        UiText.resource(R.string.update_stage_downloading_apk_percent, it)
+    } ?: UiText.Resource(R.string.update_stage_downloading_apk)
+    UpdateStage.VALIDATING_ARTIFACTS -> UiText.Resource(R.string.update_stage_validating_artifacts)
+    UpdateStage.OPENING_APK_INSTALLER -> UiText.Resource(R.string.update_stage_opening_apk_installer)
+    UpdateStage.APK_INSTALLER_PENDING -> UiText.Resource(R.string.update_stage_apk_installer_pending)
+    UpdateStage.COMPLETE -> UiText.Resource(R.string.update_stage_complete)
+}
+
+internal fun UpdateManager.UpdateCheckFailure.toUiText(): UiText = when (this) {
+    UpdateManager.UpdateCheckFailure.NoInternet ->
+        UiText.Resource(R.string.control_update_check_no_internet)
+    UpdateManager.UpdateCheckFailure.ConnectionTimeout ->
+        UiText.Resource(R.string.control_update_check_timeout)
+    UpdateManager.UpdateCheckFailure.SecureConnectionFailed ->
+        UiText.Resource(R.string.control_update_check_secure_connection_failed)
+    is UpdateManager.UpdateCheckFailure.ServerResponse ->
+        UiText.resource(R.string.control_update_check_http_failed, statusCode)
+    UpdateManager.UpdateCheckFailure.MetadataTooLarge ->
+        UiText.Resource(R.string.control_update_check_metadata_too_large)
+    UpdateManager.UpdateCheckFailure.EmptyResponse ->
+        UiText.Resource(R.string.control_update_check_empty_response)
+    UpdateManager.UpdateCheckFailure.InvalidMetadata ->
+        UiText.Resource(R.string.control_update_check_invalid_metadata)
+    UpdateManager.UpdateCheckFailure.RequestFailed ->
+        UiText.Resource(R.string.control_update_check_failed)
+}
+
+internal fun UpdateFailure.toUiText(): UiText = when (this) {
+    is UpdateFailure.Download -> reason.toUiText()
+    is UpdateFailure.Validation -> reason.toUiText()
+    UpdateFailure.UnsupportedAbi -> UiText.Resource(R.string.control_update_unsupported_abi)
+    UpdateFailure.ApkInstallerUnavailable ->
+        UiText.Resource(R.string.control_update_apk_installer_unavailable)
+    is UpdateFailure.ModuleRecoveryRequired -> diagnostic.toSafeUpdateDiagnosticOrNull()
+        ?.let { safeDiagnostic ->
+            UiText.resource(
+                R.string.control_update_module_recovery_required_details,
+                safeDiagnostic,
+            )
+        }
+        ?: UiText.Resource(R.string.control_update_module_recovery_required)
+    UpdateFailure.ModuleRejected -> UiText.Resource(R.string.control_update_module_rejected)
+    UpdateFailure.ModuleInstallationFailed ->
+        UiText.Resource(R.string.control_update_module_install_failed)
+}
+
+private fun ArtifactValidationReason.toUiText(): UiText = UiText.Resource(
+    when (this) {
+        ArtifactValidationReason.APK_FILE_INVALID -> R.string.control_update_apk_file_invalid
+        ArtifactValidationReason.APK_UNREADABLE -> R.string.control_update_apk_unreadable
+        ArtifactValidationReason.APK_PACKAGE_ID_MISMATCH ->
+            R.string.control_update_apk_package_mismatch
+        ArtifactValidationReason.APK_NOT_NEWER -> R.string.control_update_apk_not_newer
+        ArtifactValidationReason.APK_VERSION_CODE_MISMATCH ->
+            R.string.control_update_apk_version_code_mismatch
+        ArtifactValidationReason.APK_VERSION_MISMATCH ->
+            R.string.control_update_apk_version_mismatch
+        ArtifactValidationReason.INSTALLED_APK_SIGNER_UNAVAILABLE ->
+            R.string.control_update_installed_signer_unavailable
+        ArtifactValidationReason.APK_SIGNER_UNAVAILABLE ->
+            R.string.control_update_apk_signer_unavailable
+        ArtifactValidationReason.APK_SIGNER_MISMATCH ->
+            R.string.control_update_apk_signer_mismatch
+        ArtifactValidationReason.APK_VALIDATION_FAILED ->
+            R.string.control_update_apk_validation_failed
+        ArtifactValidationReason.MODULE_TOO_MANY_ENTRIES ->
+            R.string.control_update_module_too_many_entries
+        ArtifactValidationReason.MODULE_UNSAFE_OR_DUPLICATE_PATH ->
+            R.string.control_update_module_unsafe_path
+        ArtifactValidationReason.MODULE_ENTRY_TOO_LARGE ->
+            R.string.control_update_module_entry_too_large
+        ArtifactValidationReason.MODULE_EXPANDED_SIZE_TOO_LARGE ->
+            R.string.control_update_module_expanded_too_large
+        ArtifactValidationReason.MODULE_EMPTY -> R.string.control_update_module_empty
+        ArtifactValidationReason.MODULE_IDENTITY_MISSING ->
+            R.string.control_update_module_identity_missing
+        ArtifactValidationReason.MODULE_PACKAGE_INVALID ->
+            R.string.control_update_module_package_invalid
+        ArtifactValidationReason.MODULE_VALIDATION_FAILED ->
+            R.string.control_update_module_validation_failed
+    },
+)
+
+private fun DownloadFailureReason.toUiText(): UiText = UiText.Resource(
+    when (this) {
+        DownloadFailureReason.SECURITY_POLICY_REJECTED ->
+            R.string.control_update_download_security_rejected
+        DownloadFailureReason.SERVER_REJECTED -> R.string.control_update_download_server_rejected
+        DownloadFailureReason.TOO_MANY_REDIRECTS -> R.string.control_update_download_redirects
+        DownloadFailureReason.TOO_LARGE -> R.string.control_update_download_too_large
+        DownloadFailureReason.STORAGE_UNAVAILABLE -> R.string.control_update_download_storage
+        DownloadFailureReason.CHECKSUM_MISMATCH -> R.string.control_update_download_checksum
+        DownloadFailureReason.NO_INTERNET -> R.string.control_update_download_no_internet
+        DownloadFailureReason.CONNECTION_TIMEOUT -> R.string.control_update_download_timeout
+        DownloadFailureReason.SECURE_CONNECTION_FAILED ->
+            R.string.control_update_download_secure_connection_failed
+        DownloadFailureReason.FAILED -> R.string.control_update_download_failed
+    },
+)
+
+private fun String.toSafeUpdateDiagnosticOrNull(): String? = sanitizedBoundedUiDiagnostic(this)
+    .takeIf(String::isNotBlank)
+
+data class ControlErrorDialog(
+    val kind: ControlErrorKind,
+    val details: UiText,
+)
+
+sealed interface FullRollbackUiState {
+    data object Idle : FullRollbackUiState
+    data object Confirmation : FullRollbackUiState
+    data object InProgress : FullRollbackUiState
+    data class Result(
+        val outcome: ServiceLifecycleController.FullRollbackOutcome,
+        val rebootRequired: Boolean,
+        val diagnostic: String,
+    ) : FullRollbackUiState
+}
+
+internal object FullRollbackAvailabilityPolicy {
+    fun isAvailable(
+        status: ControlStatus,
+        hasRootAccess: Boolean,
+        moduleInstallState: ModuleInstallState,
+        isToggling: Boolean,
+        isCheckingForUpdates: Boolean,
+        isUpdating: Boolean,
+        isRollingBack: Boolean,
+    ): Boolean =
+        status in setOf(ControlStatus.RUNNING, ControlStatus.DEGRADED, ControlStatus.STOPPED) &&
+            hasRootAccess &&
+            moduleInstallState.allowsFullRollback &&
+            !isToggling &&
+            !isCheckingForUpdates &&
+            !isUpdating &&
+            !isRollingBack
+}
 
 data class ControlUiState(
     val isRunning: Boolean = false,
-    val statusText: String = "Checking...",
+    val status: ControlStatus = ControlStatus.CHECKING,
     val uptime: String = "",
     val autostart: Boolean = true,
-    val wifiOnly: Boolean = false,
     val moduleVersion: String = "",
-    val networkType: String = "Checking...",
-    val wifiSsid: String? = null,
+    val networkType: UiText = UiText.Resource(R.string.control_network_checking),
     val iptablesActive: Boolean = false,
     val nfqueueRulesCount: Int = 0,
     val processStats: ProcessStats = ProcessStats(),
     val isToggling: Boolean = false,
+    val canStopService: Boolean = false,
     val showQuicBanner: Boolean = false,
     val iptablesDetail: NetworkStatsManager.IptablesDetail = NetworkStatsManager.IptablesDetail(),
     val pktOut: Int = 20,
     val pktIn: Int = 10,
-    val hasRootAccess: Boolean = true,
-    val isModuleInstalled: Boolean = true,
-    val nfqueueSupported: Boolean = true,
+    val hasRootAccess: Boolean = false,
+    val rootAccessState: ServiceLifecycleController.RootAccessState? = null,
+    val moduleInstallState: ModuleInstallState = ModuleInstallState.UNKNOWN,
+    val nfqueueSupported: Boolean = false,
+    val isCheckingForUpdates: Boolean = false,
     val isUpdating: Boolean = false,
+    val isSavingSettings: Boolean = false,
+    val hasAuthoritativeRuntimeSettings: Boolean = false,
     val updateProgress: Float = 0f,
-    val updateStatus: String = ""
-)
+    val updateStatus: UiText? = null,
+    val pendingDialog: ControlDialogKind? = null,
+    val updateRelease: UpdateManager.Release? = null,
+    val errorDialog: ControlErrorDialog? = null,
+    val packetTarget: PacketTarget? = null,
+    val packetDraft: String = "",
+    val fullRollback: FullRollbackUiState = FullRollbackUiState.Idle,
+    val lastResult: ControlLastResult? = null,
+    val message: UiText? = null,
+) {
+    val isModuleOperational: Boolean get() = moduleInstallState.isOperational
+    val isFullRollbackInProgress: Boolean get() = fullRollback is FullRollbackUiState.InProgress
+    val canEditSettings: Boolean get() = status in setOf(
+        ControlStatus.RUNNING,
+        ControlStatus.DEGRADED,
+        ControlStatus.STOPPED,
+    ) && isModuleOperational && hasRootAccess &&
+        hasAuthoritativeRuntimeSettings &&
+        !isToggling && !isCheckingForUpdates && !isUpdating &&
+        !isSavingSettings && !isFullRollbackInProgress
+    val canFullRollback: Boolean get() = FullRollbackAvailabilityPolicy.isAvailable(
+        status = status,
+        hasRootAccess = hasRootAccess,
+        moduleInstallState = moduleInstallState,
+        isToggling = isToggling || isSavingSettings,
+        isCheckingForUpdates = isCheckingForUpdates,
+        isUpdating = isUpdating,
+        isRollingBack = isFullRollbackInProgress,
+    )
+}
 
 data class ProcessStats(
     val pid: String = "",
@@ -51,10 +314,328 @@ data class ProcessStats(
     val uptime: String = ""
 )
 
-sealed class ControlEvent {
-    data class ShowSnackbar(val message: String) : ControlEvent()
-    data class ShowUpdateDialog(val release: UpdateManager.Release) : ControlEvent()
-    data class ShowErrorDialog(val title: String, val details: String) : ControlEvent()
+private const val KEY_DIALOG_KIND = "control_dialog_kind"
+private const val KEY_PACKET_TARGET = "control_packet_target"
+private const val KEY_PACKET_DRAFT = "control_packet_draft"
+private const val KEY_ERROR_KIND = "control_error_kind"
+private const val KEY_ERROR_DETAIL_RESOURCE = "control_error_detail_resource"
+private const val KEY_ERROR_DETAIL_DYNAMIC = "control_error_detail_dynamic"
+private const val KEY_ROLLBACK_IN_PROGRESS = "control_full_rollback_in_progress"
+private const val KEY_ROLLBACK_OUTCOME = "control_full_rollback_outcome"
+private const val KEY_ROLLBACK_REBOOT_REQUIRED = "control_full_rollback_reboot_required"
+private const val KEY_ROLLBACK_DIAGNOSTIC = "control_full_rollback_diagnostic"
+private const val KEY_LAST_RESULT = "control_last_result"
+private const val MAX_ERROR_DETAIL_LENGTH = 12_000
+private const val UPDATE_STATUS_REFRESH_DELAY_MS = 1_000L
+private val CONTROL_ERROR_DETAIL_RESOURCES = setOf(
+    R.string.control_environment_probe_failed,
+    R.string.control_restart_unhealthy,
+    R.string.control_runtime_rollback_failed,
+    R.string.control_service_expected_state_error,
+    R.string.control_update_apk_file_invalid,
+    R.string.control_update_apk_installer_unavailable,
+    R.string.control_update_apk_not_newer,
+    R.string.control_update_apk_package_mismatch,
+    R.string.control_update_apk_signer_mismatch,
+    R.string.control_update_apk_signer_unavailable,
+    R.string.control_update_apk_unreadable,
+    R.string.control_update_apk_validation_failed,
+    R.string.control_update_apk_version_code_mismatch,
+    R.string.control_update_apk_version_mismatch,
+    R.string.control_update_download_checksum,
+    R.string.control_update_download_failed,
+    R.string.control_update_download_no_internet,
+    R.string.control_update_download_redirects,
+    R.string.control_update_download_secure_connection_failed,
+    R.string.control_update_download_security_rejected,
+    R.string.control_update_download_server_rejected,
+    R.string.control_update_download_storage,
+    R.string.control_update_download_timeout,
+    R.string.control_update_download_too_large,
+    R.string.control_update_installed_signer_unavailable,
+    R.string.control_update_module_empty,
+    R.string.control_update_module_entry_too_large,
+    R.string.control_update_module_expanded_too_large,
+    R.string.control_update_module_identity_missing,
+    R.string.control_update_module_install_failed,
+    R.string.control_update_module_package_invalid,
+    R.string.control_update_module_recovery_required,
+    R.string.control_update_module_rejected,
+    R.string.control_update_module_too_many_entries,
+    R.string.control_update_module_unsafe_path,
+    R.string.control_update_module_validation_failed,
+    R.string.control_update_unsupported_abi,
+    R.string.control_unknown_error,
+)
+private val CONTROL_ERROR_DETAIL_WRAPPER_FALLBACKS = mapOf(
+    R.string.control_update_module_recovery_required_details to
+        R.string.control_update_module_recovery_required,
+)
+
+private class EnvironmentProbeException : IllegalStateException()
+
+private fun restoreControlErrorDetails(savedStateHandle: SavedStateHandle): UiText? {
+    val hasResource = savedStateHandle.contains(KEY_ERROR_DETAIL_RESOURCE)
+    val hasDynamic = savedStateHandle.contains(KEY_ERROR_DETAIL_DYNAMIC)
+    if (!hasResource && !hasDynamic) return null
+
+    val resourceId = if (hasResource) {
+        savedStateHandle.restoreTypedOrRemove<Int>(KEY_ERROR_DETAIL_RESOURCE)
+    } else {
+        null
+    }
+    val safeDynamic = if (hasDynamic) {
+        sanitizedBoundedUiDiagnostic(
+            savedStateHandle.restoreTypedOrRemove<String>(KEY_ERROR_DETAIL_DYNAMIC).orEmpty(),
+        ).takeIf(String::isNotBlank)
+    } else {
+        null
+    }
+    return when {
+        resourceId != null &&
+            resourceId in CONTROL_ERROR_DETAIL_WRAPPER_FALLBACKS &&
+            safeDynamic != null -> UiText.resource(resourceId, safeDynamic)
+        resourceId != null &&
+            resourceId in CONTROL_ERROR_DETAIL_WRAPPER_FALLBACKS -> UiText.Resource(
+                CONTROL_ERROR_DETAIL_WRAPPER_FALLBACKS.getValue(resourceId),
+            )
+        resourceId != null && resourceId in CONTROL_ERROR_DETAIL_RESOURCES ->
+            UiText.Resource(resourceId)
+        hasResource -> UiText.Resource(R.string.control_unknown_error)
+        safeDynamic != null -> UiText.Dynamic(safeDynamic)
+        else -> UiText.Resource(R.string.control_unknown_error)
+    }
+}
+
+private fun UiText.toSafeControlErrorDetails(): UiText = when (this) {
+    is UiText.Dynamic -> sanitizedBoundedUiDiagnostic(value)
+        .takeIf(String::isNotBlank)
+        ?.let(UiText::Dynamic)
+        ?: UiText.Resource(R.string.control_unknown_error)
+    is UiText.Resource -> when {
+        id in CONTROL_ERROR_DETAIL_RESOURCES && arguments.isEmpty() -> this
+        id in CONTROL_ERROR_DETAIL_WRAPPER_FALLBACKS && arguments.size == 1 -> {
+            val rawDiagnostic = when (val argument = arguments.single()) {
+                is String -> argument
+                is UiText.Dynamic -> argument.value
+                else -> ""
+            }
+            sanitizedBoundedUiDiagnostic(rawDiagnostic)
+                .takeIf(String::isNotBlank)
+                ?.let { UiText.resource(id, it) }
+                ?: UiText.Resource(CONTROL_ERROR_DETAIL_WRAPPER_FALLBACKS.getValue(id))
+        }
+        else -> UiText.Resource(R.string.control_unknown_error)
+    }
+}
+
+private fun SavedStateHandle.persistControlErrorDetails(details: UiText) {
+    when (details) {
+        is UiText.Dynamic -> {
+            this[KEY_ERROR_DETAIL_DYNAMIC] = details.value
+            remove<Int>(KEY_ERROR_DETAIL_RESOURCE)
+        }
+        is UiText.Resource -> {
+            this[KEY_ERROR_DETAIL_RESOURCE] = details.id
+            val argument = details.arguments.singleOrNull() as? String
+            if (argument == null) {
+                remove<String>(KEY_ERROR_DETAIL_DYNAMIC)
+            } else {
+                this[KEY_ERROR_DETAIL_DYNAMIC] = argument
+            }
+        }
+    }
+}
+
+internal fun restoreControlUiState(savedStateHandle: SavedStateHandle): ControlUiState {
+    val dialogKind = savedStateHandle.restoreEnumNameOrRemove<ControlDialogKind>(KEY_DIALOG_KIND)
+    val packetTarget = savedStateHandle.restoreEnumNameOrRemove<PacketTarget>(KEY_PACKET_TARGET)
+    val packetDraft = if (dialogKind == ControlDialogKind.PACKET && packetTarget != null) {
+        savedStateHandle.restoreTypedOrRemove<String>(KEY_PACKET_DRAFT)
+            .orEmpty()
+            .filter(Char::isDigit)
+            .take(MAX_PACKET_COUNT.toString().length)
+    } else {
+        ""
+    }
+    val errorKind = savedStateHandle.restoreEnumNameOrRemove<ControlErrorKind>(KEY_ERROR_KIND)
+    val errorDetails = restoreControlErrorDetails(savedStateHandle)
+    val rollbackResult = if (dialogKind == ControlDialogKind.FULL_ROLLBACK_RESULT) {
+        val outcome = savedStateHandle
+            .restoreEnumNameOrRemove<ServiceLifecycleController.FullRollbackOutcome>(
+                KEY_ROLLBACK_OUTCOME,
+            )
+        outcome?.let {
+            FullRollbackUiState.Result(
+                outcome = it,
+                rebootRequired = savedStateHandle
+                    .restoreTypedOrRemove<Boolean>(KEY_ROLLBACK_REBOOT_REQUIRED) == true,
+                diagnostic = sanitizedBoundedUiDiagnostic(
+                    savedStateHandle
+                        .restoreTypedOrRemove<String>(KEY_ROLLBACK_DIAGNOSTIC)
+                        .orEmpty(),
+                ),
+            )
+        }
+    } else {
+        null
+    }
+    val fullRollback = when {
+        rollbackResult != null -> rollbackResult
+        savedStateHandle.restoreTypedOrRemove<Boolean>(KEY_ROLLBACK_IN_PROGRESS) == true ->
+            FullRollbackUiState.InProgress
+        dialogKind == ControlDialogKind.FULL_ROLLBACK_CONFIRM -> FullRollbackUiState.Confirmation
+        else -> FullRollbackUiState.Idle
+    }
+    val restoredDialog = when (fullRollback) {
+        FullRollbackUiState.InProgress -> null
+        is FullRollbackUiState.Result -> ControlDialogKind.FULL_ROLLBACK_RESULT
+        FullRollbackUiState.Confirmation -> ControlDialogKind.FULL_ROLLBACK_CONFIRM
+        FullRollbackUiState.Idle -> when (dialogKind) {
+            ControlDialogKind.UPDATE -> ControlDialogKind.UPDATE
+            ControlDialogKind.PACKET -> ControlDialogKind.PACKET.takeIf { packetTarget != null }
+            ControlDialogKind.ERROR -> ControlDialogKind.ERROR.takeIf {
+                errorKind != null && errorDetails != null
+            }
+            ControlDialogKind.FULL_ROLLBACK_CONFIRM,
+            ControlDialogKind.FULL_ROLLBACK_RESULT,
+            null,
+            -> null
+        }
+    }
+    canonicalizeRestoredControlState(
+        savedStateHandle = savedStateHandle,
+        dialog = restoredDialog,
+        packetTarget = packetTarget,
+        packetDraft = packetDraft,
+        errorKind = errorKind,
+        errorDetails = errorDetails,
+        fullRollback = fullRollback,
+    )
+    return ControlUiState(
+        pendingDialog = restoredDialog,
+        packetTarget = packetTarget.takeIf { restoredDialog == ControlDialogKind.PACKET },
+        packetDraft = packetDraft,
+        errorDialog = if (
+            restoredDialog == ControlDialogKind.ERROR && errorKind != null && errorDetails != null
+        ) {
+            ControlErrorDialog(errorKind, errorDetails)
+        } else {
+            null
+        },
+        fullRollback = fullRollback,
+        lastResult = restoreControlLastResult(savedStateHandle),
+    )
+}
+
+private fun canonicalizeRestoredControlState(
+    savedStateHandle: SavedStateHandle,
+    dialog: ControlDialogKind?,
+    packetTarget: PacketTarget?,
+    packetDraft: String,
+    errorKind: ControlErrorKind?,
+    errorDetails: UiText?,
+    fullRollback: FullRollbackUiState,
+) {
+    if (dialog == null) savedStateHandle.remove<String>(KEY_DIALOG_KIND)
+    else savedStateHandle[KEY_DIALOG_KIND] = dialog.name
+
+    if (dialog != ControlDialogKind.PACKET) {
+        savedStateHandle.remove<String>(KEY_PACKET_TARGET)
+        savedStateHandle.remove<String>(KEY_PACKET_DRAFT)
+    } else {
+        savedStateHandle[KEY_PACKET_TARGET] = checkNotNull(packetTarget).name
+        savedStateHandle[KEY_PACKET_DRAFT] = packetDraft
+    }
+    if (dialog != ControlDialogKind.ERROR) {
+        savedStateHandle.remove<String>(KEY_ERROR_KIND)
+        savedStateHandle.remove<Int>(KEY_ERROR_DETAIL_RESOURCE)
+        savedStateHandle.remove<String>(KEY_ERROR_DETAIL_DYNAMIC)
+    } else {
+        savedStateHandle[KEY_ERROR_KIND] = checkNotNull(errorKind).name
+        savedStateHandle.persistControlErrorDetails(checkNotNull(errorDetails))
+    }
+    if (fullRollback !is FullRollbackUiState.Result) {
+        savedStateHandle.remove<String>(KEY_ROLLBACK_OUTCOME)
+        savedStateHandle.remove<Boolean>(KEY_ROLLBACK_REBOOT_REQUIRED)
+        savedStateHandle.remove<String>(KEY_ROLLBACK_DIAGNOSTIC)
+    } else {
+        savedStateHandle[KEY_ROLLBACK_OUTCOME] = fullRollback.outcome.name
+        savedStateHandle[KEY_ROLLBACK_REBOOT_REQUIRED] = fullRollback.rebootRequired
+        savedStateHandle[KEY_ROLLBACK_DIAGNOSTIC] = fullRollback.diagnostic
+    }
+    if (fullRollback !is FullRollbackUiState.InProgress) {
+        savedStateHandle.remove<Boolean>(KEY_ROLLBACK_IN_PROGRESS)
+    }
+}
+
+internal enum class FullRollbackLaunchReason { CONFIRMED, RESTORED }
+
+internal class FullRollbackOperationCoordinator(
+    private val savedStateHandle: SavedStateHandle,
+    private val operationInProgress: AtomicBoolean = AtomicBoolean(false),
+    private val onTerminalPersisted: () -> Unit = {},
+) {
+    fun tryBegin(
+        reason: FullRollbackLaunchReason,
+        state: ControlUiState,
+        launch: () -> Unit,
+    ): Boolean {
+        val eligible = when (reason) {
+            FullRollbackLaunchReason.CONFIRMED ->
+                state.fullRollback is FullRollbackUiState.Confirmation && state.canFullRollback
+            FullRollbackLaunchReason.RESTORED ->
+                state.fullRollback is FullRollbackUiState.InProgress &&
+                    savedStateHandle.restoreTypedOrRemove<Boolean>(KEY_ROLLBACK_IN_PROGRESS) == true
+        }
+        if (!eligible || !operationInProgress.compareAndSet(false, true)) return false
+
+        savedStateHandle[KEY_ROLLBACK_IN_PROGRESS] = true
+        savedStateHandle.remove<String>(KEY_DIALOG_KIND)
+        savedStateHandle.remove<String>(KEY_PACKET_TARGET)
+        savedStateHandle.remove<String>(KEY_PACKET_DRAFT)
+        savedStateHandle.remove<String>(KEY_ERROR_KIND)
+        savedStateHandle.remove<Int>(KEY_ERROR_DETAIL_RESOURCE)
+        savedStateHandle.remove<String>(KEY_ERROR_DETAIL_DYNAMIC)
+        clearPersistedResult()
+
+        return try {
+            launch()
+            true
+        } catch (error: Throwable) {
+            operationInProgress.set(false)
+            throw error
+        }
+    }
+
+    fun persistTerminal(
+        result: ServiceLifecycleController.FullRollbackResult,
+        diagnostic: String,
+        lastResult: ControlLastResult,
+    ) {
+        savedStateHandle[KEY_ROLLBACK_OUTCOME] = result.outcome.name
+        savedStateHandle[KEY_ROLLBACK_REBOOT_REQUIRED] = result.rebootRequired
+        savedStateHandle[KEY_ROLLBACK_DIAGNOSTIC] = diagnostic
+        savedStateHandle[KEY_LAST_RESULT] = lastResult.name
+        savedStateHandle.remove<String>(KEY_ERROR_KIND)
+        savedStateHandle.remove<Int>(KEY_ERROR_DETAIL_RESOURCE)
+        savedStateHandle.remove<String>(KEY_ERROR_DETAIL_DYNAMIC)
+        // The discriminator is written after the complete terminal payload so restoration
+        // cannot mistake a partially persisted terminal transition for a completed result.
+        savedStateHandle[KEY_DIALOG_KIND] = ControlDialogKind.FULL_ROLLBACK_RESULT.name
+        onTerminalPersisted()
+        savedStateHandle.remove<Boolean>(KEY_ROLLBACK_IN_PROGRESS)
+    }
+
+    fun finishAttempt() {
+        operationInProgress.set(false)
+    }
+
+    private fun clearPersistedResult() {
+        savedStateHandle.remove<String>(KEY_ROLLBACK_OUTCOME)
+        savedStateHandle.remove<Boolean>(KEY_ROLLBACK_REBOOT_REQUIRED)
+        savedStateHandle.remove<String>(KEY_ROLLBACK_DIAGNOSTIC)
+    }
 }
 
 @HiltViewModel
@@ -62,218 +643,726 @@ class ControlViewModel @Inject constructor(
     private val networkStatsManager: NetworkStatsManager,
     private val updateManager: UpdateManager,
     private val prefs: SharedPreferences,
-    private val serviceEventBus: ServiceEventBus
+    private val serviceEventBus: ServiceEventBus,
+    private val savedStateHandle: SavedStateHandle,
+    private val diagnosticsRepository: ControlDiagnosticsRepository,
+    private val logRepository: RuntimeLogRepository,
 ) : ViewModel() {
 
-    private val _uiState = MutableStateFlow(ControlUiState())
+    private val _uiState = MutableStateFlow(restoreControlUiState(savedStateHandle))
     val uiState: StateFlow<ControlUiState> = _uiState.asStateFlow()
 
-    private val _events = MutableSharedFlow<ControlEvent>(extraBufferCapacity = 5)
-    val events: SharedFlow<ControlEvent> = _events.asSharedFlow()
-
     private var pollingJob: Job? = null
-
-    private val moduleDir = "/data/adb/modules/zapret2"
-    private val startScript = "$moduleDir/zapret2/scripts/zapret-start.sh"
-    private val stopScript = "$moduleDir/zapret2/scripts/zapret-stop.sh"
-    private val restartScript = "$moduleDir/zapret2/scripts/zapret-restart.sh"
+    private var screenStarted = false
+    private var initialLoadFinished = false
+    private val toggleInProgress = AtomicBoolean(false)
+    private val settingMutationInProgress = AtomicBoolean(false)
+    private val updateCheckInProgress = AtomicBoolean(false)
+    private val exclusiveActionInProgress = AtomicBoolean(false)
+    private val rollbackOperation = FullRollbackOperationCoordinator(
+        savedStateHandle = savedStateHandle,
+        operationInProgress = exclusiveActionInProgress,
+    )
+    private val statusRefreshSequence = AtomicLong(0)
 
     init {
         loadInitialState()
-        startPolling()
-    }
-
-    private fun loadInitialState() {
-        viewModelScope.launch {
-            // Check root, module, NFQUEUE in parallel
-            val (hasRoot, isModuleInstalled, nfqueueSupported) = withContext(Dispatchers.IO) {
-                val root = Shell.cmd("id").exec().isSuccess
-                val module = Shell.cmd("[ -d \"$moduleDir\" ] && echo 1").exec().out.firstOrNull() == "1"
-                val nfqueue = Shell.cmd("[ -f /proc/net/netfilter/nf_queue ] && echo 1 || cat /proc/net/ip_tables_targets 2>/dev/null | grep -q NFQUEUE && echo 1").exec().out.firstOrNull() == "1"
-                Triple(root, module, nfqueue)
-            }
-
-            val coreValues = withContext(Dispatchers.IO) { RuntimeConfigStore.readCore() }
-            val moduleVersion = withContext(Dispatchers.IO) {
-                val result = Shell.cmd("grep 'version=' $moduleDir/module.prop 2>/dev/null").exec()
-                result.out.firstOrNull()?.substringAfter("version=")?.trim() ?: ""
-            }
-
-            _uiState.update { it.copy(
-                hasRootAccess = hasRoot,
-                isModuleInstalled = isModuleInstalled,
-                nfqueueSupported = nfqueueSupported,
-                moduleVersion = moduleVersion,
-                autostart = coreValues["autostart"] != "0",
-                wifiOnly = coreValues["wifi_only"] == "1",
-                pktOut = coreValues["pkt_out"]?.toIntOrNull() ?: 20,
-                pktIn = coreValues["pkt_in"]?.toIntOrNull() ?: 10,
-                showQuicBanner = !prefs.getBoolean("quic_banner_dismissed", false)
-            )}
-
-            checkStatus()
+        if (_uiState.value.fullRollback is FullRollbackUiState.InProgress) {
+            startFullRollback(FullRollbackLaunchReason.RESTORED)
         }
     }
 
-    private fun startPolling() {
+    fun onScreenStarted() {
+        if (screenStarted) return
+        screenStarted = true
+        if (initialLoadFinished) {
+            _uiState.update { it.copy(hasAuthoritativeRuntimeSettings = false) }
+            startPolling(refreshImmediately = true)
+        }
+    }
+
+    fun onScreenStopped() {
+        screenStarted = false
         pollingJob?.cancel()
-        pollingJob = viewModelScope.launch {
-            while (isActive) {
-                checkStatus()
-                delay(if (_uiState.value.isRunning) 3000L else 10000L)
-            }
+        pollingJob = null
+    }
+
+    fun clearMessage() {
+        _uiState.update { it.copy(message = null) }
+    }
+
+    private fun publishMessage(message: UiText) {
+        _uiState.update { it.copy(message = message) }
+    }
+
+    fun showPacketDialog(target: PacketTarget) {
+        if (_uiState.value.fullRollback is FullRollbackUiState.InProgress) return
+        if (rejectConflictingOperation()) return
+        if (rejectUnavailableSettingMutation()) return
+        val draft = when (target) {
+            PacketTarget.OUT -> _uiState.value.pktOut
+            PacketTarget.IN -> _uiState.value.pktIn
+        }.toString()
+        savedStateHandle[KEY_DIALOG_KIND] = ControlDialogKind.PACKET.name
+        savedStateHandle[KEY_PACKET_TARGET] = target.name
+        savedStateHandle[KEY_PACKET_DRAFT] = draft
+        clearPersistedError()
+        clearPersistedRollback()
+        savedStateHandle.remove<Boolean>(KEY_ROLLBACK_IN_PROGRESS)
+        _uiState.update {
+            it.copy(
+                pendingDialog = ControlDialogKind.PACKET,
+                updateRelease = null,
+                errorDialog = null,
+                packetTarget = target,
+                packetDraft = draft,
+                fullRollback = FullRollbackUiState.Idle,
+            )
         }
     }
 
-    private suspend fun checkStatus() {
-        withContext(Dispatchers.IO) {
-            val isRunning = Shell.cmd("pgrep -f nfqws2 >/dev/null 2>&1").exec().isSuccess
-            val netStats = networkStatsManager.getNetworkStats()
+    fun updatePacketDraft(value: String) {
+        if (_uiState.value.pendingDialog != ControlDialogKind.PACKET) return
+        val sanitized = value.filter(Char::isDigit).take(MAX_PACKET_COUNT.toString().length)
+        savedStateHandle[KEY_PACKET_DRAFT] = sanitized
+        _uiState.update { it.copy(packetDraft = sanitized) }
+    }
 
-            val processStats = if (isRunning) {
-                val pidResult = Shell.cmd("pgrep -f nfqws2 | head -1").exec()
-                val pid = pidResult.out.firstOrNull()?.trim() ?: ""
-                if (pid.isNotEmpty()) {
-                    val memResult = Shell.cmd("grep VmRSS /proc/$pid/status 2>/dev/null | awk '{print \$2}'").exec()
-                    val mem = memResult.out.firstOrNull()?.trim()?.let { "${it} KB" } ?: ""
-                    val threadsResult = Shell.cmd("grep Threads /proc/$pid/status 2>/dev/null | awk '{print \$2}'").exec()
-                    val threads = threadsResult.out.firstOrNull()?.trim() ?: ""
-                    val uptimeResult = Shell.cmd("ps -o etime= -p $pid 2>/dev/null").exec()
-                    val uptime = uptimeResult.out.firstOrNull()?.trim() ?: ""
-                    ProcessStats(pid = pid, memory = mem, threads = threads, uptime = uptime)
-                } else ProcessStats()
-            } else ProcessStats()
-
-            _uiState.update { it.copy(
-                isRunning = isRunning,
-                statusText = if (isRunning) "Running" else "Stopped",
-                uptime = processStats.uptime,
-                networkType = networkStatsManager.getNetworkTypeString(netStats.networkType),
-                wifiSsid = netStats.wifiSsid,
-                iptablesActive = netStats.iptablesActive,
-                nfqueueRulesCount = netStats.nfqueueRulesCount,
-                iptablesDetail = netStats.iptablesDetail,
-                processStats = processStats
-            )}
+    fun confirmPacketDialog() {
+        val state = _uiState.value
+        if (state.pendingDialog != ControlDialogKind.PACKET) return
+        val target = state.packetTarget ?: return
+        val value = state.packetDraft.toIntOrNull()?.takeIf { it in 1..MAX_PACKET_COUNT } ?: return
+        dismissDialog()
+        when (target) {
+            PacketTarget.OUT -> adjustPktOut(value)
+            PacketTarget.IN -> adjustPktIn(value)
         }
     }
 
-    fun toggleService() {
-        if (_uiState.value.isToggling) return
-        viewModelScope.launch {
-            _uiState.update { it.copy(isToggling = true) }
-            val wasRunning = _uiState.value.isRunning
+    fun dismissDialog() {
+        val state = _uiState.value
+        if (state.fullRollback is FullRollbackUiState.InProgress ||
+            state.isUpdating ||
+            ServiceLifecycleController.isAppUpdateInProgress()
+        ) return
+        clearPersistedDialog()
+        _uiState.update {
+            it.copy(
+                pendingDialog = null,
+                updateRelease = null,
+                errorDialog = null,
+                packetTarget = null,
+                packetDraft = "",
+                fullRollback = FullRollbackUiState.Idle,
+            )
+        }
+    }
 
-            val result = withContext(Dispatchers.IO) {
-                val script = if (wasRunning) stopScript else startScript
-                Shell.cmd("sh $script").exec()
+    fun showFullRollbackConfirmation() {
+        if (rejectConflictingOperation()) return
+        val state = _uiState.value
+        if (!state.canFullRollback || state.pendingDialog != null) return
+        savedStateHandle[KEY_DIALOG_KIND] = ControlDialogKind.FULL_ROLLBACK_CONFIRM.name
+        savedStateHandle.remove<String>(KEY_PACKET_TARGET)
+        savedStateHandle.remove<String>(KEY_PACKET_DRAFT)
+        clearPersistedError()
+        clearPersistedRollback()
+        savedStateHandle.remove<Boolean>(KEY_ROLLBACK_IN_PROGRESS)
+        _uiState.update {
+            it.copy(
+                pendingDialog = ControlDialogKind.FULL_ROLLBACK_CONFIRM,
+                updateRelease = null,
+                errorDialog = null,
+                packetTarget = null,
+                packetDraft = "",
+                fullRollback = FullRollbackUiState.Confirmation,
+            )
+        }
+    }
+
+    fun confirmFullRollback() {
+        startFullRollback(FullRollbackLaunchReason.CONFIRMED)
+    }
+
+    private fun startFullRollback(reason: FullRollbackLaunchReason) {
+        rollbackOperation.tryBegin(reason, _uiState.value) {
+            _uiState.update {
+                it.copy(
+                    pendingDialog = null,
+                    updateRelease = null,
+                    errorDialog = null,
+                    packetTarget = null,
+                    packetDraft = "",
+                    fullRollback = FullRollbackUiState.InProgress,
+                )
             }
 
-            delay(1000) // Brief delay for process state to settle
-            checkStatus()
-            _uiState.update { it.copy(isToggling = false) }
-
-            if (result.isSuccess) {
-                val action = if (wasRunning) "stopped" else "started"
-                _events.emit(ControlEvent.ShowSnackbar("Service $action"))
-                if (!wasRunning) serviceEventBus.notifyServiceRestarted()
-            } else {
-                val action = if (wasRunning) "stop" else "start"
-                val diagnosticLines = result.out
-                    .filter { it.startsWith("DIAGNOSTIC:") }
-                    .map { it.removePrefix("DIAGNOSTIC:").trim() }
-
-                if (diagnosticLines.isNotEmpty()) {
-                    _events.emit(ControlEvent.ShowErrorDialog(
-                        title = "Failed to $action service",
-                        details = diagnosticLines.joinToString("\n")
-                    ))
-                } else {
-                    // Try reading error log as fallback
-                    val errorLog = withContext(Dispatchers.IO) {
-                        val logResult = Shell.cmd("cat /data/local/tmp/nfqws2-error.log 2>/dev/null").exec()
-                        if (logResult.isSuccess && logResult.out.isNotEmpty()) {
-                            logResult.out.joinToString("\n")
-                        } else null
+            viewModelScope.launch {
+                try {
+                    val result = ServiceLifecycleController.fullRollback()
+                    try {
+                        refreshStatus()
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        // The controller already performed the authoritative post-command check.
                     }
-
-                    if (errorLog != null) {
-                        _events.emit(ControlEvent.ShowErrorDialog(
-                            title = "Failed to $action service",
-                            details = errorLog
-                        ))
-                    } else {
-                        // Tier 2.5: check stderr from the script execution
-                        val stderrLines = result.err
-                        if (stderrLines.isNotEmpty()) {
-                            _events.emit(ControlEvent.ShowErrorDialog(
-                                title = "Failed to $action service",
-                                details = stderrLines.joinToString("\n")
-                            ))
-                        } else {
-                            // Tier 2.75: read last 20 lines of main log file
-                            val mainLog = withContext(Dispatchers.IO) {
-                                val logResult = Shell.cmd("tail -n 20 /data/local/tmp/zapret2.log 2>/dev/null").exec()
-                                if (logResult.isSuccess && logResult.out.isNotEmpty()) {
-                                    logResult.out.joinToString("\n")
-                                } else null
-                            }
-
-                            if (mainLog != null) {
-                                _events.emit(ControlEvent.ShowErrorDialog(
-                                    title = "Failed to $action service",
-                                    details = mainLog
-                                ))
-                            } else {
-                                // Tier 3: generic fallback
-                                _events.emit(ControlEvent.ShowErrorDialog(
-                                    title = "Failed to $action service",
-                                    details = "No diagnostic information available.\nCheck logs for details."
-                                ))
-                            }
-                        }
+                    if (result.success) {
+                        _uiState.update { it.copy(autostart = false) }
                     }
+                    showFullRollbackResult(result)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    showFullRollbackResult(
+                        ServiceLifecycleController.FullRollbackResult(
+                            outcome = ServiceLifecycleController.FullRollbackOutcome.ERROR,
+                        ),
+                    )
+                } finally {
+                    // Cancellation intentionally keeps the durable marker so a recreated
+                    // ViewModel can reconcile the idempotent rollback operation.
+                    rollbackOperation.finishAttempt()
                 }
             }
         }
     }
 
-    fun setAutostart(enabled: Boolean) {
+    private fun showFullRollbackResult(result: ServiceLifecycleController.FullRollbackResult) {
+        val diagnostic = sanitizedBoundedUiDiagnostic(result.diagnosticText())
+        val lastResult = if (result.success) {
+            ControlLastResult.ROLLBACK_COMPLETED
+        } else {
+            ControlLastResult.ROLLBACK_FAILED
+        }
+        rollbackOperation.persistTerminal(
+            result = result,
+            diagnostic = diagnostic,
+            lastResult = lastResult,
+        )
+        _uiState.update {
+            it.copy(
+                pendingDialog = ControlDialogKind.FULL_ROLLBACK_RESULT,
+                updateRelease = null,
+                errorDialog = null,
+                packetTarget = null,
+                packetDraft = "",
+                fullRollback = FullRollbackUiState.Result(
+                    outcome = result.outcome,
+                    rebootRequired = result.rebootRequired,
+                    diagnostic = diagnostic,
+                ),
+                lastResult = lastResult,
+            )
+        }
+    }
+
+    private fun showUpdateDialog(release: UpdateManager.Release) {
+        savedStateHandle[KEY_DIALOG_KIND] = ControlDialogKind.UPDATE.name
+        savedStateHandle.remove<String>(KEY_PACKET_TARGET)
+        savedStateHandle.remove<String>(KEY_PACKET_DRAFT)
+        clearPersistedError()
+        clearPersistedRollback()
+        _uiState.update {
+            it.copy(
+                pendingDialog = ControlDialogKind.UPDATE,
+                updateRelease = release,
+                errorDialog = null,
+                packetTarget = null,
+                packetDraft = "",
+                fullRollback = FullRollbackUiState.Idle,
+            )
+        }
+    }
+
+    private fun showErrorDialog(kind: ControlErrorKind, details: UiText) {
+        if (_uiState.value.fullRollback is FullRollbackUiState.InProgress) return
+        val safeDetails = details.toSafeControlErrorDetails()
+        when (kind) {
+            ControlErrorKind.UPDATE -> recordLastResult(ControlLastResult.UPDATE_FAILED)
+            ControlErrorKind.START_SERVICE,
+            ControlErrorKind.STOP_SERVICE,
+            ControlErrorKind.SERVICE_OPERATION,
+            ControlErrorKind.RESTART_SERVICE,
+            -> recordLastResult(ControlLastResult.SERVICE_FAILED)
+            ControlErrorKind.INITIALIZATION -> Unit
+        }
+        savedStateHandle[KEY_DIALOG_KIND] = ControlDialogKind.ERROR.name
+        savedStateHandle[KEY_ERROR_KIND] = kind.name
+        savedStateHandle.remove<String>(KEY_PACKET_TARGET)
+        savedStateHandle.remove<String>(KEY_PACKET_DRAFT)
+        clearPersistedRollback()
+        savedStateHandle.persistControlErrorDetails(safeDetails)
+        _uiState.update {
+            it.copy(
+                pendingDialog = ControlDialogKind.ERROR,
+                updateRelease = null,
+                errorDialog = ControlErrorDialog(kind, safeDetails),
+                packetTarget = null,
+                packetDraft = "",
+                fullRollback = FullRollbackUiState.Idle,
+            )
+        }
+    }
+
+    private fun clearPersistedDialog() {
+        savedStateHandle.remove<String>(KEY_DIALOG_KIND)
+        savedStateHandle.remove<String>(KEY_PACKET_TARGET)
+        savedStateHandle.remove<String>(KEY_PACKET_DRAFT)
+        clearPersistedError()
+        clearPersistedRollback()
+        savedStateHandle.remove<Boolean>(KEY_ROLLBACK_IN_PROGRESS)
+    }
+
+    private fun clearPersistedError() {
+        savedStateHandle.remove<String>(KEY_ERROR_KIND)
+        savedStateHandle.remove<Int>(KEY_ERROR_DETAIL_RESOURCE)
+        savedStateHandle.remove<String>(KEY_ERROR_DETAIL_DYNAMIC)
+    }
+
+    private fun clearPersistedRollback() {
+        savedStateHandle.remove<String>(KEY_ROLLBACK_OUTCOME)
+        savedStateHandle.remove<Boolean>(KEY_ROLLBACK_REBOOT_REQUIRED)
+        savedStateHandle.remove<String>(KEY_ROLLBACK_DIAGNOSTIC)
+    }
+
+    private fun recordLastResult(result: ControlLastResult) {
+        savedStateHandle[KEY_LAST_RESULT] = result.name
+        _uiState.update { it.copy(lastResult = result) }
+    }
+
+    private fun revalidateRestoredUpdateDialog() {
+        launchUpdateCheck(
+            showUpToDateMessage = false,
+            expectedDialog = ControlDialogKind.UPDATE,
+        )
+    }
+
+    private fun loadInitialState() {
         viewModelScope.launch {
-            val success = RuntimeConfigStore.upsertCoreValue("autostart", if (enabled) "1" else "0")
-            if (success) {
-                _uiState.update { it.copy(autostart = enabled) }
+            var detectedRootState: ServiceLifecycleController.RootAccessState? = null
+            try {
+                val rootAccess = ServiceLifecycleController.checkRootAccess()
+                detectedRootState = rootAccess.state
+                val environment = if (rootAccess.granted) {
+                    diagnosticsRepository.readEnvironment()
+                        ?: throw EnvironmentProbeException()
+                } else {
+                    null
+                }
+                val stableModuleConfig = environment?.moduleState in setOf(
+                    ModuleInstallState.READY,
+                    ModuleInstallState.DISABLED,
+                )
+                val coreValues = if (stableModuleConfig) RuntimeConfigStore.readCore() else emptyMap()
+                if (stableModuleConfig && coreValues.isEmpty()) throw EnvironmentProbeException()
+                val pktOut = if (stableModuleConfig) {
+                    RuntimeConfigStore.positiveCountOrNull(coreValues["pkt_out"])
+                        ?: throw EnvironmentProbeException()
+                } else {
+                    20
+                }
+                val pktIn = if (stableModuleConfig) {
+                    RuntimeConfigStore.positiveCountOrNull(coreValues["pkt_in"])
+                        ?: throw EnvironmentProbeException()
+                } else {
+                    10
+                }
+                val unsupportedWifiOnlyWasEnabled = coreValues["wifi_only"] == "1"
+                val wifiOnlyNormalized = if (!unsupportedWifiOnlyWasEnabled) {
+                    true
+                } else {
+                    try {
+                        ModuleMutationCoordinator.withNonCancellableMutation {
+                            RuntimeConfigStore.upsertCoreValue("wifi_only", "0")
+                        }
+                    } catch (_: ModuleMutationCoordinator.MutationBlockedException) {
+                        false
+                    }
+                }
+                val showQuicBanner = withContext(Dispatchers.IO) {
+                    !prefs.getBoolean("quic_banner_dismissed", false)
+                }
+
+                _uiState.update { state ->
+                    state.copy(
+                        hasRootAccess = rootAccess.granted,
+                        rootAccessState = rootAccess.state,
+                        moduleInstallState = environment?.moduleState ?: ModuleInstallState.UNKNOWN,
+                        nfqueueSupported = environment?.nfqueueSupported == true,
+                        moduleVersion = environment?.moduleVersion.orEmpty(),
+                        autostart = coreValues["autostart"] != "0",
+                        pktOut = pktOut,
+                        pktIn = pktIn,
+                        hasAuthoritativeRuntimeSettings = stableModuleConfig,
+                        showQuicBanner = showQuicBanner,
+                    )
+                }
+
+                if (!wifiOnlyNormalized) {
+                    publishMessage(UiText.Resource(R.string.control_wifi_only_disable_failed))
+                }
+
+                checkStatus()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                val rootState = detectedRootState
+                    ?: ServiceLifecycleController.RootAccessState.SHELL_FAILURE
+                _uiState.update {
+                    it.copy(
+                        hasRootAccess = rootState == ServiceLifecycleController.RootAccessState.GRANTED,
+                        rootAccessState = rootState,
+                        hasAuthoritativeRuntimeSettings = false,
+                        status = if (rootState == ServiceLifecycleController.RootAccessState.GRANTED) {
+                            ControlStatus.UNAVAILABLE
+                        } else {
+                            rootState.toControlStatus()
+                        },
+                    )
+                }
+                showErrorDialog(
+                    kind = ControlErrorKind.INITIALIZATION,
+                    details = if (error is EnvironmentProbeException) {
+                        UiText.Resource(R.string.control_environment_probe_failed)
+                    } else if (error is RuntimeConfigRollbackException) {
+                        UiText.Resource(R.string.control_runtime_rollback_failed)
+                    } else UiText.Resource(R.string.control_unknown_error),
+                )
+            } finally {
+                if (_uiState.value.pendingDialog == ControlDialogKind.UPDATE) {
+                    revalidateRestoredUpdateDialog()
+                }
+                initialLoadFinished = true
+                if (screenStarted && viewModelScope.coroutineContext[Job]?.isActive == true) {
+                    startPolling(refreshImmediately = false)
+                }
             }
         }
     }
 
-    fun setWifiOnly(enabled: Boolean) {
+    private fun startPolling(refreshImmediately: Boolean) {
+        pollingJob?.cancel()
+        pollingJob = viewModelScope.launch {
+            if (refreshImmediately) pollStatusOnce()
+            while (isActive) {
+                delay(if (_uiState.value.isRunning) 3000L else 10000L)
+                pollStatusOnce()
+            }
+        }
+    }
+
+    private suspend fun pollStatusOnce() {
+        try {
+            checkStatus()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            _uiState.update {
+                it.copy(
+                    isRunning = false,
+                    status = ControlStatus.UNAVAILABLE,
+                    iptablesActive = false,
+                )
+            }
+        }
+    }
+
+    private data class ServiceSnapshot(
+        val isRunning: Boolean,
+        val canStopService: Boolean
+    )
+
+    private suspend fun checkStatus(): ServiceSnapshot {
+        val snapshot = refreshStatus()
+        if (_uiState.value.isModuleOperational && !_uiState.value.hasAuthoritativeRuntimeSettings) {
+            revalidateRuntimeSettings()
+        }
+        return snapshot
+    }
+
+    private suspend fun revalidateRuntimeSettings(): Boolean {
+        val coreValues = try {
+            withContext(Dispatchers.IO) { RuntimeConfigStore.readCore() }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            emptyMap()
+        }
+        val autostart = when (coreValues["autostart"]) {
+            "0" -> false
+            "1" -> true
+            else -> return false
+        }
+        val pktOut = RuntimeConfigStore.positiveCountOrNull(coreValues["pkt_out"])
+            ?: return false
+        val pktIn = RuntimeConfigStore.positiveCountOrNull(coreValues["pkt_in"])
+            ?: return false
+        val reconciledState = _uiState.updateAndGet { state ->
+            if (!state.isModuleOperational || !state.hasRootAccess) {
+                state.copy(hasAuthoritativeRuntimeSettings = false)
+            } else {
+                state.copy(
+                    autostart = autostart,
+                    pktOut = pktOut,
+                    pktIn = pktIn,
+                    hasAuthoritativeRuntimeSettings = true,
+                )
+            }
+        }
+        return reconciledState.hasAuthoritativeRuntimeSettings
+    }
+
+    /**
+     * Status recovery acquires ModuleMutationCoordinator before the lifecycle controller. Never
+     * wrap this method in a view-model mutex: settings saves intentionally keep the module
+     * coordinator while restarting, and a reverse wait here would deadlock polling against saves.
+     */
+    private suspend fun refreshStatus(): ServiceSnapshot {
+        val refreshId = statusRefreshSequence.incrementAndGet()
+        val serviceStatus = ServiceLifecycleController.getStatus()
+        val environment = if (serviceStatus.rootGranted) {
+            diagnosticsRepository.readEnvironment()
+        } else {
+            null
+        }
+        val netStats = networkStatsManager.getNetworkStats(serviceStatus)
+        val detail = netStats.iptablesDetail
+        // A healthy machine payload is necessary but not sufficient: Android also re-reads the
+        // current owner identity and exact generation-bound iptables topology before showing RUNNING.
+        val isRunning = serviceStatus.healthy && netStats.iptablesActive
+        val statusRulesCount = serviceStatus.nfqueueRulesCount
+        val effectiveRulesCount = if (netStats.hasOwnedIptablesState) {
+            netStats.nfqueueRulesCount
+        } else statusRulesCount
+        val canStopService = serviceStatus.hasOwnedState ||
+            netStats.hasOwnedIptablesState
+        val processPid = serviceStatus.pid.takeIf {
+            serviceStatus.processRunning && serviceStatus.pidVerified && it.matches(Regex("[1-9][0-9]*"))
+        }.orEmpty()
+
+        val processStats = if (serviceStatus.processRunning && processPid.isNotEmpty()) {
+            diagnosticsRepository.readProcessMetrics(processPid).let { metrics ->
+                ProcessStats(
+                    pid = processPid,
+                    memory = metrics.memoryKb.takeIf(String::isNotBlank)?.let { "$it KB" }.orEmpty(),
+                    threads = metrics.threads,
+                    uptime = metrics.uptime,
+                )
+            }
+        } else ProcessStats()
+
+        val status = when {
+            !serviceStatus.rootGranted -> serviceStatus.rootAccessState.toControlStatus()
+            serviceStatus.error != null -> ControlStatus.UNAVAILABLE
+            isRunning -> ControlStatus.RUNNING
+            canStopService -> ControlStatus.DEGRADED
+            else -> ControlStatus.STOPPED
+        }
+
+        if (refreshId == statusRefreshSequence.get()) {
+            _uiState.update {
+                it.copy(
+                    isRunning = isRunning,
+                    canStopService = canStopService,
+                    status = status,
+                    uptime = processStats.uptime,
+                    networkType = UiText.Resource(netStats.networkType.labelRes),
+                    iptablesActive = netStats.iptablesActive,
+                    nfqueueRulesCount = effectiveRulesCount,
+                    iptablesDetail = detail,
+                    processStats = processStats,
+                    hasRootAccess = serviceStatus.rootGranted,
+                    rootAccessState = serviceStatus.rootAccessState,
+                    moduleInstallState = environment?.moduleState ?: ModuleInstallState.UNKNOWN,
+                    moduleVersion = environment?.moduleVersion.orEmpty(),
+                    nfqueueSupported = environment?.nfqueueSupported == true,
+                    hasAuthoritativeRuntimeSettings = it.hasAuthoritativeRuntimeSettings &&
+                        environment?.moduleState == ModuleInstallState.READY,
+                )
+            }
+        }
+
+        return ServiceSnapshot(
+            isRunning = isRunning,
+            canStopService = canStopService
+        )
+    }
+
+    fun toggleService() {
+        if (!exclusiveActionInProgress.compareAndSet(false, true)) return
+        toggleInProgress.set(true)
+        if (_uiState.value.pendingDialog != null) {
+            toggleInProgress.set(false)
+            exclusiveActionInProgress.set(false)
+            return
+        }
+        if (
+            _uiState.value.isUpdating ||
+            _uiState.value.isCheckingForUpdates ||
+            _uiState.value.isSavingSettings || settingMutationInProgress.get() ||
+            _uiState.value.isFullRollbackInProgress ||
+            ServiceLifecycleController.isAppUpdateInProgress() ||
+            ServiceLifecycleController.isFullRollbackInProgress()
+        ) {
+            toggleInProgress.set(false)
+            exclusiveActionInProgress.set(false)
+            publishMessage(UiText.Resource(R.string.control_wait_operation_finish))
+            return
+        }
+        _uiState.update { it.copy(isToggling = true) }
+
         viewModelScope.launch {
-            val success = RuntimeConfigStore.upsertCoreValue("wifi_only", if (enabled) "1" else "0")
-            if (success) {
-                _uiState.update { it.copy(wifiOnly = enabled) }
+            try {
+                val currentStatus = refreshStatus()
+                val shouldStop = currentStatus.canStopService
+                if (!shouldStop && rejectUnavailableModuleOperation()) return@launch
+                val lifecycleResult = if (shouldStop) {
+                    ServiceLifecycleController.stop()
+                } else {
+                    ServiceLifecycleController.start()
+                }
+                val verifiedState = refreshStatus()
+
+                val verified = if (shouldStop) !verifiedState.canStopService else verifiedState.isRunning
+                if (lifecycleResult.success && verified) {
+                    recordLastResult(
+                        if (shouldStop) {
+                            ControlLastResult.SERVICE_STOPPED
+                        } else {
+                            ControlLastResult.SERVICE_STARTED
+                        },
+                    )
+                    publishMessage(
+                        UiText.Resource(
+                            if (shouldStop) {
+                                R.string.control_service_stopped_result
+                            } else {
+                                R.string.control_service_started
+                            },
+                        ),
+                    )
+                    if (!shouldStop) serviceEventBus.notifyServiceRestarted()
+                } else {
+                    val diagnostic = lifecycleResult.diagnosticText()
+                        .ifBlank { readServiceFailureLogs() }
+                    val details = if (diagnostic.isBlank()) {
+                        UiText.Resource(R.string.control_service_expected_state_error)
+                    } else {
+                        UiText.Dynamic(diagnostic)
+                    }
+                    showErrorDialog(
+                        kind = if (shouldStop) {
+                            ControlErrorKind.STOP_SERVICE
+                        } else {
+                            ControlErrorKind.START_SERVICE
+                        },
+                        details = details,
+                    )
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                showErrorDialog(
+                    kind = ControlErrorKind.SERVICE_OPERATION,
+                    details = UiText.Resource(R.string.control_service_expected_state_error),
+                )
+            } finally {
+                _uiState.update { it.copy(isToggling = false) }
+                toggleInProgress.set(false)
+                exclusiveActionInProgress.set(false)
+            }
+        }
+    }
+
+    private suspend fun readServiceFailureLogs(): String = withContext(Dispatchers.IO) {
+        when (val result = logRepository.readFailureTail()) {
+            is ProtectedTextRead.Content -> result.value.takeLast(MAX_ERROR_DETAIL_LENGTH)
+            ProtectedTextRead.Absent,
+            ProtectedTextRead.Failed,
+            -> ""
+        }
+    }
+
+    fun setAutostart(enabled: Boolean) {
+        if (rejectConflictingOperation()) return
+        if (rejectUnavailableSettingMutation()) return
+        if (_uiState.value.autostart == enabled) return
+        launchSettingMutation(R.string.control_autostart_save_failed) {
+            RuntimeConfigStore.upsertCoreValue(
+                "autostart",
+                if (enabled) "1" else "0",
+            ).also { success ->
+                if (success) _uiState.update { it.copy(autostart = enabled) }
             }
         }
     }
 
     fun adjustPktOut(value: Int) {
-        val clamped = value.coerceIn(1, 100)
-        viewModelScope.launch {
-            val success = RuntimeConfigStore.upsertCoreValue("pkt_out", clamped.toString())
-            if (success) {
-                _uiState.update { it.copy(pktOut = clamped) }
-                restartService()
+        if (rejectConflictingOperation()) return
+        if (rejectUnavailableSettingMutation()) return
+        if (value !in 1..MAX_PACKET_COUNT) return
+        if (_uiState.value.pktOut == value) return
+        launchSettingMutation(R.string.control_packet_out_save_failed) {
+            RuntimeConfigStore.upsertCoreValue("pkt_out", value.toString()).also { success ->
+                if (success) {
+                    _uiState.update { it.copy(pktOut = value) }
+                    restartService()
+                }
             }
         }
     }
 
     fun adjustPktIn(value: Int) {
-        val clamped = value.coerceIn(1, 100)
+        if (rejectConflictingOperation()) return
+        if (rejectUnavailableSettingMutation()) return
+        if (value !in 1..MAX_PACKET_COUNT) return
+        if (_uiState.value.pktIn == value) return
+        launchSettingMutation(R.string.control_packet_in_save_failed) {
+            RuntimeConfigStore.upsertCoreValue("pkt_in", value.toString()).also { success ->
+                if (success) {
+                    _uiState.update { it.copy(pktIn = value) }
+                    restartService()
+                }
+            }
+        }
+    }
+
+    private fun launchSettingMutation(
+        @StringRes failureMessage: Int,
+        block: suspend () -> Boolean,
+    ) {
+        if (!exclusiveActionInProgress.compareAndSet(false, true)) {
+            publishMessage(UiText.Resource(R.string.control_wait_operation_finish))
+            return
+        }
+        settingMutationInProgress.set(true)
+        _uiState.update { it.copy(isSavingSettings = true) }
         viewModelScope.launch {
-            val success = RuntimeConfigStore.upsertCoreValue("pkt_in", clamped.toString())
-            if (success) {
-                _uiState.update { it.copy(pktIn = clamped) }
-                restartService()
+            var runtimeStateUncertain = false
+            try {
+                val succeeded = ModuleMutationCoordinator.withNonCancellableMutation(block)
+                if (!succeeded) {
+                    publishMessage(UiText.Resource(failureMessage))
+                }
+            } catch (_: ModuleMutationCoordinator.MutationBlockedException) {
+                publishMessage(UiText.Resource(R.string.control_module_update_in_progress))
+            } catch (_: RuntimeConfigRollbackException) {
+                runtimeStateUncertain = true
+                _uiState.update { it.copy(hasAuthoritativeRuntimeSettings = false) }
+                publishMessage(UiText.Resource(R.string.control_runtime_rollback_failed))
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                publishMessage(UiText.Resource(failureMessage))
+            } finally {
+                settingMutationInProgress.set(false)
+                _uiState.update { it.copy(isSavingSettings = false) }
+                exclusiveActionInProgress.set(false)
+            }
+            if (runtimeStateUncertain && _uiState.value.isModuleOperational) {
+                revalidateRuntimeSettings()
             }
         }
     }
@@ -284,64 +1373,311 @@ class ControlViewModel @Inject constructor(
     }
 
     fun checkForUpdates() {
-        viewModelScope.launch {
-            when (val result = updateManager.checkForUpdates()) {
-                is UpdateManager.UpdateResult.Available -> {
-                    _events.emit(ControlEvent.ShowUpdateDialog(result.release))
-                }
-                is UpdateManager.UpdateResult.UpToDate -> {
-                    _events.emit(ControlEvent.ShowSnackbar("App is up to date"))
-                }
-                is UpdateManager.UpdateResult.Error -> {
-                    _events.emit(ControlEvent.ShowSnackbar("Update check failed: ${result.message}"))
-                }
+        if (_uiState.value.pendingDialog != null) return
+        if (
+            _uiState.value.status == ControlStatus.CHECKING ||
+            _uiState.value.isToggling ||
+            _uiState.value.isUpdating ||
+            _uiState.value.isSavingSettings || settingMutationInProgress.get() ||
+            _uiState.value.isFullRollbackInProgress ||
+            ServiceLifecycleController.isAppUpdateInProgress() ||
+            ServiceLifecycleController.isFullRollbackInProgress()
+        ) {
+            publishMessage(UiText.Resource(R.string.control_wait_operation_finish))
+            return
+        }
+        launchUpdateCheck(showUpToDateMessage = true, expectedDialog = null)
+    }
+
+    private fun launchUpdateCheck(
+        showUpToDateMessage: Boolean,
+        expectedDialog: ControlDialogKind?,
+    ) {
+        if (!exclusiveActionInProgress.compareAndSet(false, true)) {
+            if (showUpToDateMessage) {
+                publishMessage(UiText.Resource(R.string.control_wait_operation_finish))
             }
-            prefs.edit().putLong("last_update_check", System.currentTimeMillis()).apply()
+            return
+        }
+        if (!updateCheckInProgress.compareAndSet(false, true)) {
+            exclusiveActionInProgress.set(false)
+            return
+        }
+        _uiState.update { it.copy(isCheckingForUpdates = true) }
+        viewModelScope.launch {
+            try {
+                checkForUpdatesInternal(showUpToDateMessage, expectedDialog)
+            } finally {
+                finishUpdateCheckState()
+            }
         }
     }
 
-    fun updateAll(apkUrl: String?, moduleUrl: String?) {
-        viewModelScope.launch {
-            _uiState.update { it.copy(isUpdating = true, updateProgress = 0f, updateStatus = "Подготовка...") }
+    private fun finishUpdateCheckState() {
+        _uiState.update { it.copy(isCheckingForUpdates = false) }
+        updateCheckInProgress.set(false)
+        exclusiveActionInProgress.set(false)
+    }
 
-            val result = withContext(Dispatchers.IO) {
-                updateManager.updateAll(apkUrl, moduleUrl) { progress, status ->
-                    // StateFlow.update is thread-safe, no need for Dispatchers.Main
-                    _uiState.update { it.copy(updateProgress = progress, updateStatus = status) }
+    private fun rejectUnavailableModuleOperation(): Boolean {
+        if (_uiState.value.isModuleOperational && _uiState.value.hasRootAccess) return false
+        publishMessage(UiText.Resource(R.string.control_module_not_ready))
+        return true
+    }
+
+    private fun rejectUnavailableSettingMutation(): Boolean {
+        if (_uiState.value.canEditSettings) return false
+        publishMessage(UiText.Resource(R.string.control_module_not_ready))
+        return true
+    }
+
+    private fun rejectConflictingOperation(): Boolean {
+        val state = _uiState.value
+        if (state.pendingDialog != null) return true
+        if (!state.isCheckingForUpdates && !state.isToggling && !state.isUpdating &&
+            !state.isSavingSettings && !state.isFullRollbackInProgress &&
+            !toggleInProgress.get() && !settingMutationInProgress.get() &&
+            !updateCheckInProgress.get() && !exclusiveActionInProgress.get() &&
+            !ServiceLifecycleController.isAppUpdateInProgress() &&
+            !ServiceLifecycleController.isFullRollbackInProgress()
+        ) return false
+        publishMessage(UiText.Resource(R.string.control_wait_operation_finish))
+        return true
+    }
+
+    private suspend fun checkForUpdatesInternal(
+        showUpToDateMessage: Boolean,
+        expectedDialog: ControlDialogKind?,
+    ) {
+        val state = _uiState.value
+        val comparableModuleVersion = state.moduleVersion.takeIf {
+            it.isNotBlank() && state.moduleInstallState in setOf(
+                ModuleInstallState.READY,
+                ModuleInstallState.DISABLED,
+            )
+        }
+        val result = updateManager.checkForUpdates(
+            currentModuleVersion = comparableModuleVersion,
+            allowModuleUpdate = state.hasRootAccess && state.moduleInstallState.allowsModuleUpdate,
+        )
+        if (
+            _uiState.value.isFullRollbackInProgress ||
+            ServiceLifecycleController.isFullRollbackInProgress()
+        ) {
+            return
+        }
+        if (_uiState.value.pendingDialog != expectedDialog) return
+        when (result) {
+            is UpdateManager.UpdateResult.Available -> showUpdateDialog(result.release)
+            is UpdateManager.UpdateResult.UpToDate -> {
+                if (_uiState.value.pendingDialog == ControlDialogKind.UPDATE) dismissDialog()
+                if (showUpToDateMessage) {
+                    publishMessage(UiText.Resource(R.string.control_app_up_to_date))
                 }
             }
-
-            _uiState.update { it.copy(isUpdating = false, updateProgress = 0f, updateStatus = "") }
-
-            result.onSuccess { needsReboot ->
-                if (needsReboot) {
-                    _events.emit(ControlEvent.ShowSnackbar("Обновление установлено. Требуется перезагрузка."))
-                } else {
-                    _events.emit(ControlEvent.ShowSnackbar("Обновление завершено"))
-                    delay(1000)
-                    checkStatus()
-                }
-            }.onFailure { error ->
-                _events.emit(ControlEvent.ShowErrorDialog(
-                    title = "Ошибка обновления",
-                    details = error.message ?: "Неизвестная ошибка"
-                ))
+            is UpdateManager.UpdateResult.Error -> {
+                if (_uiState.value.pendingDialog == ControlDialogKind.UPDATE) dismissDialog()
+                publishMessage(result.reason.toUiText())
             }
         }
+    }
+
+    fun updateAll(release: UpdateManager.Release) {
+        if (_uiState.value.pendingDialog != ControlDialogKind.UPDATE ||
+            _uiState.value.updateRelease != release
+        ) return
+        if (!exclusiveActionInProgress.compareAndSet(false, true)) {
+            publishMessage(UiText.Resource(R.string.control_wait_operation_finish))
+            return
+        }
+        if (
+            _uiState.value.isToggling ||
+            _uiState.value.isSavingSettings ||
+            settingMutationInProgress.get() ||
+            updateCheckInProgress.get() ||
+            _uiState.value.isFullRollbackInProgress ||
+            ServiceLifecycleController.isFullRollbackInProgress()
+        ) {
+            exclusiveActionInProgress.set(false)
+            publishMessage(UiText.Resource(R.string.control_wait_operation_finish))
+            return
+        }
+        if (!ServiceLifecycleController.tryBeginAppUpdate()) {
+            exclusiveActionInProgress.set(false)
+            publishMessage(UiText.Resource(R.string.control_wait_operation_finish))
+            return
+        }
+        _uiState.update {
+            it.copy(
+                isUpdating = true,
+                updateProgress = 0f,
+                updateStatus = UiText.Resource(R.string.update_in_progress),
+            )
+        }
+
+        viewModelScope.launch {
+            val result = try {
+                Result.success(withContext(Dispatchers.IO) {
+                    // Module installation acquires the shared lifecycle lock inside UpdateManager.
+                    updateManager.updateAll(release) { progress ->
+                        _uiState.update {
+                            it.copy(
+                                updateProgress = progress.normalizedFraction,
+                                updateStatus = progress.toUiText(),
+                            )
+                        }
+                    }
+                })
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                Result.failure(error)
+            } finally {
+                _uiState.update {
+                    it.copy(isUpdating = false, updateProgress = 0f, updateStatus = null)
+                }
+                ServiceLifecycleController.finishAppUpdate()
+                exclusiveActionInProgress.set(false)
+            }
+
+            result.onSuccess { report ->
+                when (val terminal = report.toTerminalOutcome()) {
+                    is UpdateTerminalOutcome.Partial -> {
+                        val failureText = terminal.failure?.toUiText()
+                        dismissDialog()
+                        recordLastResult(
+                            if (terminal.requiresReboot) {
+                                ControlLastResult.UPDATE_PARTIAL_REBOOT
+                            } else {
+                                ControlLastResult.UPDATE_PARTIAL
+                            },
+                        )
+                        publishMessage(
+                            failureText?.let {
+                                UiText.resource(
+                                    if (terminal.requiresReboot) {
+                                        R.string.control_update_partial_reboot_details
+                                    } else {
+                                        R.string.control_update_partial_details
+                                    },
+                                    it,
+                                )
+                            } ?: UiText.Resource(
+                                if (terminal.requiresReboot) {
+                                    R.string.control_update_partial_reboot
+                                } else {
+                                    R.string.control_update_partial
+                                },
+                            ),
+                        )
+                        if (!terminal.requiresReboot) {
+                            refreshStatusAfterUpdate()
+                        }
+                    }
+                    is UpdateTerminalOutcome.Failed -> showErrorDialog(
+                        kind = ControlErrorKind.UPDATE,
+                        details = terminal.failure.toUiText(),
+                    )
+                    is UpdateTerminalOutcome.ApkInstallerPending -> {
+                        dismissDialog()
+                        recordLastResult(
+                            if (terminal.requiresReboot) {
+                                ControlLastResult.UPDATE_APK_PENDING_REBOOT
+                            } else {
+                                ControlLastResult.UPDATE_APK_PENDING
+                            },
+                        )
+                        publishMessage(
+                            UiText.Resource(
+                                if (terminal.requiresReboot) {
+                                    R.string.control_update_apk_pending_reboot
+                                } else {
+                                    R.string.control_update_apk_pending
+                                },
+                            ),
+                        )
+                    }
+                    is UpdateTerminalOutcome.Installed -> {
+                        dismissDialog()
+                        val requiresReboot = terminal.requiresReboot
+                        recordLastResult(
+                            if (requiresReboot) {
+                                ControlLastResult.UPDATE_REBOOT_REQUIRED
+                            } else {
+                                ControlLastResult.UPDATE_COMPLETED
+                            },
+                        )
+                        publishMessage(
+                            UiText.Resource(
+                                if (requiresReboot) {
+                                    R.string.control_update_installed_reboot
+                                } else {
+                                    R.string.control_update_completed
+                                },
+                            ),
+                        )
+                        if (!requiresReboot) {
+                            refreshStatusAfterUpdate()
+                        }
+                    }
+                    UpdateTerminalOutcome.Invalid -> showErrorDialog(
+                        kind = ControlErrorKind.UPDATE,
+                        details = UiText.Resource(R.string.control_unknown_error),
+                    )
+                }
+            }.onFailure {
+                showErrorDialog(
+                    kind = ControlErrorKind.UPDATE,
+                    details = UiText.Resource(R.string.control_unknown_error),
+                )
+            }
+        }
+    }
+
+    private suspend fun refreshStatusAfterUpdate() {
+        delay(UPDATE_STATUS_REFRESH_DELAY_MS)
+        if (screenStarted) pollStatusOnce()
     }
 
     private suspend fun restartService() {
-        if (!_uiState.value.isRunning) return
-        withContext(Dispatchers.IO) {
-            Shell.cmd("sh $restartScript").exec()
+        try {
+            val currentStatus = refreshStatus()
+            if (!currentStatus.isRunning) return
+            val result = ServiceLifecycleController.restart()
+            val verifiedState = refreshStatus()
+            if (result.success && verifiedState.isRunning) {
+                serviceEventBus.notifyServiceRestarted()
+                return
+            }
+            val diagnostic = result.diagnosticText()
+            showErrorDialog(
+                kind = ControlErrorKind.RESTART_SERVICE,
+                details = if (diagnostic.isBlank()) {
+                    UiText.Resource(R.string.control_restart_unhealthy)
+                } else {
+                    UiText.Dynamic(diagnostic)
+                },
+            )
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            showErrorDialog(
+                kind = ControlErrorKind.RESTART_SERVICE,
+                details = UiText.Resource(R.string.control_restart_unhealthy),
+            )
         }
-        serviceEventBus.notifyServiceRestarted()
-        delay(1000)
-        checkStatus()
     }
 
     override fun onCleared() {
         pollingJob?.cancel()
         super.onCleared()
     }
+
+}
+
+internal fun sanitizedBoundedUiDiagnostic(text: String): String =
+    redactedBoundedLogShareText(text).takeLast(MAX_ERROR_DETAIL_LENGTH)
+
+internal fun restoreControlLastResult(savedStateHandle: SavedStateHandle): ControlLastResult? {
+    return savedStateHandle.restoreEnumNameOrRemove(KEY_LAST_RESULT)
 }

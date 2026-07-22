@@ -1,0 +1,5 @@
+# relative_file<TAB>literal<TAB>expected_count<TAB>trimmed_source_line<TAB>reason
+#
+# Intentionally empty. All destination *Screen.kt files currently use semantic
+# SpacingTokens/SizeTokens instead of literal dp values. Add an entry only for a
+# framework/API measurement that cannot honestly be represented by a reusable token.

@@ -1,10 +1,8 @@
 # Add project specific ProGuard rules here.
 
-# libsu
--keep class com.topjohnwu.superuser.** { *; }
--keepclassmembers class * extends com.topjohnwu.superuser.Shell$Initializer {
-    public <init>();
-}
+# libsu core ships its own consumer rules for Shell.Initializer/RootService and
+# release-only debug stripping. Do not add a broad package keep here: it would
+# prevent R8 from optimizing the dependency while duplicating the trusted AAR rule.
 
 # Keep native methods
 -keepclassmembers class * {

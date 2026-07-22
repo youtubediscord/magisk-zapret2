@@ -1,181 +1,636 @@
 package com.zapret2.app.ui.screen
 
-import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.*
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.SearchOff
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalInspectionMode
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.LifecycleStartEffect
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
-import com.zapret2.app.ui.theme.*
-import com.zapret2.app.viewmodel.*
+import com.zapret2.app.ui.theme.SizeTokens
+import com.zapret2.app.ui.theme.SpacingTokens
+import com.zapret2.app.R
+import com.zapret2.app.data.HostlistRepository
+import com.zapret2.app.ui.components.AdaptiveEqualWidthGroup
+import com.zapret2.app.ui.components.ContentCard
+import com.zapret2.app.ui.components.AppSnackbarEffect
+import com.zapret2.app.ui.components.LoadingOverlay
+import com.zapret2.app.ui.components.quantityStringResource
+import com.zapret2.app.ui.components.LocalReducedMotionEnabled
+import com.zapret2.app.ui.navigation.popDetailOrOpenHostlists
+import com.zapret2.app.ui.theme.MonospaceStyle
+import com.zapret2.app.ui.theme.MotionTokens
+import com.zapret2.app.ui.theme.extendedColors
+import com.zapret2.app.viewmodel.HostlistContentError
+import com.zapret2.app.viewmodel.HostlistContentLoadState
+import com.zapret2.app.viewmodel.HostlistContentUiState
+import com.zapret2.app.viewmodel.HostlistContentViewModel
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
+import java.text.NumberFormat
 
 @Composable
-fun HostlistContentScreen(navController: NavController, viewModel: HostlistContentViewModel = hiltViewModel()) {
-    val state by viewModel.uiState.collectAsState()
+fun HostlistContentScreen(
+    navController: NavController,
+    viewModel: HostlistContentViewModel? = null,
+    previewState: HostlistContentUiState? = null,
+) {
+    val activeViewModel = viewModel ?: if (previewState == null) hiltViewModel() else null
+    val runtimeState = activeViewModel?.uiState?.collectAsStateWithLifecycle()
+    val state = previewState ?: runtimeState?.value ?: HostlistContentUiState()
     val snackbarHostState = remember { SnackbarHostState() }
+    val reduceMotion = LocalReducedMotionEnabled.current
+    var showDiscardDialog by rememberSaveable { mutableStateOf(false) }
 
-    LaunchedEffect(Unit) { viewModel.snackbar.collect { snackbarHostState.showSnackbar(it) } }
+    AppSnackbarEffect(state.message, snackbarHostState) { activeViewModel?.clearMessage() }
 
-    Scaffold(snackbarHost = { SnackbarHost(snackbarHostState) }) { padding ->
-        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
-            // Top bar
-            Row(
-                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(onClick = {
-                    if (state.isEditing) viewModel.exitEditMode()
-                    else navController.popBackStack()
-                }) {
-                    Icon(Icons.Default.ArrowBack, "Back", tint = TextPrimary)
-                }
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(state.fileName.removeSuffix(".txt"), fontSize = 16.sp, color = TextPrimary)
+    LifecycleStartEffect(activeViewModel) {
+        activeViewModel?.onScreenEntered()
+        onStopOrDispose { activeViewModel?.onScreenStopped() }
+    }
+
+    LaunchedEffect(state.isEditing, state.hasUnsavedChanges, state.isSaving) {
+        if (!state.isEditing || !state.hasUnsavedChanges || state.isSaving) {
+            showDiscardDialog = false
+        }
+    }
+
+    val requestExitEdit = {
+        when {
+            state.isSaving -> Unit
+            state.hasUnsavedChanges -> showDiscardDialog = true
+            else -> {
+                activeViewModel?.exitEditMode()
+                Unit
+            }
+        }
+    }
+
+    if (!LocalInspectionMode.current) {
+        BackHandler(enabled = state.isEditing, onBack = requestExitEdit)
+    }
+
+    if (showDiscardDialog &&
+        state.isEditing &&
+        state.hasUnsavedChanges &&
+        !state.isSaving
+    ) {
+        AlertDialog(
+            onDismissRequest = { showDiscardDialog = false },
+            shape = MaterialTheme.shapes.extraLarge,
+            title = { Text(stringResource(R.string.hostlist_discard_title)) },
+            text = {
+                Text(
+                    text = stringResource(R.string.hostlist_discard_body),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showDiscardDialog = false
+                        activeViewModel?.exitEditMode(discardUnsavedChanges = true)
+                    },
+                ) {
                     Text(
-                        if (state.isEditing) "Editing" else "${state.totalLines} domains",
-                        fontSize = 12.sp,
-                        color = if (state.isEditing) AccentLightBlue else TextSecondary
+                        stringResource(R.string.action_discard),
+                        color = MaterialTheme.colorScheme.error,
                     )
                 }
-                if (!state.isEditing) {
-                    // View mode: Edit button
-                    IconButton(onClick = { viewModel.enterEditMode() }) {
-                        Icon(Icons.Default.Edit, "Edit", tint = AccentLightBlue)
-                    }
-                } else {
-                    // Edit mode: Save button
-                    IconButton(
-                        onClick = { viewModel.saveFile() },
-                        enabled = !state.isSaving
-                    ) {
-                        if (state.isSaving) {
-                            CircularProgressIndicator(modifier = Modifier.size(20.dp), color = AccentLightBlue, strokeWidth = 2.dp)
+            },
+            dismissButton = {
+                TextButton(onClick = { showDiscardDialog = false }) {
+                    Text(stringResource(R.string.action_keep_editing))
+                }
+            },
+        )
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        Scaffold(
+            modifier = Modifier.imePadding(),
+            snackbarHost = { SnackbarHost(snackbarHostState) },
+            containerColor = MaterialTheme.colorScheme.background,
+        ) { scaffoldPadding ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(scaffoldPadding),
+                contentAlignment = Alignment.TopCenter,
+            ) {
+                Column(
+                    modifier = Modifier
+                        .widthIn(max = SizeTokens.EditorContentMax)
+                        .fillMaxSize()
+                        .padding(horizontal = SpacingTokens.Large, vertical = SpacingTokens.Medium),
+                ) {
+                    HostlistToolbar(
+                        state = state,
+                        onBack = {
+                            if (state.isEditing) requestExitEdit()
+                            else navController.popDetailOrOpenHostlists()
+                        },
+                        onEdit = { activeViewModel?.enterEditMode() },
+                        onSave = { activeViewModel?.saveFile() },
+                    )
+                    Spacer(Modifier.height(SpacingTokens.Medium))
+                    Crossfade(
+                        targetState = state.isEditing,
+                        animationSpec = tween(
+                            if (reduceMotion) {
+                                MotionTokens.DurationImmediate
+                            } else {
+                                MotionTokens.DurationEmphasized
+                            },
+                        ),
+                        label = "hostlist mode",
+                        modifier = Modifier.weight(1f),
+                    ) { editing ->
+                        if (editing) {
+                            if (!state.hasAuthoritativeEditorBaseline &&
+                                state.loadState == HostlistContentLoadState.ERROR
+                            ) {
+                                HostlistLoadErrorState(
+                                    error = state.loadError ?: HostlistContentError.LOAD_FAILED,
+                                    onRetry = { activeViewModel?.retryLoad() },
+                                )
+                            } else {
+                                HostlistEditContent(
+                                    state = state,
+                                    onContentChange = { activeViewModel?.updateEditorContent(it) },
+                                    onSave = { activeViewModel?.saveFile() },
+                                )
+                            }
                         } else {
-                            Icon(
-                                Icons.Default.Save, "Save",
-                                tint = if (state.hasUnsavedChanges) AccentLightBlue else TextQuaternary
-                            )
-                        }
-                    }
-                }
-            }
-
-            if (state.isLoading) {
-                LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = AccentLightBlue)
-            }
-
-            if (state.isEditing) {
-                // Edit mode: BasicTextField avoids saving huge content to Bundle (TransactionTooLargeException)
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f)
-                        .padding(horizontal = 12.dp, vertical = 4.dp)
-                        .border(1.dp, Border, RoundedCornerShape(4.dp))
-                        .padding(12.dp)
-                ) {
-                    if (state.editorContent.isEmpty()) {
-                        Text("One domain per line", color = TextHint, fontSize = 12.sp, style = MonospaceStyle)
-                    }
-                    BasicTextField(
-                        value = state.editorContent,
-                        onValueChange = { viewModel.updateEditorContent(it) },
-                        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
-                        textStyle = MonospaceStyle.copy(fontSize = 12.sp, color = TextPrimary),
-                        cursorBrush = SolidColor(AccentLightBlue)
-                    )
-                }
-
-                // Bottom bar with line count and save button
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    val lineCount = state.editorContent.lines().size
-                    Text("$lineCount lines", fontSize = 12.sp, color = TextTertiary)
-
-                    Button(
-                        onClick = { viewModel.saveFile() },
-                        enabled = state.hasUnsavedChanges && !state.isSaving,
-                        colors = ButtonDefaults.buttonColors(containerColor = AccentBlue)
-                    ) {
-                        Icon(Icons.Default.Save, null, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text("Save", color = TextPrimary)
-                    }
-                }
-            } else {
-                // View mode: search + paginated list
-                OutlinedTextField(
-                    value = state.searchQuery,
-                    onValueChange = { viewModel.search(it) },
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                    placeholder = { Text("Search domains...", color = TextHint) },
-                    singleLine = true,
-                    trailingIcon = {
-                        if (state.searchQuery.isNotEmpty()) {
-                            IconButton(onClick = { viewModel.search("") }) {
-                                Icon(Icons.Default.Clear, "Clear")
+                            if (state.loadState == HostlistContentLoadState.ERROR) {
+                                HostlistLoadErrorState(
+                                    error = state.loadError ?: HostlistContentError.LOAD_FAILED,
+                                    onRetry = { activeViewModel?.retryLoad() },
+                                )
+                            } else {
+                                HostlistBrowseContent(
+                                    state = state,
+                                    onSearch = { activeViewModel?.search(it) },
+                                    onLoadMore = { activeViewModel?.loadMore() },
+                                )
                             }
                         }
-                    },
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = AccentLightBlue,
-                        unfocusedBorderColor = Border,
-                        focusedTextColor = TextPrimary,
-                        unfocusedTextColor = TextPrimary
-                    )
-                )
-
-                Text(
-                    state.showingCount,
-                    fontSize = 12.sp,
-                    color = TextTertiary,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
-                )
-
-                val listState = rememberLazyListState()
-                val shouldLoadMore = remember {
-                    derivedStateOf {
-                        val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
-                        lastVisible >= state.domains.size - 10 && state.domains.isNotEmpty()
-                    }
-                }
-                LaunchedEffect(listState) {
-                    snapshotFlow { shouldLoadMore.value }
-                        .distinctUntilChanged()
-                        .filter { it }
-                        .collect { viewModel.loadMore() }
-                }
-
-                LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
-                    itemsIndexed(state.domains) { index, domain ->
-                        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
-                            Text("${index + 1}", fontSize = 12.sp, color = TextQuaternary, modifier = Modifier.width(40.dp))
-                            Text(domain, fontSize = 13.sp, color = TextPrimary)
-                        }
                     }
                 }
             }
+        }
+        LoadingOverlay(
+            text = stringResource(
+                if (state.isSaving) R.string.hostlist_saving else R.string.hostlist_loading_content,
+            ),
+            visible = state.isLoading || state.isSaving,
+        )
+    }
+}
+
+@Composable
+private fun HostlistToolbar(
+    state: HostlistContentUiState,
+    onBack: () -> Unit,
+    onEdit: () -> Unit,
+    onSave: () -> Unit,
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        shape = MaterialTheme.shapes.large,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = SpacingTokens.Small, vertical = SpacingTokens.Small),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconButton(onClick = onBack) {
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = stringResource(R.string.cd_back),
+                )
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = state.fileName.removeSuffix(".txt").ifBlank {
+                        stringResource(R.string.hostlist_fallback_name)
+                    },
+                    style = MaterialTheme.typography.titleLargeEmphasized,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = if (state.isEditing) {
+                        stringResource(R.string.hostlist_editing)
+                    } else {
+                        quantityStringResource(
+                            R.plurals.hostlist_entry_count,
+                            state.totalEntries,
+                            state.totalEntries,
+                        )
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (state.isEditing) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                )
+            }
+            if (state.isEditing) {
+                IconButton(
+                    onClick = onSave,
+                    enabled = state.canSaveContent,
+                ) {
+                    Icon(
+                        Icons.Default.Save,
+                        contentDescription = stringResource(R.string.cd_save_hostlist),
+                    )
+                }
+            } else {
+                IconButton(
+                    onClick = onEdit,
+                    enabled = state.loadState == HostlistContentLoadState.READY,
+                ) {
+                    Icon(
+                        Icons.Default.Edit,
+                        contentDescription = stringResource(R.string.cd_edit_hostlist),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HostlistEditContent(
+    state: HostlistContentUiState,
+    onContentChange: (String) -> Unit,
+    onSave: () -> Unit,
+) {
+    val success = MaterialTheme.extendedColors.success
+    val warning = MaterialTheme.extendedColors.warning
+    val lineCount = remember(state.editorContent) {
+        if (state.editorContent.isBlank()) 0 else state.editorContent.lineSequence().count()
+    }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f),
+            color = MaterialTheme.colorScheme.surfaceContainerLowest,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+            shape = MaterialTheme.shapes.large,
+            border = BorderStroke(SizeTokens.BorderThin, MaterialTheme.colorScheme.outlineVariant),
+        ) {
+            BasicTextField(
+                value = state.editorContent,
+                onValueChange = onContentChange,
+                readOnly = !state.canEditContent,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(SpacingTokens.Large),
+                textStyle = MonospaceStyle.copy(color = MaterialTheme.colorScheme.onSurface),
+                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                decorationBox = { innerTextField ->
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        if (state.editorContent.isEmpty()) {
+                            Text(
+                                text = stringResource(R.string.hostlist_editor_hint),
+                                style = MonospaceStyle.copy(
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                ),
+                            )
+                        }
+                        innerTextField()
+                    }
+                },
+            )
+        }
+        Spacer(Modifier.height(SpacingTokens.ItemVertical))
+        BoxWithConstraints(
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            AdaptiveEqualWidthGroup(
+                stacked = maxWidth < SizeTokens.CompactActionsBreakpoint,
+            ) { itemModifier ->
+                Row(
+                    modifier = itemModifier,
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(SpacingTokens.Medium),
+                ) {
+                    Surface(
+                        color = if (state.hasUnsavedChanges) warning.container else success.container,
+                        contentColor = if (state.hasUnsavedChanges) warning.onContainer else success.onContainer,
+                        shape = MaterialTheme.shapes.extraLarge,
+                        modifier = Modifier.semantics {
+                            liveRegion = LiveRegionMode.Polite
+                        },
+                    ) {
+                        Text(
+                            text = stringResource(
+                                if (state.hasUnsavedChanges) R.string.hosts_unsaved else R.string.hostlist_all_saved,
+                            ),
+                            style = MaterialTheme.typography.labelMediumEmphasized,
+                            modifier = Modifier.padding(horizontal = SpacingTokens.Medium, vertical = SpacingTokens.DenseVertical),
+                        )
+                    }
+                    Text(
+                        text = quantityStringResource(
+                            R.plurals.hostlist_line_count,
+                            lineCount,
+                            lineCount,
+                        ),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                Button(
+                    onClick = onSave,
+                    enabled = state.canSaveContent,
+                    shape = MaterialTheme.shapes.extraLarge,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = success.container,
+                        contentColor = success.onContainer,
+                    ),
+                    modifier = itemModifier,
+                ) {
+                    Icon(Icons.Default.Save, contentDescription = null)
+                    Spacer(Modifier.width(SpacingTokens.Small))
+                    Text(
+                        stringResource(
+                            if (state.isSaving) R.string.hostlist_saving else R.string.action_save,
+                        ),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HostlistBrowseContent(
+    state: HostlistContentUiState,
+    onSearch: (String) -> Unit,
+    onLoadMore: () -> Unit,
+) {
+    var searchText by rememberSaveable { mutableStateOf(state.searchQuery) }
+    LaunchedEffect(state.searchQuery) {
+        if (state.searchQuery != searchText) searchText = state.searchQuery
+    }
+    val listState = rememberLazyListState()
+    val lineNumberFormat = remember { NumberFormat.getIntegerInstance() }
+    val entryTextColor = MaterialTheme.colorScheme.onSurface
+    val entryTextStyle = remember(entryTextColor) { MonospaceStyle.copy(color = entryTextColor) }
+    val shouldLoadMore = remember(listState, state.entries.size, state.canLoadMore) {
+        derivedStateOf {
+            val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            state.canLoadMore && lastVisible >= state.entries.size - 10 && state.entries.isNotEmpty()
+        }
+    }
+
+    LaunchedEffect(listState, shouldLoadMore) {
+        snapshotFlow { shouldLoadMore.value }
+            .distinctUntilChanged()
+            .filter { it }
+            .collect { onLoadMore() }
+    }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        OutlinedTextField(
+            value = searchText,
+            onValueChange = {
+                val bounded = it.take(HostlistRepository.MAX_QUERY_CHARS)
+                searchText = bounded
+                onSearch(bounded)
+            },
+            modifier = Modifier.fillMaxWidth(),
+            placeholder = { Text(stringResource(R.string.hostlist_search_hint)) },
+            singleLine = true,
+            shape = MaterialTheme.shapes.extraLarge,
+            trailingIcon = {
+                if (searchText.isNotEmpty()) {
+                    IconButton(
+                        onClick = {
+                            searchText = ""
+                            onSearch("")
+                        },
+                    ) {
+                        Icon(
+                            Icons.Default.Clear,
+                            contentDescription = stringResource(R.string.cd_clear_search),
+                        )
+                    }
+                }
+            },
+        )
+        Text(
+            text = if (searchText.isNotEmpty()) {
+                quantityStringResource(
+                    R.plurals.hostlist_showing_matches,
+                    state.matchingEntries ?: 0,
+                    state.entries.size,
+                    state.matchingEntries ?: 0,
+                )
+            } else {
+                stringResource(R.string.hostlist_showing_count, state.entries.size, state.totalEntries)
+            },
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = SpacingTokens.ExtraSmall, vertical = SpacingTokens.Small),
+        )
+
+        when {
+            state.entries.isEmpty() && searchText.isNotEmpty() -> {
+                SearchEmptyState(query = searchText)
+            }
+            state.entries.isEmpty() && !state.isLoading -> {
+                ContentCard {
+                    Text(
+                        stringResource(R.string.hostlist_empty_title),
+                        style = MaterialTheme.typography.titleMediumEmphasized,
+                    )
+                    Text(
+                        text = stringResource(R.string.hostlist_empty_body),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            else -> {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(bottom = SpacingTokens.ExtraLarge),
+                ) {
+                    itemsIndexed(
+                        items = state.entries,
+                        key = { index, _ -> index },
+                    ) { index, entry ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = SpacingTokens.Small, vertical = SpacingTokens.ItemVertical),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = lineNumberFormat.format(index + 1),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.outline,
+                                modifier = Modifier.width(SizeTokens.LineNumberColumnWidth),
+                            )
+                            Text(
+                                text = entry,
+                                style = entryTextStyle,
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                        HorizontalDivider(
+                            modifier = Modifier.padding(start = SizeTokens.LeadingContentInset),
+                            color = MaterialTheme.colorScheme.outlineVariant,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HostlistLoadErrorState(
+    error: HostlistContentError,
+    onRetry: () -> Unit,
+) {
+    ContentCard(
+        modifier = Modifier.fillMaxSize(),
+    ) {
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Icon(
+                Icons.Default.Error,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.error,
+                modifier = Modifier.size(SizeTokens.IconLarge),
+            )
+            Spacer(Modifier.height(SpacingTokens.Medium))
+            Text(
+                text = stringResource(
+                    when (error) {
+                        HostlistContentError.INVALID_PATH -> R.string.hostlist_invalid_path
+                        HostlistContentError.LOAD_FAILED -> R.string.hostlist_load_failed
+                    },
+                ),
+                style = MaterialTheme.typography.titleMediumEmphasized,
+                color = MaterialTheme.colorScheme.error,
+            )
+            if (error == HostlistContentError.LOAD_FAILED) {
+                Spacer(Modifier.height(SpacingTokens.Large))
+                Button(onClick = onRetry, shape = MaterialTheme.shapes.extraLarge) {
+                    Icon(Icons.Default.Refresh, contentDescription = null)
+                    Spacer(Modifier.width(SpacingTokens.Small))
+                    Text(stringResource(R.string.action_retry))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SearchEmptyState(query: String) {
+    ContentCard {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = SpacingTokens.CardContent),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Icon(
+                Icons.Default.SearchOff,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(SizeTokens.LoadingCompact),
+            )
+            Spacer(Modifier.height(SpacingTokens.Medium))
+            Text(
+                stringResource(R.string.hostlist_no_matches),
+                style = MaterialTheme.typography.titleMediumEmphasized,
+            )
+            Text(
+                text = stringResource(R.string.hostlist_nothing_contains, query),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }

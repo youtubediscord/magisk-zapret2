@@ -1,0 +1,3 @@
+# module ABI	path inside the official zapret2 release archive	ELF class	ELF machine
+arm64-v8a	binaries/android-arm64/nfqws2	ELF64	AArch64
+armeabi-v7a	binaries/android-arm/nfqws2	ELF32	ARM

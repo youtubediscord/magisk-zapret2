@@ -1,127 +1,198 @@
 #!/system/bin/sh
-##########################################################################################
-# Zapret2 Stop Script
-##########################################################################################
+# Transactional stop: detach owned firewall first, then stop only a verified PID.
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 . "$SCRIPT_DIR/common.sh"
-load_effective_core_config
-
-##########################################################################################
-# Logging
-##########################################################################################
 
 log_msg() {
-    echo "$(date '+%Y-%m-%d %H:%M:%S') [STOP] $1" >> "$LOGFILE"
-    /system/bin/log -t "Zapret2" "$1" 2>/dev/null
+    append_lifecycle_log "$(date '+%Y-%m-%d %H:%M:%S') [STOP] $1"
+    if command -v log >/dev/null 2>&1; then log -t Zapret2 "$1" 2>/dev/null; fi
 }
 
-##########################################################################################
-# Stop nfqws2 daemon
-##########################################################################################
+write_stop_status() {
+    local state="$1" message="$2"
+    restore_status_facts
+    if read_owner_state >/dev/null 2>&1; then STATUS_QNUM="$OWNER_STATE_QNUM"; fi
+    STATUS_RULES_OK=0
+    if [ "$state" = stopped ]; then STATUS_RULES_FAIL=0; STATUS_RULES_TOTAL=0
+    else STATUS_RULES_FAIL=1; STATUS_RULES_TOTAL=1; fi
+    STATUS_ERRORS="$message"; STATUS_OWN_PID=""; STATUS_OWN_PID_STARTTIME=""; STATUS_OWNER_GENERATION=""
+    STATUS_PID_VERIFIED=0; STATUS_OWNER_METADATA_VERIFIED=0
+    STATUS_RULESET_VERIFIED=1; STATUS_RULES_EXPECTED=0; STATUS_QNUM="${STOP_QNUM:-${STATUS_QNUM:-${QNUM:-}}}"
+    STATUS_IPV4_ACTIVE=0; STATUS_IPV6_ACTIVE=0; STATUS_CHAINS=0; STATUS_ANCHORS=0
+    STATUS_IPV4_RULES=0; STATUS_IPV6_RULES=0
+    STATUS_NFQUEUE_SUPPORTED="${STATUS_NFQUEUE_SUPPORTED:-0}"
+    STATUS_QUEUE_BYPASS_SUPPORTED="${STATUS_QUEUE_BYPASS_SUPPORTED:-0}"
+    STATUS_CONNBYTES_SUPPORTED="${STATUS_CONNBYTES_SUPPORTED:-0}"
+    STATUS_MULTIPORT_SUPPORTED="${STATUS_MULTIPORT_SUPPORTED:-0}"
+    STATUS_MARK_SUPPORTED="${STATUS_MARK_SUPPORTED:-0}"
+    STATUS_FALLBACK_MODE=0; STATUS_DIAGNOSTICS="$message"
+    write_iptables_status "$state"
+}
 
-stop_daemon() {
-    local DAEMON_STOPPED=0
+remove_transient_diagnostics() {
+    local path rc=0
+    [ "${STOP_RUNTIME_OWNED:-0}" = 1 ] || return 0
+    for path in "$CMDLINE_FILE" "$STARTUP_LOG" "$ERROR_LOG" "$DEBUG_LOG"; do
+        if [ -e "$path" ] || [ -L "$path" ]; then rm -f "$path" 2>/dev/null || rc=1; fi
+    done
+    return "$rc"
+}
 
-    if [ -f "$PIDFILE" ]; then
-        PID=$(cat "$PIDFILE")
-        if [ -d "/proc/$PID" ]; then
-            log_msg "Stopping nfqws2 (PID: $PID)..."
-            kill $PID 2>/dev/null
-
-            # Force kill if still running
-            if [ -d "/proc/$PID" ]; then
-                log_msg "Process still running, sending SIGKILL..."
-                kill -9 $PID 2>/dev/null
-            fi
-
-            # Verify process stopped
-            if [ -d "/proc/$PID" ]; then
-                log_msg "ERROR: Failed to stop nfqws2 (PID: $PID)"
-                echo "ERROR: Failed to stop nfqws2 (PID: $PID)"
-                return 1
-            else
-                log_msg "nfqws2 stopped successfully"
-                echo "Stopped nfqws2 (PID: $PID)"
-                DAEMON_STOPPED=1
-            fi
-        else
-            log_msg "PID file exists but process not running"
-        fi
-        rm -f "$PIDFILE"
+stop_interrupted() {
+    local message="stop interrupted by signal"
+    trap '' HUP INT TERM
+    if ! rollback_legacy_migration; then
+        message="$message; exact legacy-rule rollback failed; daemon retained"
     fi
+    write_stop_status error "$message" >/dev/null 2>&1 || true
+    release_lifecycle_lock
+    trap - HUP INT TERM
+    exit 1
+}
 
-    # Always try to find and kill any orphan nfqws2 processes
-    PIDS=$(pgrep -f nfqws2 2>/dev/null)
-    if [ -n "$PIDS" ]; then
-        kill $PIDS 2>/dev/null
-        for PID in $PIDS; do
-            if [ -d "/proc/$PID" ]; then
-                kill -9 $PID 2>/dev/null
-            fi
-            log_msg "Killed orphan nfqws2 process: $PID"
-        done
-        DAEMON_STOPPED=1
+firewall_is_clean() {
+    [ "${TEARDOWN_COMMIT_PROVEN:-0}" = 1 ] && return 0
+    command -v iptables >/dev/null 2>&1 || return 1
+    owned_family_absent iptables || return 1
+    if command -v ip6tables >/dev/null 2>&1; then
+        owned_family_absent ip6tables || return 1
+    elif [ "${STATUS_FILE_IPV6_ACTIVE:-0}" = 1 ]; then
+        return 1
     fi
-
-    if [ "$DAEMON_STOPPED" -eq 0 ] && [ ! -f "$PIDFILE" ]; then
-        echo "Zapret2 is not running"
-    fi
-
-    # Clean up any stale PID file
-    rm -f "$PIDFILE" 2>/dev/null
-
     return 0
 }
 
-##########################################################################################
-# Remove iptables rules
-##########################################################################################
+main() {
+    if ! ensure_state_dir; then echo "ERROR: insecure or unavailable zapret2 state directory: $STATE_DIR"; exit 1; fi
+    if ! acquire_lifecycle_lock; then echo "ERROR: zapret2 lifecycle is busy"; exit 1; fi
+    if ! update_lock_allows_stop; then
+        message="stop blocked by update serialization: $UPDATE_LOCK_ERROR"
+        release_lifecycle_lock
+        echo "ERROR: $message"
+        exit 1
+    fi
+    if ! audit_recovery_artifacts lifecycle; then
+        message="stop blocked by recovery state: ${RECOVERY_ARTIFACT_DIAGNOSTIC:-unsafe recovery artifact}"
+        release_lifecycle_lock
+        echo "ERROR: $message"
+        exit 1
+    fi
+    if ! uninstall_tombstone_allows_stop; then
+        message="stop blocked by uninstall serialization: $UNINSTALL_TOMBSTONE_ERROR"
+        release_lifecycle_lock
+        echo "ERROR: $message"
+        exit 1
+    fi
+    trap stop_interrupted HUP INT TERM
+    if ! prepare_lifecycle_log; then
+        LOG_READY=0
+        if command -v log >/dev/null 2>&1; then log -p w -t Zapret2 "Lifecycle file logging disabled: unsafe or unavailable path" 2>/dev/null; fi
+    fi
+    # This is read-only; it supplies the queue number for legacy numeric PID
+    # files without creating/migrating configuration during a stop operation.
+    load_effective_core_config_readonly >/dev/null 2>&1 || true
+    restore_status_facts
+    STOP_RUNTIME_OWNED=0
+    if read_runtime_owner_marker >/dev/null 2>&1 || read_owner_state >/dev/null 2>&1 || read_verified_pidfile >/dev/null 2>&1; then
+        STOP_RUNTIME_OWNED=1
+    fi
+    restore_status_facts
+    STOP_QNUM="${STATUS_FILE_QNUM:-${QNUM:-}}"
+    if read_owner_state >/dev/null 2>&1; then STOP_QNUM="$OWNER_STATE_QNUM"; fi
+    log_msg "Stopping Zapret2"
+    [ -z "$UPDATE_LOCK_DIAGNOSTIC" ] || log_msg "$UPDATE_LOCK_DIAGNOSTIC"
+    [ -z "$UNINSTALL_TOMBSTONE_DIAGNOSTIC" ] || log_msg "$UNINSTALL_TOMBSTONE_DIAGNOSTIC"
 
-remove_iptables() {
-    log_msg "Removing iptables rules..."
-
-    local removed
-    removed=$(remove_nfqueue_rules_by_qnum)
-    if [ -n "$removed" ] && [ "$removed" -gt 0 ] 2>/dev/null; then
-        log_msg "Removed NFQUEUE rules: $removed"
+    rc=0
+    errors=""
+    # Prove the complete process identity/publication before legacy migration
+    # or any current-chain mutation. The later stop consumes this same snapshot
+    # and generation, so a replacement process cannot be killed after teardown.
+    if ! preflight_owned_process_cleanup; then
+        errors="process cleanup preflight blocked: $PROCESS_CLEANUP_PREFLIGHT_ERROR; firewall and daemon teardown were not attempted"
+    elif ! audit_owned_firewall_for_cleanup "$STOP_QNUM"; then
+        errors="firewall generation preflight blocked: $FIREWALL_CLEANUP_PREFLIGHT_ERROR; firewall and daemon teardown were not attempted"
+    elif ! legacy_migrate_firewall; then
+        errors="legacy firewall migration blocked: $LEGACY_MIGRATION_ERROR; daemon teardown was not attempted"
+    elif [ "$LEGACY_MIGRATION_VERIFIED" != 1 ]; then
+        errors="legacy firewall migration did not reach a verified commit; daemon teardown was not attempted"
+    fi
+    if [ -n "$errors" ]; then
+        trap '' HUP INT TERM
+        if ! rollback_legacy_migration; then
+            errors="$errors; exact legacy-rule rollback failed"
+        fi
+        write_stop_status error "$errors" >/dev/null 2>&1 || true
+        release_lifecycle_lock
+        trap - HUP INT TERM
+        log_msg "ERROR: $errors"
+        echo "ERROR: Zapret2 stop incomplete: $errors"
+        exit 1
+    fi
+    firewall_detached=0
+    if ! cleanup_owned_firewall; then
+        rc=1
+        if [ -n "$errors" ]; then errors="$errors; owned firewall cleanup failed"
+        else errors="owned firewall cleanup failed: ${FIREWALL_CLEANUP_PREFLIGHT_ERROR:-ambiguous ownership}; daemon teardown was not attempted"; fi
+    elif ! firewall_is_clean; then
+        rc=1
+        if [ -n "$errors" ]; then errors="$errors; owned firewall artifacts remain"
+        else errors="owned firewall artifacts remain; daemon teardown was not attempted"; fi
     else
-        log_msg "No NFQUEUE rules found for queue $QNUM"
+        firewall_detached=1
     fi
 
-    log_msg "iptables rules removed"
+    if [ "$firewall_detached" = 1 ] && ! stop_pidfile_process; then
+        rc=1
+        if [ -n "$errors" ]; then errors="$errors; verified process stop failed"
+        else errors="verified process stop failed"; fi
+    fi
+
+    if [ "$firewall_detached" = 1 ] && read_verified_pidfile; then
+        rc=1
+        if [ -n "$errors" ]; then errors="$errors; verified nfqws2 process remains"
+        else errors="verified nfqws2 process remains"; fi
+    elif [ -e "$PIDFILE" ]; then
+        if read_live_pidfile; then
+            rc=1
+            if [ -n "$errors" ]; then errors="$errors; unverified live PID remains"
+            else errors="unverified live PID remains"; fi
+        fi
+    fi
+
+    if [ "$rc" -eq 0 ]; then
+        if ! retire_owner_metadata; then
+            rc=1
+            if [ -n "$errors" ]; then errors="$errors; ownership metadata retained because process identity is ambiguous"
+            else errors="ownership metadata retained because process identity is ambiguous"; fi
+        fi
+    fi
+
+    if [ "$rc" -eq 0 ]; then
+        if ! remove_transient_diagnostics; then
+            log_msg "WARNING: one or more transient diagnostics could not be removed safely"
+        fi
+        if ! write_stop_status stopped ""; then
+            # Process and firewall cleanup is already verified.  A diagnostic
+            # status-write failure must not turn a completed stop into an
+            # unverifiable process-cleanup failure after metadata retirement.
+            log_msg "WARNING: stopped state is clean but status file update failed"
+        fi
+    else
+        write_stop_status error "$errors" >/dev/null 2>&1 || true
+    fi
+
+    release_lifecycle_lock
+    trap - HUP INT TERM
+    if [ "$rc" -eq 0 ]; then
+        log_msg "Zapret2 stopped and owned state is clean"
+        echo "Zapret2 stopped"
+    else
+        log_msg "ERROR: $errors"
+        echo "ERROR: Zapret2 stop incomplete: $errors"
+    fi
+    exit "$rc"
 }
 
-##########################################################################################
-# Main
-##########################################################################################
-
-log_msg "=========================================="
-log_msg "Stopping Zapret2 DPI bypass"
-log_msg "=========================================="
-
-EXIT_CODE=0
-
-if ! stop_daemon; then
-    log_msg "WARNING: Daemon stop encountered issues"
-    EXIT_CODE=1
-fi
-
-remove_iptables
-
-# Final verification
-REMAINING=$(pgrep -f nfqws2 2>/dev/null)
-if [ -n "$REMAINING" ]; then
-    log_msg "WARNING: Some nfqws2 processes still running: $REMAINING"
-    EXIT_CODE=1
-fi
-
-if [ "$EXIT_CODE" -eq 0 ]; then
-    log_msg "Zapret2 stopped successfully"
-    echo "Zapret2 stopped"
-else
-    log_msg "Zapret2 stopped with warnings"
-    echo "Zapret2 stopped with warnings (check logs)"
-fi
-
-exit $EXIT_CODE
+main "$@"

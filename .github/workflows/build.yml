@@ -7,9 +7,98 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
+  shell-tests:
+    name: Shell integration tests
+    runs-on: ubuntu-latest
+    needs: fetch-upstream
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Validate owned source hygiene
+        run: |
+          set -euo pipefail
+          EMPTY_TREE=4b825dc642cb6eb9a060e54bf8d69288fbee4904
+          git diff --check "$EMPTY_TREE" "$GITHUB_SHA" -- .
+
+      - name: Reject committed secrets and release debug flags
+        run: |
+          set -euo pipefail
+
+          FORBIDDEN_TRACKED="$(
+            git ls-files |
+              grep -E '(^|/)(local\.properties|keystore\.properties|signing\.properties|\.env(\.[^/]*)?|[^/]+\.(jks|keystore|p12|pfx))$' || true
+          )"
+          if [ -n "$FORBIDDEN_TRACKED" ]; then
+            printf 'Forbidden secret-bearing files are tracked:\n%s\n' "$FORBIDDEN_TRACKED" >&2
+            exit 1
+          fi
+
+          if git grep -n -I -E -- '-----BEGIN ([A-Z0-9 ]+ )?PRIVATE KEY-----'; then
+            echo 'A private-key PEM block is tracked in the repository' >&2
+            exit 1
+          fi
+
+          MAIN_MANIFEST='android-app/app/src/main/AndroidManifest.xml'
+          APP_BUILD='android-app/app/build.gradle.kts'
+          RELEASE_BLOCK="$(sed -n '/^        release {$/,/^        }$/p' "$APP_BUILD")"
+          if git grep -n -E 'android:(debuggable|testOnly)="true"' -- "$MAIN_MANIFEST"; then
+            echo 'The release manifest contains a debug-only application flag' >&2
+            exit 1
+          fi
+          [ -n "$RELEASE_BLOCK" ] || {
+            echo 'The release build type could not be located' >&2
+            exit 1
+          }
+          printf '%s\n' "$RELEASE_BLOCK" | grep -Fq 'isDebuggable = false' || {
+            echo 'Release debuggability is not explicitly disabled' >&2
+            exit 1
+          }
+          printf '%s\n' "$RELEASE_BLOCK" | grep -Fq 'signingConfig = signingConfigs.getByName("release")' || {
+            echo 'Release signing configuration is not fail-closed' >&2
+            exit 1
+          }
+          printf '%s\n' "$RELEASE_BLOCK" | grep -Fq 'isMinifyEnabled = true' || {
+            echo 'Release code optimization is not enabled' >&2
+            exit 1
+          }
+          printf '%s\n' "$RELEASE_BLOCK" | grep -Fq 'isShrinkResources = true' || {
+            echo 'Release resource optimization is not enabled' >&2
+            exit 1
+          }
+          if printf '%s\n' "$RELEASE_BLOCK" | grep -Fq 'signingConfigs.getByName("debug")'; then
+            echo 'The release build type references a debug signing configuration' >&2
+            exit 1
+          fi
+
+      - name: Download verified upstream payload
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: upstream-zapret2-payload
+          path: upstream-payload
+
+      - name: Hydrate upstream files required by package fixtures
+        run: |
+          set -euo pipefail
+          mkdir -p zapret2/bin/arm64-v8a zapret2/bin/armeabi-v7a
+          install -m 0755 upstream-payload/bin/arm64-v8a/nfqws2 zapret2/bin/arm64-v8a/nfqws2
+          install -m 0755 upstream-payload/bin/armeabi-v7a/nfqws2 zapret2/bin/armeabi-v7a/nfqws2
+          for core_lua in zapret-lib.lua zapret-antidpi.lua zapret-auto.lua; do
+            install -m 0644 "upstream-payload/lua/$core_lua" "zapret2/lua/$core_lua"
+          done
+          install -m 0644 upstream-payload/upstream-zapret2.commit zapret2/upstream-zapret2.commit
+
+      - name: Validate shell syntax and security contracts
+        run: |
+          set -euo pipefail
+          bash -n upstream/fetch-release.sh
+          chmod +x tests/shell/run.sh
+          sudo sh tests/shell/run.sh
+
   prepare-version:
     name: Prepare Version
     runs-on: ubuntu-latest
@@ -20,7 +109,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       - name: Generate version from CI run
         id: version
@@ -31,7 +120,7 @@ jobs:
           fi
 
           VERSION_SERIES=$(tr -d '[:space:]' < version.series)
-          if [[ ! "$VERSION_SERIES" =~ ^[0-9]+\.[0-9]+$ ]]; then
+          if [[ ! "$VERSION_SERIES" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
             echo "Invalid version series '$VERSION_SERIES' in version.series"
             exit 1
           fi
@@ -49,58 +138,39 @@ jobs:
   build-apk:
     name: Build Android APK
     runs-on: ubuntu-latest
-    needs: prepare-version
+    needs: [prepare-version, shell-tests]
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4.8.0
         with:
           java-version: '17'
           distribution: 'temurin'
           cache: 'gradle'
 
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d # v4
 
       - name: Create keystore
-        id: keystore
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
-          # Decode keystore from secret or generate new one
-          if [ -n "$KEYSTORE_BASE64" ]; then
-            echo "$KEYSTORE_BASE64" | tr -d '[:space:]' | base64 -d > keystore.jks
-            echo "generated=false" >> $GITHUB_OUTPUT
-          else
-            # Generate new keystore
-            keytool -genkeypair -v \
-              -keystore keystore.jks \
-              -alias zapret2 \
-              -keyalg RSA \
-              -keysize 2048 \
-              -validity 10000 \
-              -storepass zapret2release \
-              -keypass zapret2release \
-              -dname "CN=Zapret2, OU=Mobile, O=Zapret2, L=Unknown, ST=Unknown, C=RU"
-            echo "generated=true" >> $GITHUB_OUTPUT
-            # Output base64 for saving to secrets
-            echo "::notice::Keystore generated! Download artifact and add KEYSTORE_BASE64 to secrets"
-            echo "KEYSTORE_BASE64 value:"
-            base64 -w0 keystore.jks
-            echo ""
-          fi
+          set -euo pipefail
+          for name in KEYSTORE_BASE64 KEYSTORE_PASSWORD KEY_ALIAS KEY_PASSWORD; do
+            [ -n "${!name:-}" ] || { echo "Required signing secret $name is missing" >&2; exit 1; }
+          done
+          umask 077
+          printf '%s' "$KEYSTORE_BASE64" | tr -d '[:space:]' | base64 --decode > keystore.jks
+          [ -s keystore.jks ] || { echo "Decoded keystore is empty" >&2; exit 1; }
+          chmod 0600 keystore.jks
+          keytool -list -keystore keystore.jks -storepass "$KEYSTORE_PASSWORD" -alias "$KEY_ALIAS" >/dev/null
         working-directory: android-app
-
-      - name: Upload keystore (if generated)
-        if: steps.keystore.outputs.generated == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: keystore-save-to-secrets
-          path: android-app/keystore.jks
-          retention-days: 1
 
       - name: Set version from CI metadata
         run: |
@@ -117,17 +187,30 @@ jobs:
           grep -E "versionCode|versionName" app/build.gradle.kts
         working-directory: android-app
 
-      - name: Build Release APK
-        env:
-          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD || 'zapret2release' }}
-          KEY_ALIAS: ${{ secrets.KEY_ALIAS || 'zapret2' }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD || 'zapret2release' }}
+      - name: Run Android unit tests
         run: |
           chmod +x gradlew
+          ./gradlew testDebugUnitTest --dependency-verification=strict --no-daemon --stacktrace
+        working-directory: android-app
+
+      - name: Build Debug APK
+        run: ./gradlew assembleDebug --dependency-verification=strict --no-daemon --stacktrace
+        working-directory: android-app
+
+      - name: Run Android lint
+        run: ./gradlew lintRelease --dependency-verification=strict --no-daemon --stacktrace
+        working-directory: android-app
+
+      - name: Build Release APK
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
           # Retry build up to 3 times (Maven Central sometimes returns 403)
           for i in 1 2 3; do
             echo "Build attempt $i..."
-            if ./gradlew assembleRelease; then
+            if ./gradlew assembleRelease --dependency-verification=strict --no-daemon; then
               echo "Build succeeded on attempt $i"
               break
             fi
@@ -141,176 +224,129 @@ jobs:
           done
         working-directory: android-app
 
+      - name: Verify APK signature and certificate
+        env:
+          APK_SIGNING_CERT_SHA256: ${{ secrets.APK_SIGNING_CERT_SHA256 }}
+        run: |
+          set -euo pipefail
+          [ -n "${APK_SIGNING_CERT_SHA256:-}" ] || { echo "Required APK_SIGNING_CERT_SHA256 secret is missing" >&2; exit 1; }
+          APK='app/build/outputs/apk/release/app-release.apk'
+          [ -s "$APK" ]
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -mindepth 2 -maxdepth 2 -type f -name apksigner -print | sort -V | tail -n 1)"
+          [ -x "$APKSIGNER" ] || { echo "apksigner was not found" >&2; exit 1; }
+          VERIFY_OUTPUT="$("$APKSIGNER" verify --verbose --print-certs "$APK")"
+          printf '%s\n' "$VERIFY_OUTPUT"
+          ACTUAL_CERT="$(printf '%s\n' "$VERIFY_OUTPUT" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n 1 | tr -d ':[:space:]' | tr '[:lower:]' '[:upper:]')"
+          EXPECTED_CERT="$(printf '%s' "$APK_SIGNING_CERT_SHA256" | tr -d ':[:space:]' | tr '[:lower:]' '[:upper:]')"
+          [ "${#ACTUAL_CERT}" -eq 64 ] || { echo "Unable to read APK signer certificate digest" >&2; exit 1; }
+          [ "$ACTUAL_CERT" = "$EXPECTED_CERT" ] || { echo "APK signer certificate digest does not match the release identity" >&2; exit 1; }
+          (
+            cd "$(dirname "$APK")"
+            sha256sum "$(basename "$APK")" > "$(basename "$APK").sha256"
+            sha256sum -c "$(basename "$APK").sha256"
+          )
+        working-directory: android-app
+
+      - name: Remove private signing material
+        if: always()
+        run: rm -f keystore.jks
+        working-directory: android-app
+
       - name: Upload APK
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: zapret2-apk
-          path: android-app/app/build/outputs/apk/release/app-release.apk
+          path: |
+            android-app/app/build/outputs/apk/release/app-release.apk
+            android-app/app/build/outputs/apk/release/app-release.apk.sha256
 
-  build-nfqws2:
-    name: Build nfqws2 for ${{ matrix.abi }}
+  fetch-upstream:
+    name: Fetch latest upstream zapret2 release
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - abi: arm64-v8a
-            target: aarch64-linux-android
-          - abi: armeabi-v7a
-            target: armv7a-linux-androideabi
+    outputs:
+      sha: ${{ steps.upstream.outputs.sha }}
+      tag: ${{ steps.upstream.outputs.tag }}
+      archive_sha256: ${{ steps.upstream.outputs.archive_sha256 }}
 
     steps:
       - name: Checkout module
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
-      - name: Checkout zapret2 source
-        uses: actions/checkout@v4
-        with:
-          repository: bol-van/zapret2
-          path: zapret2
-
-      - name: Set up build tools
+      - name: Fetch and verify upstream payload
+        id: upstream
         run: |
-          sudo dpkg --add-architecture i386
-          sudo apt update -qq
-          sudo apt install -y gcc-multilib
+          set -euo pipefail
+          chmod +x upstream/fetch-release.sh
+          upstream/fetch-release.sh "$GITHUB_WORKSPACE/upstream-payload"
 
-      - name: Build
-        env:
-          ABI: ${{ matrix.abi }}
-          API: 21
-          TARGET: ${{ matrix.target }}
-          GH_TOKEN: ${{ github.token }}
-          LUAJIT_VER: 2.1
-          LUAJIT_RELEASE: 2.1-20250117
-          LUAJIT_LUAVER: 5.1
-        run: |
-          DEPS_DIR=$GITHUB_WORKSPACE/deps
-          export TOOLCHAIN=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64
-          export CC="$TOOLCHAIN/bin/clang --target=$TARGET$API"
-          export AR=$TOOLCHAIN/bin/llvm-ar
-          export AS=$CC
-          export LD=$TOOLCHAIN/bin/ld
-          export RANLIB=$TOOLCHAIN/bin/llvm-ranlib
-          export STRIP=$TOOLCHAIN/bin/llvm-strip
-          export PKG_CONFIG_PATH=$DEPS_DIR/lib/pkgconfig
-
-          # luajit
-          wget -qO- https://github.com/openresty/luajit2/archive/refs/tags/v${LUAJIT_RELEASE}.tar.gz | tar -xz
-          case "$ABI" in
-            *64*)
-              HOSTCC="cc"
-              ;;
-            *)
-              HOSTCC="cc -m32"
-          esac
-          (
-            cd luajit2-*
-            make BUILDMODE=static XCFLAGS=-DLUAJIT_DISABLE_FFI HOST_CC="$HOSTCC" CROSS= CC="$CC" TARGET_AR="$AR rcus" TARGET_STRIP=$STRIP CFLAGS="-Os -flto=auto $CFLAGS" -j$(nproc)
-            make install PREFIX= DESTDIR=$DEPS_DIR
-          )
-          LJIT=1
-          LCFLAGS="-I${DEPS_DIR}/include/luajit-${LUAJIT_VER}"
-          LLIB="-L${DEPS_DIR}/lib -lluajit-${LUAJIT_LUAVER}"
-
-          # netfilter libs
-          wget -qO- https://www.netfilter.org/pub/libnfnetlink/libnfnetlink-1.0.2.tar.bz2 | tar -xj
-          wget -qO- https://www.netfilter.org/pub/libmnl/libmnl-1.0.5.tar.bz2 | tar -xj
-          wget -qO- https://www.netfilter.org/pub/libnetfilter_queue/libnetfilter_queue-1.0.5.tar.bz2 | tar -xj
-          patch -p1 -d libnetfilter_queue-* -i $GITHUB_WORKSPACE/zapret2/.github/workflows/libnetfilter_queue-android.patch
-
-          for i in libmnl libnfnetlink libnetfilter_queue ; do
-            (
-              cd $i-*
-              CFLAGS="-Os -flto=auto -Wno-implicit-function-declaration" \
-              ./configure --prefix= --host=$TARGET --enable-static --disable-shared --disable-dependency-tracking
-              make install -j$(nproc) DESTDIR=$DEPS_DIR
-            )
-            sed -i "s|^prefix=.*|prefix=$DEPS_DIR|g" $DEPS_DIR/lib/pkgconfig/$i.pc
-          done
-
-          # zapret2
-          CFLAGS="-I$DEPS_DIR/include" \
-          LDFLAGS="-L$DEPS_DIR/lib" \
-          make -C zapret2 LUA_JIT=$LJIT LUA_CFLAGS="$LCFLAGS" LUA_LIB="$LLIB" -j$(nproc) android
-
-          # strip
-          $STRIP zapret2/binaries/my/nfqws2
-
-          # Create output dir
-          mkdir -p $GITHUB_WORKSPACE/binaries/$ABI
-          cp zapret2/binaries/my/nfqws2 $GITHUB_WORKSPACE/binaries/$ABI/
-
-      - name: Upload binary
-        uses: actions/upload-artifact@v4
+      - name: Upload verified upstream payload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: nfqws2-${{ matrix.abi }}
-          path: binaries/${{ matrix.abi }}/nfqws2
+          name: upstream-zapret2-payload
+          path: upstream-payload
+          if-no-files-found: error
+          retention-days: 1
 
   package-module:
     name: Package Magisk Module
     runs-on: ubuntu-latest
-    needs: [prepare-version, build-nfqws2, build-apk]
-    permissions:
-      contents: write
+    needs: [prepare-version, fetch-upstream, build-apk]
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
-      - name: Download all binaries
-        uses: actions/download-artifact@v4
+      - name: Download verified upstream payload
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          path: binaries
+          name: upstream-zapret2-payload
+          path: upstream-payload
 
       - name: Download APK
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: zapret2-apk
           path: apk-artifact
 
-      - name: Checkout upstream zapret2 Lua sources
-        uses: actions/checkout@v4
-        with:
-          repository: bol-van/zapret2
-          path: upstream-zapret2
-          sparse-checkout: |
-            nfq/lua
-
       - name: Prepare module
+        env:
+          UPSTREAM_ZAPRET2_SHA: ${{ needs.fetch-upstream.outputs.sha }}
+          UPSTREAM_ZAPRET2_TAG: ${{ needs.fetch-upstream.outputs.tag }}
         run: |
+          set -euo pipefail
           VERSION="${{ needs.prepare-version.outputs.version }}"
           VERSION_CODE="${{ needs.prepare-version.outputs.version_code }}"
+          [[ "$UPSTREAM_ZAPRET2_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$UPSTREAM_ZAPRET2_TAG" =~ ^v[0-9] ]]
+          grep -Fxq "$UPSTREAM_ZAPRET2_SHA" upstream-payload/upstream-zapret2.commit
+          grep -Fxq "$UPSTREAM_ZAPRET2_TAG" upstream-payload/upstream-zapret2.release
 
           # Create bin directories (ARM only, no x86 emulator support)
           mkdir -p zapret2/bin/arm64-v8a
           mkdir -p zapret2/bin/armeabi-v7a
 
-          # Copy binaries
-          cp binaries/nfqws2-arm64-v8a/nfqws2 zapret2/bin/arm64-v8a/ || true
-          cp binaries/nfqws2-armeabi-v7a/nfqws2 zapret2/bin/armeabi-v7a/ || true
+          # Copy the verified upstream release binaries.
+          install -m 0755 upstream-payload/bin/arm64-v8a/nfqws2 zapret2/bin/arm64-v8a/nfqws2
+          install -m 0755 upstream-payload/bin/armeabi-v7a/nfqws2 zapret2/bin/armeabi-v7a/nfqws2
+          test -s zapret2/bin/arm64-v8a/nfqws2
+          test -s zapret2/bin/armeabi-v7a/nfqws2
 
-          # Sync core Lua files from upstream to match the built binary.
+          # Sync core Lua files from the same release as the binaries.
           # These files define base functions and must have the same
           # NFQWS2_COMPAT_VER as the compiled nfqws2.
           # Custom module Lua files (custom_funcs.lua, zapret-multishake.lua,
           # zapret-16kb.lua, zapret-obfs.lua, zapret-pcap.lua, zapret-tests.lua,
           # zapret-wgobfs.lua) are kept from the module repo.
-          UPSTREAM_LUA="upstream-zapret2/nfq/lua"
-          if [ -d "$UPSTREAM_LUA" ]; then
-            for core_lua in zapret-lib.lua zapret-antidpi.lua zapret-auto.lua; do
-              if [ -f "$UPSTREAM_LUA/$core_lua" ]; then
-                cp "$UPSTREAM_LUA/$core_lua" "zapret2/lua/$core_lua"
-                echo "Synced upstream $core_lua"
-              else
-                echo "WARNING: upstream $core_lua not found"
-              fi
-            done
-            # Show compat version for logs
-            grep 'NFQWS2_COMPAT_VER' "zapret2/lua/zapret-lib.lua" | head -2 || true
-          else
-            echo "WARNING: upstream Lua directory not found, keeping module Lua files as-is"
-          fi
+          UPSTREAM_LUA="upstream-payload/lua"
+          test -d "$UPSTREAM_LUA"
+          for core_lua in zapret-lib.lua zapret-antidpi.lua zapret-auto.lua; do
+            test -f "$UPSTREAM_LUA/$core_lua"
+            install -m 0644 "$UPSTREAM_LUA/$core_lua" "zapret2/lua/$core_lua"
+            test -s "zapret2/lua/$core_lua"
+            echo "Synced upstream $core_lua"
+          done
+          install -m 0644 upstream-payload/upstream-zapret2.commit zapret2/upstream-zapret2.commit
+          grep 'NFQWS2_COMPAT_VER' "zapret2/lua/zapret-lib.lua" | head -2
 
           # Set module version from CI metadata
           sed -i "s/^version=.*/version=v${VERSION}/" module.prop
@@ -338,23 +374,69 @@ jobs:
             REQUIRED=$(grep -A 20 'local required' "$lua_file" 2>/dev/null | grep -o '"[a-zA-Z_][a-zA-Z0-9_]*"' | tr -d '"' | sort -u)
             for func in $REQUIRED; do
               if ! echo "$ALL_UPSTREAM" | tr ' ' '\n' | grep -qx "$func"; then
-                echo "::warning file=$lua_file::Function '$func' required by $BASENAME not found in upstream core Lua files"
+                echo "::error file=$lua_file::Function '$func' required by $BASENAME not found in upstream core Lua files"
                 WARN_COUNT=$((WARN_COUNT + 1))
               fi
             done
           done
 
           if [ "$WARN_COUNT" -gt 0 ]; then
-            echo "::warning::$WARN_COUNT upstream API compatibility warnings found. Custom Lua files have runtime guards and will skip gracefully."
+            echo "::error::$WARN_COUNT upstream API compatibility errors found"
+            exit 1
           else
             echo "All custom Lua files compatible with upstream API"
           fi
 
           # Make scripts executable
-          chmod +x customize.sh service.sh uninstall.sh action.sh 2>/dev/null || true
-          chmod +x zapret2/scripts/*.sh 2>/dev/null || true
+          chmod +x customize.sh service.sh uninstall.sh action.sh
+          chmod +x zapret2/scripts/*.sh
+          chmod +x system/bin/zapret2-start system/bin/zapret2-stop system/bin/zapret2-status system/bin/zapret2-restart system/bin/zapret2-full-rollback
+          chmod 0755 META-INF/com/google/android/update-binary
+          test "$(sed -n '2p' zapret2/runtime-manifest.tsv | tr -d '\r')" = 'owner_protocol|6|zapret2-firewall'
+          . ./zapret2/scripts/package-contract.sh
+          package_contract_apply_modes "$PWD" package
+          package_contract_validate_all "$PWD" package
+          package_contract_validate_modes "$PWD" package
+          test "$(sed -n '1p' META-INF/com/google/android/update-binary)" = '#!/sbin/sh'
+          if LC_ALL=C grep -q $'\r' META-INF/com/google/android/update-binary; then
+            echo "Recovery update-binary contains CR bytes" >&2
+            exit 1
+          fi
+
+          # The command entry points are immutable regular package assets. The
+          # Android updater validates the same two-line byte contract.
+          test -d system/bin
+          test ! -L system
+          test ! -L system/bin
+          WRAPPER_EXPECTED="$(mktemp)"
+          test -f zapret2/scripts/zapret-update-guard.sh
+          test ! -L zapret2/scripts/zapret-update-guard.sh
+          test -s zapret2/scripts/zapret-update-guard.sh
+          test -x zapret2/scripts/zapret-update-guard.sh
+          test "$(sed -n '1p' zapret2/scripts/zapret-update-guard.sh)" = '#!/system/bin/sh'
+          if LC_ALL=C grep -q $'\r' zapret2/scripts/zapret-update-guard.sh; then exit 1; fi
+          test -f zapret2/scripts/zapret-full-rollback.sh
+          test ! -L zapret2/scripts/zapret-full-rollback.sh
+          test -x zapret2/scripts/zapret-full-rollback.sh
+          test "$(sed -n '1p' zapret2/scripts/zapret-full-rollback.sh)" = '#!/system/bin/sh'
+          if LC_ALL=C grep -q $'\r' zapret2/scripts/zapret-full-rollback.sh; then exit 1; fi
+          for command_name in start stop status restart full-rollback; do
+            wrapper="system/bin/zapret2-${command_name}"
+            target="/data/adb/modules/zapret2/zapret2/scripts/zapret-${command_name}.sh"
+            test -f "$wrapper"
+            test ! -L "$wrapper"
+            test -x "$wrapper"
+            {
+              printf '%s\n' '#!/system/bin/sh'
+              printf 'exec %s "$@"\n' "$target"
+            } > "$WRAPPER_EXPECTED"
+            cmp -s "$WRAPPER_EXPECTED" "$wrapper"
+          done
+          rm -f "$WRAPPER_EXPECTED"
 
       - name: Create ZIP
+        env:
+          UPSTREAM_ZAPRET2_SHA: ${{ needs.fetch-upstream.outputs.sha }}
         run: |
           VERSION="${{ needs.prepare-version.outputs.version }}"
           VERSION_TAG="${{ needs.prepare-version.outputs.version_tag }}"
@@ -366,36 +448,146 @@ jobs:
           sed -i "s/\"versionCode\": [0-9]*/\"versionCode\": ${VERSION_CODE}/" update.json
           sed -i "s|\"zipUrl\": \"[^\"]*\"|\"zipUrl\": \"https://github.com/youtubediscord/magisk-zapret2/releases/download/${VERSION_TAG}/${ZIP_NAME}\"|" update.json
 
-          zip -r ${ZIP_NAME} \
-            META-INF \
-            module.prop \
-            customize.sh \
-            service.sh \
-            uninstall.sh \
-            action.sh \
-            zapret2 \
-            -x "*.git*" \
-            -x "CLAUDE.md" \
-            -x ".github/*"
+          . ./zapret2/scripts/package-contract.sh
+          PACKAGE_ASSEMBLY_ROOT="$(mktemp -d)"
+          package_contract_assemble_package "$PWD" "$PACKAGE_ASSEMBLY_ROOT"
+          mkdir -p "$PACKAGE_ASSEMBLY_ROOT/META-INF/com/google/android"
+          cp META-INF/com/google/android/updater-script \
+            "$PACKAGE_ASSEMBLY_ROOT/META-INF/com/google/android/updater-script"
+          cp META-INF/com/google/android/update-binary \
+            "$PACKAGE_ASSEMBLY_ROOT/META-INF/com/google/android/update-binary"
+          chmod 0644 "$PACKAGE_ASSEMBLY_ROOT/META-INF/com/google/android/updater-script"
+          chmod 0755 "$PACKAGE_ASSEMBLY_ROOT/META-INF/com/google/android/update-binary"
+          rm -f "$ZIP_NAME"
+          (
+            cd "$PACKAGE_ASSEMBLY_ROOT"
+            zip -r "$GITHUB_WORKSPACE/$ZIP_NAME" \
+              META-INF module.prop customize.sh service.sh uninstall.sh action.sh system zapret2
+          )
+
+          # Print and assert the distributable layout, file type, mode, and
+          # exact wrapper bytes so packaging cannot silently omit system/bin.
+          ZIP_LIST="$(mktemp)"
+          zipinfo -1 "$ZIP_NAME" | tee "$ZIP_LIST"
+          PACKAGE_VALIDATE_ROOT="$(mktemp -d)"
+          package_contract_validate_zip_names "$PWD" "$ZIP_LIST"
+          unzip -q "$ZIP_NAME" -d "$PACKAGE_VALIDATE_ROOT"
+          package_contract_validate_all "$PACKAGE_VALIDATE_ROOT" package
+          package_contract_validate_exact_tree "$PACKAGE_VALIDATE_ROOT" package allow-meta
+          package_contract_validate_modes "$PACKAGE_VALIDATE_ROOT" package
+          grep -Fxq 'system/bin/' "$ZIP_LIST"
+          WRAPPER_EXPECTED="$(mktemp)"
+          WRAPPER_ACTUAL="$(mktemp)"
+          for command_name in start stop status restart full-rollback; do
+            entry="system/bin/zapret2-${command_name}"
+            target="/data/adb/modules/zapret2/zapret2/scripts/zapret-${command_name}.sh"
+            test "$(grep -Fxc "$entry" "$ZIP_LIST")" -eq 1
+            zipinfo -l "$ZIP_NAME" "$entry" | grep -Eq '^-rwxr-xr-x[[:space:]]'
+            {
+              printf '%s\n' '#!/system/bin/sh'
+              printf 'exec %s "$@"\n' "$target"
+            } > "$WRAPPER_EXPECTED"
+            unzip -p "$ZIP_NAME" "$entry" > "$WRAPPER_ACTUAL"
+            cmp -s "$WRAPPER_EXPECTED" "$WRAPPER_ACTUAL"
+          done
+          UPDATE_GUARD_ENTRY='zapret2/scripts/zapret-update-guard.sh'
+          test "$(grep -Fxc "$UPDATE_GUARD_ENTRY" "$ZIP_LIST")" -eq 1
+          zipinfo -l "$ZIP_NAME" "$UPDATE_GUARD_ENTRY" | grep -Eq '^-rwxr-xr-x[[:space:]]'
+          unzip -p "$ZIP_NAME" "$UPDATE_GUARD_ENTRY" > "$WRAPPER_ACTUAL"
+          test -s "$WRAPPER_ACTUAL"
+          cmp -s "$UPDATE_GUARD_ENTRY" "$WRAPPER_ACTUAL"
+          test "$(sed -n '1p' "$WRAPPER_ACTUAL")" = '#!/system/bin/sh'
+          if LC_ALL=C grep -q $'\r' "$WRAPPER_ACTUAL"; then exit 1; fi
+          ROLLBACK_SCRIPT_ENTRY='zapret2/scripts/zapret-full-rollback.sh'
+          test "$(grep -Fxc "$ROLLBACK_SCRIPT_ENTRY" "$ZIP_LIST")" -eq 1
+          zipinfo -l "$ZIP_NAME" "$ROLLBACK_SCRIPT_ENTRY" | grep -Eq '^-rwxr-xr-x[[:space:]]'
+          unzip -p "$ZIP_NAME" "$ROLLBACK_SCRIPT_ENTRY" > "$WRAPPER_ACTUAL"
+          cmp -s "$ROLLBACK_SCRIPT_ENTRY" "$WRAPPER_ACTUAL"
+          if LC_ALL=C grep -q $'\r' "$WRAPPER_ACTUAL"; then exit 1; fi
+          test "$(grep -Fxc 'action.sh' "$ZIP_LIST")" -eq 1
+          zipinfo -l "$ZIP_NAME" action.sh | grep -Eq '^-rwxr-xr-x[[:space:]]'
+          RECOVERY_ENTRY='META-INF/com/google/android/update-binary'
+          test "$(grep -Fxc "$RECOVERY_ENTRY" "$ZIP_LIST")" -eq 1
+          zipinfo -l "$ZIP_NAME" "$RECOVERY_ENTRY" | grep -Eq '^-rwxr-xr-x[[:space:]]'
+          unzip -p "$ZIP_NAME" "$RECOVERY_ENTRY" > "$WRAPPER_ACTUAL"
+          test "$(sed -n '1p' "$WRAPPER_ACTUAL")" = '#!/sbin/sh'
+          if LC_ALL=C grep -q $'\r' "$WRAPPER_ACTUAL"; then exit 1; fi
+          PROVENANCE_ENTRY='zapret2/upstream-zapret2.commit'
+          test "$(grep -Fxc "$PROVENANCE_ENTRY" "$ZIP_LIST")" -eq 1
+          printf '%s\n' "$UPSTREAM_ZAPRET2_SHA" > "$WRAPPER_EXPECTED"
+          unzip -p "$ZIP_NAME" "$PROVENANCE_ENTRY" > "$WRAPPER_ACTUAL"
+          cmp -s "$WRAPPER_EXPECTED" "$WRAPPER_ACTUAL"
+          rm -f "$ZIP_LIST" "$WRAPPER_EXPECTED" "$WRAPPER_ACTUAL"
+          rm -rf "$PACKAGE_ASSEMBLY_ROOT" "$PACKAGE_VALIDATE_ROOT"
+
+          sha256sum "$ZIP_NAME" > "$ZIP_NAME.sha256"
+          sha256sum -c "$ZIP_NAME.sha256"
 
           # Rename APK with version
+          (
+            cd apk-artifact
+            sha256sum -c app-release.apk.sha256
+          )
           cp apk-artifact/app-release.apk zapret2-control-${VERSION_TAG}.apk
+          sha256sum zapret2-control-${VERSION_TAG}.apk > zapret2-control-${VERSION_TAG}.apk.sha256
+          sha256sum -c zapret2-control-${VERSION_TAG}.apk.sha256
 
       - name: Upload module
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: zapret2-magisk-module
-          path: zapret2-magisk-*.zip
+          path: |
+            zapret2-magisk-*.zip
+            zapret2-magisk-*.zip.sha256
 
       - name: Upload APK artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: zapret2-control-apk
-          path: zapret2-control-*.apk
+          path: |
+            zapret2-control-*.apk
+            zapret2-control-*.apk.sha256
+
+      - name: Upload release metadata
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: zapret2-release-metadata
+          path: update.json
+
+  release:
+    name: Publish GitHub Release
+    runs-on: ubuntu-latest
+    needs: [prepare-version, package-module]
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download module artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: zapret2-magisk-module
+          path: release-assets
+
+      - name: Download APK artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: zapret2-control-apk
+          path: release-assets
+
+      - name: Download release metadata
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: zapret2-release-metadata
+          path: release-assets
 
       - name: Create Tag and Release
         run: |
+          set -euo pipefail
           VERSION_TAG="${{ needs.prepare-version.outputs.version_tag }}"
+
+          cd release-assets
+          sha256sum -c zapret2-magisk-*.zip.sha256
+          sha256sum -c zapret2-control-*.apk.sha256
 
           # Create release (tag is created automatically if missing)
           gh release create "$VERSION_TAG" \
@@ -403,7 +595,9 @@ jobs:
             --title "Zapret2 $VERSION_TAG" \
             --generate-notes \
             zapret2-magisk-*.zip \
+            zapret2-magisk-*.zip.sha256 \
             zapret2-control-*.apk \
+            zapret2-control-*.apk.sha256 \
             update.json
         env:
-          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
