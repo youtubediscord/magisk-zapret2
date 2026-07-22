@@ -522,7 +522,7 @@ class ConfigEditorViewModel @Inject constructor(
         null
     }
 
-    private fun validateCommandLineOrFailed(fileName: String): CommandLineValidation = try {
+    private suspend fun validateCommandLineOrFailed(fileName: String): CommandLineValidation = try {
         commandLineRepository.validateManual(fileName)
     } catch (cancelled: CancellationException) {
         throw cancelled

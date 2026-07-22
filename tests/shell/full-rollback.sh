@@ -20,14 +20,8 @@ mkdir -p "$MOD/zapret2/scripts" "$MOD/zapret2/lists" "$MOD/system/etc" "$STATE" 
 chmod 0700 "$STATE"
 cp "$ROOT/zapret2/scripts/common.sh" "$MOD/zapret2/scripts/common.sh"
 cp "$ROOT/zapret2/scripts/zapret-full-rollback.sh" "$MOD/zapret2/scripts/zapret-full-rollback.sh"
-cat > "$MOD/zapret2/runtime.ini" <<'EOF'
-[core]
-autostart=1
-qnum=200
-ports_tcp=80,443
-ports_udp=443
-pkt_out=20
-pkt_in=10
+cp "$ROOT/zapret2/runtime.ini" "$MOD/zapret2/runtime.ini"
+cat >> "$MOD/zapret2/runtime.ini" <<'EOF'
 [dns_manager]
 dns_preset_index=2
 selected_dns=one|two
@@ -50,9 +44,9 @@ cat > "$MOCK/iptables" <<'EOF'
 #!/bin/sh
 if [ "${Z2_MOCK_AMBIGUOUS:-0}" = 1 ]; then
     case "$*" in
-        *'-S ZAPRET2_OUT') echo '-N ZAPRET2_OUT'; exit 0 ;;
-        *'-S ZAPRET2_IN'|*'-S ZAPRET2_PROBE') exit 1 ;;
-        *'-S') echo '-N ZAPRET2_OUT'; echo '-A FORWARD -j ZAPRET2_OUT'; exit 0 ;;
+        *"-S ${Z2_MOCK_OUT_CHAIN:?}") echo "-N $Z2_MOCK_OUT_CHAIN"; exit 0 ;;
+        *'-S Z2I_'*|*'-S ZAPRET2_PROBE') exit 1 ;;
+        *'-S') echo "-N $Z2_MOCK_OUT_CHAIN"; echo "-A FORWARD -j $Z2_MOCK_OUT_CHAIN"; exit 0 ;;
     esac
 fi
 case "$*" in
@@ -208,7 +202,7 @@ grep -Fqx 'phase=process-clean' "$STATE/full-rollback.transaction" || fail "proc
 rm -f "$CASE/sync.count"
 set +e
 PATH="$MOCK:$PATH" STATE_DIR="$STATE" Z2_MOCK_LOG="$LOG" \
-    Z2_MOCK_SYNC_COUNT="$CASE/sync.count" Z2_MOCK_SYNC_SIGNAL_AT=3 \
+    Z2_MOCK_SYNC_COUNT="$CASE/sync.count" Z2_MOCK_SYNC_SIGNAL_AT=2 \
     sh "$MOD/zapret2/scripts/zapret-full-rollback.sh" --machine > "$OUT.signal-hosts"
 rc=$?
 set -e
@@ -293,7 +287,7 @@ chmod 0755 "$MOD/zapret2/nfqws2"
 nf_pid=$!
 nf_start=$(awk '{print $22}' "/proc/$nf_pid/stat")
 nf_argv=$(od -An -v -tx1 "/proc/$nf_pid/cmdline" | tr -d '[:space:]')
-printf '%s\n' "$nf_pid" > "$STATE/nfqws.pid"
+printf '%s\n' "$nf_pid" > "$STATE/nfqws2.pid"
 cat > "$STATE/runtime.owner" <<EOF
 version=1
 module_dir=$MOD
@@ -302,13 +296,17 @@ EOF
 STATE_DIR="$STATE" SCRIPT_DIR="$MOD/zapret2/scripts" ZAPRET_DIR="$MOD/zapret2" MODDIR="$MOD" \
     sh -c '. "$SCRIPT_DIR/common.sh"; QNUM=200; PORTS_TCP=80,443; PORTS_UDP=443; PKT_OUT=20; PKT_IN=10; DESYNC_MARK=0x40000000; IPV4_CONNBYTES=1; IPV4_MULTIPORT=1; IPV4_MARK=1; IPV6_CONNBYTES=1; IPV6_MULTIPORT=1; IPV6_MARK=1; prepare_owner_generation_spec 1 0 && write_owner_state "$1" "$2" "$3" 200 foreign-audit active' \
     sh "$nf_pid" "$nf_start" "$nf_argv" || fail "could not publish valid v6 owner generation"
-chmod 0600 "$STATE/nfqws.pid" "$STATE/runtime.owner" "$STATE/owner.meta"
+chmod 0600 "$STATE/nfqws2.pid" "$STATE/runtime.owner" "$STATE/owner.meta"
+mock_out_chain="$(awk -F= '$1 == "out_chain" { print $2 }' "$STATE/owner.meta")"
+[ -n "$mock_out_chain" ] || fail "owner generation did not publish its output chain"
 # Runtime configuration may change after publication; rollback must continue
 # to audit/delete only the persisted generation (qnum 200 / original ports).
 sed -i 's/^qnum=200$/qnum=333/; s/^ports_tcp=80,443$/ports_tcp=8080,8443/; s/^ports_udp=443$/ports_udp=8443/' "$MOD/zapret2/runtime.ini"
 : > "$LOG"
 set +e
-PATH="$MOCK:$PATH" STATE_DIR="$STATE" Z2_MOCK_LOG="$LOG" Z2_MOCK_AMBIGUOUS=1 sh "$MOD/zapret2/scripts/zapret-full-rollback.sh" --machine > "$OUT"
+PATH="$MOCK:$PATH" STATE_DIR="$STATE" Z2_MOCK_LOG="$LOG" Z2_MOCK_AMBIGUOUS=1 \
+    Z2_MOCK_OUT_CHAIN="$mock_out_chain" \
+    sh "$MOD/zapret2/scripts/zapret-full-rollback.sh" --machine > "$OUT"
 rc=$?
 set -e
 [ "$rc" = 1 ] || fail "ambiguous chain did not return partial"
@@ -322,8 +320,8 @@ wait "$nf_pid" 2>/dev/null || true
 # zapret-stop must reject corrupt PID publication before any legacy/current
 # firewall mutation.
 cp "$ROOT/zapret2/scripts/zapret-stop.sh" "$MOD/zapret2/scripts/zapret-stop.sh"
-printf '%s\n' "$$" > "$STATE/nfqws.pid"
-chmod 0600 "$STATE/nfqws.pid"
+printf '%s\n' "$$" > "$STATE/nfqws2.pid"
+chmod 0600 "$STATE/nfqws2.pid"
 rm -f "$STATE/runtime.owner" "$STATE/owner.meta" "$STATE/full-rollback.transaction"
 : > "$LOG"
 set +e

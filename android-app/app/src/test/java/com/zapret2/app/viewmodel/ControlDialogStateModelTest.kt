@@ -2,6 +2,7 @@ package com.zapret2.app.viewmodel
 
 import androidx.lifecycle.SavedStateHandle
 import com.zapret2.app.R
+import com.zapret2.app.data.ModulePurgeController
 import com.zapret2.app.data.ServiceLifecycleController
 import com.zapret2.app.ui.UiText
 import org.junit.Assert.assertEquals
@@ -244,6 +245,42 @@ class ControlDialogStateModelTest {
         assertFalse(savedState.contains("control_full_rollback_outcome"))
         assertFalse(savedState.contains("control_full_rollback_reboot_required"))
         assertFalse(savedState.contains("control_full_rollback_diagnostic"))
+    }
+
+    @Test
+    fun modulePurgeConfirmationAndResultRemainTypedAcrossReconstruction() {
+        val confirmation = restoreControlUiState(
+            SavedStateHandle(
+                mapOf("control_dialog_kind" to ControlDialogKind.MODULE_PURGE_CONFIRM.name),
+            ),
+        )
+        assertEquals(ModulePurgeUiState.Confirmation, confirmation.modulePurge)
+
+        val result = restoreControlUiState(
+            SavedStateHandle(
+                mapOf(
+                    "control_dialog_kind" to ControlDialogKind.MODULE_PURGE_RESULT.name,
+                    "control_module_purge_outcome" to ModulePurgeController.Outcome.PARTIAL.name,
+                    "control_module_purge_reboot_required" to true,
+                    "control_module_purge_diagnostic" to "state cleanup incomplete",
+                ),
+            ),
+        )
+        val purge = result.modulePurge as ModulePurgeUiState.Result
+        assertEquals(ModulePurgeController.Outcome.PARTIAL, purge.outcome)
+        assertTrue(purge.rebootRequired)
+        assertEquals("state cleanup incomplete", purge.diagnostic)
+    }
+
+    @Test
+    fun persistedModulePurgeProgressRestoresWithoutConfirmationAndWinsNoRollbackState() {
+        val restored = restoreControlUiState(
+            SavedStateHandle(mapOf("control_module_purge_in_progress" to true)),
+        )
+
+        assertEquals(ModulePurgeUiState.InProgress, restored.modulePurge)
+        assertEquals(FullRollbackUiState.Idle, restored.fullRollback)
+        assertNull(restored.pendingDialog)
     }
 
     @Test

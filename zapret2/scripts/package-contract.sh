@@ -315,6 +315,8 @@ package_contract_validate_manifest() {
         "immutable-exec|0755|zapret2/scripts/zapret-status.sh" \
         "immutable-exec|0755|zapret2/scripts/zapret-update-guard.sh" \
         "immutable-exec|0755|zapret2/scripts/zapret-full-rollback.sh" \
+        "immutable-exec|0755|zapret2/scripts/lifecycle/purge-contract.sh" \
+        "immutable-exec|0755|zapret2/scripts/lifecycle/zapret-purge.sh" \
         "immutable-exec|0755|system/bin/zapret2-start" \
         "immutable-exec|0755|system/bin/zapret2-stop" \
         "immutable-exec|0755|system/bin/zapret2-status" \

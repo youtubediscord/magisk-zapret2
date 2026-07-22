@@ -43,7 +43,10 @@ grep -Fq 'total=98' "$scan" || fail "scanner summary total count"
 
 . "$ROOT/zapret2/scripts/package-contract.sh"
 package_contract_validate_manifest "$ROOT" || fail "manifest invalid: $PACKAGE_CONTRACT_CODE $PACKAGE_CONTRACT_DETAIL"
-package_contract_validate_catalog "$ROOT" || fail "catalog invalid: $PACKAGE_CONTRACT_CODE $PACKAGE_CONTRACT_DETAIL"
+# The checkout belongs to the CI runner, while machine catalog validation
+# intentionally accepts only root-owned installed files. The complete catalog
+# is therefore validated below against the assembled root-owned package tree,
+# not against source-control ownership metadata.
 utf8_two_byte="$(printf '\303\251')"
 utf8_safe_name=
 utf8_name_index=0

@@ -364,8 +364,11 @@ assert_contains "$ROOT/.github/workflows/build.yml" "UPDATE_GUARD_ENTRY='zapret2
 assert_contains "$ROOT/.github/workflows/build.yml" 'package_contract_assemble_package "$PWD" "$PACKAGE_ASSEMBLY_ROOT"'
 assert_contains "$ROOT/.github/workflows/build.yml" 'package_contract_validate_exact_tree "$PACKAGE_VALIDATE_ROOT" package allow-meta'
 assert_contains "$ROOT/customize.sh" 'Published module action entry is not executable'
-assert_contains "$ROOT/action.sh" 'APP_COMPONENT="$APP_PACKAGE/.MainActivity"'
-assert_contains "$ROOT/action.sh" 'zapret2-full-rollback'
+assert_contains "$ROOT/action.sh" 'zapret2/scripts/lifecycle/zapret-purge.sh'
+assert_contains "$ROOT/action.sh" '--magisk-action'
+assert_not_contains "$ROOT/action.sh" 'am start'
+assert_contains "$ROOT/customize.sh" 'zapret2/scripts/lifecycle/purge-contract.sh'
+assert_contains "$ROOT/customize.sh" 'zapret2/scripts/lifecycle/zapret-purge.sh'
 if grep -Eqi 'KSUWebUI|WebUI' "$ROOT/action.sh" "$ROOT/customize.sh" "$ROOT/module.prop"; then
     fail "retired module WebUI instructions remain"
 fi
@@ -426,12 +429,11 @@ assert_contains "$ROOT/service.sh" '"$START_SCRIPT" --repair-runtime-only'
 assert_contains "$ROOT/zapret2/scripts/zapret-full-rollback.sh" 'Z2_RB_REBOOT_REQUIRED=1'
 
 make_installer_zip() {
-    fixture="$1" module_id="$2" archive="$3"
+    fixture="$1" archive="$2"
     assembly="$fixture-assembled"
     mkdir -p "$fixture" "$assembly"
     cp "$ROOT/module.prop" "$ROOT/customize.sh" "$ROOT/service.sh" "$ROOT/uninstall.sh" "$ROOT/action.sh" "$fixture/"
     cp -R "$ROOT/system" "$ROOT/zapret2" "$fixture/"
-    sed "s/^id=.*/id=$module_id/" "$ROOT/module.prop" > "$fixture/module.prop"
     mkdir -p "$fixture/zapret2/bin/armeabi-v7a"
     cp "$fixture/zapret2/bin/arm64-v8a/nfqws2" "$fixture/zapret2/bin/armeabi-v7a/nfqws2"
     (
@@ -457,6 +459,13 @@ assert_wrapper_package() {
     [ "$(sed -n '1p' "$actual")" = '#!/system/bin/sh' ] || fail "update guard shebang is invalid"
     [ "$(grep -Fxc 'zapret2/scripts/zapret-full-rollback.sh' "$listing")" -eq 1 ] || fail "rollback script is missing or duplicated"
     zipinfo -l "$archive" zapret2/scripts/zapret-full-rollback.sh | grep -Eq '^-rwxr-xr-x[[:space:]]' || fail "rollback script is not regular 0755"
+    for entry in zapret2/scripts/lifecycle/purge-contract.sh zapret2/scripts/lifecycle/zapret-purge.sh; do
+        [ "$(grep -Fxc "$entry" "$listing")" -eq 1 ] || fail "purge lifecycle entry is missing or duplicated: $entry"
+        zipinfo -l "$archive" "$entry" | grep -Eq '^-rwxr-xr-x[[:space:]]' || fail "purge lifecycle entry is not regular 0755: $entry"
+        unzip -p "$archive" "$entry" > "$actual"
+        [ -s "$actual" ] || fail "purge lifecycle entry is empty: $entry"
+        [ "$(sed -n '1p' "$actual")" = '#!/system/bin/sh' ] || fail "purge lifecycle shebang is invalid: $entry"
+    done
     for command_name in start stop status restart full-rollback; do
         entry="system/bin/zapret2-$command_name"
         [ "$(grep -Fxc "$entry" "$listing")" -eq 1 ] || fail "wrapper entry is missing or duplicated: $entry"
@@ -485,6 +494,8 @@ rmdir "$SERVICE_GATE/disable"
 
 run_customize_stubbed() {
     archive="$1" abi="$2"
+    archive_case="${archive##*/}"
+    archive_case="${archive_case%.zip}"
     (
         MODPATH=/data/adb/modules_update/zapret2
         ZIPFILE="$archive"
@@ -499,7 +510,7 @@ run_customize_stubbed() {
                         *recovery*) suffix=recovery ;;
                         *) suffix=install ;;
                     esac
-                    work="$TMP/installer-work-$abi-$suffix"
+                    work="$TMP/installer-work-$archive_case-$abi-$suffix"
                     mkdir "$work"
                     printf '%s\n' "$work"
                     ;;
@@ -511,13 +522,15 @@ run_customize_stubbed() {
 }
 
 BAD_ID_ZIP="$TMP/bad-id.zip"
-make_installer_zip "$TMP/bad-id" wrong.module "$BAD_ID_ZIP"
-assert_wrapper_package "$BAD_ID_ZIP"
+BAD_ID_ROOT="$TMP/bad-id"
+mkdir "$BAD_ID_ROOT"
+sed 's/^id=.*/id=wrong.module/' "$ROOT/module.prop" > "$BAD_ID_ROOT/module.prop"
+(cd "$BAD_ID_ROOT" && zip -q "$BAD_ID_ZIP" module.prop)
 if run_customize_stubbed "$BAD_ID_ZIP" arm64-v8a >"$TMP/bad-id.log" 2>&1; then fail "installer accepted wrong module identity"; fi
 assert_contains "$TMP/bad-id.log" 'unexpected module id'
 
 BAD_ABI_ZIP="$TMP/bad-abi.zip"
-make_installer_zip "$TMP/bad-abi" zapret2 "$BAD_ABI_ZIP"
+make_installer_zip "$TMP/bad-abi" "$BAD_ABI_ZIP"
 assert_wrapper_package "$BAD_ABI_ZIP"
 for bad_abi in mips64 x86 x86_64 arm64-custom armeabi-v7a-custom; do
     bad_abi_log="$TMP/bad-abi.$bad_abi.log"
@@ -528,7 +541,7 @@ for bad_abi in mips64 x86 x86_64 arm64-custom armeabi-v7a-custom; do
 done
 
 MISSING_GUARD_ZIP="$TMP/missing-guard.zip"
-make_installer_zip "$TMP/missing-guard" zapret2 "$MISSING_GUARD_ZIP"
+make_installer_zip "$TMP/missing-guard" "$MISSING_GUARD_ZIP"
 zip -qd "$MISSING_GUARD_ZIP" zapret2/scripts/zapret-update-guard.sh
 if run_customize_stubbed "$MISSING_GUARD_ZIP" arm64-v8a >"$TMP/missing-guard.log" 2>&1; then
     fail "installer accepted a package without the update guard"
@@ -536,6 +549,7 @@ fi
 assert_contains "$TMP/missing-guard.log" 'zapret2/scripts/zapret-update-guard.sh'
 
 Z2_TEST_TMP="$TMP" sh "$ROOT/tests/shell/full-rollback.sh"
+Z2_TEST_TMP="$TMP" sh "$ROOT/tests/shell/purge-contract.sh"
 Z2_TEST_TMP="$TMP" sh "$ROOT/tests/shell/lifecycle-safety.sh"
 Z2_TEST_TMP="$TMP" sh "$ROOT/tests/shell/marker-occurrence.sh"
 Z2_TEST_TMP="$TMP" sh "$ROOT/tests/shell/wal-validator.sh"

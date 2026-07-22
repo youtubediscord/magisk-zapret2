@@ -389,6 +389,7 @@ jobs:
           # Make scripts executable
           chmod +x customize.sh service.sh uninstall.sh action.sh
           chmod +x zapret2/scripts/*.sh
+          chmod +x zapret2/scripts/lifecycle/*.sh
           chmod +x system/bin/zapret2-start system/bin/zapret2-stop system/bin/zapret2-status system/bin/zapret2-restart system/bin/zapret2-full-rollback
           chmod 0755 META-INF/com/google/android/update-binary
           test "$(sed -n '2p' zapret2/runtime-manifest.tsv | tr -d '\r')" = 'owner_protocol|6|zapret2-firewall'
@@ -419,6 +420,14 @@ jobs:
           test -x zapret2/scripts/zapret-full-rollback.sh
           test "$(sed -n '1p' zapret2/scripts/zapret-full-rollback.sh)" = '#!/system/bin/sh'
           if LC_ALL=C grep -q $'\r' zapret2/scripts/zapret-full-rollback.sh; then exit 1; fi
+          for purge_script in zapret2/scripts/lifecycle/purge-contract.sh zapret2/scripts/lifecycle/zapret-purge.sh; do
+            test -f "$purge_script"
+            test ! -L "$purge_script"
+            test -s "$purge_script"
+            test -x "$purge_script"
+            test "$(sed -n '1p' "$purge_script")" = '#!/system/bin/sh'
+            if LC_ALL=C grep -q $'\r' "$purge_script"; then exit 1; fi
+          done
           for command_name in start stop status restart full-rollback; do
             wrapper="system/bin/zapret2-${command_name}"
             target="/data/adb/modules/zapret2/zapret2/scripts/zapret-${command_name}.sh"
@@ -503,6 +512,17 @@ jobs:
           unzip -p "$ZIP_NAME" "$ROLLBACK_SCRIPT_ENTRY" > "$WRAPPER_ACTUAL"
           cmp -s "$ROLLBACK_SCRIPT_ENTRY" "$WRAPPER_ACTUAL"
           if LC_ALL=C grep -q $'\r' "$WRAPPER_ACTUAL"; then exit 1; fi
+          for PURGE_SCRIPT_ENTRY in \
+            zapret2/scripts/lifecycle/purge-contract.sh \
+            zapret2/scripts/lifecycle/zapret-purge.sh; do
+            test "$(grep -Fxc "$PURGE_SCRIPT_ENTRY" "$ZIP_LIST")" -eq 1
+            zipinfo -l "$ZIP_NAME" "$PURGE_SCRIPT_ENTRY" | grep -Eq '^-rwxr-xr-x[[:space:]]'
+            unzip -p "$ZIP_NAME" "$PURGE_SCRIPT_ENTRY" > "$WRAPPER_ACTUAL"
+            test -s "$WRAPPER_ACTUAL"
+            cmp -s "$PURGE_SCRIPT_ENTRY" "$WRAPPER_ACTUAL"
+            test "$(sed -n '1p' "$WRAPPER_ACTUAL")" = '#!/system/bin/sh'
+            if LC_ALL=C grep -q $'\r' "$WRAPPER_ACTUAL"; then exit 1; fi
+          done
           test "$(grep -Fxc 'action.sh' "$ZIP_LIST")" -eq 1
           zipinfo -l "$ZIP_NAME" action.sh | grep -Eq '^-rwxr-xr-x[[:space:]]'
           RECOVERY_ENTRY='META-INF/com/google/android/update-binary'

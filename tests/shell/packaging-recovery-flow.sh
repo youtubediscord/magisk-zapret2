@@ -269,6 +269,17 @@ run_installer() {
     )
 }
 
+# The installer is an Android program and invokes its validated package
+# helpers through the platform shell. Establish that platform contract before
+# the first installer run, not midway through the recovery scenario.
+if [ ! -e /system ]; then
+    mkdir -p /system/bin
+    ln -s /bin/sh /system/bin/sh
+    SYSTEM_CREATED=1
+elif [ ! -x /system/bin/sh ]; then
+    fail "/system exists without a usable /system/bin/sh"
+fi
+
 # A root-manager disable fence must survive a standard modules_update install
 # byte-for-byte and remain the exact root-private, empty marker.
 mkdir -p "$LIVE"
@@ -339,6 +350,7 @@ cat > "$MOCK/iptables" <<'EOF'
 case "$*" in
     *' -F '*|*' -X '*|*' -D '*) exit 0 ;;
     *'-S ZAPRET2_OUT'|*'-S ZAPRET2_IN'|*'-S ZAPRET2_PROBE') exit 1 ;;
+    *'-S OUTPUT'|*'-S INPUT') exit 0 ;;
     *'-S') exit 0 ;;
     *) exit 1 ;;
 esac
@@ -363,13 +375,6 @@ PATH="$MOCK:$PATH" STATE_DIR="$LIVE_STATE" sh "$LIVE/zapret2/scripts/zapret-full
 grep -Fxq 'Z2_RB_STATUS=complete' "$CASE/rollback.out" || fail "rollback did not complete"
 [ -f "$LIVE_STATE/full-rollback.meta" ] && [ -f "$LIVE_STATE/hosts.rollback.backup" ] || fail "rollback evidence missing"
 
-if [ ! -e /system ]; then
-    mkdir -p /system/bin
-    ln -s /bin/sh /system/bin/sh
-    SYSTEM_CREATED=1
-elif [ ! -x /system/bin/sh ]; then
-    fail "/system exists without a usable /system/bin/sh"
-fi
 : > "$LIVE/remove"
 chmod 0600 "$LIVE/remove"
 printf '%s\n' 'version=2' 'owner_pid=broken' > "$LIVE_STATE/update.cleanup"

@@ -69,6 +69,7 @@ import com.zapret2.app.ui.theme.SizeTokens
 import com.zapret2.app.ui.theme.SpacingTokens
 import com.zapret2.app.R
 import com.zapret2.app.data.MAX_PACKET_COUNT
+import com.zapret2.app.data.ModulePurgeController
 import com.zapret2.app.data.ServiceLifecycleController
 import com.zapret2.app.ui.UiText
 import com.zapret2.app.ui.resolve
@@ -91,6 +92,7 @@ import com.zapret2.app.viewmodel.ControlStatus
 import com.zapret2.app.viewmodel.ControlUiState
 import com.zapret2.app.viewmodel.ControlViewModel
 import com.zapret2.app.viewmodel.FullRollbackUiState
+import com.zapret2.app.viewmodel.ModulePurgeUiState
 import com.zapret2.app.viewmodel.PacketTarget
 import com.zapret2.app.viewmodel.labelRes
 
@@ -189,6 +191,29 @@ fun ControlScreen(
         ?.takeIf { state.pendingDialog == ControlDialogKind.FULL_ROLLBACK_RESULT }
         ?.let { result ->
             FullRollbackResultDialog(
+                result = result,
+                onDismiss = { activeViewModel?.dismissDialog() },
+            )
+        }
+
+    if (
+        state.pendingDialog == ControlDialogKind.MODULE_PURGE_CONFIRM &&
+        state.modulePurge is ModulePurgeUiState.Confirmation
+    ) {
+        ModulePurgeConfirmationDialog(
+            onConfirm = { activeViewModel?.confirmModulePurge() },
+            onDismiss = { activeViewModel?.dismissDialog() },
+        )
+    }
+
+    if (state.modulePurge is ModulePurgeUiState.InProgress) {
+        ModulePurgeProgressDialog()
+    }
+
+    (state.modulePurge as? ModulePurgeUiState.Result)
+        ?.takeIf { state.pendingDialog == ControlDialogKind.MODULE_PURGE_RESULT }
+        ?.let { result ->
+            ModulePurgeResultDialog(
                 result = result,
                 onDismiss = { activeViewModel?.dismissDialog() },
             )
@@ -364,19 +389,35 @@ fun ControlScreen(
 
                 item {
                     SectionHeader(stringResource(R.string.control_full_rollback_section))
-                    FilledTonalButton(
-                        onClick = { activeViewModel?.showFullRollbackConfirmation() },
-                        enabled = state.canFullRollback,
-                        shape = MaterialTheme.shapes.extraLarge,
-                        colors = ButtonDefaults.filledTonalButtonColors(
-                            containerColor = MaterialTheme.colorScheme.errorContainer,
-                            contentColor = MaterialTheme.colorScheme.onErrorContainer,
-                        ),
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Icon(Icons.Default.DeleteForever, contentDescription = null)
-                        Spacer(Modifier.width(SpacingTokens.Small))
-                        Text(stringResource(R.string.control_full_rollback_action))
+                    Column(verticalArrangement = Arrangement.spacedBy(SpacingTokens.Small)) {
+                        FilledTonalButton(
+                            onClick = { activeViewModel?.showFullRollbackConfirmation() },
+                            enabled = state.canFullRollback,
+                            shape = MaterialTheme.shapes.extraLarge,
+                            colors = ButtonDefaults.filledTonalButtonColors(
+                                containerColor = MaterialTheme.colorScheme.errorContainer,
+                                contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                            ),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Icon(Icons.Default.DeleteForever, contentDescription = null)
+                            Spacer(Modifier.width(SpacingTokens.Small))
+                            Text(stringResource(R.string.control_full_rollback_action))
+                        }
+                        FilledTonalButton(
+                            onClick = { activeViewModel?.showModulePurgeConfirmation() },
+                            enabled = state.canPurgeModule,
+                            shape = MaterialTheme.shapes.extraLarge,
+                            colors = ButtonDefaults.filledTonalButtonColors(
+                                containerColor = MaterialTheme.colorScheme.error,
+                                contentColor = MaterialTheme.colorScheme.onError,
+                            ),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Icon(Icons.Default.DeleteForever, contentDescription = null)
+                            Spacer(Modifier.width(SpacingTokens.Small))
+                            Text(stringResource(R.string.control_purge_action))
+                        }
                     }
                 }
 
@@ -389,7 +430,8 @@ fun ControlScreen(
                             !state.isToggling &&
                             !state.isSavingSettings &&
                             state.status != ControlStatus.CHECKING &&
-                            !state.isFullRollbackInProgress,
+                            !state.isFullRollbackInProgress &&
+                            !state.isModulePurgeInProgress,
                         shape = MaterialTheme.shapes.extraLarge,
                         modifier = Modifier.fillMaxWidth(),
                     ) {
@@ -721,6 +763,129 @@ private fun FullRollbackResultDialog(
                     Text(
                         text = result.diagnostic.ifBlank {
                             stringResource(R.string.control_full_rollback_failure_unknown)
+                        },
+                        style = MonospaceStyle.copy(color = MaterialTheme.colorScheme.onSurface),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = SizeTokens.DialogContentTallMaxHeight)
+                            .verticalScroll(rememberScrollState()),
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_close)) }
+        },
+    )
+}
+
+@Composable
+private fun ModulePurgeConfirmationDialog(
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        shape = MaterialTheme.shapes.extraLarge,
+        icon = {
+            Icon(
+                Icons.Default.DeleteForever,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.error,
+            )
+        },
+        title = { Text(stringResource(R.string.control_purge_confirm_title)) },
+        text = {
+            Text(
+                text = stringResource(R.string.control_purge_confirm_body),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text(
+                    text = stringResource(R.string.control_purge_confirm_action),
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) }
+        },
+    )
+}
+
+@Composable
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+private fun ModulePurgeProgressDialog() {
+    AlertDialog(
+        onDismissRequest = {},
+        shape = MaterialTheme.shapes.extraLarge,
+        title = { Text(stringResource(R.string.control_purge_progress_title)) },
+        text = {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(SpacingTokens.Large),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                LoadingIndicator(modifier = Modifier.size(SizeTokens.LoadingMedium))
+                Text(
+                    text = stringResource(R.string.control_purge_progress_body),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+        },
+        confirmButton = {},
+    )
+}
+
+@Composable
+private fun ModulePurgeResultDialog(
+    result: ModulePurgeUiState.Result,
+    onDismiss: () -> Unit,
+) {
+    val success = result.outcome == ModulePurgeController.Outcome.COMPLETE
+    AlertDialog(
+        onDismissRequest = {},
+        shape = MaterialTheme.shapes.extraLarge,
+        icon = {
+            Icon(
+                imageVector = if (success) Icons.Default.CheckCircle else Icons.Default.Error,
+                contentDescription = null,
+                tint = if (success) {
+                    MaterialTheme.extendedColors.success.color
+                } else {
+                    MaterialTheme.colorScheme.error
+                },
+            )
+        },
+        title = {
+            Text(
+                stringResource(
+                    if (success) R.string.control_purge_success_title
+                    else R.string.control_purge_failure_title,
+                ),
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(SpacingTokens.Medium)) {
+                Text(
+                    text = stringResource(
+                        if (success) R.string.control_purge_success_body
+                        else R.string.control_purge_failure_body,
+                    ),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                if (result.rebootRequired) {
+                    Text(
+                        text = stringResource(R.string.control_purge_reboot_required),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+                if (!success) {
+                    Text(
+                        text = result.diagnostic.ifBlank {
+                            stringResource(R.string.control_purge_failure_unknown)
                         },
                         style = MonospaceStyle.copy(color = MaterialTheme.colorScheme.onSurface),
                         modifier = Modifier

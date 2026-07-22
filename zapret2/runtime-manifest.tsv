@@ -20,6 +20,8 @@ immutable-exec|0755|zapret2/scripts/zapret-restart.sh
 immutable-exec|0755|zapret2/scripts/zapret-status.sh
 immutable-exec|0755|zapret2/scripts/zapret-update-guard.sh
 immutable-exec|0755|zapret2/scripts/zapret-full-rollback.sh
+immutable-exec|0755|zapret2/scripts/lifecycle/purge-contract.sh
+immutable-exec|0755|zapret2/scripts/lifecycle/zapret-purge.sh
 immutable-exec|0755|system/bin/zapret2-start
 immutable-exec|0755|system/bin/zapret2-stop
 immutable-exec|0755|system/bin/zapret2-restart
@@ -100,6 +102,7 @@ runtime-dependency-mutable-seed|0644|zapret2/lists/ipset-amazon.txt
 runtime-dependency-mutable-seed|0644|zapret2/lists/ipset-anydesk.txt
 runtime-dependency-mutable-seed|0644|zapret2/lists/ipset-claude.txt
 runtime-dependency-mutable-seed|0644|zapret2/lists/ipset-discord.txt
+runtime-dependency-mutable-seed|0644|zapret2/lists/ipset-dns.txt
 runtime-dependency-mutable-seed|0644|zapret2/lists/ipset-exclude.txt
 runtime-dependency-mutable-seed|0644|zapret2/lists/ipset-github.txt
 runtime-dependency-mutable-seed|0644|zapret2/lists/ipset-ovh.txt
