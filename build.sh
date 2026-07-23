@@ -5,40 +5,20 @@
 
 set -e
 
-VERSION="${1:-}"
+REQUESTED_VERSION="${1:-}"
 OUTPUT_DIR="${2:-dist}"
 
-if [ ! -f "version.series" ]; then
-    echo "ERROR: version.series file is missing"
+VERSION_METADATA=$(sh tools/release-version.sh)
+VERSION=$(printf '%s\n' "$VERSION_METADATA" | sed -n 's/^version=//p')
+VERSION_CODE=$(printf '%s\n' "$VERSION_METADATA" | sed -n 's/^version_code=//p')
+[ -n "$VERSION" ] && [ -n "$VERSION_CODE" ] || {
+    echo "ERROR: canonical release metadata is incomplete"
     exit 1
-fi
+}
 
-VERSION_SERIES=$(tr -d '[:space:]' < version.series)
-if [[ ! "$VERSION_SERIES" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
-    echo "ERROR: invalid version.series value '$VERSION_SERIES' (expected MAJOR.MINOR)"
-    exit 1
-fi
-
-if [ -n "$VERSION" ]; then
-    VERSION="${VERSION#v}"
-    VERSION_MAJOR="${VERSION_SERIES%%.*}"
-    VERSION_MINOR="${VERSION_SERIES#*.}"
-    if [[ ! "$VERSION" =~ ^${VERSION_MAJOR}\.${VERSION_MINOR}\.([1-9][0-9]{0,9})$ ]]; then
-        echo "ERROR: invalid version '$VERSION' (expected ${VERSION_SERIES}.POSITIVE_VERSION_CODE)"
-        exit 1
-    fi
-    VERSION_CODE="${BASH_REMATCH[1]}"
-else
-    COMMIT_COUNT=$(git rev-list --count HEAD 2>/dev/null || true)
-    if [ -z "$COMMIT_COUNT" ]; then
-        COMMIT_COUNT=1
-    fi
-    VERSION_CODE=$((100000 + COMMIT_COUNT))
-    VERSION="${VERSION_SERIES}.${VERSION_CODE}"
-fi
-
-if (( 10#$VERSION_CODE > 2100000000 )); then
-    echo "ERROR: versionCode '$VERSION_CODE' exceeds the Android limit"
+if [ -n "$REQUESTED_VERSION" ] &&
+   [ "${REQUESTED_VERSION#v}" != "$VERSION" ]; then
+    echo "ERROR: requested version '$REQUESTED_VERSION' does not match version.properties ($VERSION)"
     exit 1
 fi
 

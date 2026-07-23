@@ -256,13 +256,13 @@ class ModulePackageContractTest {
         writeValidPackage(stage)
 
         assertNull(ModulePackageContract.validateStaging(stage, "arm64-v8a", "1.0.100"))
-        assertNotNull(ModulePackageContract.validateStaging(stage, "arm64-v8a", "2.0.100"))
+        assertNotNull(ModulePackageContract.validateStaging(stage, "arm64-v8a", "2.0.0"))
         val archive = zip(stage, "release-metadata.zip")
         assertNull(ModulePackageContract.validateArchive(archive, "arm64-v8a", "1.0.100"))
-        assertNotNull(ModulePackageContract.validateArchive(archive, "arm64-v8a", "2.0.100"))
+        assertNotNull(ModulePackageContract.validateArchive(archive, "arm64-v8a", "2.0.0"))
 
         val moduleProp = File(stage, "module.prop")
-        moduleProp.writeText(validModuleProp().replace("versionCode=100", "versionCode=0100"))
+        moduleProp.writeText(validModuleProp().replace("versionCode=1000100", "versionCode=01000100"))
         assertNotNull(ModulePackageContract.validateStaging(stage, "arm64-v8a", "1.0.100"))
 
         moduleProp.writeText(validModuleProp().replace("version=v1.0.100", "version=1.0.100"))
@@ -611,7 +611,7 @@ class ModulePackageContractTest {
         id=zapret2
         name=Zapret2 DPI Bypass
         version=v1.0.100
-        versionCode=100
+        versionCode=1000100
         author=bol-van
         description=DPI bypass using nfqws2 with Lua strategies and the Zapret2 Android app.
         updateJson=https://github.com/youtubediscord/magisk-zapret2/releases/latest/download/update.json

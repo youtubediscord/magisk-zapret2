@@ -2,6 +2,7 @@ package com.zapret2.app.data
 
 import java.io.File
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -9,7 +10,10 @@ class VersionMetadataPolicyTest {
 
     @Test
     fun sourcePlaceholders_shareOneCanonicalProjectVersion() {
-        val series = repositoryFile("version.series").readText().trim()
+        val metadata = repositoryFile("version.properties").readLines()
+            .associate { line -> line.substringBefore('=') to line.substringAfter('=') }
+        val expectedVersion = requireNotNull(metadata["VERSION_NAME"])
+        val expectedVersionCode = requireNotNull(metadata["VERSION_CODE"]).toLong()
         val appGradle = repositoryFile("android-app/app/build.gradle.kts").readText()
         val moduleProp = repositoryFile("module.prop").readText()
         val updateJson = repositoryFile("update.json").readText()
@@ -17,7 +21,8 @@ class VersionMetadataPolicyTest {
         val appVersionCode = capture(appGradle, "versionCode\\s*=\\s*([0-9]+)").toLong()
         val appVersion = capture(appGradle, "versionName\\s*=\\s*\"([^\"]+)\"")
 
-        assertEquals("$series.$appVersionCode", appVersion)
+        assertEquals(expectedVersion, appVersion)
+        assertEquals(expectedVersionCode, appVersionCode)
         assertEquals("v$appVersion", capture(moduleProp, "(?m)^version=([^\\r\\n]+)$"))
         assertEquals(appVersionCode, capture(moduleProp, "(?m)^versionCode=([0-9]+)$").toLong())
         assertEquals("v$appVersion", capture(updateJson, "\"version\"\\s*:\\s*\"([^\"]+)\""))
@@ -30,14 +35,12 @@ class VersionMetadataPolicyTest {
         val workflow = repositoryFile(".github/workflows/build.yml").readText()
         val builder = repositoryFile("build.sh").readText()
 
-        assertTrue(workflow.contains("VERSION=\"\${VERSION_SERIES}.\${VERSION_CODE}\""))
+        assertTrue(workflow.contains("sh tools/release-version.sh"))
         assertTrue(workflow.contains("version=v\${VERSION}"))
         assertTrue(workflow.contains("versionCode=\${VERSION_CODE}"))
-        assertTrue(workflow.contains("^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"))
-        assertTrue(builder.contains("VERSION=\"\${VERSION_SERIES}.\${VERSION_CODE}\""))
-        assertTrue(builder.contains("VERSION_CODE=\"\${BASH_REMATCH[1]}\""))
-        assertTrue(builder.contains("10#\$VERSION_CODE > 2100000000"))
-        assertTrue(builder.contains("^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"))
+        assertTrue(builder.contains("sh tools/release-version.sh"))
+        assertFalse(workflow.contains("github.run_number"))
+        assertFalse(builder.contains("rev-list --count"))
     }
 
     @Test

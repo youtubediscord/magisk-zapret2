@@ -112,28 +112,31 @@ jobs:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
-      - name: Generate version from CI run
+      - name: Read canonical release version
         id: version
         run: |
-          if [ ! -f version.series ]; then
-            echo "version.series file is missing"
+          set -euo pipefail
+          VERSION_METADATA=$(sh tools/release-version.sh)
+          VERSION=$(sed -n 's/^version=//p' <<<"$VERSION_METADATA")
+          VERSION_CODE=$(sed -n 's/^version_code=//p' <<<"$VERSION_METADATA")
+          VERSION_TAG=$(sed -n 's/^version_tag=//p' <<<"$VERSION_METADATA")
+          [[ -n "$VERSION" && -n "$VERSION_CODE" && -n "$VERSION_TAG" ]]
+
+          if git ls-remote --exit-code --tags origin "refs/tags/$VERSION_TAG" >/dev/null 2>&1; then
+            echo "Release tag $VERSION_TAG already exists; bump version.properties intentionally"
             exit 1
           fi
 
-          VERSION_SERIES=$(tr -d '[:space:]' < version.series)
-          if [[ ! "$VERSION_SERIES" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
-            echo "Invalid version series '$VERSION_SERIES' in version.series"
+          LATEST_JSON=$(curl --fail --silent --show-error --location --max-time 30 \
+            https://github.com/youtubediscord/magisk-zapret2/releases/latest/download/update.json)
+          LATEST_VERSION_CODE=$(jq -er '.versionCode | select(type == "number" and floor == .)' \
+            <<<"$LATEST_JSON")
+          if (( VERSION_CODE <= LATEST_VERSION_CODE )); then
+            echo "versionCode $VERSION_CODE must exceed published versionCode $LATEST_VERSION_CODE"
             exit 1
           fi
 
-          VERSION_CODE=$(( 100000 + ${{ github.run_number }} * 100 + ${{ github.run_attempt }} ))
-          VERSION="${VERSION_SERIES}.${VERSION_CODE}"
-          VERSION_TAG="v${VERSION}"
-
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "version_code=${VERSION_CODE}" >> "$GITHUB_OUTPUT"
-          echo "version_tag=${VERSION_TAG}" >> "$GITHUB_OUTPUT"
-
+          printf '%s\n' "$VERSION_METADATA" >> "$GITHUB_OUTPUT"
           echo "Using ${VERSION_TAG} (versionCode=${VERSION_CODE})"
 
   build-apk:
@@ -629,7 +632,7 @@ jobs:
           # Create release (tag is created automatically if missing)
           gh release create "$VERSION_TAG" \
             --target "$GITHUB_SHA" \
-            --title "Zapret2 $VERSION_TAG" \
+            --title "Zapret2 ${{ needs.prepare-version.outputs.version }}" \
             --generate-notes \
             zapret2-magisk-*.zip \
             zapret2-magisk-*.zip.sha256 \

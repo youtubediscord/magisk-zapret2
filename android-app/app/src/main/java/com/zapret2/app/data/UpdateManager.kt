@@ -108,7 +108,7 @@ private val RELEASE_VERSION_PATTERN = Regex(
     "([0-9]+(?:\\.[0-9]+)*)(?:-([0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*))?(?:\\+[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?",
 )
 private val PROJECT_RELEASE_VERSION_PATTERN = Regex(
-    "^v?((?:0|[1-9][0-9]*))\\.((?:0|[1-9][0-9]*))\\.([1-9][0-9]{0,9})$",
+    "^v?([1-9][0-9]{0,3})\\.(0|[1-9][0-9]?)\\.(0|[1-9][0-9]{0,3})$",
 )
 
 private data class ParsedReleaseVersion(
@@ -118,11 +118,11 @@ private data class ParsedReleaseVersion(
 
 internal fun projectReleaseVersionCode(version: String): Long? {
     val match = PROJECT_RELEASE_VERSION_PATTERN.matchEntire(version) ?: return null
-    if (match.groupValues[1].toLongOrNull() == null || match.groupValues[2].toLongOrNull() == null) {
-        return null
-    }
-    return match.groupValues[3].toLongOrNull()
-        ?.takeIf { it in 1L..2_100_000_000L }
+    val major = match.groupValues[1].toLongOrNull()?.takeIf { it in 1L..2_100L } ?: return null
+    val minor = match.groupValues[2].toLongOrNull()?.takeIf { it in 0L..99L } ?: return null
+    val patch = match.groupValues[3].toLongOrNull()?.takeIf { it in 0L..9_999L } ?: return null
+    return (major * 1_000_000L + minor * 10_000L + patch)
+        .takeIf { it in 1L..2_100_000_000L }
 }
 
 internal fun isProjectReleaseTag(tag: String): Boolean =

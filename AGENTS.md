@@ -80,11 +80,15 @@ cd android-app
 
 ### Magisk Module ZIP
 ```bash
-./build.sh 1.9.100001 dist
+./build.sh 2.0.0 dist
 ```
 
 The local builder requires prebuilt, non-empty ARM binaries. Release artifacts are
 created by the pinned CI workflow, which also validates the full package contract.
+`version.properties` is the sole release-version source. Versions advance explicitly
+as `2.0.0`, `2.0.1`, and so on; minor and major transitions are manual. Android
+`versionCode` must equal `MAJOR*1000000 + MINOR*10000 + PATCH`, so its ordering is
+identical to SemVer and independent of CI runs, Git history, or wall-clock time.
 
 ### Production publication workflow
 
@@ -96,7 +100,7 @@ When the user asks to synchronize or deploy production, use this order:
    Report the run URL/status observed immediately after the push.
 3. After the push, build local artifacts from that exact pushed commit when the local
    machine is available and faster. Publish them in a separate GitHub prerelease with
-   a `local-v<version>` tag, the source commit SHA, and SHA-256 checksum assets.
+   a `v<version>-local` tag, the source commit SHA, and SHA-256 checksum assets.
 4. Never mark the local prerelease as `Latest`, and never point `update.json` at local
    artifacts. The pinned CI release remains the canonical production/update channel.
 5. A local APK must use the production signing identity and its certificate digest

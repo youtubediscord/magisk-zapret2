@@ -85,20 +85,20 @@ class Zapret2ModuleRepositoryTest {
         val valid = """
             id=zapret2
             name=Zapret2 DPI Bypass
-            version=v2.0.100
-            versionCode=100
+            version=v2.0.0
+            versionCode=2000000
             author=bol-van
             description=DPI bypass
             updateJson=https://github.com/youtubediscord/magisk-zapret2/releases/latest/download/update.json
         """.trimIndent() + "\n"
 
-        assertEquals("v2.0.100", repository.parseModulePropVersion(valid))
+        assertEquals("v2.0.0", repository.parseModulePropVersion(valid))
         assertNull(repository.parseModulePropVersion(valid.replace("id=zapret2", "id=other")))
-        assertNull(repository.parseModulePropVersion(valid.replace("versionCode=100", "versionCode=99")))
-        assertNull(repository.parseModulePropVersion(valid.replace("version=v2.0.100", "version=v2.0.0100")))
+        assertNull(repository.parseModulePropVersion(valid.replace("versionCode=2000000", "versionCode=1999999")))
+        assertNull(repository.parseModulePropVersion(valid.replace("version=v2.0.0", "version=v2.0.00")))
         assertNull(repository.parseModulePropVersion(valid + "webRoot=webroot\n"))
         assertNull(repository.parseModulePropVersion(valid + "id=zapret2\n"))
-        assertNull(repository.parseModulePropVersion(valid.replace("version=v2.0.100", "version=bad\u0000value")))
+        assertNull(repository.parseModulePropVersion(valid.replace("version=v2.0.0", "version=bad\u0000value")))
         assertNull(repository.parseModulePropVersion(valid + "#${"x".repeat(64 * 1024)}\n"))
     }
 
