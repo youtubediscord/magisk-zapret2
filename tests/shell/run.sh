@@ -142,9 +142,12 @@ read_compiled_artifact_metadata "$TMP/udp.argv" || fail "UDP artifact metadata i
 grep -Fxq -- '--name=Discord voice' "$TMP/udp.argv" || fail "argument with spaces was split"
 
 PREVIEW_OUTPUT="$TMP/preview.out"
-STATE_DIR="$STATE_DIR" sh "$FIXTURE/scripts/command-builder.sh" \
-    --preview-preset-machine "$FIXTURE" "$FIXTURE/presets/TCP only.txt" "TCP only.txt" > "$PREVIEW_OUTPUT" ||
+if ! STATE_DIR="$STATE_DIR" sh "$FIXTURE/scripts/command-builder.sh" \
+    --preview-preset-machine "$FIXTURE" "$FIXTURE/presets/TCP only.txt" "TCP only.txt" \
+    > "$PREVIEW_OUTPUT" 2>&1; then
+    sed -n '1,80p' "$PREVIEW_OUTPUT" >&2
     fail "command preview rejected a valid unsaved candidate"
+fi
 grep -Fxq "Z2_COMMAND_PREVIEW$(printf '\t')1$(printf '\t')TCP only.txt$(printf '\t')TCP=80$(printf '\t')UDP=" \
     "$PREVIEW_OUTPUT" || fail "command preview port metadata is not exact"
 grep -Fxq "Z2_COMMAND_EXECUTABLE$(printf '\t')$FIXTURE/nfqws2" "$PREVIEW_OUTPUT" ||
