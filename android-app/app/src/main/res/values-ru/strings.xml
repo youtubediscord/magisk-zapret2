@@ -150,6 +150,7 @@
     <string name="control_status_root_manager_unavailable">Root-менеджер недоступен</string>
     <string name="control_status_root_shell_failed">Сбой root-оболочки</string>
     <string name="control_status_root_timeout">Истекло время запроса root</string>
+    <string name="control_status_root_operation_busy">Выполняется операция с root</string>
     <string name="control_status_not_installed">Модуль не установлен</string>
     <string name="control_status_reboot_required">Требуется перезагрузка</string>
     <string name="control_status_module_not_ready">Установка модуля требует внимания</string>

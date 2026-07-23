@@ -6,6 +6,93 @@ MODDIR="${MODDIR:-$(dirname "$ZAPRET_DIR")}"
 
 umask 077
 
+# Stable adapter-owned error protocol shared by lifecycle scripts and the
+# Android app. Human diagnostics may evolve; these machine fields may not.
+Z2_ERROR_SCHEMA_VERSION=1
+
+z2_error_domain_is_valid() {
+    case "$1" in
+        NONE|ROOT|STATE|LIFECYCLE|CONFIG|FIREWALL|PROCESS|STATUS|UPDATE) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+z2_error_code_is_valid() {
+    case "$1" in
+        NONE|ROOT_DENIED|ROOT_MANAGER_UNAVAILABLE|ROOT_SHELL_FAILED|ROOT_COMMAND_QUEUE_BUSY|\
+        ROOT_COMMAND_TIMEOUT|ROOT_COMMAND_FAILED|STATE_UNAVAILABLE|LIFECYCLE_BUSY|UPDATE_BLOCKED|\
+        RECOVERY_BLOCKED|UNINSTALL_BLOCKED|MODULE_DISABLED|MODULE_REMOVAL_PENDING|\
+        CONFIG_INVALID|PREFLIGHT_FAILED|\
+        FIREWALL_PROBE_FAILED|FIREWALL_BUILD_FAILED|FIREWALL_CLEANUP_FAILED|\
+        FIREWALL_COMMIT_FAILED|PROCESS_LAUNCH_FAILED|PROCESS_STOP_FAILED|\
+        POSTCONDITION_FAILED|STATUS_DEGRADED|LIFECYCLE_FAILED) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+z2_error_stage_is_valid() {
+    [ -n "$1" ] || return 1
+    case "$1" in *[!A-Z0-9_]*) return 1 ;; esac
+}
+
+z2_error_code_matches_domain() {
+    case "$1:$2" in
+        NONE:NONE) return 0 ;;
+        ROOT:ROOT_DENIED|ROOT:ROOT_MANAGER_UNAVAILABLE|ROOT:ROOT_SHELL_FAILED|\
+        ROOT:ROOT_COMMAND_QUEUE_BUSY|ROOT:ROOT_COMMAND_TIMEOUT|ROOT:ROOT_COMMAND_FAILED) return 0 ;;
+        STATE:STATE_UNAVAILABLE) return 0 ;;
+        LIFECYCLE:LIFECYCLE_BUSY|LIFECYCLE:RECOVERY_BLOCKED|LIFECYCLE:UNINSTALL_BLOCKED|\
+        LIFECYCLE:MODULE_DISABLED|LIFECYCLE:MODULE_REMOVAL_PENDING|\
+        LIFECYCLE:POSTCONDITION_FAILED|LIFECYCLE:LIFECYCLE_FAILED) return 0 ;;
+        CONFIG:CONFIG_INVALID|CONFIG:PREFLIGHT_FAILED) return 0 ;;
+        FIREWALL:PREFLIGHT_FAILED|FIREWALL:FIREWALL_PROBE_FAILED|\
+        FIREWALL:FIREWALL_BUILD_FAILED|FIREWALL:FIREWALL_CLEANUP_FAILED|\
+        FIREWALL:FIREWALL_COMMIT_FAILED|FIREWALL:POSTCONDITION_FAILED) return 0 ;;
+        PROCESS:PROCESS_LAUNCH_FAILED|PROCESS:PROCESS_STOP_FAILED|\
+        PROCESS:POSTCONDITION_FAILED) return 0 ;;
+        STATUS:STATUS_DEGRADED) return 0 ;;
+        UPDATE:UPDATE_BLOCKED) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+z2_error_fields_are_valid() {
+    local domain="$1" code="$2" stage="$3" retryable="$4"
+    z2_error_domain_is_valid "$domain" && z2_error_code_is_valid "$code" &&
+        z2_error_stage_is_valid "$stage" &&
+        z2_error_code_matches_domain "$domain" "$code" || return 1
+    case "$retryable" in 0|1) ;; *) return 1 ;; esac
+    if [ "$code" = NONE ]; then
+        [ "$domain" = NONE ] && [ "$stage" = NONE ] && [ "$retryable" = 0 ]
+    else
+        [ "$domain" != NONE ] && [ "$stage" != NONE ]
+    fi
+}
+
+z2_error_set() {
+    z2_error_fields_are_valid "$1" "$2" "$3" "$4" || return 1
+    Z2_ERROR_DOMAIN="$1"
+    Z2_ERROR_CODE="$2"
+    Z2_ERROR_STAGE="$3"
+    Z2_ERROR_RETRYABLE="$4"
+}
+
+z2_error_clear() {
+    z2_error_set NONE NONE NONE 0
+}
+
+z2_error_emit_machine() {
+    z2_error_fields_are_valid "${Z2_ERROR_DOMAIN:-}" "${Z2_ERROR_CODE:-}" \
+        "${Z2_ERROR_STAGE:-}" "${Z2_ERROR_RETRYABLE:-}" || return 1
+    echo "Z2_ERROR_SCHEMA=$Z2_ERROR_SCHEMA_VERSION"
+    echo "Z2_ERROR_DOMAIN=$Z2_ERROR_DOMAIN"
+    echo "Z2_ERROR_CODE=$Z2_ERROR_CODE"
+    echo "Z2_ERROR_STAGE=$Z2_ERROR_STAGE"
+    echo "Z2_ERROR_RETRYABLE=$Z2_ERROR_RETRYABLE"
+}
+
+z2_error_clear
+
 # All live privileged state is kept below one fixed root-only directory.  The
 # old /data/local/tmp names are migration inputs only and are never normal
 # lifecycle write/delete targets.
@@ -4654,6 +4741,11 @@ STATUS_FILE_RULESET_VERIFIED=0
 STATUS_FILE_OWNER_METADATA_VERIFIED=0
 STATUS_FILE_RULES_EXPECTED=0
 STATUS_FILE_DIAGNOSTICS=""
+STATUS_FILE_ERROR_SCHEMA=0
+STATUS_FILE_ERROR_DOMAIN=NONE
+STATUS_FILE_ERROR_CODE=NONE
+STATUS_FILE_ERROR_STAGE=NONE
+STATUS_FILE_ERROR_RETRYABLE=0
 
 read_iptables_status() {
     local path="${1:-$IPTABLES_STATUS}"
@@ -4663,6 +4755,8 @@ read_iptables_status() {
     STATUS_FILE_MARK_SUPPORTED=0; STATUS_FILE_IPV4_ACTIVE=0; STATUS_FILE_IPV6_ACTIVE=0
     STATUS_FILE_IPV4_RULES=0; STATUS_FILE_IPV6_RULES=0; STATUS_FILE_RULESET_VERIFIED=0
     STATUS_FILE_OWNER_METADATA_VERIFIED=0; STATUS_FILE_RULES_EXPECTED=0; STATUS_FILE_DIAGNOSTICS=""
+    STATUS_FILE_ERROR_SCHEMA=0; STATUS_FILE_ERROR_DOMAIN=NONE; STATUS_FILE_ERROR_CODE=NONE
+    STATUS_FILE_ERROR_STAGE=NONE; STATUS_FILE_ERROR_RETRYABLE=0
     if [ "$path" = "$IPTABLES_STATUS" ]; then
         state_file_is_secure "$path" && [ -r "$path" ] || return 1
     else
@@ -4689,9 +4783,24 @@ read_iptables_status() {
             owner_metadata_verified) STATUS_FILE_OWNER_METADATA_VERIFIED="$value" ;;
             rules_expected) STATUS_FILE_RULES_EXPECTED="$value" ;;
             diagnostics) STATUS_FILE_DIAGNOSTICS="$value" ;;
+            error_schema) STATUS_FILE_ERROR_SCHEMA="$value" ;;
+            error_domain) STATUS_FILE_ERROR_DOMAIN="$value" ;;
+            error_code) STATUS_FILE_ERROR_CODE="$value" ;;
+            error_stage) STATUS_FILE_ERROR_STAGE="$value" ;;
+            error_retryable) STATUS_FILE_ERROR_RETRYABLE="$value" ;;
         esac
     done < "$path"
     normalize_qnum "$STATUS_FILE_QNUM" && STATUS_FILE_QNUM="$QNUM_NORMALIZED" || STATUS_FILE_QNUM=""
+    if [ "$STATUS_FILE_ERROR_SCHEMA" = "$Z2_ERROR_SCHEMA_VERSION" ] &&
+       z2_error_fields_are_valid "$STATUS_FILE_ERROR_DOMAIN" "$STATUS_FILE_ERROR_CODE" \
+           "$STATUS_FILE_ERROR_STAGE" "$STATUS_FILE_ERROR_RETRYABLE"; then
+        :
+    elif [ "$STATUS_FILE_ERROR_SCHEMA" = 0 ]; then
+        STATUS_FILE_ERROR_DOMAIN=NONE; STATUS_FILE_ERROR_CODE=NONE
+        STATUS_FILE_ERROR_STAGE=NONE; STATUS_FILE_ERROR_RETRYABLE=0
+    else
+        return 1
+    fi
     return 0
 }
 
@@ -4708,8 +4817,12 @@ restore_status_facts() {
 
 write_iptables_status() {
     local state="$1" tmp="$IPTABLES_STATUS.tmp.$$" errors diagnostics
+    local error_domain="${STATUS_ERROR_DOMAIN:-NONE}" error_code="${STATUS_ERROR_CODE:-NONE}"
+    local error_stage="${STATUS_ERROR_STAGE:-NONE}" error_retryable="${STATUS_ERROR_RETRYABLE:-0}"
     errors="$(status_safe_value "${STATUS_ERRORS:-}")"
     diagnostics="$(status_safe_value "${STATUS_DIAGNOSTICS:-}")"
+    z2_error_fields_are_valid "$error_domain" "$error_code" "$error_stage" "$error_retryable" ||
+        return 1
     ensure_state_dir || return 1
     state_file_target_is_safe "$IPTABLES_STATUS" || return 1
     [ ! -e "$tmp" ] && [ ! -L "$tmp" ] || return 1
@@ -4744,6 +4857,11 @@ write_iptables_status() {
         echo "multiport_supported=${STATUS_MULTIPORT_SUPPORTED:-0}"
         echo "mark_supported=${STATUS_MARK_SUPPORTED:-0}"
         echo "fallback_mode=${STATUS_FALLBACK_MODE:-0}"
+        echo "error_schema=$Z2_ERROR_SCHEMA_VERSION"
+        echo "error_domain=$error_domain"
+        echo "error_code=$error_code"
+        echo "error_stage=$error_stage"
+        echo "error_retryable=$error_retryable"
         echo "diagnostics=$diagnostics"
     } > "$tmp" || { rm -f "$tmp"; return 1; }
     chmod 0600 "$tmp" 2>/dev/null || { rm -f "$tmp"; return 1; }

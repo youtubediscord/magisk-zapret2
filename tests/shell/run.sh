@@ -187,6 +187,7 @@ assert_not_contains "$ROOT/zapret2/scripts/zapret-start.sh" '@config'
 assert_not_contains "$ROOT/zapret2/scripts/command-builder.sh" 'eval '
 
 Z2_TEST_TMP="$TMP" sh "$ROOT/tests/shell/full-rollback.sh"
+Z2_TEST_TMP="$TMP" sh "$ROOT/tests/shell/error-contract.sh"
 Z2_TEST_TMP="$TMP" sh "$ROOT/tests/shell/purge-contract.sh"
 Z2_TEST_TMP="$TMP" sh "$ROOT/tests/shell/lifecycle-safety.sh"
 Z2_TEST_TMP="$TMP" sh "$ROOT/tests/shell/marker-occurrence.sh"

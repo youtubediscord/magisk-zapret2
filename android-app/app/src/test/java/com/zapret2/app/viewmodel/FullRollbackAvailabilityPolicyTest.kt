@@ -28,6 +28,10 @@ class FullRollbackAvailabilityPolicyTest {
             ControlStatus.ROOT_TIMEOUT,
             ServiceLifecycleController.RootAccessState.TIMEOUT.toControlStatus(),
         )
+        assertEquals(
+            ControlStatus.ROOT_OPERATION_BUSY,
+            ServiceLifecycleController.RootAccessState.BUSY.toControlStatus(),
+        )
     }
 
     @Test
@@ -60,6 +64,7 @@ class FullRollbackAvailabilityPolicyTest {
             ControlStatus.ROOT_MANAGER_UNAVAILABLE,
             ControlStatus.ROOT_SHELL_FAILED,
             ControlStatus.ROOT_TIMEOUT,
+            ControlStatus.ROOT_OPERATION_BUSY,
             ControlStatus.UNAVAILABLE,
         ).forEach { status ->
             assertFalse(

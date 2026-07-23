@@ -56,6 +56,7 @@ enum class ControlStatus(@param:StringRes val labelRes: Int) {
     ROOT_MANAGER_UNAVAILABLE(R.string.control_status_root_manager_unavailable),
     ROOT_SHELL_FAILED(R.string.control_status_root_shell_failed),
     ROOT_TIMEOUT(R.string.control_status_root_timeout),
+    ROOT_OPERATION_BUSY(R.string.control_status_root_operation_busy),
     NOT_INSTALLED(R.string.control_status_not_installed),
     REBOOT_REQUIRED(R.string.control_status_reboot_required),
     MODULE_NOT_READY(R.string.control_status_module_not_ready),
@@ -90,6 +91,7 @@ internal fun ServiceLifecycleController.RootAccessState.toControlStatus(): Contr
         ControlStatus.ROOT_MANAGER_UNAVAILABLE
     ServiceLifecycleController.RootAccessState.SHELL_FAILURE -> ControlStatus.ROOT_SHELL_FAILED
     ServiceLifecycleController.RootAccessState.TIMEOUT -> ControlStatus.ROOT_TIMEOUT
+    ServiceLifecycleController.RootAccessState.BUSY -> ControlStatus.ROOT_OPERATION_BUSY
 }
 
 internal val ModuleInstallState.labelRes: Int
@@ -1419,6 +1421,7 @@ class ControlViewModel @Inject constructor(
     }
 
     private suspend fun pollStatusOnce(forceFirewallWatchdog: Boolean = false) {
+        if (exclusiveActionInProgress.get()) return
         try {
             checkStatus(forceFirewallWatchdog)
         } catch (cancelled: CancellationException) {
@@ -1490,6 +1493,21 @@ class ControlViewModel @Inject constructor(
         val refreshId = statusRefreshSequence.incrementAndGet()
         val rootAccess = ServiceLifecycleController.checkRootAccess()
         if (!rootAccess.granted) {
+            if (rootAccess.state == ServiceLifecycleController.RootAccessState.BUSY) {
+                val current = _uiState.value
+                if (refreshId == statusRefreshSequence.get()) {
+                    _uiState.update {
+                        it.copy(
+                            status = ControlStatus.ROOT_OPERATION_BUSY,
+                            rootAccessState = rootAccess.state,
+                        )
+                    }
+                }
+                return ServiceSnapshot(
+                    isRunning = current.isRunning,
+                    canStopService = current.canStopService,
+                )
+            }
             if (refreshId == statusRefreshSequence.get()) {
                 _uiState.update {
                     it.copy(

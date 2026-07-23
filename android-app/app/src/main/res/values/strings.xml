@@ -150,6 +150,7 @@
     <string name="control_status_root_manager_unavailable">Root manager unavailable</string>
     <string name="control_status_root_shell_failed">Root shell failed</string>
     <string name="control_status_root_timeout">Root request timed out</string>
+    <string name="control_status_root_operation_busy">Root operation in progress</string>
     <string name="control_status_not_installed">Module is not installed</string>
     <string name="control_status_reboot_required">Reboot required</string>
     <string name="control_status_module_not_ready">Module installation requires attention</string>

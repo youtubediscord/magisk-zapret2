@@ -5,14 +5,17 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 . "$SCRIPT_DIR/common.sh"
 
 MACHINE=0
+MACHINE_VERSION=0
 case "${1:-}" in
     "") ;;
-    --machine) MACHINE=1 ;;
-    *) echo "ERROR: usage: $0 [--machine]" >&2; exit 2 ;;
+    --machine) MACHINE=1; MACHINE_VERSION=1 ;;
+    --machine-v2) MACHINE=1; MACHINE_VERSION=2 ;;
+    *) echo "ERROR: usage: $0 [--machine|--machine-v2]" >&2; exit 2 ;;
 esac
 
 if ! update_lock_allows_status; then
     if [ "$MACHINE" = 1 ]; then
+        [ "$MACHINE_VERSION" != 2 ] || echo "Z2_PROTOCOL=2"
         echo "Z2_STATUS=degraded"
         echo "Z2_OWNED=1"
         echo "Z2_PROCESS=0"
@@ -34,6 +37,10 @@ if ! update_lock_allows_status; then
         echo "Z2_QUEUE_BYPASS=0"
         echo "Z2_UPDATE_BLOCKED=1"
         echo "Z2_UNINSTALL_TOMBSTONE=0"
+        if [ "$MACHINE_VERSION" = 2 ]; then
+            z2_error_set UPDATE UPDATE_BLOCKED STATUS_UPDATE 1
+            z2_error_emit_machine
+        fi
         echo "Z2_COMPLETE=1"
     else
         echo "Status: degraded"
@@ -171,7 +178,20 @@ else
     Z2_QUEUE_BYPASS="$STATUS_FILE_QUEUE_BYPASS_SUPPORTED"
 fi
 
+if [ "$STATUS_FILE_ERROR_SCHEMA" = "$Z2_ERROR_SCHEMA_VERSION" ] &&
+   [ "$STATUS_FILE_ERROR_CODE" != NONE ] &&
+   z2_error_fields_are_valid "$STATUS_FILE_ERROR_DOMAIN" "$STATUS_FILE_ERROR_CODE" \
+       "$STATUS_FILE_ERROR_STAGE" "$STATUS_FILE_ERROR_RETRYABLE"; then
+    z2_error_set "$STATUS_FILE_ERROR_DOMAIN" "$STATUS_FILE_ERROR_CODE" \
+        "$STATUS_FILE_ERROR_STAGE" "$STATUS_FILE_ERROR_RETRYABLE"
+elif [ "$Z2_STATUS" = degraded ]; then
+    z2_error_set STATUS STATUS_DEGRADED STATUS_QUERY 1
+else
+    z2_error_clear
+fi
+
 emit_machine() {
+    [ "$MACHINE_VERSION" != 2 ] || echo "Z2_PROTOCOL=2"
     echo "Z2_STATUS=$Z2_STATUS"
     echo "Z2_OWNED=$Z2_OWNED"
     echo "Z2_PROCESS=$Z2_PROCESS"
@@ -193,6 +213,7 @@ emit_machine() {
     echo "Z2_QUEUE_BYPASS=$Z2_QUEUE_BYPASS"
     echo "Z2_UPDATE_BLOCKED=$Z2_UPDATE_BLOCKED"
     echo "Z2_UNINSTALL_TOMBSTONE=$Z2_UNINSTALL_TOMBSTONE"
+    [ "$MACHINE_VERSION" != 2 ] || z2_error_emit_machine
     # Terminal sentinel lets strict callers reject truncated shell output.
     echo "Z2_COMPLETE=1"
 }

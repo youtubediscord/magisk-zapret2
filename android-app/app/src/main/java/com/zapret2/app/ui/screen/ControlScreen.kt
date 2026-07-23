@@ -481,6 +481,7 @@ private fun ServiceStatusCard(
             ControlStatus.RUNNING -> success.color
             ControlStatus.DEGRADED,
             ControlStatus.UNCONFIRMED,
+            ControlStatus.ROOT_OPERATION_BUSY,
             -> warning.color
             ControlStatus.ROOT_DENIED,
             ControlStatus.ROOT_MANAGER_UNAVAILABLE,
