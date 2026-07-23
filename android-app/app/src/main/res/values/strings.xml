@@ -229,8 +229,6 @@
     <string name="control_update_module_validation_failed">The module archive could not be validated</string>
     <string name="control_update_unsupported_abi">This device ABI is not supported by the module package</string>
     <string name="control_update_apk_installer_unavailable">The Android APK installer could not be opened</string>
-    <string name="control_update_module_recovery_required">The module update requires recovery</string>
-    <string name="control_update_module_recovery_required_details">The module update requires recovery. Technical details: %1$s</string>
     <string name="control_update_module_rejected">The module update was rejected</string>
     <string name="control_update_module_install_failed">The module could not be installed</string>
     <string name="control_update_installed_reboot">Update installed. Reboot required.</string>

@@ -4,7 +4,7 @@ import java.io.File
 import java.util.Locale
 import java.util.zip.ZipFile
 
-/** One strict contract shared by downloaded archives and hot-update candidates. */
+/** One strict contract shared by downloaded archives and Magisk's pending installation. */
 internal object ModulePackageContract {
     private const val MODULE_ID = "zapret2"
     internal const val MODULE_UPDATE_JSON =
@@ -18,28 +18,12 @@ internal object ModulePackageContract {
     internal const val COMMAND_BUILDER_SCRIPT_PATH = "zapret2/scripts/command-builder.sh"
     internal const val LIFECYCLE_CONTRACT_PATH = "zapret2/lifecycle-contract.version"
     internal const val LIFECYCLE_CONTRACT_VERSION = "2"
-    internal const val UPDATE_GUARD_PATH = "zapret2/scripts/zapret-update-guard.sh"
     internal const val PURGE_CONTRACT_PATH = "zapret2/scripts/lifecycle/purge-contract.sh"
     internal const val PURGE_SCRIPT_PATH = "zapret2/scripts/lifecycle/zapret-purge.sh"
-    internal const val MAX_UPDATE_GUARD_BYTES = 256 * 1024
     internal const val MAX_SHELL_EXEC_BYTES = 256 * 1024
     private const val MAX_PATH_COMPONENT_BYTES = 255
     private val shellShebang = "#!/system/bin/sh\n".toByteArray(Charsets.UTF_8)
     private val modulePropertyKey = Regex("^[A-Za-z][A-Za-z0-9_]*$")
-
-    enum class PreservationPolicy {
-        REGULAR_FILE,
-        BOUNDED_REGULAR_FILE,
-        DIRECTORY_TREE,
-        CUSTOM_PRESETS,
-        MODULE_ROOT_MARKER,
-    }
-
-    data class PreservationArtifact(
-        val relativePath: String,
-        val policy: PreservationPolicy,
-        val maxBytes: Int? = null,
-    )
 
     data class Wrapper(val verb: String) {
         val relativePath: String = "system/bin/zapret2-$verb"
@@ -53,7 +37,7 @@ internal object ModulePackageContract {
 
     val installerOnlyExecutables = listOf("customize.sh")
 
-    val hotUpdateRootExecutables = listOf(
+    val moduleRootExecutables = listOf(
         "service.sh",
         "uninstall.sh",
         "action.sh",
@@ -73,7 +57,6 @@ internal object ModulePackageContract {
         "zapret2/scripts/zapret-stop.sh",
         "zapret2/scripts/zapret-restart.sh",
         "zapret2/scripts/zapret-status.sh",
-        UPDATE_GUARD_PATH,
         "zapret2/scripts/zapret-full-rollback.sh",
         PURGE_CONTRACT_PATH,
         PURGE_SCRIPT_PATH,
@@ -126,19 +109,12 @@ internal object ModulePackageContract {
         "zapret2/scripts/zapret-status.sh",
     )
 
-    /**
-     * Files that Magisk may execute directly or expose through its mounted module surface.
-     * A live update is allowed only while every one of these remains byte-identical.
-     */
-    val hotSwapBootstrapFiles =
-        hotUpdateRootExecutables + wrappers.map { it.relativePath } + LIFECYCLE_CONTRACT_PATH
-
     internal val mandatoryRuntimeManifestLines = buildList {
         mandatoryImmutableFiles.forEach { add("immutable-file|0644|$it") }
         mandatoryMutableSeeds.forEach { add("mutable-seed|0644|$it") }
         mandatoryRuntimeDependencies.forEach { add("runtime-dependency-immutable|0644|$it") }
         installerOnlyExecutables.forEach { add("immutable-exec|0755|$it") }
-        hotUpdateRootExecutables.forEach { add("immutable-exec|0755|$it") }
+        moduleRootExecutables.forEach { add("immutable-exec|0755|$it") }
         mandatoryRuntimeExecutables.forEach { add("immutable-exec|0755|$it") }
         wrappers.forEach { add("immutable-exec|0755|${it.relativePath}") }
         add("abi-exec|0755|zapret2/bin/{abi}/nfqws2")
@@ -148,28 +124,8 @@ internal object ModulePackageContract {
     /** Bootstrap checked after recursive copy; all package files come from the manifest. */
     val requiredRegularFiles = listOf(RUNTIME_MANIFEST_PATH)
 
-    const val PRESERVED_LISTS_DIRECTORY = "zapret2/lists"
-    const val PRESERVED_CUSTOM_PRESETS_DIRECTORY = "zapret2/presets"
     const val DISABLE_MARKER = "disable"
     val installerOwnedArtifacts = setOf(DISABLE_MARKER, InstallGenerationMetadata.RELATIVE_PATH)
-
-    /** The complete allowlist of installed artifacts allowed to cross a hot-update boundary. */
-    val preservationPlan = listOf(
-        PreservationArtifact("zapret2/runtime.ini", PreservationPolicy.REGULAR_FILE),
-        PreservationArtifact(PRESERVED_LISTS_DIRECTORY, PreservationPolicy.DIRECTORY_TREE),
-        PreservationArtifact(PRESERVED_CUSTOM_PRESETS_DIRECTORY, PreservationPolicy.CUSTOM_PRESETS),
-        PreservationArtifact(DISABLE_MARKER, PreservationPolicy.MODULE_ROOT_MARKER),
-    )
-
-    val preservedMutableFiles: List<String>
-        get() = preservationPlan
-            .filter { it.policy == PreservationPolicy.REGULAR_FILE }
-            .map { it.relativePath }
-
-    val preservedUserLuaFiles: List<String>
-        get() = preservationPlan
-            .filter { it.policy == PreservationPolicy.BOUNDED_REGULAR_FILE }
-            .map { it.relativePath }
 
     fun selectBinaryDirectory(supportedAbis: List<String>): String? =
         supportedAbis.firstOrNull()?.lowercase(Locale.ROOT)?.let { abi ->
@@ -259,13 +215,6 @@ internal object ModulePackageContract {
                         ?: return "module.prop exceeds the size limit"
                 }
                 validateModuleProp(modulePropBytes, expectedReleaseVersion)?.let { return it }
-
-                val guardEntry = entriesByName.getValue(UPDATE_GUARD_PATH).single()
-                val guardBytes = zip.getInputStream(guardEntry).use {
-                    it.readBoundedBytes(MAX_UPDATE_GUARD_BYTES)
-                        ?: return "Package update guard exceeds the size limit"
-                }
-                validateUpdateGuard(guardBytes, executable = true)?.let { return it }
 
                 wrappers.forEach { wrapper ->
                     val entry = entriesByName.getValue(wrapper.relativePath).single()
@@ -358,16 +307,6 @@ internal object ModulePackageContract {
         val moduleProp = File(stagingDir, "module.prop")
         if (moduleProp.length() > MAX_MODULE_PROP_BYTES) return "module.prop exceeds the size limit"
         validateModuleProp(moduleProp.readBytes(), expectedReleaseVersion)?.let { return it }
-
-        val updateGuard = File(stagingDir, UPDATE_GUARD_PATH)
-        if (updateGuard.length() > MAX_UPDATE_GUARD_BYTES) {
-            return "Package update guard exceeds the size limit"
-        }
-        val guardBytes = updateGuard.inputStream().use {
-            it.readBoundedBytes(MAX_UPDATE_GUARD_BYTES)
-                ?: return "Package update guard exceeds the size limit"
-        }
-        validateUpdateGuard(guardBytes, executable = updateGuard.canExecute())?.let { return it }
 
         wrappers.forEach { wrapper ->
             val file = File(stagingDir, wrapper.relativePath)
@@ -572,18 +511,6 @@ internal object ModulePackageContract {
             .first { it.substringBefore('=').trim() == "version" }
             .substringAfter('=')
             .trim()
-    }
-
-    internal fun validateUpdateGuard(bytes: ByteArray, executable: Boolean): String? = when {
-        bytes.isEmpty() -> "Package update guard is empty"
-        bytes.size > MAX_UPDATE_GUARD_BYTES -> "Package update guard exceeds the size limit"
-        !executable -> "Package update guard is not executable"
-        bytes.indexOf(0) >= 0 -> "Package update guard contains NUL bytes"
-        bytes.indexOf('\r'.code.toByte()) >= 0 -> "Package update guard contains CR bytes"
-        bytes.size < shellShebang.size ||
-            !bytes.copyOfRange(0, shellShebang.size).contentEquals(shellShebang) ->
-            "Package update guard has an invalid shebang"
-        else -> null
     }
 
     internal fun validateShellExecutable(bytes: ByteArray): String? = when {

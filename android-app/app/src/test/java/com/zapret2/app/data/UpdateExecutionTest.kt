@@ -94,26 +94,6 @@ class UpdateExecutionTest {
     }
 
     @Test
-    fun terminalOutcome_carriesServiceRestartOutsideTheModuleCommit() {
-        val report = UpdateExecutionReport(
-            module = ModuleArtifactOutcome.Installed(
-                requiresReboot = false,
-                restartService = true,
-            ),
-            apk = ApkArtifactOutcome.NotRequested,
-        )
-
-        assertTrue(report.restartService)
-        assertEquals(
-            UpdateTerminalOutcome.Installed(
-                requiresReboot = false,
-                restartService = true,
-            ),
-            report.toTerminalOutcome(),
-        )
-    }
-
-    @Test
     fun terminalOutcome_distinguishesInstalledAndInvalidReports() {
         assertEquals(
             UpdateTerminalOutcome.Installed(requiresReboot = false),

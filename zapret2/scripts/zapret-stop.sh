@@ -87,11 +87,6 @@ main() {
             "insecure or unavailable zapret2 state directory: $STATE_DIR"
     acquire_lifecycle_lock ||
         stop_error_exit LIFECYCLE LIFECYCLE_BUSY STOP_LOCK 1 "zapret2 lifecycle is busy"
-    if ! update_lock_allows_stop; then
-        message="stop blocked by update serialization: $UPDATE_LOCK_ERROR"
-        release_lifecycle_lock
-        stop_error_exit UPDATE UPDATE_BLOCKED STOP_UPDATE 1 "$message"
-    fi
     if ! audit_recovery_artifacts lifecycle; then
         message="stop blocked by recovery state: ${RECOVERY_ARTIFACT_DIAGNOSTIC:-unsafe recovery artifact}"
         release_lifecycle_lock
@@ -119,7 +114,6 @@ main() {
     STOP_QNUM="${STATUS_FILE_QNUM:-${QNUM:-}}"
     if read_owner_state >/dev/null 2>&1; then STOP_QNUM="$OWNER_STATE_QNUM"; fi
     log_msg "Stopping Zapret2"
-    [ -z "$UPDATE_LOCK_DIAGNOSTIC" ] || log_msg "$UPDATE_LOCK_DIAGNOSTIC"
     [ -z "$UNINSTALL_TOMBSTONE_DIAGNOSTIC" ] || log_msg "$UNINSTALL_TOMBSTONE_DIAGNOSTIC"
 
     rc=0

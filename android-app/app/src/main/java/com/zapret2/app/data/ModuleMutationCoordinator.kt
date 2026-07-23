@@ -13,10 +13,6 @@ import kotlin.coroutines.CoroutineContext
 object ModuleMutationCoordinator {
 
     const val STATE_DIR = OwnerStateSchema.STATE_DIR
-    // Must match UPDATE_LOCK in the module lifecycle scripts.
-    const val UPDATE_LOCK = "$STATE_DIR/update.lock"
-    const val UPDATE_TRANSACTION = "$STATE_DIR/update.transaction"
-    const val UPDATE_CLEANUP = "$STATE_DIR/update.cleanup"
     const val FULL_ROLLBACK_TRANSACTION = "$STATE_DIR/full-rollback.transaction"
     const val UNINSTALL_TOMBSTONE = "$STATE_DIR/uninstall.tombstone"
     const val MAGISK_REMOVE_MARKER = "${ServiceLifecycleController.MODULE_DIR}/remove"
@@ -25,9 +21,6 @@ object ModuleMutationCoordinator {
     class MutationBlockedException(message: String) : IllegalStateException(message)
 
     internal data class SafetyProbe(
-        val updateLock: Boolean,
-        val updateTransaction: Boolean,
-        val updateCleanup: Boolean,
         val fullRollbackTransaction: Boolean,
         val uninstallTombstone: Boolean,
         val magiskRemove: Boolean,
@@ -36,8 +29,7 @@ object ModuleMutationCoordinator {
 
     internal enum class Operation {
         MUTATION,
-        UPDATE,
-        RECOVERY,
+        PACKAGE_STAGING,
         LIFECYCLE_SCRIPT,
     }
 
@@ -69,11 +61,8 @@ object ModuleMutationCoordinator {
     suspend fun <T> withNonCancellableMutation(block: suspend () -> T): T =
         withMutation { withContext(NonCancellable) { block() } }
 
-    suspend fun <T> withModuleUpdate(block: suspend () -> T): T =
-        withExclusive(Operation.UPDATE, checkUpdateState = false, checkRemovalState = true, block)
-
-    suspend fun <T> withRecovery(block: suspend () -> T): T =
-        withExclusive(Operation.RECOVERY, checkUpdateState = false, checkRemovalState = false, block)
+    suspend fun <T> withModuleStaging(block: suspend () -> T): T =
+        withExclusive(Operation.PACKAGE_STAGING, checkUpdateState = false, checkRemovalState = true, block)
 
     /** Lifecycle scripts acquire lifecycle.lock themselves and must not be wrapped in an app lease. */
     suspend fun <T> withLifecycleScript(block: suspend () -> T): T =
@@ -87,8 +76,10 @@ object ModuleMutationCoordinator {
     ): T {
         val inherited = currentCoroutineContext()[Ownership]
         if (inherited != null) {
-            if (operation == Operation.UPDATE && inherited.operation != Operation.UPDATE) {
-                throw MutationBlockedException("A module update cannot start inside another module mutation")
+            if (operation == Operation.PACKAGE_STAGING &&
+                inherited.operation != Operation.PACKAGE_STAGING
+            ) {
+                throw MutationBlockedException("Module package staging cannot start inside another mutation")
             }
             if (operation == Operation.LIFECYCLE_SCRIPT && inherited.lease != null) {
                 throw MutationBlockedException("A full lifecycle transaction cannot start inside a module write")
@@ -204,21 +195,6 @@ object ModuleMutationCoordinator {
 
         val result = ServiceLifecycleController.executeRoot(
             """
-                if [ -e ${RootFileIo.shellQuote(UPDATE_LOCK)} ] || [ -L ${RootFileIo.shellQuote(UPDATE_LOCK)} ]; then
-                    echo Z2_UPDATE_LOCK=1
-                else
-                    echo Z2_UPDATE_LOCK=0
-                fi
-                if [ -e ${RootFileIo.shellQuote(UPDATE_TRANSACTION)} ] || [ -L ${RootFileIo.shellQuote(UPDATE_TRANSACTION)} ]; then
-                    echo Z2_UPDATE_TRANSACTION=1
-                else
-                    echo Z2_UPDATE_TRANSACTION=0
-                fi
-                if [ -e ${RootFileIo.shellQuote(UPDATE_CLEANUP)} ] || [ -L ${RootFileIo.shellQuote(UPDATE_CLEANUP)} ]; then
-                    echo Z2_UPDATE_CLEANUP=1
-                else
-                    echo Z2_UPDATE_CLEANUP=0
-                fi
                 if [ -e ${RootFileIo.shellQuote(FULL_ROLLBACK_TRANSACTION)} ] || [ -L ${RootFileIo.shellQuote(FULL_ROLLBACK_TRANSACTION)} ]; then
                     echo Z2_FULL_ROLLBACK_TRANSACTION=1
                 else
@@ -254,15 +230,6 @@ object ModuleMutationCoordinator {
         if (checkRemovalState && probe.magiskRemove) {
             throw MutationBlockedException("Magisk module removal is pending; changes were not saved")
         }
-        if (checkUpdateState && probe.updateLock) {
-            throw MutationBlockedException("Module update marker is present; your changes were not saved")
-        }
-        if (checkUpdateState && probe.updateTransaction) {
-            throw MutationBlockedException("An interrupted module update requires recovery; your changes were not saved")
-        }
-        if (checkUpdateState && probe.updateCleanup) {
-            throw MutationBlockedException("Committed update cleanup requires recovery; your changes were not saved")
-        }
         if (checkUpdateState && probe.fullRollbackTransaction) {
             throw MutationBlockedException("A full rollback transaction requires recovery; your changes were not saved")
         }
@@ -274,9 +241,6 @@ object ModuleMutationCoordinator {
     internal fun parseSafetyProbe(lines: List<String>): SafetyProbe? {
         val completion = "Z2_MUTATION_PROBE_COMPLETE"
         val keys = setOf(
-            "Z2_UPDATE_LOCK",
-            "Z2_UPDATE_TRANSACTION",
-            "Z2_UPDATE_CLEANUP",
             "Z2_FULL_ROLLBACK_TRANSACTION",
             "Z2_UNINSTALL_TOMBSTONE",
             "Z2_MAGISK_REMOVE",
@@ -295,9 +259,6 @@ object ModuleMutationCoordinator {
             keys.any { values[it] != "0" && values[it] != "1" } || values[completion] != "1"
         ) return null
         return SafetyProbe(
-            updateLock = values["Z2_UPDATE_LOCK"] == "1",
-            updateTransaction = values["Z2_UPDATE_TRANSACTION"] == "1",
-            updateCleanup = values["Z2_UPDATE_CLEANUP"] == "1",
             fullRollbackTransaction = values["Z2_FULL_ROLLBACK_TRANSACTION"] == "1",
             uninstallTombstone = values["Z2_UNINSTALL_TOMBSTONE"] == "1",
             magiskRemove = values["Z2_MAGISK_REMOVE"] == "1",

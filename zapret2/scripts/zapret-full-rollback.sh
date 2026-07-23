@@ -385,15 +385,9 @@ ensure_state_dir || blocked "state directory is unavailable or unsafe"
 acquire_lifecycle_lock || blocked "another lifecycle owner is active"
 RB_LOCKED=1
 
-if [ -e "$UPDATE_CLEANUP" ] || [ -L "$UPDATE_CLEANUP" ]; then
-    consume_committed_update_cleanup_locked ||
-        blocked "committed update cleanup is malformed, ambiguous, or could not be consumed; evidence was preserved"
-fi
-
 audit_recovery_artifacts full-rollback || blocked "recovery artifact blocks rollback: $RECOVERY_ARTIFACT_DIAGNOSTIC"
 read_install_generation_meta || blocked "install generation metadata is missing, unsafe, or malformed"
 RB_INSTALL_GENERATION="$INSTALL_META_GENERATION"; RB_INSTALL_ARCHIVE_SHA256="$INSTALL_META_ARCHIVE_SHA256"
-update_lock_allows_stop >/dev/null 2>&1 || blocked "update serialization blocks rollback: $UPDATE_LOCK_ERROR"
 { [ -e "$UNINSTALL_TOMBSTONE" ] || [ -L "$UNINSTALL_TOMBSTONE" ]; } && blocked "uninstall tombstone blocks rollback"
 module_removal_pending && blocked "Magisk removal marker blocks rollback"
 

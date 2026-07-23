@@ -90,7 +90,7 @@ class ModulePackageContractTest {
         assertEquals(setOf("customize.sh"), ModulePackageContract.installerOnlyExecutables.toSet())
         assertEquals(
             setOf("service.sh", "uninstall.sh", "action.sh"),
-            ModulePackageContract.hotUpdateRootExecutables.toSet(),
+            ModulePackageContract.moduleRootExecutables.toSet(),
         )
         assertEquals(listOf(ModulePackageContract.RUNTIME_MANIFEST_PATH), ModulePackageContract.requiredRegularFiles)
     }
@@ -130,7 +130,6 @@ class ModulePackageContractTest {
             "immutable-exec|0755|zapret2/scripts/zapret-stop.sh",
             "immutable-exec|0755|zapret2/scripts/zapret-restart.sh",
             "immutable-exec|0755|zapret2/scripts/zapret-status.sh",
-            "immutable-exec|0755|zapret2/scripts/zapret-update-guard.sh",
             "immutable-exec|0755|zapret2/scripts/zapret-full-rollback.sh",
             "immutable-exec|0755|zapret2/scripts/lifecycle/purge-contract.sh",
             "immutable-exec|0755|zapret2/scripts/lifecycle/zapret-purge.sh",
@@ -325,54 +324,6 @@ class ModulePackageContractTest {
     }
 
     @Test
-    fun mutablePreservationAllowlistCannotRetainObsoleteImmutableFiles() {
-        val preserved = ModulePackageContract.preservedMutableFiles +
-            ModulePackageContract.preservedUserLuaFiles +
-            ModulePackageContract.PRESERVED_LISTS_DIRECTORY +
-            ModulePackageContract.PRESERVED_CUSTOM_PRESETS_DIRECTORY
-        assertEquals(
-            setOf(
-                "zapret2/runtime.ini",
-                "zapret2/lists",
-                "zapret2/presets",
-            ),
-            preserved.toSet()
-        )
-        assertTrue("zapret2/runtime.ini" in preserved)
-        assertFalse("zapret2/lua/zapret-custom.lua" in preserved)
-        assertFalse("zapret2/lua/init_vars.lua" in preserved)
-        assertFalse("zapret2/lua/zapret-lib.lua" in preserved)
-        assertFalse("zapret2/lua/zapret-antidpi.lua" in preserved)
-        assertFalse("zapret2/lua/custom_funcs.lua" in preserved)
-        assertFalse("zapret2/scripts/obsolete.sh" in preserved)
-        assertFalse("system/bin/obsolete-wrapper" in preserved)
-    }
-
-    @Test
-    fun preservationPlan_filtersPoliciesAndIncludesOnlyTheSafeRootDisableMarker() {
-        val rootMarkers = ModulePackageContract.preservationPlan.filter {
-            it.policy == ModulePackageContract.PreservationPolicy.MODULE_ROOT_MARKER
-        }
-        assertEquals(listOf(ModulePackageContract.DISABLE_MARKER), rootMarkers.map { it.relativePath })
-        assertFalse(InstallGenerationMetadata.RELATIVE_PATH in ModulePackageContract.preservationPlan.map { it.relativePath })
-
-        val shell = ModuleUpdatePreservation.buildShell("/active", "/candidate")
-        assertTrue(shell.contains("'/active/disable'"))
-        assertTrue(shell.contains("'/candidate/disable'"))
-        assertTrue(shell.contains("stat -c %u"))
-        assertTrue(shell.contains("stat -c %h"))
-        assertTrue(shell.contains("stat -c %s"))
-        assertTrue(shell.contains("stat -c %a"))
-        assertTrue(shell.contains("chmod 0600 '/candidate/disable'"))
-        assertTrue(shell.contains("'/candidate/${ModulePackageContract.PACKAGE_CONTRACT_SCRIPT_PATH}'"))
-        assertTrue(shell.contains("package_contract_safe_preset_name"))
-        assertTrue(shell.contains("'/active/zapret2/presets'"))
-        assertTrue(shell.contains("'/candidate/zapret2/presets'"))
-        assertTrue(shell.contains("size\" -le 1048576"))
-        assertTrue(shell.contains("cmp -s"))
-    }
-
-    @Test
     fun packageRejectsInstallerOwnedDisableAndGenerationArtifacts() {
         ModulePackageContract.installerOwnedArtifacts.forEachIndexed { index, relative ->
             val stage = temporaryFolder.newFolder("installer-owned-$index")
@@ -387,69 +338,14 @@ class ModulePackageContractTest {
     }
 
     @Test
-    fun updateGuardContract_rejectsEmptyBadShebangCrNulAndNonExecutable() {
-        val valid = "#!/system/bin/sh\necho guarded\n".toByteArray()
-        assertNull(ModulePackageContract.validateUpdateGuard(valid, executable = true))
-        assertNotNull(ModulePackageContract.validateUpdateGuard(byteArrayOf(), executable = true))
-        assertNotNull(ModulePackageContract.validateUpdateGuard("#!/bin/sh\n".toByteArray(), executable = true))
-        assertNotNull(ModulePackageContract.validateUpdateGuard("#!/system/bin/sh\r\n".toByteArray(), executable = true))
-        assertNotNull(ModulePackageContract.validateUpdateGuard(valid + byteArrayOf(0), executable = true))
-        assertNotNull(ModulePackageContract.validateUpdateGuard(valid, executable = false))
-        assertNotNull(
-            ModulePackageContract.validateUpdateGuard(
-                ByteArray(ModulePackageContract.MAX_UPDATE_GUARD_BYTES + 1) { 'x'.code.toByte() },
-                executable = true,
-            )
-        )
-    }
-
-    @Test
-    fun archiveAndStaging_rejectMalformedUpdateGuard() {
-        listOf(
-            byteArrayOf(),
-            "#!/bin/sh\n".toByteArray(),
-            "#!/system/bin/sh\r\n".toByteArray(),
-        ).forEachIndexed { index, bytes ->
-            val stage = temporaryFolder.newFolder("bad-guard-$index")
-            writeValidPackage(stage)
-            File(stage, ModulePackageContract.UPDATE_GUARD_PATH).writeBytes(bytes)
-            assertNotNull(ModulePackageContract.validateStaging(stage, "arm64-v8a"))
-            assertNotNull(ModulePackageContract.validateArchive(zip(stage, "bad-guard-$index.zip"), "arm64-v8a"))
-        }
-    }
-
-    @Test
-    fun stagingRejectsSymlinkedUpdateGuard() {
-        val stage = temporaryFolder.newFolder("symlinked-update-guard")
-        writeValidPackage(stage)
-        val guard = File(stage, ModulePackageContract.UPDATE_GUARD_PATH)
-        val target = File(stage, "real-update-guard.sh").apply {
-            writeText("#!/system/bin/sh\n")
-            setExecutable(true, false)
-        }
-        guard.delete()
-        try {
-            Files.createSymbolicLink(guard.toPath(), target.toPath())
-        } catch (error: Exception) {
-            assumeNoException(error)
-        }
-        assertNotNull(ModulePackageContract.validateStaging(stage, "arm64-v8a"))
-    }
-
-    @Test
     fun sourceManifestDeclaresExactCompatibleAndQuarantinedCatalog() {
         val lines = sourceManifest().lineSequence().toList()
         assertEquals(98, lines.count { it.startsWith("preset-compatible|0644|") })
         assertEquals(0, lines.count { it.startsWith("preset-quarantined|0644|") })
         assertTrue(lines.contains("immutable-file|0644|${ModulePackageContract.RUNTIME_MANIFEST_PATH}"))
+        assertTrue(lines.contains("mutable-seed|0644|zapret2/runtime.ini"))
         assertTrue(lines.contains("runtime-dependency-immutable|0644|zapret2/lua/zapret-auto.lua"))
         assertTrue(lines.contains("abi-exec|0755|zapret2/bin/{abi}/nfqws2"))
-        ModulePackageContract.preservedMutableFiles.forEach { path ->
-            assertTrue("Fresh package must explicitly declare mutable seed $path", lines.any { it.endsWith("|$path") })
-        }
-        ModulePackageContract.preservedUserLuaFiles.forEach { path ->
-            assertTrue("Fresh package must explicitly declare approved user seed $path", lines.any { it.endsWith("|$path") })
-        }
     }
 
     @Test
@@ -692,10 +588,6 @@ class ModulePackageContractTest {
                         "module.prop" -> writeText(validModuleProp())
                         ModulePackageContract.LIFECYCLE_CONTRACT_PATH ->
                             writeText("${ModulePackageContract.LIFECYCLE_CONTRACT_VERSION}\n")
-                        ModulePackageContract.UPDATE_GUARD_PATH -> {
-                            writeText("#!/system/bin/sh\necho guarded\n")
-                            setExecutable(true, false)
-                        }
                         else -> writeText(
                             if (artifactClass == "immutable-exec") "#!/system/bin/sh\nfixture\n" else "fixture\n",
                         )

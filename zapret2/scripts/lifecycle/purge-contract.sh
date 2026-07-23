@@ -121,9 +121,6 @@ z2_purge_managed_tree_path() {
     case "$parent:$name" in
         /data/adb:zapret2-install.*) suffix="${name#zapret2-install.}" ;;
         /data/adb:zapret2-recovery.*) suffix="${name#zapret2-recovery.}" ;;
-        /data/adb/modules:.zapret2-update-*) suffix="${name#.zapret2-update-}" ;;
-        /data/adb/modules:.zapret2-backup-*) suffix="${name#.zapret2-backup-}" ;;
-        /data/adb/modules:.zapret2-failed-*) suffix="${name#.zapret2-failed-}" ;;
         /data/adb/modules:.zapret2-recovery-*) suffix="${name#.zapret2-recovery-}" ;;
         *) return 1 ;;
     esac
@@ -148,8 +145,7 @@ z2_purge_remove_external_workspaces() {
     case "$-" in *f*) restore_noglob=1; set +f ;; esac
     set -- \
         /data/adb/zapret2-install.* /data/adb/zapret2-recovery.* \
-        /data/adb/modules/.zapret2-update-* /data/adb/modules/.zapret2-backup-* \
-        /data/adb/modules/.zapret2-failed-* /data/adb/modules/.zapret2-recovery-*
+        /data/adb/modules/.zapret2-recovery-*
     [ "$restore_noglob" = 1 ] && set -f
     for path in "$@"; do
         [ -e "$path" ] || [ -L "$path" ] || continue
@@ -167,8 +163,7 @@ z2_purge_remove_legacy_files() {
         /data/local/tmp/nfqws2-error.log /data/local/tmp/nfqws2-debug.log \
         /data/local/tmp/zapret2.log /data/local/tmp/zapret2.log.1 \
         /data/local/tmp/zapret2-runtime.owner /data/local/tmp/zapret2-user.conf \
-        /data/local/tmp/zapret2-lifecycle.lock /data/local/tmp/zapret2-lifecycle.lock.* \
-        /data/local/tmp/zapret2-update.lock /data/local/tmp/zapret2-update.lock.*
+        /data/local/tmp/zapret2-lifecycle.lock /data/local/tmp/zapret2-lifecycle.lock.*
     [ "$restore_noglob" = 1 ] && set -f
     for path in "$@"; do
         [ -e "$path" ] || [ -L "$path" ] || continue

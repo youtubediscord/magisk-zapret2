@@ -43,27 +43,6 @@ class CancellationSafeTerminalCommitTest {
     }
 
     @Test
-    fun deleteMayHaveOccurredAndBothResponsesUnavailable_defersWithoutRollback() {
-        val resolution = UpdateTransactionProtocol.resolveTerminalAttempt(
-            primarySucceeded = false,
-            probeSucceeded = false,
-            probeLines = emptyList(),
-        )
-        var rollbackCount = 0
-        var retainedArtifacts = false
-
-        when (resolution) {
-            UpdateTransactionProtocol.TerminalResolution.NOT_COMMITTED -> rollbackCount += 1
-            UpdateTransactionProtocol.TerminalResolution.AMBIGUOUS_COMMITTED -> retainedArtifacts = true
-            UpdateTransactionProtocol.TerminalResolution.COMMITTED -> Unit
-        }
-
-        assertEquals(UpdateTransactionProtocol.TerminalResolution.AMBIGUOUS_COMMITTED, resolution)
-        assertEquals(0, rollbackCount)
-        assertTrue(retainedArtifacts)
-    }
-
-    @Test
     fun rollbackTerminalDeleteCancellation_commitsWithoutReentryOrRetainedBackupRecreation() = runBlocking {
         val result = CompletableDeferred<RollbackObserved>()
         var rollbackEntryCount = 1

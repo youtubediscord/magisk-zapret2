@@ -151,17 +151,10 @@ cleanup_build_temps() {
 trap cleanup_build_temps EXIT
 trap 'exit 1' HUP INT TERM
 
-# Match the immutable command-entry contract enforced by the Android hot
-# updater and the release workflow.
+# Match the immutable command-entry contract enforced by the release workflow.
 test -d system/bin
 test ! -L system
 test ! -L system/bin
-test -f zapret2/scripts/zapret-update-guard.sh
-test ! -L zapret2/scripts/zapret-update-guard.sh
-test -s zapret2/scripts/zapret-update-guard.sh
-test -x zapret2/scripts/zapret-update-guard.sh
-test "$(sed -n '1p' zapret2/scripts/zapret-update-guard.sh)" = '#!/system/bin/sh'
-if LC_ALL=C grep -q "$(printf '\r')" zapret2/scripts/zapret-update-guard.sh; then exit 1; fi
 test -f zapret2/scripts/zapret-full-rollback.sh
 test ! -L zapret2/scripts/zapret-full-rollback.sh
 test -x zapret2/scripts/zapret-full-rollback.sh
@@ -241,14 +234,6 @@ for command_name in start stop status restart full-rollback; do
     unzip -p "$ZIP_PATH" "$entry" > "$WRAPPER_ACTUAL"
     cmp -s "$WRAPPER_EXPECTED" "$WRAPPER_ACTUAL"
 done
-UPDATE_GUARD_ENTRY='zapret2/scripts/zapret-update-guard.sh'
-test "$(grep -Fxc "$UPDATE_GUARD_ENTRY" "$ZIP_LIST")" -eq 1
-zipinfo -l "$ZIP_PATH" "$UPDATE_GUARD_ENTRY" | grep -Eq '^-rwxr-xr-x[[:space:]]'
-unzip -p "$ZIP_PATH" "$UPDATE_GUARD_ENTRY" > "$WRAPPER_ACTUAL"
-test -s "$WRAPPER_ACTUAL"
-cmp -s "$UPDATE_GUARD_ENTRY" "$WRAPPER_ACTUAL"
-test "$(sed -n '1p' "$WRAPPER_ACTUAL")" = '#!/system/bin/sh'
-if LC_ALL=C grep -q "$(printf '\r')" "$WRAPPER_ACTUAL"; then exit 1; fi
 ROLLBACK_SCRIPT_ENTRY='zapret2/scripts/zapret-full-rollback.sh'
 test "$(grep -Fxc "$ROLLBACK_SCRIPT_ENTRY" "$ZIP_LIST")" -eq 1
 zipinfo -l "$ZIP_PATH" "$ROLLBACK_SCRIPT_ENTRY" | grep -Eq '^-rwxr-xr-x[[:space:]]'

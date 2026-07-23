@@ -13,7 +13,6 @@ MOCK="$CASE/bin"
 LIVE=/data/adb/modules/zapret2
 UPDATE=/data/adb/modules_update/zapret2
 LIVE_STATE=/data/adb/zapret2-state
-UNINSTALL_CLEANUP=/data/adb/modules/.zapret2-failed-packaging-uninstall-cleanup
 SYSTEM_CREATED=0
 FIXTURE_OWNED=0
 LIVE_TEST_PID=""
@@ -26,7 +25,7 @@ cleanup() {
         kill "$LIVE_TEST_PID" 2>/dev/null || true
         wait "$LIVE_TEST_PID" 2>/dev/null || true
     fi
-    rm -rf "$LIVE" "$UPDATE" "$LIVE_STATE" "$UNINSTALL_CLEANUP" "$CASE"
+    rm -rf "$LIVE" "$UPDATE" "$LIVE_STATE" "$CASE"
     if [ "$SYSTEM_CREATED" = 1 ]; then
         rm -f /system/bin/sh
         rmdir /system/bin 2>/dev/null || true
@@ -38,7 +37,7 @@ cleanup() {
 # A failure before this point must never install a trap that removes paths the
 # fixture has not proven it owns.
 [ "$(id -u)" = 0 ] || fail "run as root"
-for path in "$LIVE" "$UPDATE" "$LIVE_STATE" "$UNINSTALL_CLEANUP" "$CASE"; do
+for path in "$LIVE" "$UPDATE" "$LIVE_STATE" "$CASE"; do
     [ ! -e "$path" ] && [ ! -L "$path" ] || fail "test path already exists: $path"
 done
 FIXTURE_OWNED=1
@@ -65,94 +64,7 @@ SCRIPT_DIR="$ROOT/zapret2/scripts"
 audit_recovery_artifacts install || fail "clean install audit was blocked"
 [ "$RECOVERY_ARTIFACT_CLASS" = clean ] || fail "clean audit class"
 
-: > "$UPDATE_LOCK"
-chmod 0600 "$UPDATE_LOCK"
-if audit_recovery_artifacts install; then fail "update recovery artifact was accepted"; fi
-[ "$RECOVERY_ARTIFACT_CLASS" = update ] || fail "update audit class"
-rm -f "$UPDATE_LOCK"
-
-# Canonical update transaction is admitted to lifecycle only after the exact
-# live lock PID/start/token and transaction owner binding are verified.
 owner_start=$(awk '{print $22}' "/proc/$$/stat")
-owner_boot=$(cat /proc/sys/kernel/random/boot_id)
-cat > "$UPDATE_LOCK" <<EOF
-version=2
-pid=$$
-starttime=$owner_start
-created_epoch=123
-boot_id=$owner_boot
-token=authorized-token
-module_dir=$MODDIR
-EOF
-cat > "$UPDATE_TRANSACTION" <<EOF
-version=3
-transaction_id=$$-12345
-phase=prepared
-created_epoch=123
-pre_update_state=stopped
-disable_marker_expectation=absent
-owner_pid=$$
-owner_starttime=$owner_start
-owner_created_epoch=123
-owner_boot_id=$owner_boot
-module_dir=$MODDIR
-update_dir=/data/adb/modules/.zapret2-update-$$-12345
-backup_dir=/data/adb/modules/.zapret2-backup-$$-12345
-failed_dir=/data/adb/modules/.zapret2-failed-$$-12345
-EOF
-chmod 0600 "$UPDATE_LOCK" "$UPDATE_TRANSACTION"
-cp "$UPDATE_TRANSACTION" "$CASE/update-transaction.valid"
-
-# The shared v2 golden fixture is accepted after binding its module path to
-# this isolated shell fixture.
-sed "s|^module_dir=.*|module_dir=$MODDIR|" "$ROOT/tests/fixtures/update-transaction-v2.golden" > "$UPDATE_TRANSACTION"
-chmod 0600 "$UPDATE_TRANSACTION"
-read_update_transaction_gate_file || fail "shared v2 transaction fixture was rejected"
-cp "$CASE/update-transaction.valid" "$UPDATE_TRANSACTION"; chmod 0600 "$UPDATE_TRANSACTION"
-
-for phase in prepared stopped candidate_ready active_move_intent active_moved candidate_active verified restored \
-    restore_copying restore_candidate_ready restore_active_moved restore_candidate_active; do
-    sed "s/^phase=.*/phase=$phase/" "$CASE/update-transaction.valid" > "$UPDATE_TRANSACTION"
-    chmod 0600 "$UPDATE_TRANSACTION"
-    read_update_transaction_gate_file || fail "v3 phase was rejected: $phase"
-done
-cp "$CASE/update-transaction.valid" "$UPDATE_TRANSACTION"; chmod 0600 "$UPDATE_TRANSACTION"
-
-grep -v '^disable_marker_expectation=' "$CASE/update-transaction.valid" > "$UPDATE_TRANSACTION"
-chmod 0600 "$UPDATE_TRANSACTION"
-if read_update_transaction_gate_file; then fail "missing disable-marker expectation was accepted"; fi
-{ cat "$CASE/update-transaction.valid"; echo disable_marker_expectation=absent; } > "$UPDATE_TRANSACTION"
-chmod 0600 "$UPDATE_TRANSACTION"
-if read_update_transaction_gate_file; then fail "duplicate disable-marker expectation was accepted"; fi
-{ cat "$CASE/update-transaction.valid"; echo future=value; } > "$UPDATE_TRANSACTION"
-chmod 0600 "$UPDATE_TRANSACTION"
-if read_update_transaction_gate_file; then fail "unknown v2 transaction field was accepted"; fi
-sed 's/^pre_update_state=.*/pre_update_state=running/; s/^disable_marker_expectation=.*/disable_marker_expectation=present/' \
-    "$CASE/update-transaction.valid" > "$UPDATE_TRANSACTION"
-chmod 0600 "$UPDATE_TRANSACTION"
-if read_update_transaction_gate_file; then fail "PRESENT+RUNNING transaction was accepted"; fi
-cp "$CASE/update-transaction.valid" "$UPDATE_TRANSACTION"; chmod 0600 "$UPDATE_TRANSACTION"
-unset ZAPRET2_UPDATE_TOKEN ZAPRET2_UPDATE_OWNER_PID ZAPRET2_UPDATE_OWNER_START ZAPRET2_UPDATE_OWNER_CREATED ZAPRET2_UPDATE_OWNER_BOOT
-if update_lock_allows_stop; then fail "normal stop was authorized for active update transaction"; fi
-if audit_recovery_artifacts lifecycle; then fail "normal lifecycle audit admitted update transaction"; fi
-[ "$RECOVERY_ARTIFACT_CLASS" = update ] || fail "authorized transaction fixture was not classified as update"
-ZAPRET2_UPDATE_TOKEN=authorized-token ZAPRET2_UPDATE_OWNER_PID=$$ ZAPRET2_UPDATE_OWNER_START=$owner_start ZAPRET2_UPDATE_OWNER_CREATED=123 ZAPRET2_UPDATE_OWNER_BOOT=$owner_boot
-export ZAPRET2_UPDATE_TOKEN ZAPRET2_UPDATE_OWNER_PID ZAPRET2_UPDATE_OWNER_START ZAPRET2_UPDATE_OWNER_CREATED ZAPRET2_UPDATE_OWNER_BOOT
-for owner_field in owner_pid owner_starttime owner_created_epoch owner_boot_id; do
-    sed "s/^$owner_field=.*/$owner_field=999999/" "$CASE/update-transaction.valid" > "$UPDATE_TRANSACTION"
-    chmod 0600 "$UPDATE_TRANSACTION"
-    if update_lock_allows_stop; then fail "wrong transaction $owner_field was authorized"; fi
-done
-cp "$CASE/update-transaction.valid" "$UPDATE_TRANSACTION"; chmod 0600 "$UPDATE_TRANSACTION"
-update_lock_allows_stop || fail "exact update transaction owner could not authorize stop"
-audit_recovery_artifacts lifecycle || fail "authorized update transaction was blocked by recovery audit"
-sed 's/^phase=.*/phase=active_move_intent/' "$CASE/update-transaction.valid" > "$UPDATE_TRANSACTION"
-chmod 0600 "$UPDATE_TRANSACTION"
-update_lock_allows_stop || fail "exact live owner could not authorize active_move_intent lifecycle"
-audit_recovery_artifacts lifecycle || fail "authorized active_move_intent transaction was blocked"
-unset ZAPRET2_UPDATE_TOKEN ZAPRET2_UPDATE_OWNER_PID ZAPRET2_UPDATE_OWNER_START ZAPRET2_UPDATE_OWNER_CREATED ZAPRET2_UPDATE_OWNER_BOOT
-rm -f "$UPDATE_LOCK" "$UPDATE_TRANSACTION"
-
 cat > "$FULL_ROLLBACK_TRANSACTION" <<EOF
 version=1
 module_dir=$MODDIR
@@ -230,11 +142,7 @@ if audit_recovery_artifacts install; then fail "foreign uninstall tombstone was 
 [ "$RECOVERY_ARTIFACT_CLASS" = unsafe ] || fail "foreign tombstone was not classified unsafe"
 rm -f "$UNINSTALL_TOMBSTONE"
 
-: > "$UPDATE_LOCK"
-chmod 0600 "$UPDATE_LOCK"
-if audit_recovery_artifacts install; then fail "mixed update/rollback recovery was accepted"; fi
-[ "$RECOVERY_ARTIFACT_CLASS" = mixed ] || fail "mixed recovery audit class"
-rm -f "$UPDATE_LOCK" "$FULL_ROLLBACK_META"
+rm -f "$FULL_ROLLBACK_META"
 ln -s missing-target "$FULL_ROLLBACK_META"
 if audit_recovery_artifacts uninstall; then fail "unsafe symlink recovery artifact was accepted"; fi
 [ "$RECOVERY_ARTIFACT_CLASS" = unsafe ] || fail "unsafe recovery audit class"
@@ -305,18 +213,18 @@ printf '%s\n' 'malformed interrupted build evidence' > "$LIVE_STATE/build-track.
 chmod 0600 "$LIVE_STATE/build-track.ipv4.4115"
 Z2_TEST_NAMESPACE=1
 export Z2_TEST_NAMESPACE
-PATH="$MOCK:$PATH" run_installer || fail "fresh install did not retire an opaque runtime track"
+PATH="$MOCK:$PATH" run_installer || fail "fresh install was coupled to an opaque runtime track"
 unset Z2_TEST_NAMESPACE
-[ ! -e "$LIVE_STATE/build-track.ipv4.4115" ] &&
-    [ ! -L "$LIVE_STATE/build-track.ipv4.4115" ] ||
-    fail "fresh standard install left opaque runtime tracking"
+[ -f "$LIVE_STATE/build-track.ipv4.4115" ] ||
+    fail "fresh staging mutated unrelated runtime tracking"
 [ -f "$UPDATE/zapret2/install-generation.meta" ] || fail "fresh install generation was not published"
 grep -Eq '^archive_sha256=[0-9a-f]{64}$' "$UPDATE/zapret2/install-generation.meta" || fail "archive hash is invalid"
 [ ! -e "$UPDATE/customize.sh" ] || fail "installer-only customize.sh remained in the installed shape"
+rm -f "$LIVE_STATE/build-track.ipv4.4115"
 mv "$UPDATE" "$LIVE"
 
-# A root-manager disable fence on a complete live module must survive a
-# standard modules_update install byte-for-byte. Reproduce the real device
+# A root-manager disable fence on a complete live module must not cross into a
+# standard modules_update generation. Reproduce the real device
 # failure: a dead same-boot start left unfinished IPv4/IPv6 WAL records and
 # partial firewall objects. Their contents belong to the old runtime lifecycle,
 # so they must not gate staging the new module.
@@ -345,16 +253,17 @@ done
 chmod 0600 "$LIVE/disable"
 Z2_TEST_NAMESPACE=1
 export Z2_TEST_NAMESPACE
-PATH="$MOCK:$PATH" run_installer || fail "live standard install was blocked by old runtime WAL"
+PATH="$MOCK:$PATH" run_installer || fail "clean staging failed while live runtime state existed"
 unset Z2_TEST_NAMESPACE
-[ ! -e "$LIVE_STATE/build-track.ipv4.99999997" ] ||
-    fail "standard update left terminal IPv4 build tracking"
-[ ! -e "$LIVE_STATE/build-track.ipv6.99999997" ] ||
-    fail "standard update left terminal IPv6 build tracking"
-[ -f "$UPDATE/disable" ] && [ ! -L "$UPDATE/disable" ] || fail "disable marker was not preserved"
-[ ! -s "$UPDATE/disable" ] && [ "$(stat -c '%a' "$UPDATE/disable")" = 600 ] || fail "disable marker contract changed"
+[ -f "$LIVE_STATE/build-track.ipv4.99999997" ] ||
+    fail "package staging mutated live IPv4 runtime evidence"
+[ -f "$LIVE_STATE/build-track.ipv6.99999997" ] ||
+    fail "package staging mutated live IPv6 runtime evidence"
+[ ! -e "$UPDATE/disable" ] && [ ! -L "$UPDATE/disable" ] ||
+    fail "old disable marker crossed the release boundary"
 [ -f "$UPDATE/zapret2/install-generation.meta" ] || fail "install generation was not published"
 grep -Eq '^archive_sha256=[0-9a-f]{64}$' "$UPDATE/zapret2/install-generation.meta" || fail "archive hash is invalid"
+rm -f "$LIVE_STATE/build-track.ipv4.99999997" "$LIVE_STATE/build-track.ipv6.99999997"
 
 # Promote the staged tree, complete an actual full rollback, uninstall it, then
 # simulate root-manager removal and reinstall. Completed generation/hosts
@@ -422,48 +331,10 @@ esac
 EOF
 cp "$MOCK/iptables" "$MOCK/ip6tables"
 chmod 0755 "$MOCK/iptables" "$MOCK/ip6tables"
-cleanup_boot=$(cat /proc/sys/kernel/random/boot_id)
-cat > "$LIVE_STATE/update.cleanup" <<EOF
-version=2
-owner_pid=$$
-owner_starttime=1
-owner_created_epoch=2
-owner_boot_id=$cleanup_boot
-owner_token=packaging-cleanup
-transaction_digest=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-cleanup_count=1
-cleanup_1=/data/adb/modules/.zapret2-backup-packaging-cleanup
-EOF
-chmod 0600 "$LIVE_STATE/update.cleanup"
 PATH="$MOCK:$PATH" STATE_DIR="$LIVE_STATE" sh "$LIVE/zapret2/scripts/zapret-full-rollback.sh" --machine > "$CASE/rollback.out" || fail "full rollback failed"
-[ ! -e "$LIVE_STATE/update.cleanup" ] || fail "full rollback did not consume committed cleanup evidence"
 grep -Fxq 'Z2_RB_STATUS=complete' "$CASE/rollback.out" || fail "rollback did not complete"
 [ -f "$LIVE_STATE/full-rollback.meta" ] && [ -f "$LIVE_STATE/hosts.rollback.backup" ] || fail "rollback evidence missing"
 
-printf '%s\n' 'version=2' 'owner_pid=broken' > "$LIVE_STATE/update.cleanup"
-chmod 0600 "$LIVE_STATE/update.cleanup"
-set +e
-PATH="$MOCK:$PATH" MODPATH="$LIVE" sh "$LIVE/uninstall.sh" > "$CASE/uninstall-malformed-cleanup.out" 2>&1
-malformed_cleanup_rc=$?
-set -e
-[ "$malformed_cleanup_rc" = 1 ] || fail "uninstall accepted malformed committed cleanup"
-[ -e "$LIVE_STATE/update.cleanup" ] || fail "uninstall discarded malformed cleanup evidence"
-[ ! -e "$LIVE_STATE/uninstall.tombstone" ] || fail "blocked uninstall published a tombstone"
-rm -f "$LIVE_STATE/update.cleanup"
-mkdir -p "$UNINSTALL_CLEANUP"
-printf '%s\n' retained > "$UNINSTALL_CLEANUP/sentinel"
-cat > "$LIVE_STATE/update.cleanup" <<EOF
-version=2
-owner_pid=$$
-owner_starttime=1
-owner_created_epoch=2
-owner_boot_id=$cleanup_boot
-owner_token=uninstall-cleanup
-transaction_digest=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
-cleanup_count=1
-cleanup_1=$UNINSTALL_CLEANUP
-EOF
-chmod 0600 "$LIVE_STATE/update.cleanup"
 printf '%s\n' 'foreign state must survive' > "$LIVE_STATE/unknown.child"
 chmod 0600 "$LIVE_STATE/unknown.child"
 set +e
@@ -479,21 +350,14 @@ if grep -Fq 'stopped, verified clean, and uninstalled' "$CASE/uninstall-partial.
 fi
 rm -f "$LIVE_STATE/unknown.child"
 PATH="$MOCK:$PATH" MODPATH="$LIVE" sh "$LIVE/uninstall.sh" > "$CASE/uninstall.out" || fail "uninstall retry after removing unknown state failed"
-[ ! -e "$UNINSTALL_CLEANUP" ] && [ ! -e "$LIVE_STATE/update.cleanup" ] || fail "uninstall did not consume committed cleanup"
 [ ! -e "$LIVE_STATE/full-rollback.meta" ] && [ ! -e "$LIVE_STATE/hosts.rollback.backup" ] || fail "completed rollback generation was not retired"
 [ -f "$LIVE_STATE/uninstall.tombstone" ] || fail "uninstall tombstone missing"
 
 rm -rf "$LIVE"
 run_installer || fail "reinstall after rollback/uninstall failed"
 [ ! -e "$UPDATE/disable" ] && [ ! -L "$UPDATE/disable" ] || fail "stale rollback disable marker resurrected"
-[ ! -e "$LIVE_STATE/uninstall.tombstone" ] && [ ! -L "$LIVE_STATE/uninstall.tombstone" ] || fail "authenticated stale tombstone was not cleared"
-STATE_DIR="$LIVE_STATE"
-ZAPRET_DIR="$UPDATE/zapret2"
-MODDIR=/data/adb/modules/zapret2
-SCRIPT_DIR="$UPDATE/zapret2/scripts"
-. "$UPDATE/zapret2/scripts/common.sh"
-audit_recovery_artifacts install || fail "reinstall left recovery artifacts"
-[ "$RECOVERY_ARTIFACT_CLASS" = clean ] || fail "reinstall recovery state is not clean"
+[ -f "$LIVE_STATE/uninstall.tombstone" ] ||
+    fail "clean package staging mutated independent uninstall state"
 
 # Magisk's Delete button publishes the durable remove marker and invokes
 # uninstall.sh at the next boot before deleting the module directory. That

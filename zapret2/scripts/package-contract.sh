@@ -330,7 +330,6 @@ package_contract_validate_manifest() {
         "immutable-exec|0755|zapret2/scripts/zapret-stop.sh" \
         "immutable-exec|0755|zapret2/scripts/zapret-restart.sh" \
         "immutable-exec|0755|zapret2/scripts/zapret-status.sh" \
-        "immutable-exec|0755|zapret2/scripts/zapret-update-guard.sh" \
         "immutable-exec|0755|zapret2/scripts/zapret-full-rollback.sh" \
         "immutable-exec|0755|zapret2/scripts/lifecycle/purge-contract.sh" \
         "immutable-exec|0755|zapret2/scripts/lifecycle/zapret-purge.sh" \
@@ -469,8 +468,8 @@ package_contract_for_each_path() {
         case "$class" in ""|'#'*|schema|owner_protocol) continue ;; esac
         if [ "$class" = "installed-exec" ] && [ "$profile" != "installed" ]; then continue; fi
         # Magisk sources customize.sh from the package and then removes it from
-        # the installed module. Hot updates publish the same canonical runtime
-        # shape, so installer-only code is excluded from installed profiles.
+        # the installed module, so installer-only code is excluded from the
+        # canonical installed profile.
         if [ "$profile" = "installed" ] && [ "$path" = "customize.sh" ]; then continue; fi
         if [ "$class" = "abi-exec" ]; then
             for abi in arm64-v8a armeabi-v7a; do
@@ -678,10 +677,8 @@ package_contract_compare_release_callback() {
     }
 }
 
-# Constant-size publication proof used by legacy and current APK hot-update
-# transactions. The source archive/staging tree was already fully qualified;
-# this boundary only proves that the executable bootstrap and lifecycle adapter
-# were copied from that same release.
+# Constant-size generation comparison for release qualification and offline
+# diagnostics. APK releases delegate publication exclusively to Magisk staging.
 package_contract_compare_release() {
     local source_root="${1%/}" target_root="${2%/}" path
     [ -n "$source_root" ] && [ -d "$source_root" ] && [ ! -L "$source_root" ] || {

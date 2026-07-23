@@ -33,8 +33,8 @@ fi
 if z2_purge_managed_tree_path /data/adb/zapret2-install.test/escape; then
     fail "nested path was accepted as an installer workspace"
 fi
-if z2_purge_managed_tree_path /data/adb/modules/.zapret2-update-../escape; then
-    fail "unsafe update workspace suffix was accepted"
+if z2_purge_managed_tree_path /data/adb/modules/.zapret2-recovery-../escape; then
+    fail "unsafe recovery workspace suffix was accepted"
 fi
 if z2_purge_managed_tree_path /data/adb/modules; then fail "broad module root accepted"; fi
 if z2_purge_managed_tree_path /data/adb; then fail "broad adb root accepted"; fi

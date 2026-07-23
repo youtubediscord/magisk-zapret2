@@ -918,36 +918,8 @@ installed_apk_hash() {
     remote_sha256 "$iah_path"
 }
 
-require_clear_update_recovery_gate() {
-    rcug_file=$1
-    capture_root_query "$rcug_file" "
-z2_update_lock=absent
-z2_update_transaction=absent
-z2_update_cleanup=absent
-[ ! -e $STATE_DIR/update.lock ] && [ ! -L $STATE_DIR/update.lock ] || z2_update_lock=present
-[ ! -e $STATE_DIR/update.transaction ] && [ ! -L $STATE_DIR/update.transaction ] || z2_update_transaction=present
-[ ! -e $STATE_DIR/update.cleanup ] && [ ! -L $STATE_DIR/update.cleanup ] || z2_update_cleanup=present
-printf 'Z2_UPDATE_LOCK=%s\\n' \"\$z2_update_lock\"
-printf 'Z2_UPDATE_TRANSACTION=%s\\n' \"\$z2_update_transaction\"
-printf 'Z2_UPDATE_CLEANUP=%s\\n' \"\$z2_update_cleanup\"
-printf 'Z2_UPDATE_RECOVERY_COMPLETE=1\\n'"
-    validate_query_schema "$rcug_file" 'Z2_UPDATE_LOCK
-Z2_UPDATE_TRANSACTION
-Z2_UPDATE_CLEANUP
-Z2_UPDATE_RECOVERY_COMPLETE'
-    for rcug_expected in \
-        Z2_UPDATE_LOCK=absent \
-        Z2_UPDATE_TRANSACTION=absent \
-        Z2_UPDATE_CLEANUP=absent \
-        Z2_UPDATE_RECOVERY_COMPLETE=1; do
-        grep -Fxq "$rcug_expected" "$rcug_file" ||
-            fail "device update refused unresolved owner/update recovery state: $rcug_expected"
-    done
-}
-
 stage_update() {
     su_dir=$1
-    require_clear_update_recovery_gate "$su_dir/update-recovery-gate.txt"
     verify_recorded_artifacts
     su_nonce=$(new_stage_nonce)
     SHELL_STAGE_MODULE=/data/local/tmp/zapret2-device-smoke-$su_nonce.module.zip

@@ -52,17 +52,15 @@ pass evidence until the deferred synchronized Gradle gate executes them:
 - rapid duplicate/busy actions: `ControlDialogStateModelTest`,
   `FullRollbackAvailabilityPolicyTest`, and `ViewModelPrivilegedBoundaryPolicyTest`;
 - coroutine cancellation at privileged commit/lock boundaries:
-  `CancellationSafeLockHandoffTest`, `CancellationSafeMutationLeaseTest`,
-  `CancellationSafeTerminalCommitTest`, `ModuleUpdateRecoveryTest`, and
-  `UpdateTransactionProtocolTest`; the mutation-lease source includes the late-release
+  `CancellationSafeMutationLeaseTest` and
+  `CancellationSafeTerminalCommitTest`; the mutation-lease source includes the late-release
   case where cancellation arrives after the block result but before owner retirement;
 - denied/missing/timed-out root plus missing/partial module classification:
   `ServiceLifecycleControllerTest`, `ControlDiagnosticsRepositoryTest`, and
   `FullRollbackAvailabilityPolicyTest`;
 - malformed, duplicate, reordered, truncated, unknown and contradictory machine output:
   `ServiceLifecycleControllerTest`, `OwnerStateSchemaTest`,
-  `ControlDiagnosticsRepositoryTest`, `UpdateLockProtocolTest`,
-  `UpdateTransactionProtocolTest`, and `ModuleUpdateRecoveryTest`.
+  `ControlDiagnosticsRepositoryTest` and the shell protocol suites.
 - post-legacy UI/source graph consistency: `ResourceLinkagePolicyTest`,
   `NavigationDestinationPolicyTest`, `LegacyUiAbsencePolicyTest`,
   `AccessibilitySemanticsPolicyTest`, and `LocalizedPresentationPolicyTest`.

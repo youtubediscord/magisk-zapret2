@@ -67,9 +67,10 @@ started=$(date +%s)
 run_installer "$CASE/fresh.log" || fail "fresh boot-mode installation failed"
 elapsed=$(( $(date +%s) - started ))
 [ "$elapsed" -le 10 ] || fail "device-dependent customization exceeded 10 seconds: ${elapsed}s"
-grep -Fq 'Zapret2 is ready' "$CASE/fresh.log" || fail "fresh install did not reach the bounded terminal message"
-grep -Fq 'Extracting Zapret2 files with the package contract' "$CASE/fresh.log" ||
-    fail "customization did not use private contract extraction"
+grep -Fq 'Fresh Zapret2 generation staged' "$CASE/fresh.log" ||
+    fail "fresh install did not reach the bounded terminal message"
+grep -Fq 'Extracting a fresh Zapret2 generation' "$CASE/fresh.log" ||
+    fail "customization did not create a fresh generation"
 if grep -Fq 'chown: unknown user/group' "$CASE/fresh.log"; then fail "space-bearing paths reached Magisk chown"; fi
 [ ! -e "$UPDATE/customize.sh" ] || fail "installer-only customize.sh remained installed"
 [ -x "$UPDATE/zapret2/nfqws2" ] || fail "selected runtime binary is not executable"
@@ -102,14 +103,16 @@ prepare_magisk_stage
 packaged_core_sha=$(sha256sum "$PACKAGE/zapret2/lua/custom_funcs.lua" | awk 'NR == 1 { print $1 }')
 packaged_custom_lua_sha=$(sha256sum "$PACKAGE/zapret2/lua/zapret-custom.lua" | awk 'NR == 1 { print $1 }')
 packaged_default_sha=$(sha256sum "$PACKAGE/zapret2/presets/Default v1 (game filter).txt" | awk 'NR == 1 { print $1 }')
-run_installer "$CASE/update.log" || fail "state-preserving boot-mode update failed"
-grep -Fxq 'active_preset=My custom.txt' "$UPDATE/zapret2/runtime.ini" || fail "active preset selection was not preserved"
-grep -Fxq '# user-owned custom preset' "$UPDATE/zapret2/presets/My custom.txt" || fail "custom preset was not preserved"
-grep -Fxq 'custom.example' "$UPDATE/zapret2/lists/custom-user-list.txt" || fail "custom hostlist was not preserved"
+packaged_runtime_sha=$(sha256sum "$PACKAGE/zapret2/runtime.ini" | awk 'NR == 1 { print $1 }')
+run_installer "$CASE/update.log" || fail "clean boot-mode update failed"
+[ "$(sha256sum "$UPDATE/zapret2/runtime.ini" | awk 'NR == 1 { print $1 }')" = "$packaged_runtime_sha" ] ||
+    fail "old runtime configuration crossed the release boundary"
+[ ! -e "$UPDATE/zapret2/presets/My custom.txt" ] || fail "old custom preset crossed the release boundary"
+[ ! -e "$UPDATE/zapret2/lists/custom-user-list.txt" ] || fail "old custom hostlist crossed the release boundary"
 [ ! -e "$UPDATE/zapret2/categories.ini" ] || fail "retired categories were preserved"
 [ ! -e "$UPDATE/zapret2/User Options" ] || fail "retired command line was preserved"
-[ -f "$UPDATE/disable" ] && [ ! -s "$UPDATE/disable" ] &&
-    [ "$(stat -c %a "$UPDATE/disable")" = 600 ] || fail "disable marker was not preserved"
+[ ! -e "$UPDATE/disable" ] && [ ! -L "$UPDATE/disable" ] ||
+    fail "old disable marker crossed the release boundary"
 [ "$(sha256sum "$UPDATE/zapret2/lua/custom_funcs.lua" | awk 'NR == 1 { print $1 }')" = "$packaged_core_sha" ] ||
     fail "old core Lua crossed the release boundary"
 [ "$(sha256sum "$UPDATE/zapret2/lua/zapret-custom.lua" | awk 'NR == 1 { print $1 }')" = "$packaged_custom_lua_sha" ] ||

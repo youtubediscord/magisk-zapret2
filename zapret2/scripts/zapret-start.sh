@@ -1065,13 +1065,6 @@ main() {
         start_error_exit LIFECYCLE MODULE_REMOVAL_PENDING START_PREFLIGHT 0 \
             "start blocked because Magisk scheduled the module for removal"
     fi
-    # Update serialization is checked before log rotation, status writes,
-    # configuration migration, probes, or any other lifecycle mutation.
-    if ! update_lock_allows_start; then
-        message="start blocked by update serialization: $UPDATE_LOCK_ERROR"
-        release_lifecycle_lock
-        start_error_exit UPDATE UPDATE_BLOCKED START_UPDATE 1 "$message"
-    fi
     if ! audit_recovery_artifacts lifecycle; then
         release_lifecycle_lock
         start_error_exit LIFECYCLE RECOVERY_BLOCKED START_RECOVERY 0 \
@@ -1123,8 +1116,6 @@ main() {
         if command -v log >/dev/null 2>&1; then log -p w -t Zapret2 "Lifecycle file logging disabled: unsafe or unavailable path" 2>/dev/null; fi
     fi
     restore_status_facts
-
-    [ -n "$UPDATE_LOCK_DIAGNOSTIC" ] && DIAGNOSTICS="${DIAGNOSTICS}${UPDATE_LOCK_DIAGNOSTIC}; "
 
     load_config ||
         fail_start "configuration load failed: ${RUNTIME_CONFIG_ERROR:-invalid configuration}" \

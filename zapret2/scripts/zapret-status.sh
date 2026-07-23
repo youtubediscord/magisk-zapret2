@@ -13,42 +13,6 @@ case "${1:-}" in
     *) echo "ERROR: usage: $0 [--machine|--machine-v2]" >&2; exit 2 ;;
 esac
 
-if ! update_lock_allows_status; then
-    if [ "$MACHINE" = 1 ]; then
-        [ "$MACHINE_VERSION" != 2 ] || echo "Z2_PROTOCOL=2"
-        echo "Z2_STATUS=degraded"
-        echo "Z2_OWNED=1"
-        echo "Z2_PROCESS=0"
-        echo "Z2_ACTIVE=0"
-        echo "Z2_PID="
-        echo "Z2_PID_VERIFIED=0"
-        echo "Z2_PID_STARTTIME="
-        echo "Z2_OWNER_GENERATION="
-        echo "Z2_OWNER_METADATA_VERIFIED=0"
-        echo "Z2_QNUM="
-        echo "Z2_IPV4=0"
-        echo "Z2_IPV6=0"
-        echo "Z2_RULES=0"
-        echo "Z2_EXPECTED_RULES=0"
-        echo "Z2_IPV4_RULES=0"
-        echo "Z2_IPV6_RULES=0"
-        echo "Z2_RULESET_VERIFIED=0"
-        echo "Z2_NFQUEUE=0"
-        echo "Z2_QUEUE_BYPASS=0"
-        echo "Z2_UPDATE_BLOCKED=1"
-        echo "Z2_UNINSTALL_TOMBSTONE=0"
-        if [ "$MACHINE_VERSION" = 2 ]; then
-            z2_error_set UPDATE UPDATE_BLOCKED STATUS_UPDATE 1
-            z2_error_emit_machine
-        fi
-        echo "Z2_COMPLETE=1"
-    else
-        echo "Status: degraded"
-        echo "Lifecycle status blocked by update serialization: $UPDATE_LOCK_ERROR"
-    fi
-    exit 2
-fi
-
 CONFIG_VALID=1
 STATE_DIR_SECURE=0
 state_dir_is_secure && STATE_DIR_SECURE=1

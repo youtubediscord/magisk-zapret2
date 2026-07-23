@@ -229,8 +229,6 @@
     <string name="control_update_module_validation_failed">Не удалось проверить архив модуля</string>
     <string name="control_update_unsupported_abi">Пакет модуля не поддерживает ABI этого устройства</string>
     <string name="control_update_apk_installer_unavailable">Не удалось открыть установщик APK Android</string>
-    <string name="control_update_module_recovery_required">Требуется восстановление после обновления модуля</string>
-    <string name="control_update_module_recovery_required_details">Требуется восстановление после обновления модуля. Технические сведения: %1$s</string>
     <string name="control_update_module_rejected">Обновление модуля отклонено</string>
     <string name="control_update_module_install_failed">Не удалось установить модуль</string>
     <string name="control_update_installed_reboot">Обновление установлено. Требуется перезагрузка.</string>

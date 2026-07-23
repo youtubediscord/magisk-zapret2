@@ -135,17 +135,6 @@ LIFECYCLE_LOCK_REAPER_RECOVERY="$STATE_DIR/lifecycle.lock.reaper.recovery"
 LIFECYCLE_LOCK_REAPER_RECOVERY_QUARANTINE="$STATE_DIR/lifecycle.lock.reaper.recovery.quarantine"
 LIFECYCLE_LOCK_QUARANTINE="$STATE_DIR/lifecycle.lock.quarantine"
 LIFECYCLE_LOCK_WAIT_SECONDS="${LIFECYCLE_LOCK_WAIT_SECONDS:-60}"
-UPDATE_LOCK="$STATE_DIR/update.lock"
-UPDATE_LOCK_REAPER="$STATE_DIR/update.lock.reaper"
-UPDATE_LOCK_QUARANTINE="$STATE_DIR/update.lock.quarantine"
-UPDATE_TRANSACTION="$STATE_DIR/update.transaction"
-UPDATE_CLEANUP="$STATE_DIR/update.cleanup"
-UPDATE_LOCK_VERSION=2
-UPDATE_LOCK_LEGACY_VERSION=1
-UPDATE_TRANSACTION_VERSION=3
-UPDATE_TRANSACTION_LEGACY_VERSION=2
-UPDATE_CLEANUP_VERSION=2
-UPDATE_CLEANUP_LEGACY_VERSION=1
 UNINSTALL_TOMBSTONE="$STATE_DIR/uninstall.tombstone"
 UNINSTALL_TOMBSTONE_VERSION=1
 PURGE_REQUEST="$STATE_DIR/purge.request"
@@ -170,8 +159,7 @@ export STATE_DIR PIDFILE OWNER_STATE LOGFILE LOGFILE_PREVIOUS CMDLINE_FILE COMPI
 export STARTUP_LOG ERROR_LOG DEBUG_LOG RUNTIME_OWNER_MARKER STATUS_SNAPSHOT
 export LIFECYCLE_LOCK LIFECYCLE_LOCK_OWNER LIFECYCLE_LOCK_REAPER
 export LIFECYCLE_LOCK_REAPER_RECOVERY LIFECYCLE_LOCK_REAPER_RECOVERY_QUARANTINE
-export LIFECYCLE_LOCK_QUARANTINE UPDATE_LOCK UPDATE_LOCK_REAPER
-export UPDATE_LOCK_QUARANTINE UPDATE_TRANSACTION UPDATE_CLEANUP UNINSTALL_TOMBSTONE
+export LIFECYCLE_LOCK_QUARANTINE UNINSTALL_TOMBSTONE
 export PURGE_REQUEST
 export FULL_ROLLBACK_TRANSACTION FULL_ROLLBACK_META FULL_ROLLBACK_HOSTS_BACKUP
 export INSTALL_GENERATION_META LEGACY_MIGRATION_MARKER
@@ -796,12 +784,6 @@ enumerate_recovery_artifacts() {
     local artifact restore_noglob=0 rc=0
     case "$-" in *f*) restore_noglob=1; set +f;; esac
     for artifact in \
-        "$UPDATE_LOCK" "$UPDATE_TRANSACTION" "$UPDATE_CLEANUP" \
-        "$UPDATE_LOCK".tmp "$UPDATE_LOCK".tmp.* "$STATE_DIR"/.update.lock.* \
-        "$UPDATE_TRANSACTION".tmp "$UPDATE_TRANSACTION".tmp.* "$STATE_DIR"/.update.transaction.* \
-        "$UPDATE_CLEANUP".tmp "$UPDATE_CLEANUP".tmp.* "$UPDATE_CLEANUP".*.tmp "$STATE_DIR"/.update.cleanup.* \
-        "$UPDATE_LOCK_REAPER" "$UPDATE_LOCK_REAPER".* \
-        "$UPDATE_LOCK_QUARANTINE" "$UPDATE_LOCK_QUARANTINE".* \
         "$UNINSTALL_TOMBSTONE" "$UNINSTALL_TOMBSTONE".tmp "$UNINSTALL_TOMBSTONE".tmp.* "$STATE_DIR"/.uninstall.tombstone.* \
         "$LIFECYCLE_LOCK_REAPER" "$LIFECYCLE_LOCK_REAPER".* \
         "$LIFECYCLE_LOCK_REAPER_RECOVERY" "$LIFECYCLE_LOCK_REAPER_RECOVERY".* \
@@ -821,22 +803,19 @@ enumerate_recovery_artifacts() {
 }
 
 audit_recovery_artifacts() {
-    local scope="$1" AUDIT_NFQWS2_OVERRIDE="${2:-}" artifact update_seen=0 update_lock=0 update_tx=0 update_cleanup=0 rollback_seen=0 unsafe_seen=0 update_extra=0 rollback_meta=0 rollback_tx=0 rollback_extra=0
-    RECOVERY_ARTIFACT_DIAGNOSTIC=""; RECOVERY_ARTIFACT_CLASS=clean; RECOVERY_ARTIFACT_FIRST=""
-    case "$scope" in lifecycle|update|full-rollback|install|uninstall) ;; *) RECOVERY_ARTIFACT_DIAGNOSTIC="unknown recovery audit scope"; return 1;; esac
+    local scope="$1" AUDIT_NFQWS2_OVERRIDE="${2:-}" artifact
+    local rollback_seen=0 unsafe_seen=0 rollback_meta=0 rollback_tx=0 rollback_extra=0
+    RECOVERY_ARTIFACT_DIAGNOSTIC=""
+    RECOVERY_ARTIFACT_CLASS=clean
+    RECOVERY_ARTIFACT_FIRST=""
+    case "$scope" in
+        lifecycle|full-rollback|install|uninstall) ;;
+        *) RECOVERY_ARTIFACT_DIAGNOSTIC="unknown recovery audit scope"; return 1 ;;
+    esac
     if ! recover_stale_owner_publication; then
-        # A direct installer holding the exact lifecycle lock may defer only a
-        # syntactically exact legacy owner while the old release's own stop
-        # script quiesces it. The installer clears this one-shot allowance and
-        # repeats the audit before publishing any replacement bytes.
-        if [ "$scope" = install ] && [ "${INSTALL_DEFER_LEGACY_OWNER_RECOVERY:-0}" = 1 ] &&
-           caller_holds_exact_lifecycle_lock && read_owner_state && [ "$OWNER_STATE_LEGACY" = 1 ]; then
-            RECOVERY_ARTIFACT_DIAGNOSTIC="legacy owner retirement deferred to direct-install quiesce"
-        else
-            RECOVERY_ARTIFACT_CLASS=unsafe
-            RECOVERY_ARTIFACT_DIAGNOSTIC="$STALE_TRACK_DIAGNOSTIC"
-            return 1
-        fi
+        RECOVERY_ARTIFACT_CLASS=unsafe
+        RECOVERY_ARTIFACT_DIAGNOSTIC="$STALE_TRACK_DIAGNOSTIC"
+        return 1
     fi
     if ! classify_stale_track_journals; then
         RECOVERY_ARTIFACT_CLASS=unsafe
@@ -848,10 +827,6 @@ audit_recovery_artifacts() {
         [ "$scope" = lifecycle ] && [ "$artifact" = "$UNINSTALL_TOMBSTONE" ] && continue
         [ "$scope" = uninstall ] && [ "$artifact" = "$UNINSTALL_TOMBSTONE" ] && continue
         if [ "$scope" = install ] && [ "$artifact" = "$UNINSTALL_TOMBSTONE" ]; then
-            # A successful uninstall intentionally leaves this persistent gate.
-            # Admit only the exact secure canonical tombstone after its owner is
-            # dead; customize.sh removes it later while holding lifecycle.lock
-            # and with a durable rollback copy already armed.
             if state_file_is_secure "$UNINSTALL_TOMBSTONE" &&
                read_uninstall_tombstone &&
                [ "$UNINSTALL_FILE_MODULE" = "$MODDIR" ] &&
@@ -863,80 +838,63 @@ audit_recovery_artifacts() {
             continue
         fi
         [ -n "$RECOVERY_ARTIFACT_FIRST" ] || RECOVERY_ARTIFACT_FIRST="$artifact"
-        if [ -L "$artifact" ] || ! path_uid_is_root "$artifact"; then unsafe_seen=1; continue; fi
+        if [ -L "$artifact" ] || ! path_uid_is_root "$artifact"; then
+            unsafe_seen=1
+            continue
+        fi
         case "$artifact" in
-            "$UPDATE_LOCK") [ -f "$artifact" ] || unsafe_seen=1; update_seen=1; update_lock=1 ;;
-            "$UPDATE_TRANSACTION") [ -f "$artifact" ] || unsafe_seen=1; update_seen=1; update_tx=1 ;;
-            "$UPDATE_CLEANUP") [ -f "$artifact" ] || unsafe_seen=1; update_seen=1; update_cleanup=1 ;;
-            "$UPDATE_LOCK"*|"$UPDATE_TRANSACTION"*|"$UPDATE_CLEANUP"*|"$STATE_DIR"/.update.*)
-                update_seen=1; update_extra=1 ;;
-            "$FULL_ROLLBACK_META") [ -f "$artifact" ] || unsafe_seen=1; rollback_seen=1; rollback_meta=1 ;;
-            "$FULL_ROLLBACK_TRANSACTION") [ -f "$artifact" ] || unsafe_seen=1; rollback_seen=1; rollback_tx=1 ;;
-            "$FULL_ROLLBACK_HOSTS_BACKUP") [ -f "$artifact" ] || unsafe_seen=1; rollback_seen=1 ;;
+            "$FULL_ROLLBACK_META")
+                [ -f "$artifact" ] || unsafe_seen=1
+                rollback_seen=1
+                rollback_meta=1
+                ;;
+            "$FULL_ROLLBACK_TRANSACTION")
+                [ -f "$artifact" ] || unsafe_seen=1
+                rollback_seen=1
+                rollback_tx=1
+                ;;
+            "$FULL_ROLLBACK_HOSTS_BACKUP")
+                [ -f "$artifact" ] || unsafe_seen=1
+                rollback_seen=1
+                ;;
             "$FULL_ROLLBACK_HOSTS_BACKUP".tmp.*)
                 rollback_seen=1
                 if [ "$scope" = full-rollback ] && read_transaction >/dev/null 2>&1 &&
-                   case "${artifact##*/}" in "${FULL_ROLLBACK_HOSTS_BACKUP##*/}.tmp.${RB_TOKEN:-}."*) true;; *) false;; esac &&
-                   state_file_is_secure "$artifact" && path_mode_is_0600 "$artifact"; then :; else rollback_extra=1; fi
+                   case "${artifact##*/}" in
+                       "${FULL_ROLLBACK_HOSTS_BACKUP##*/}.tmp.${RB_TOKEN:-}."*) true ;;
+                       *) false ;;
+                   esac &&
+                   state_file_is_secure "$artifact" && path_mode_is_0600 "$artifact"; then
+                    :
+                else
+                    rollback_extra=1
+                fi
                 ;;
             "$FULL_ROLLBACK_META"*|"$FULL_ROLLBACK_TRANSACTION"*|"$FULL_ROLLBACK_HOSTS_BACKUP"*|"$STATE_DIR"/.full-rollback.*|"$STATE_DIR"/.hosts.rollback.*)
-                rollback_seen=1; rollback_extra=1 ;;
+                rollback_seen=1
+                rollback_extra=1
+                ;;
             *) unsafe_seen=1 ;;
         esac
     done
-    if [ "$unsafe_seen" = 1 ]; then RECOVERY_ARTIFACT_CLASS=unsafe
-    elif [ "$update_seen" = 1 ] && [ "$rollback_seen" = 1 ]; then RECOVERY_ARTIFACT_CLASS=mixed
-    elif [ "$update_seen" = 1 ]; then RECOVERY_ARTIFACT_CLASS=update
+    if [ "$unsafe_seen" = 1 ]; then
+        RECOVERY_ARTIFACT_CLASS=unsafe
     elif [ "$rollback_seen" = 1 ]; then
-        if [ "$rollback_meta" = 1 ] && [ "$rollback_tx" = 0 ] && [ "$rollback_extra" = 0 ]; then RECOVERY_ARTIFACT_CLASS=rollback-complete
-        else RECOVERY_ARTIFACT_CLASS=rollback-partial; fi
-    else RECOVERY_ARTIFACT_CLASS=clean; fi
-    if [ "$RECOVERY_ARTIFACT_CLASS" = rollback-partial ] && [ "$scope" = full-rollback ] && [ "$rollback_extra" = 0 ]; then return 0; fi
+        if [ "$rollback_meta" = 1 ] && [ "$rollback_tx" = 0 ] && [ "$rollback_extra" = 0 ]; then
+            RECOVERY_ARTIFACT_CLASS=rollback-complete
+        else
+            RECOVERY_ARTIFACT_CLASS=rollback-partial
+        fi
+    else
+        RECOVERY_ARTIFACT_CLASS=clean
+    fi
+    if [ "$RECOVERY_ARTIFACT_CLASS" = rollback-partial ] &&
+       [ "$scope" = full-rollback ] && [ "$rollback_extra" = 0 ]; then
+        return 0
+    fi
     case "$RECOVERY_ARTIFACT_CLASS:$scope" in
         clean:*) return 0 ;;
-        update:lifecycle)
-            [ "$update_cleanup" = 0 ] && [ "${UPDATE_LIFECYCLE_AUTHORIZED:-0}" = 1 ] && [ "$update_extra" = 0 ] &&
-                { if [ -e "$UPDATE_TRANSACTION" ] || [ -L "$UPDATE_TRANSACTION" ]; then
-                      update_transaction_allows_lifecycle
-                  else
-                      read_update_lock_file "$UPDATE_LOCK" && update_lock_owner_alive && update_environment_authorized
-                  fi; } || {
-                RECOVERY_ARTIFACT_DIAGNOSTIC="update recovery state is not owned by the exact authorized lifecycle caller"
-                return 1
-            }
-            return 0 ;;
-        update:uninstall|update:full-rollback)
-            # A cleanup-only committed terminal record is admitted to the
-            # exact lifecycle-lock consumer below. Transactions, locks,
-            # publisher temps and every non-terminal mixed set remain fail-closed.
-            [ "$update_cleanup" = 1 ] && [ "$update_lock" = 0 ] && [ "$update_tx" = 0 ] &&
-                [ "$update_extra" = 0 ] && read_update_cleanup_file "$UPDATE_CLEANUP" || {
-                RECOVERY_ARTIFACT_DIAGNOSTIC="pending update cleanup is malformed, mixed, or still owned by an update lock"
-                return 1
-            }
-            RECOVERY_ARTIFACT_DIAGNOSTIC="authenticated committed update cleanup awaits exact lifecycle-lock consumption"
-            return 0 ;;
-        mixed:uninstall)
-            # This is not an ambiguous mixed generation: both sides are
-            # terminal records. Uninstall consumes the authenticated cleanup
-            # only after acquiring lifecycle.lock, repeats this audit, and
-            # then authenticates/retire the completed rollback generation.
-            # Any lock, transaction, publisher temp, partial rollback, or
-            # additional artifact remains rejected by the exact shape below.
-            [ "$update_cleanup" = 1 ] && [ "$update_lock" = 0 ] && [ "$update_tx" = 0 ] &&
-                [ "$update_extra" = 0 ] && [ "$rollback_meta" = 1 ] &&
-                [ "$rollback_tx" = 0 ] && [ "$rollback_extra" = 0 ] &&
-                read_update_cleanup_file "$UPDATE_CLEANUP" || {
-                RECOVERY_ARTIFACT_DIAGNOSTIC="mixed recovery state is not the exact terminal cleanup plus completed rollback set"
-                return 1
-            }
-            RECOVERY_ARTIFACT_DIAGNOSTIC="terminal update cleanup awaits locked consumption before completed rollback retirement"
-            return 0 ;;
         rollback-complete:lifecycle)
-            # Completed rollback evidence is immutable until its authenticated
-            # uninstall owner stops/verifies the already fenced installation.
-            # Ordinary start/stop callers remain blocked, as do every partial,
-            # mixed, or unsafe recovery class.
             [ -e "$UNINSTALL_TOMBSTONE" ] && [ ! -L "$UNINSTALL_TOMBSTONE" ] &&
                 state_file_is_secure "$UNINSTALL_TOMBSTONE" &&
                 uninstall_tombstone_allows_stop || {
@@ -945,10 +903,16 @@ audit_recovery_artifacts() {
             }
             return 0
             ;;
-        rollback-complete:full-rollback|rollback-complete:install|rollback-complete:uninstall) return 0 ;;
-        *) RECOVERY_ARTIFACT_DIAGNOSTIC="$RECOVERY_ARTIFACT_CLASS recovery state requires its exact owner: ${RECOVERY_ARTIFACT_FIRST:-unknown}"; return 1 ;;
+        rollback-complete:full-rollback|rollback-complete:install|rollback-complete:uninstall)
+            return 0
+            ;;
+        *)
+            RECOVERY_ARTIFACT_DIAGNOSTIC="$RECOVERY_ARTIFACT_CLASS recovery state requires its exact owner: ${RECOVERY_ARTIFACT_FIRST:-unknown}"
+            return 1
+            ;;
     esac
 }
+
 
 # Boot may need to retire authenticated state from the previous kernel boot
 # even when the module is disabled or runtime autostart is off.  This path is
@@ -1810,597 +1774,6 @@ release_lifecycle_lock() {
     LOCK_HELD=0
     return 1
 }
-
-UPDATE_LOCK_ERROR=""
-UPDATE_LOCK_DIAGNOSTIC=""
-UPDATE_TRANSACTION_ERROR=""
-UPDATE_LIFECYCLE_AUTHORIZED=0
-UPDATE_TRANSACTION_ID=""
-UPDATE_TRANSACTION_CREATED=""
-UPDATE_TRANSACTION_PHASE=""
-UPDATE_TRANSACTION_PRESTATE=""
-UPDATE_TRANSACTION_DISABLE_EXPECTATION=""
-UPDATE_TRANSACTION_OWNER_PID=""
-UPDATE_TRANSACTION_OWNER_START=""
-UPDATE_TRANSACTION_OWNER_CREATED=""
-UPDATE_TRANSACTION_OWNER_BOOT=""
-UPDATE_FILE_BOOT=""
-UPDATE_FILE_LEGACY=0
-
-read_update_lock_file() {
-    local path="${1:-$UPDATE_LOCK}" key value version="" size
-    local seen_version=0 seen_pid=0 seen_start=0 seen_created=0 seen_boot=0 seen_token=0 seen_module=0
-    UPDATE_FILE_PID=""; UPDATE_FILE_START=""; UPDATE_FILE_CREATED=""
-    UPDATE_FILE_BOOT=""; UPDATE_FILE_TOKEN=""; UPDATE_FILE_MODULE=""; UPDATE_FILE_LEGACY=0
-    state_file_is_secure "$path" && [ -r "$path" ] && path_mode_is_0600 "$path" &&
-        path_nlink_is_one "$path" || return 1
-    size="$(wc -c < "$path" 2>/dev/null)" || return 1
-    is_decimal "$size" && [ "$size" -gt 0 ] 2>/dev/null && [ "$size" -le 1024 ] 2>/dev/null || return 1
-    while IFS='=' read -r key value; do
-        case "$key" in
-            version) [ "$seen_version" = 0 ] || return 1; version="$value"; seen_version=1 ;;
-            pid) [ "$seen_pid" = 0 ] || return 1; UPDATE_FILE_PID="$value"; seen_pid=1 ;;
-            starttime) [ "$seen_start" = 0 ] || return 1; UPDATE_FILE_START="$value"; seen_start=1 ;;
-            created_epoch) [ "$seen_created" = 0 ] || return 1; UPDATE_FILE_CREATED="$value"; seen_created=1 ;;
-            boot_id) [ "$seen_boot" = 0 ] || return 1; UPDATE_FILE_BOOT="$value"; seen_boot=1 ;;
-            token) [ "$seen_token" = 0 ] || return 1; UPDATE_FILE_TOKEN="$value"; seen_token=1 ;;
-            module_dir) [ "$seen_module" = 0 ] || return 1; UPDATE_FILE_MODULE="$value"; seen_module=1 ;;
-            *) return 1 ;;
-        esac
-    done < "$path"
-    case "$version:$seen_version:$seen_pid:$seen_start:$seen_created:$seen_boot:$seen_token:$seen_module" in
-        "$UPDATE_LOCK_VERSION:1:1:1:1:1:1:1") ;;
-        "$UPDATE_LOCK_LEGACY_VERSION:1:1:1:1:0:1:1") UPDATE_FILE_LEGACY=1 ;;
-        *) return 1 ;;
-    esac
-    is_canonical_positive_decimal "$UPDATE_FILE_PID" && is_canonical_nonnegative_i64 "$UPDATE_FILE_START" &&
-        is_canonical_nonnegative_i64 "$UPDATE_FILE_CREATED" && is_safe_token "$UPDATE_FILE_TOKEN" || return 1
-    [ "$UPDATE_FILE_LEGACY" = 1 ] || is_valid_boot_id "$UPDATE_FILE_BOOT" || return 1
-    [ "$UPDATE_FILE_MODULE" = "$MODDIR" ] || return 1
-}
-
-update_lock_owner_alive() {
-    update_lock_owner_state
-    [ "$UPDATE_LOCK_OWNER_STATE" = active ]
-}
-
-# active/stale/ambiguous: ambiguity is never treated as permission to reap.
-update_lock_owner_state() {
-    local actual
-    UPDATE_LOCK_OWNER_STATE=ambiguous
-    [ "$UPDATE_FILE_LEGACY" = 0 ] || return 2
-    read_current_boot_id || return 2
-    if [ "$UPDATE_FILE_BOOT" != "$CURRENT_BOOT_ID" ]; then
-        UPDATE_LOCK_OWNER_STATE=stale
-        return 1
-    fi
-    if [ ! -e "/proc/$UPDATE_FILE_PID" ]; then
-        UPDATE_LOCK_OWNER_STATE=stale
-        return 1
-    fi
-    actual="$(proc_starttime "$UPDATE_FILE_PID")" || return 2
-    if [ "$actual" = "$UPDATE_FILE_START" ]; then
-        UPDATE_LOCK_OWNER_STATE=active
-        return 0
-    fi
-    UPDATE_LOCK_OWNER_STATE=stale
-    return 1
-}
-
-# Update-lock publication is a lifecycle mutation.  The Android updater calls
-# the root guard script, which must prove it owns the lifecycle lock before it
-# can inspect uninstall/install gates or publish/remove update.lock.
-lifecycle_lock_owned_by_current_process() {
-    local self_start
-    [ "$LOCK_HELD" = 1 ] || return 1
-    self_start="$(proc_starttime "$$")" || return 1
-    read_lock_owner && lock_owner_alive || return 1
-    [ "$LOCK_FILE_PID" = "$$" ] && [ "$LOCK_FILE_START" = "$self_start" ] &&
-        [ "$LOCK_FILE_TOKEN" = "$LOCK_OWNER_TOKEN" ] &&
-        [ "$LOCK_OWNER_PID" = "$$" ] && [ "$LOCK_OWNER_START" = "$self_start" ]
-}
-
-update_owner_identity_is_live() {
-    local pid="$1" expected_start="$2" token="$3" module="$4" before after
-    is_decimal "$pid" && [ "$pid" -gt 0 ] 2>/dev/null || return 1
-    is_decimal "$expected_start" || return 1
-    is_safe_token "$token" || return 1
-    [ "${#token}" -le 128 ] 2>/dev/null || return 1
-    [ "$module" = "$MODDIR" ] || return 1
-    before="$(proc_starttime "$pid")" || return 1
-    [ "$before" = "$expected_start" ] || return 1
-    kill -0 "$pid" 2>/dev/null || return 1
-    after="$(proc_starttime "$pid")" || return 1
-    [ "$after" = "$before" ]
-}
-
-update_lock_file_matches_exact() {
-    local path="$1" pid="$2" start="$3" created="$4" boot="$5" token="$6" module="$7"
-    read_update_lock_file "$path" || return 1
-    [ "$UPDATE_FILE_PID" = "$pid" ] &&
-        [ "$UPDATE_FILE_START" = "$start" ] &&
-        [ "$UPDATE_FILE_CREATED" = "$created" ] &&
-        [ "$UPDATE_FILE_BOOT" = "$boot" ] && [ "$UPDATE_FILE_LEGACY" = 0 ] &&
-        [ "$UPDATE_FILE_TOKEN" = "$token" ] &&
-        [ "$UPDATE_FILE_MODULE" = "$module" ]
-}
-
-UPDATE_ACQUIRE_ERROR=""
-
-update_acquire_preflight_clear() {
-    local artifact
-    UPDATE_ACQUIRE_ERROR=""
-    lifecycle_lock_owned_by_current_process || {
-        UPDATE_ACQUIRE_ERROR="caller does not own the Zapret2 lifecycle lock"
-        return 1
-    }
-    if module_removal_pending; then
-        UPDATE_ACQUIRE_ERROR="Magisk module removal marker blocks update acquisition: $MODDIR/remove"
-        return 1
-    fi
-    if [ -e "$UNINSTALL_TOMBSTONE" ] || [ -L "$UNINSTALL_TOMBSTONE" ]; then
-        UPDATE_ACQUIRE_ERROR="uninstall tombstone blocks update acquisition: $UNINSTALL_TOMBSTONE"
-        return 1
-    fi
-    if [ -e "$UPDATE_TRANSACTION" ] || [ -L "$UPDATE_TRANSACTION" ]; then
-        UPDATE_ACQUIRE_ERROR="an update transaction already requires recovery: $UPDATE_TRANSACTION"
-        return 1
-    fi
-    if [ -e "$UPDATE_CLEANUP" ] || [ -L "$UPDATE_CLEANUP" ]; then
-        UPDATE_ACQUIRE_ERROR="committed update cleanup requires recovery: $UPDATE_CLEANUP"
-        return 1
-    fi
-    # A canonical transaction is the durable gate, but an abandoned publisher
-    # temp is also repair evidence and is never silently overwritten here.
-    for artifact in "$UPDATE_TRANSACTION".tmp "$UPDATE_TRANSACTION".tmp.* "$STATE_DIR"/.update.transaction.*; do
-        if [ -e "$artifact" ] || [ -L "$artifact" ]; then
-            UPDATE_ACQUIRE_ERROR="an update transaction artifact requires recovery: $artifact"
-            return 1
-        fi
-    done
-    for artifact in "$UPDATE_CLEANUP".tmp "$UPDATE_CLEANUP".tmp.* "$UPDATE_CLEANUP".*.tmp "$STATE_DIR"/.update.cleanup.*; do
-        if [ -e "$artifact" ] || [ -L "$artifact" ]; then
-            UPDATE_ACQUIRE_ERROR="an update cleanup artifact requires recovery: $artifact"
-            return 1
-        fi
-    done
-    if [ -e "$UPDATE_LOCK" ] || [ -L "$UPDATE_LOCK" ]; then
-        UPDATE_ACQUIRE_ERROR="an update lock already exists: $UPDATE_LOCK"
-        return 1
-    fi
-    if [ -e "$UPDATE_LOCK_REAPER" ] || [ -L "$UPDATE_LOCK_REAPER" ]; then
-        UPDATE_ACQUIRE_ERROR="an update-lock recovery artifact requires repair: $UPDATE_LOCK_REAPER"
-        return 1
-    fi
-    for artifact in "$UPDATE_LOCK_QUARANTINE" "$UPDATE_LOCK_QUARANTINE".*; do
-        if [ -e "$artifact" ] || [ -L "$artifact" ]; then
-            UPDATE_ACQUIRE_ERROR="an update-lock quarantine artifact requires repair: $artifact"
-            return 1
-        fi
-    done
-    return 0
-}
-
-# Set as soon as the hard link becomes visible so a caller's EXIT trap can
-# roll back an interrupted acquisition while it still owns lifecycle.lock.
-UPDATE_LOCK_PUBLICATION_ACTIVE=0
-UPDATE_LOCK_PUBLICATION_TEMP=""
-
-publish_update_lock_exact() {
-    local pid="$1" start="$2" created="$3" boot="$4" token="$5" module="$6" tmp
-    UPDATE_LOCK_PUBLICATION_ACTIVE=0
-    UPDATE_LOCK_PUBLICATION_TEMP=""
-    lifecycle_lock_owned_by_current_process || return 1
-    update_owner_identity_is_live "$pid" "$start" "$token" "$module" || return 1
-    is_decimal "$created" || return 1
-    is_valid_boot_id "$boot" || return 1
-    read_current_boot_id && [ "$boot" = "$CURRENT_BOOT_ID" ] || return 1
-    [ "$module" = "$MODDIR" ] || return 1
-    update_acquire_preflight_clear || return 1
-    state_file_target_is_safe "$UPDATE_LOCK" || return 1
-    tmp="$UPDATE_LOCK.tmp.$$.$token"
-    state_path_is_managed_file "$tmp" || return 1
-    [ ! -e "$tmp" ] && [ ! -L "$tmp" ] || return 1
-    UPDATE_LOCK_PUBLICATION_TEMP="$tmp"
-    umask 077
-    {
-        printf 'version=%s\n' "$UPDATE_LOCK_VERSION"
-        printf 'pid=%s\nstarttime=%s\ncreated_epoch=%s\n' "$pid" "$start" "$created"
-        printf 'boot_id=%s\n' "$boot"
-        printf 'token=%s\nmodule_dir=%s\n' "$token" "$module"
-    } > "$tmp" || return 1
-    chmod 0600 "$tmp" 2>/dev/null || return 1
-    state_file_is_secure "$tmp" || return 1
-    update_lock_file_matches_exact "$tmp" "$pid" "$start" "$created" "$boot" "$token" "$module" || return 1
-    # Hard-link publication is no-clobber and atomic within the owned state
-    # directory.  It cannot replace a concurrently published lock.
-    ln "$tmp" "$UPDATE_LOCK" 2>/dev/null || return 1
-    UPDATE_LOCK_PUBLICATION_ACTIVE=1
-    rm -f "$tmp" 2>/dev/null || return 1
-    UPDATE_LOCK_PUBLICATION_TEMP=""
-    state_file_is_secure "$UPDATE_LOCK" || return 1
-    update_lock_file_matches_exact "$UPDATE_LOCK" "$pid" "$start" "$created" "$boot" "$token" "$module" || return 1
-    update_owner_identity_is_live "$pid" "$start" "$token" "$module"
-}
-
-remove_exact_update_lock_while_locked() {
-    local pid="$1" start="$2" created="$3" boot="$4" token="$5" module="$6"
-    local quarantine="$UPDATE_LOCK_QUARANTINE.rollback.$$.$token" rc=0
-    lifecycle_lock_owned_by_current_process || return 1
-    update_lock_file_matches_exact "$UPDATE_LOCK" "$pid" "$start" "$created" "$boot" "$token" "$module" || return 1
-    state_path_is_managed_file "$quarantine" || return 1
-    [ ! -e "$quarantine" ] && [ ! -L "$quarantine" ] || return 1
-    mv "$UPDATE_LOCK" "$quarantine" 2>/dev/null || return 1
-    if ! update_lock_file_matches_exact "$quarantine" "$pid" "$start" "$created" "$boot" "$token" "$module"; then
-        if [ ! -e "$UPDATE_LOCK" ] && [ ! -L "$UPDATE_LOCK" ]; then
-            mv "$quarantine" "$UPDATE_LOCK" 2>/dev/null || true
-        fi
-        return 1
-    fi
-    rm -f "$quarantine" 2>/dev/null || rc=1
-    [ ! -e "$UPDATE_LOCK" ] && [ ! -L "$UPDATE_LOCK" ] || rc=1
-    [ ! -e "$quarantine" ] && [ ! -L "$quarantine" ] || rc=1
-    [ "$rc" -ne 0 ] || UPDATE_LOCK_PUBLICATION_ACTIVE=0
-    return "$rc"
-}
-
-update_environment_authorized() {
-    is_safe_token "${ZAPRET2_UPDATE_TOKEN:-}" &&
-        [ "${ZAPRET2_UPDATE_TOKEN:-}" = "$UPDATE_FILE_TOKEN" ] &&
-        is_decimal "${ZAPRET2_UPDATE_OWNER_PID:-}" &&
-        [ "${ZAPRET2_UPDATE_OWNER_PID:-}" = "$UPDATE_FILE_PID" ] &&
-        is_decimal "${ZAPRET2_UPDATE_OWNER_START:-}" &&
-        [ "${ZAPRET2_UPDATE_OWNER_START:-}" = "$UPDATE_FILE_START" ] &&
-        is_decimal "${ZAPRET2_UPDATE_OWNER_CREATED:-}" &&
-        [ "${ZAPRET2_UPDATE_OWNER_CREATED:-}" = "$UPDATE_FILE_CREATED" ] &&
-        is_valid_boot_id "${ZAPRET2_UPDATE_OWNER_BOOT:-}" &&
-        [ "${ZAPRET2_UPDATE_OWNER_BOOT:-}" = "$UPDATE_FILE_BOOT" ]
-}
-
-update_transaction_artifact_present() {
-    [ -e "$UPDATE_TRANSACTION" ] || [ -L "$UPDATE_TRANSACTION" ]
-}
-
-UPDATE_CLEANUP_ERROR=""
-UPDATE_CLEANUP_PATHS=""
-UPDATE_CLEANUP_LEGACY=0
-
-is_valid_update_cleanup_path() {
-    local tail
-    case "$1" in
-        /data/adb/modules/.zapret2-update-*) tail="${1#/data/adb/modules/.zapret2-update-}" ;;
-        /data/adb/modules/.zapret2-backup-*) tail="${1#/data/adb/modules/.zapret2-backup-}" ;;
-        /data/adb/modules/.zapret2-failed-*) tail="${1#/data/adb/modules/.zapret2-failed-}" ;;
-        /data/adb/modules/.zapret2-recovery-*) tail="${1#/data/adb/modules/.zapret2-recovery-}" ;;
-        *) return 1 ;;
-    esac
-    case "$tail" in ''|*[!A-Za-z0-9._-]*) return 1;; esac
-    return 0
-}
-
-read_update_cleanup_file() {
-    local path="${1:-$UPDATE_CLEANUP}" key value version="" owner_pid="" owner_start="" owner_created="" owner_boot="" owner_token="" digest="" count="" seen="|" seen_count=0 size index cleanup_paths=""
-    UPDATE_CLEANUP_ERROR=""; UPDATE_CLEANUP_PATHS=""; UPDATE_CLEANUP_LEGACY=0
-    state_file_is_secure "$path" && [ -r "$path" ] && path_mode_is_0600 "$path" &&
-        path_nlink_is_one "$path" || { UPDATE_CLEANUP_ERROR="update cleanup is not a secure root-owned regular file"; return 1; }
-    size="$(wc -c < "$path" 2>/dev/null)" || return 1
-    is_decimal "$size" && [ "$size" -gt 0 ] 2>/dev/null && [ "$size" -le 4096 ] 2>/dev/null || return 1
-    while IFS='=' read -r key value; do
-        [ -n "$key" ] && [ "$key=$value" = "$key=$value" ] || return 1
-        case "$seen" in *"|$key|"*) UPDATE_CLEANUP_ERROR="update cleanup has duplicate fields"; return 1;; esac
-        seen="${seen}${key}|"; seen_count=$((seen_count + 1))
-        case "$key" in
-            version) version="$value" ;;
-            owner_pid) owner_pid="$value" ;;
-            owner_starttime) owner_start="$value" ;;
-            owner_created_epoch) owner_created="$value" ;;
-            owner_boot_id) owner_boot="$value" ;;
-            owner_token) owner_token="$value" ;;
-            transaction_digest) digest="$value" ;;
-            cleanup_count) count="$value" ;;
-            cleanup_[1-4])
-                index="${key#cleanup_}"
-                is_valid_update_cleanup_path "$value" || { UPDATE_CLEANUP_ERROR="update cleanup contains a non-allowlisted path"; return 1; }
-                case " $cleanup_paths " in *" $value "*) UPDATE_CLEANUP_ERROR="update cleanup paths are not distinct"; return 1;; esac
-                cleanup_paths="${cleanup_paths}${cleanup_paths:+ }$value"
-                eval "UPDATE_CLEANUP_PATH_$index=\$value"
-                ;;
-            *) UPDATE_CLEANUP_ERROR="update cleanup has an unknown field"; return 1 ;;
-        esac
-    done < "$path"
-    is_canonical_positive_decimal "$owner_pid" && is_canonical_nonnegative_i64 "$owner_start" &&
-        is_canonical_nonnegative_i64 "$owner_created" && is_safe_token "$owner_token" &&
-        is_lower_sha256 "$digest" && is_decimal "$count" && [ "$count" -ge 1 ] 2>/dev/null && [ "$count" -le 4 ] 2>/dev/null || return 1
-    case "$version:$seen_count" in
-        "$UPDATE_CLEANUP_VERSION:$((8 + count))") is_valid_boot_id "$owner_boot" || return 1 ;;
-        "$UPDATE_CLEANUP_LEGACY_VERSION:$((7 + count))") [ -z "$owner_boot" ] || return 1; UPDATE_CLEANUP_LEGACY=1 ;;
-        *) return 1 ;;
-    esac
-    index=1
-    while [ "$index" -le "$count" ]; do
-        eval "value=\${UPDATE_CLEANUP_PATH_$index:-}"
-        [ -n "$value" ] || return 1
-        index=$((index + 1))
-    done
-    case "$seen" in *'|cleanup_1|'*) :;; *) return 1;; esac
-    [ "$(printf '%s\n' "$cleanup_paths" | awk '{ print NF }')" -eq "$count" ] 2>/dev/null || return 1
-    UPDATE_CLEANUP_PATHS="$cleanup_paths"
-    return 0
-}
-
-consume_committed_update_cleanup_locked() {
-    local before after path
-    caller_holds_exact_lifecycle_lock || return 1
-    { [ -e "$UPDATE_CLEANUP" ] || [ -L "$UPDATE_CLEANUP" ]; } || return 0
-    { [ ! -e "$UPDATE_TRANSACTION" ] && [ ! -L "$UPDATE_TRANSACTION" ]; } || return 1
-    { [ ! -e "$UPDATE_LOCK" ] && [ ! -L "$UPDATE_LOCK" ]; } || return 1
-    read_update_cleanup_file "$UPDATE_CLEANUP" || return 1
-    command -v sha256sum >/dev/null 2>&1 || return 1
-    before="$(sha256sum "$UPDATE_CLEANUP" 2>/dev/null | awk 'NR == 1 { print $1 }')" || return 1
-    is_lower_sha256 "$before" || return 1
-    for path in $UPDATE_CLEANUP_PATHS; do
-        read_update_cleanup_file "$UPDATE_CLEANUP" || return 1
-        after="$(sha256sum "$UPDATE_CLEANUP" 2>/dev/null | awk 'NR == 1 { print $1 }')" || return 1
-        [ "$after" = "$before" ] || return 1
-        is_valid_update_cleanup_path "$path" || return 1
-        if [ -e "$path" ] || [ -L "$path" ]; then
-            [ -d "$path" ] && [ ! -L "$path" ] && path_uid_is_root "$path" || return 1
-            after="$(sha256sum "$UPDATE_CLEANUP" 2>/dev/null | awk 'NR == 1 { print $1 }')" || return 1
-            [ "$after" = "$before" ] || return 1
-            [ -d "$path" ] && [ ! -L "$path" ] && path_uid_is_root "$path" || return 1
-            rm -rf "$path" 2>/dev/null || return 1
-        fi
-        [ ! -e "$path" ] && [ ! -L "$path" ] || return 1
-    done
-    sync >/dev/null 2>&1 || return 1
-    read_update_cleanup_file "$UPDATE_CLEANUP" || return 1
-    after="$(sha256sum "$UPDATE_CLEANUP" 2>/dev/null | awk 'NR == 1 { print $1 }')" || return 1
-    [ "$after" = "$before" ] || return 1
-    rm -f "$UPDATE_CLEANUP" 2>/dev/null || return 1
-    [ ! -e "$UPDATE_CLEANUP" ] && [ ! -L "$UPDATE_CLEANUP" ] || return 1
-    sync >/dev/null 2>&1
-}
-
-read_update_transaction_gate_file() {
-    local key value version="" module="" transaction_id="" created="" phase="" prestate="" expectation=""
-    local update_dir="" backup_dir="" failed_dir="" owner_pid="" owner_start="" owner_created="" owner_boot="" seen="|" seen_count=0 size
-    UPDATE_TRANSACTION_ERROR=""
-    UPDATE_TRANSACTION_ID=""; UPDATE_TRANSACTION_CREATED=""; UPDATE_TRANSACTION_PHASE=""
-    UPDATE_TRANSACTION_PRESTATE=""; UPDATE_TRANSACTION_DISABLE_EXPECTATION=""
-    UPDATE_TRANSACTION_OWNER_PID=""; UPDATE_TRANSACTION_OWNER_START=""; UPDATE_TRANSACTION_OWNER_CREATED=""; UPDATE_TRANSACTION_OWNER_BOOT=""; UPDATE_TRANSACTION_LEGACY=0
-    state_file_is_secure "$UPDATE_TRANSACTION" && [ -r "$UPDATE_TRANSACTION" ] &&
-        path_mode_is_0600 "$UPDATE_TRANSACTION" && path_nlink_is_one "$UPDATE_TRANSACTION" || {
-        UPDATE_TRANSACTION_ERROR="update transaction is not a secure root-owned regular file: $UPDATE_TRANSACTION"
-        return 1
-    }
-    size="$(wc -c < "$UPDATE_TRANSACTION" 2>/dev/null)" || return 1
-    is_decimal "$size" && [ "$size" -gt 0 ] 2>/dev/null &&
-        [ "$size" -le 4096 ] 2>/dev/null || {
-        UPDATE_TRANSACTION_ERROR="update transaction size is invalid"
-        return 1
-    }
-    while IFS='=' read -r key value; do
-        case "$seen" in *"|$key|"*) UPDATE_TRANSACTION_ERROR="update transaction has duplicate $key fields"; return 1;; esac
-        seen="${seen}${key}|"
-        seen_count=$((seen_count + 1))
-        case "$key" in
-            version) version="$value" ;;
-            module_dir) module="$value" ;;
-            transaction_id) transaction_id="$value" ;;
-            created_epoch) created="$value" ;;
-            phase) phase="$value" ;;
-            pre_update_state) prestate="$value" ;;
-            disable_marker_expectation) expectation="$value" ;;
-            update_dir) update_dir="$value" ;;
-            backup_dir) backup_dir="$value" ;;
-            failed_dir) failed_dir="$value" ;;
-            owner_pid) owner_pid="$value" ;;
-            owner_starttime) owner_start="$value" ;;
-            owner_created_epoch) owner_created="$value" ;;
-            owner_boot_id) owner_boot="$value" ;;
-            *) UPDATE_TRANSACTION_ERROR="update transaction has an unknown field: $key"; return 1 ;;
-        esac
-    done < "$UPDATE_TRANSACTION"
-    case "$version:$seen_count" in
-        "$UPDATE_TRANSACTION_VERSION:14") is_valid_boot_id "$owner_boot" || { UPDATE_TRANSACTION_ERROR="update transaction boot identity is invalid"; return 1; } ;;
-        "$UPDATE_TRANSACTION_LEGACY_VERSION:13") [ -z "$owner_boot" ] || return 1; UPDATE_TRANSACTION_LEGACY=1 ;;
-        *) UPDATE_TRANSACTION_ERROR="update transaction schema version or field count is invalid"; return 1 ;;
-    esac
-    [ "$module" = "$MODDIR" ] &&
-        is_safe_token "$transaction_id" && is_canonical_positive_decimal "$created" &&
-        is_canonical_positive_decimal "$owner_pid" && is_canonical_nonnegative_i64 "$owner_start" &&
-        is_canonical_nonnegative_i64 "$owner_created" || {
-        UPDATE_TRANSACTION_ERROR="update transaction is malformed or belongs to another module"
-        return 1
-    }
-    case "$phase" in prepared|stopped|candidate_ready|active_move_intent|active_moved|candidate_active|verified|restored|restore_copying|restore_candidate_ready|restore_active_moved|restore_candidate_active) ;; *) UPDATE_TRANSACTION_ERROR="update transaction phase is invalid"; return 1;; esac
-    case "$prestate" in running|stopped) ;; *) UPDATE_TRANSACTION_ERROR="update transaction pre-update state is invalid"; return 1;; esac
-    case "$expectation" in absent|present) ;; *) UPDATE_TRANSACTION_ERROR="update transaction disable-marker expectation is invalid"; return 1;; esac
-    if [ "$expectation" = present ] && [ "$prestate" = running ]; then
-        UPDATE_TRANSACTION_ERROR="a present disable marker cannot bind a running pre-update state"
-        return 1
-    fi
-    [ "$update_dir" = "/data/adb/modules/.zapret2-update-$transaction_id" ] &&
-        [ "$backup_dir" = "/data/adb/modules/.zapret2-backup-$transaction_id" ] &&
-        [ "$failed_dir" = "/data/adb/modules/.zapret2-failed-$transaction_id" ] || {
-            UPDATE_TRANSACTION_ERROR="update transaction paths do not bind to its exact transaction ID"
-            return 1
-        }
-    UPDATE_TRANSACTION_ID="$transaction_id"; UPDATE_TRANSACTION_CREATED="$created"; UPDATE_TRANSACTION_PHASE="$phase"
-    UPDATE_TRANSACTION_PRESTATE="$prestate"; UPDATE_TRANSACTION_DISABLE_EXPECTATION="$expectation"
-    UPDATE_TRANSACTION_OWNER_PID="$owner_pid"; UPDATE_TRANSACTION_OWNER_START="$owner_start"
-    UPDATE_TRANSACTION_OWNER_CREATED="$owner_created"; UPDATE_TRANSACTION_OWNER_BOOT="$owner_boot"
-    return 0
-}
-
-update_transaction_allows_lifecycle() {
-    UPDATE_LIFECYCLE_AUTHORIZED=0
-    read_update_transaction_gate_file || return 1
-    if [ "$UPDATE_TRANSACTION_LEGACY" = 1 ]; then
-        UPDATE_TRANSACTION_ERROR="legacy bootless update transaction requires app recovery and owner rebind"
-        return 1
-    fi
-    if ! read_update_lock_file "$UPDATE_LOCK"; then
-        UPDATE_TRANSACTION_ERROR="orphan update transaction has no valid update-lock owner"
-        return 1
-    fi
-    if ! update_lock_owner_alive; then
-        UPDATE_TRANSACTION_ERROR="orphan update transaction belongs to dead update-lock PID $UPDATE_FILE_PID"
-        return 1
-    fi
-    if ! update_environment_authorized; then
-        UPDATE_TRANSACTION_ERROR="update transaction is active and caller lacks its exact live update-lock environment"
-        return 1
-    fi
-    [ "$UPDATE_TRANSACTION_OWNER_PID" = "$UPDATE_FILE_PID" ] &&
-        [ "$UPDATE_TRANSACTION_OWNER_START" = "$UPDATE_FILE_START" ] &&
-        [ "$UPDATE_TRANSACTION_OWNER_CREATED" = "$UPDATE_FILE_CREATED" ] &&
-        [ "$UPDATE_TRANSACTION_OWNER_BOOT" = "$UPDATE_FILE_BOOT" ] || {
-            UPDATE_TRANSACTION_ERROR="update transaction does not bind to the exact live update-lock owner"
-            return 1
-        }
-    UPDATE_LIFECYCLE_AUTHORIZED=1
-    UPDATE_LOCK_DIAGNOSTIC="lifecycle authorized by exact active update transaction owner"
-    return 0
-}
-
-update_lock_allows_start() {
-    local pid start created boot token module quarantine
-    UPDATE_LOCK_ERROR=""; UPDATE_LOCK_DIAGNOSTIC=""; UPDATE_LIFECYCLE_AUTHORIZED=0
-    if update_transaction_artifact_present; then
-        if update_transaction_allows_lifecycle; then return 0; fi
-        UPDATE_LOCK_ERROR="$UPDATE_TRANSACTION_ERROR"
-        return 1
-    fi
-    { [ -e "$UPDATE_LOCK" ] || [ -L "$UPDATE_LOCK" ]; } || return 0
-    if ! read_update_lock_file "$UPDATE_LOCK"; then
-        UPDATE_LOCK_ERROR="update lock is malformed or belongs to another module; remove only after verifying no update is active: $UPDATE_LOCK"
-        return 1
-    fi
-    if [ "$UPDATE_FILE_LEGACY" = 1 ]; then
-        UPDATE_LOCK_ERROR="legacy bootless update lock requires authoritative manual recovery and was preserved: $UPDATE_LOCK"
-        return 1
-    fi
-    update_lock_owner_state >/dev/null 2>&1 || true
-    if [ "$UPDATE_LOCK_OWNER_STATE" = active ]; then
-        if update_environment_authorized; then
-            UPDATE_LIFECYCLE_AUTHORIZED=1
-            UPDATE_LOCK_DIAGNOSTIC="start authorized by exact active update-lock owner"
-            return 0
-        fi
-        UPDATE_LOCK_ERROR="module update is active (PID $UPDATE_FILE_PID, token $UPDATE_FILE_TOKEN)"
-        return 1
-    fi
-    if [ "$UPDATE_LOCK_OWNER_STATE" != stale ]; then
-        UPDATE_LOCK_ERROR="update-lock process/boot ownership is ambiguous; evidence was preserved"
-        return 1
-    fi
-
-    pid="$UPDATE_FILE_PID"; start="$UPDATE_FILE_START"; created="$UPDATE_FILE_CREATED"
-    boot="$UPDATE_FILE_BOOT"; token="$UPDATE_FILE_TOKEN"; module="$UPDATE_FILE_MODULE"
-    if [ -e "$UPDATE_LOCK_REAPER" ]; then
-        sleep 1
-        if read_update_lock_file "$UPDATE_LOCK"; then
-            update_lock_owner_state >/dev/null 2>&1 || true
-        fi
-        if [ "$UPDATE_LOCK_OWNER_STATE" = stale ]; then
-            rmdir "$UPDATE_LOCK_REAPER" 2>/dev/null || {
-                UPDATE_LOCK_ERROR="stale update-lock reaper requires repair: $UPDATE_LOCK_REAPER"
-                return 1
-            }
-        else
-            UPDATE_LOCK_ERROR="update lock changed while stale recovery was pending"
-            return 1
-        fi
-    fi
-    mkdir "$UPDATE_LOCK_REAPER" 2>/dev/null || {
-        UPDATE_LOCK_ERROR="cannot claim stale update-lock recovery"
-        return 1
-    }
-    if ! read_update_lock_file "$UPDATE_LOCK"; then
-        UPDATE_LOCK_OWNER_STATE=ambiguous
-    else
-        update_lock_owner_state >/dev/null 2>&1 || true
-    fi
-    if [ "$UPDATE_LOCK_OWNER_STATE" != stale ] ||
-       [ "$UPDATE_FILE_PID" != "$pid" ] || [ "$UPDATE_FILE_START" != "$start" ] ||
-       [ "$UPDATE_FILE_CREATED" != "$created" ] || [ "$UPDATE_FILE_BOOT" != "$boot" ] ||
-       [ "$UPDATE_FILE_LEGACY" != 0 ] || [ "$UPDATE_FILE_TOKEN" != "$token" ] ||
-       [ "$UPDATE_FILE_MODULE" != "$module" ]; then
-        rmdir "$UPDATE_LOCK_REAPER" 2>/dev/null
-        UPDATE_LOCK_ERROR="update lock changed during stale recovery"
-        return 1
-    fi
-    quarantine="$UPDATE_LOCK_QUARANTINE.$$.$token"
-    if [ -e "$quarantine" ] || ! mv "$UPDATE_LOCK" "$quarantine" 2>/dev/null; then
-        rmdir "$UPDATE_LOCK_REAPER" 2>/dev/null
-        UPDATE_LOCK_ERROR="cannot atomically quarantine stale update lock"
-        return 1
-    fi
-    rm -f "$quarantine" 2>/dev/null || {
-        rmdir "$UPDATE_LOCK_REAPER" 2>/dev/null
-        UPDATE_LOCK_ERROR="cannot remove quarantined stale update lock"
-        return 1
-    }
-    rmdir "$UPDATE_LOCK_REAPER" 2>/dev/null || return 1
-    UPDATE_LOCK_DIAGNOSTIC="reclaimed stale update lock for dead PID $pid"
-    return 0
-}
-
-update_lock_allows_stop() {
-    UPDATE_LOCK_ERROR=""; UPDATE_LOCK_DIAGNOSTIC=""; UPDATE_LIFECYCLE_AUTHORIZED=0
-    if update_transaction_artifact_present; then
-        if update_transaction_allows_lifecycle; then return 0; fi
-        UPDATE_LOCK_ERROR="$UPDATE_TRANSACTION_ERROR"
-        return 1
-    fi
-    { [ -e "$UPDATE_LOCK" ] || [ -L "$UPDATE_LOCK" ]; } || return 0
-    if ! read_update_lock_file "$UPDATE_LOCK"; then
-        UPDATE_LOCK_ERROR="update lock is malformed or belongs to another module"
-        return 1
-    fi
-    if update_lock_owner_alive; then
-        if update_environment_authorized; then
-            UPDATE_LIFECYCLE_AUTHORIZED=1
-            UPDATE_LOCK_DIAGNOSTIC="stop authorized by exact update-lock token"
-            return 0
-        fi
-        UPDATE_LOCK_ERROR="module update is active and stop caller lacks the exact update-lock token"
-        return 1
-    fi
-    # Reuse the serialized stale-lock recovery path.  With a dead owner there
-    # is no privileged updater caller to preserve.
-    update_lock_allows_start
-}
-
-# Status is read-only: it never reaps a stale lock.  During an update it is
-# available only to the same exact live owner environment as start/stop.
-update_lock_allows_status() {
-    UPDATE_LOCK_ERROR=""; UPDATE_LOCK_DIAGNOSTIC=""
-    if update_transaction_artifact_present; then
-        if update_transaction_allows_lifecycle; then return 0; fi
-        UPDATE_LOCK_ERROR="$UPDATE_TRANSACTION_ERROR"
-        return 1
-    fi
-    { [ -e "$UPDATE_LOCK" ] || [ -L "$UPDATE_LOCK" ]; } || return 0
-    if ! read_update_lock_file "$UPDATE_LOCK"; then
-        UPDATE_LOCK_ERROR="update lock is malformed or belongs to another module"
-        return 1
-    fi
-    update_lock_owner_alive || {
-        UPDATE_LOCK_ERROR="stale update lock requires serialized recovery before status"
-        return 1
-    }
-    update_environment_authorized || {
-        UPDATE_LOCK_ERROR="module update is active and status caller lacks the exact update-lock environment"
-        return 1
-    }
-    UPDATE_LOCK_DIAGNOSTIC="status authorized by exact active update-lock owner"
-    return 0
-}
-
-UNINSTALL_TOMBSTONE_ERROR=""
-UNINSTALL_TOMBSTONE_DIAGNOSTIC=""
 
 module_removal_pending() {
     [ -e "$MODDIR/remove" ] || [ -L "$MODDIR/remove" ]

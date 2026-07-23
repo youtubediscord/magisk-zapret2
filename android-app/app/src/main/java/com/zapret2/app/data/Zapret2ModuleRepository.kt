@@ -102,14 +102,7 @@ internal data class RuntimeProcessMetrics(
  */
 class Zapret2ModuleRepository @Inject constructor() {
 
-    /**
-     * Reconciles an interrupted app-managed swap before observing Magisk's active and pending
-     * slots. Callers therefore never need a second recovery policy of their own.
-     */
-    internal suspend fun reconcileEnvironment(
-        recoverInterruptedUpdate: Boolean = false,
-    ): ModuleEnvironmentSnapshot? {
-        if (recoverInterruptedUpdate) ModuleUpdateRecovery.recoverIfNeeded()
+    internal suspend fun reconcileEnvironment(): ModuleEnvironmentSnapshot? {
         val binaryDirectory = ModulePackageContract.selectBinaryDirectory(
             Build.SUPPORTED_ABIS.toList(),
         )
@@ -169,11 +162,9 @@ class Zapret2ModuleRepository @Inject constructor() {
             binaryDirectory?.let { add(ModulePackageContract.binaryRelativePath(it)) }
         }.distinct().joinToString(" ")
         val disableMarker = ModulePackageContract.DISABLE_MARKER
-        val mutationArtifacts = listOf(
-            ModuleMutationCoordinator.UPDATE_LOCK,
-            ModuleMutationCoordinator.UPDATE_TRANSACTION,
-            ModuleMutationCoordinator.UPDATE_CLEANUP,
-        ).joinToString(" ") { RootFileIo.shellQuote(it) }
+        val lifecycleLock = RootFileIo.shellQuote(
+            "${OwnerStateSchema.STATE_DIR}/lifecycle.lock",
+        )
 
         return """
             z2_probe_slot() {
@@ -254,13 +245,9 @@ class Zapret2ModuleRepository @Inject constructor() {
             }
 
             z2_mutation=idle
-            for z2_artifact in $mutationArtifacts
-            do
-                if [ -e "${'$'}z2_artifact" ] || [ -L "${'$'}z2_artifact" ]; then
-                    z2_mutation=in_progress
-                    break
-                fi
-            done
+            if [ -e $lifecycleLock ] || [ -L $lifecycleLock ]; then
+                z2_mutation=in_progress
+            fi
             z2_active_state=${'$'}(z2_probe_slot $activeDir active) || exit 1
             z2_pending_state=${'$'}(z2_probe_slot $pendingDir pending) || exit 1
             printf 'Z2_ACTIVE_STATE=%s\n' "${'$'}z2_active_state"

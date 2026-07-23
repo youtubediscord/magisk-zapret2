@@ -9,12 +9,9 @@ STATE="$CASE/state"
 MOCK="$CASE/bin"
 LOG="$CASE/iptables.mutations"
 OUT="$CASE/out"
-CLEANUP_REAL1="/data/adb/modules/.zapret2-update-full-rollback-$$"
-CLEANUP_REAL2="/data/adb/modules/.zapret2-backup-full-rollback-$$"
 
 fail() { echo "FAIL: rollback: $*" >&2; exit 1; }
 assert_line() { grep -Fxq -- "$2" "$1" || fail "missing $2"; }
-trap 'rm -rf "$CLEANUP_REAL1" "$CLEANUP_REAL2"' EXIT HUP INT TERM
 
 mkdir -p "$MOD/zapret2/scripts" "$MOD/zapret2/lists" "$MOD/system/etc" "$STATE" "$MOCK"
 chmod 0700 "$STATE"
@@ -77,11 +74,8 @@ chmod 0755 "$MOCK/sync"
 before_list=$(sha256sum "$MOD/zapret2/lists/user.txt" | awk '{print $1}')
 
 # Every noncanonical recovery namespace is evidence, never scratch space for
-# rollback. Exercise update, lifecycle, dot-temp, reaper and quarantine forms.
+# rollback. Exercise lifecycle, dot-temp, reaper and quarantine forms.
 for recovery_artifact in \
-    update.cleanup \
-    update.transaction.tmp.orphan .update.transaction.orphan \
-    update.lock.reaper.orphan update.lock.quarantine.orphan \
     lifecycle.lock.reaper.recovery.orphan lifecycle.lock.quarantine.orphan \
     .full-rollback.transaction.orphan full-rollback.meta.tmp.orphan; do
     : > "$STATE/$recovery_artifact"
@@ -119,57 +113,6 @@ assert_line "$OUT" 'Z2_RB_COMPLETE=1'
 [ ! -e "$MOD/disable" ] || fail "malformed journal preflight mutated disable fence"
 grep -Fqx 'autostart=1' "$MOD/zapret2/runtime.ini" || fail "malformed journal preflight mutated runtime.ini"
 rm -f "$STATE/full-rollback.transaction"
-
-start=$(awk '{print $22}' "/proc/$$/stat")
-cat > "$STATE/update.lock" <<EOF
-version=1
-pid=$$
-starttime=$start
-created_epoch=1
-token=active-update
-module_dir=$MOD
-EOF
-chmod 0600 "$STATE/update.lock"
-set +e
-PATH="$MOCK:$PATH" STATE_DIR="$STATE" Z2_MOCK_LOG="$LOG" sh "$MOD/zapret2/scripts/zapret-full-rollback.sh" --machine > "$OUT"
-rc=$?
-set -e
-[ "$rc" = 2 ] || fail "active update was not blocked"
-assert_line "$OUT" 'Z2_RB_STATUS=blocked'
-[ ! -e "$MOD/disable" ] || fail "blocked rollback mutated disable fence"
-rm -f "$STATE/update.lock"
-
-# A valid committed cleanup is consumed under the rollback lifecycle lock
-# before any rollback mutation. A second recovery artifact keeps this case at
-# the preflight boundary so only cleanup consumption is under test.
-mkdir -p /data/adb/modules "$CLEANUP_REAL1" "$CLEANUP_REAL2"
-cleanup_digest=$(printf cleanup-transaction | sha256sum | awk '{print $1}')
-cleanup_boot=$(cat /proc/sys/kernel/random/boot_id)
-cat > "$STATE/update.cleanup" <<EOF
-version=2
-owner_pid=$$
-owner_starttime=$start
-owner_created_epoch=1
-owner_boot_id=$cleanup_boot
-owner_token=full-rollback-cleanup
-transaction_digest=$cleanup_digest
-cleanup_count=2
-cleanup_1=$CLEANUP_REAL1
-cleanup_2=$CLEANUP_REAL2
-EOF
-chmod 0600 "$STATE/update.cleanup"
-: > "$STATE/update.transaction.tmp.post-cleanup-gate"
-chmod 0600 "$STATE/update.transaction.tmp.post-cleanup-gate"
-set +e
-PATH="$MOCK:$PATH" STATE_DIR="$STATE" Z2_MOCK_LOG="$LOG" sh "$MOD/zapret2/scripts/zapret-full-rollback.sh" --machine > "$OUT"
-rc=$?
-set -e
-[ "$rc" = 2 ] || fail "valid committed cleanup did not return to guarded preflight"
-assert_line "$OUT" 'Z2_RB_STATUS=blocked'
-[ ! -e "$CLEANUP_REAL1" ] && [ ! -e "$CLEANUP_REAL2" ] || fail "full rollback retained valid committed cleanup directories"
-[ ! -e "$STATE/update.cleanup" ] || fail "full rollback retained consumed cleanup evidence"
-[ -e "$STATE/update.transaction.tmp.post-cleanup-gate" ] || fail "full rollback removed unrelated recovery evidence"
-rm -f "$STATE/update.transaction.tmp.post-cleanup-gate"
 
 # A failed durability barrier retains the exact disable fence and journal.
 exec 9< "$MOD/system/etc/hosts"
@@ -247,6 +190,7 @@ assert_line "$OUT" 'Z2_RB_STATUS=complete'
 
 # A signal while waiting for a foreign lifecycle lock still emits the exact
 # machine contract and must not retire the foreign lock.
+start=$(awk '{print $22}' "/proc/$$/stat")
 mkdir "$STATE/lifecycle.lock"
 cat > "$STATE/lifecycle.lock/owner" <<EOF
 pid=$$

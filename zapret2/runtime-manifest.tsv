@@ -1,8 +1,8 @@
 schema|1|zapret2-runtime
 owner_protocol|7|zapret2-firewall
 # class|mode|path
-# mutable-seed and runtime-dependency-mutable-seed are required fresh-package
-# assets whose installed contents may later be replaced by preserved user data.
+# mutable-seed and runtime-dependency-mutable-seed are fresh release assets that
+# may be edited at runtime; package upgrades never merge them from an old tree.
 immutable-file|0644|module.prop
 immutable-exec|0755|customize.sh
 immutable-exec|0755|service.sh
@@ -19,7 +19,6 @@ immutable-exec|0755|zapret2/scripts/zapret-start.sh
 immutable-exec|0755|zapret2/scripts/zapret-stop.sh
 immutable-exec|0755|zapret2/scripts/zapret-restart.sh
 immutable-exec|0755|zapret2/scripts/zapret-status.sh
-immutable-exec|0755|zapret2/scripts/zapret-update-guard.sh
 immutable-exec|0755|zapret2/scripts/zapret-full-rollback.sh
 immutable-exec|0755|zapret2/scripts/lifecycle/purge-contract.sh
 immutable-exec|0755|zapret2/scripts/lifecycle/zapret-purge.sh

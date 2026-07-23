@@ -69,7 +69,6 @@ command -v audit_recovery_artifacts >/dev/null 2>&1 || {
     exit 1
 }
 
-UPDATE_TRANSACTION="${UPDATE_TRANSACTION:-$STATE_DIR/update.transaction}"
 INSTALL_GENERATION_META="$MODPATH/zapret2/install-generation.meta"
 
 mode_is_0600() {
@@ -159,23 +158,11 @@ state_dir_resolves_exactly() {
     [ "$resolved" = "$EXPECTED_STATE_DIR" ]
 }
 
-update_transaction_present() {
-    local path
-    for path in "$UPDATE_TRANSACTION" "$UPDATE_TRANSACTION".tmp "$UPDATE_TRANSACTION".tmp.*; do
-        if [ -e "$path" ] || [ -L "$path" ]; then
-            return 0
-        fi
-    done
-    return 1
-}
-
 legacy_lock_present() {
     local path
     for path in \
         /data/local/tmp/zapret2-lifecycle.lock \
-        /data/local/tmp/zapret2-lifecycle.lock.* \
-        /data/local/tmp/zapret2-update.lock \
-        /data/local/tmp/zapret2-update.lock.*; do
+        /data/local/tmp/zapret2-lifecycle.lock.*; do
         if [ -e "$path" ] || [ -L "$path" ]; then
             LEGACY_LOCK_PATH="$path"
             return 0
@@ -558,24 +545,14 @@ if ! audit_recovery_artifacts uninstall; then
     exit 1
 fi
 
-if update_transaction_present; then
-    report_error "An interrupted/restorable update transaction is present; recover it before uninstall"
-    exit 1
-fi
-
 if legacy_lock_present; then
-    report_error "Legacy lifecycle/update lock is present and was preserved: $LEGACY_LOCK_PATH"
+    report_error "Legacy lifecycle lock is present and was preserved: $LEGACY_LOCK_PATH"
     exit 1
 fi
 
 LEGACY_AUDIT_ERROR=""
 if ! validate_legacy_cleanup_set; then
     report_error "$LEGACY_AUDIT_ERROR; ambiguous legacy files were preserved"
-    exit 1
-fi
-
-if [ -e "$UPDATE_LOCK" ] || [ -L "$UPDATE_LOCK" ]; then
-    report_error "An update lock blocks uninstall and was preserved"
     exit 1
 fi
 
@@ -589,11 +566,6 @@ fi
 LOCK_ACQUIRED=1
 trap unlock_after_signal HUP INT TERM
 
-if [ -e "$UPDATE_CLEANUP" ] || [ -L "$UPDATE_CLEANUP" ]; then
-    consume_committed_update_cleanup_locked ||
-        fail_while_locked "Committed update cleanup is malformed, ambiguous, or could not be consumed; module removal was blocked and evidence preserved"
-fi
-
 if ! audit_recovery_artifacts uninstall; then
     fail_while_locked "Recovery artifacts changed while uninstall was serializing: ${RECOVERY_ARTIFACT_DIAGNOSTIC:-unsafe recovery state}"
 fi
@@ -605,11 +577,6 @@ case "$RECOVERY_ARTIFACT_CLASS" in
         ;;
     *) fail_while_locked "Unexpected recovery-artifact class blocks uninstall: $RECOVERY_ARTIFACT_CLASS" ;;
 esac
-
-if update_transaction_present || [ -e "$UPDATE_LOCK" ] || [ -L "$UPDATE_LOCK" ] ||
-   [ -e "$UPDATE_CLEANUP" ] || [ -L "$UPDATE_CLEANUP" ]; then
-    fail_while_locked "An update became active while uninstall was serializing; state was preserved"
-fi
 
 # Publish the persistent start gate while the uninstall parent still owns the
 # lifecycle lock.  zapret-stop.sh receives the exact live owner credentials;
@@ -666,11 +633,6 @@ if ! retire_authenticated_completed_rollback; then
     fail_while_locked "Authenticated completed rollback generation/hosts backup could not be retired safely"
 fi
 
-if update_transaction_present || [ -e "$UPDATE_LOCK" ] || [ -L "$UPDATE_LOCK" ] ||
-   [ -e "$UPDATE_CLEANUP" ] || [ -L "$UPDATE_CLEANUP" ]; then
-    fail_while_locked "An update became active before state cleanup; state was preserved"
-fi
-
 # Remove only named regular metadata while the lifecycle is serialized.  The
 # active lifecycle lock and any unknown child are deliberately not removed.
 STATE_CLEANUP_ERROR=""
@@ -712,13 +674,9 @@ if ! state_dir_is_secure || ! state_dir_resolves_exactly; then
     report_error "State directory changed during uninstall; it was preserved"
     exit 1
 fi
-if update_transaction_present; then
-    report_error "Update transaction appeared during uninstall; the state directory was preserved"
-    exit 1
-fi
-for lock_artifact in "$STATE_DIR"/lifecycle.lock* "$STATE_DIR"/update.lock*; do
+for lock_artifact in "$STATE_DIR"/lifecycle.lock*; do
     if [ -e "$lock_artifact" ] || [ -L "$lock_artifact" ]; then
-        report_error "Lifecycle/update lock artifact appeared during uninstall; the state directory was preserved"
+        report_error "Lifecycle lock artifact appeared during uninstall; the state directory was preserved"
         exit 1
     fi
 done
