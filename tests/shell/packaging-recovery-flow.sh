@@ -7,6 +7,7 @@ CASE="$TMP/packaging-recovery"
 STATE="$CASE/state"
 AUDIT_MOD="$CASE/audit-module"
 FIXTURE="$CASE/package"
+PACKAGE_SOURCE="$CASE/package-source"
 ARCHIVE="$CASE/module.zip"
 MOCK="$CASE/bin"
 LIVE=/data/adb/modules/zapret2
@@ -240,25 +241,23 @@ if audit_recovery_artifacts uninstall; then fail "unsafe symlink recovery artifa
 rm -f "$FULL_ROLLBACK_META"
 
 # Build a realistic installer archive from the current package contract.
-mkdir -p "$FIXTURE"
+mkdir -p "$FIXTURE" "$PACKAGE_SOURCE"
 cp "$ROOT/module.prop" "$ROOT/customize.sh" "$ROOT/service.sh" "$ROOT/uninstall.sh" \
-    "$ROOT/action.sh" "$FIXTURE/"
-cp -R "$ROOT/system" "$ROOT/zapret2" "$FIXTURE/"
-mkdir -p "$FIXTURE/zapret2/bin/arm64-v8a"
-cp /bin/true "$FIXTURE/zapret2/bin/arm64-v8a/nfqws2"
-mkdir -p "$FIXTURE/zapret2/bin/armeabi-v7a"
-cp "$FIXTURE/zapret2/bin/arm64-v8a/nfqws2" "$FIXTURE/zapret2/bin/armeabi-v7a/nfqws2"
-rm -f "$FIXTURE/disable" "$FIXTURE/zapret2/install-generation.meta"
-chmod 0755 "$FIXTURE"/*.sh "$FIXTURE"/zapret2/scripts/*.sh "$FIXTURE"/system/bin/*
+    "$ROOT/action.sh" "$PACKAGE_SOURCE/"
+cp -R "$ROOT/system" "$ROOT/zapret2" "$PACKAGE_SOURCE/"
+mkdir -p "$PACKAGE_SOURCE/zapret2/bin/arm64-v8a" "$PACKAGE_SOURCE/zapret2/bin/armeabi-v7a"
+cp /bin/true "$PACKAGE_SOURCE/zapret2/bin/arm64-v8a/nfqws2"
+cp "$PACKAGE_SOURCE/zapret2/bin/arm64-v8a/nfqws2" "$PACKAGE_SOURCE/zapret2/bin/armeabi-v7a/nfqws2"
+printf '%s\n' b78b52c4cd7f843da3ff0848a3430afbd401bdf2 > "$PACKAGE_SOURCE/zapret2/upstream-zapret2.commit"
+. "$PACKAGE_SOURCE/zapret2/scripts/package-contract.sh"
+package_contract_assemble_package "$PACKAGE_SOURCE" "$FIXTURE" ||
+    fail "cannot assemble installer fixture: $PACKAGE_CONTRACT_CODE $PACKAGE_CONTRACT_DETAIL"
 (cd "$FIXTURE" && zip -qr "$ARCHIVE" module.prop customize.sh service.sh uninstall.sh action.sh system zapret2)
 
 run_installer() {
     rm -rf "$UPDATE"
     mkdir -p "$UPDATE"
-    unzip -q "$ARCHIVE" -d "$UPDATE"
-    find "$UPDATE" -type d -exec chmod 0755 {} +
-    find "$UPDATE" -type f -exec chmod 0644 {} +
-    find "$UPDATE/system/bin" -type f -exec chmod 0755 {} +
+    unzip -oq "$ARCHIVE" customize.sh -d "$UPDATE"
     (
         MODPATH="$UPDATE"
         ZIPFILE="$ARCHIVE"
@@ -267,7 +266,7 @@ run_installer() {
         export MODPATH ZIPFILE BOOTMODE ARCH
         abort() { echo "$*" >&2; rm -rf "$MODPATH"; exit 1; }
         ui_print() { :; }
-        . "$ROOT/customize.sh"
+        . "$UPDATE/customize.sh"
     ) || return $?
     # Magisk removes installer-only files after customize.sh returns.
     rm -f "$UPDATE/customize.sh"
@@ -385,8 +384,6 @@ PATH="$MOCK:$PATH" STATE_DIR="$LIVE_STATE" sh "$LIVE/zapret2/scripts/zapret-full
 grep -Fxq 'Z2_RB_STATUS=complete' "$CASE/rollback.out" || fail "rollback did not complete"
 [ -f "$LIVE_STATE/full-rollback.meta" ] && [ -f "$LIVE_STATE/hosts.rollback.backup" ] || fail "rollback evidence missing"
 
-: > "$LIVE/remove"
-chmod 0600 "$LIVE/remove"
 printf '%s\n' 'version=2' 'owner_pid=broken' > "$LIVE_STATE/update.cleanup"
 chmod 0600 "$LIVE_STATE/update.cleanup"
 set +e
@@ -441,5 +438,22 @@ SCRIPT_DIR="$UPDATE/zapret2/scripts"
 . "$UPDATE/zapret2/scripts/common.sh"
 audit_recovery_artifacts install || fail "reinstall left recovery artifacts"
 [ "$RECOVERY_ARTIFACT_CLASS" = clean ] || fail "reinstall recovery state is not clean"
+
+# Magisk's Delete button publishes the durable remove marker and invokes
+# uninstall.sh at the next boot before deleting the module directory. That
+# explicit authority must purge the whole private state tree even when an old
+# interrupted build journal is malformed; process/firewall cleanup is still
+# verified independently first.
+mv "$UPDATE" "$LIVE"
+: > "$LIVE/remove"
+chmod 0600 "$LIVE/remove"
+printf '%s\n' 'malformed interrupted build evidence' > "$LIVE_STATE/build-track.ipv4.4115"
+chmod 0600 "$LIVE_STATE/build-track.ipv4.4115"
+PATH="$MOCK:$PATH" MODPATH="$LIVE" sh "$LIVE/uninstall.sh" > "$CASE/magisk-remove.out" ||
+    fail "Magisk removal path did not force-clean private state"
+[ ! -e "$LIVE_STATE" ] && [ ! -L "$LIVE_STATE" ] ||
+    fail "Magisk removal left the private state directory"
+grep -Fq 'all Zapret2 service, firewall, and private state was removed' "$CASE/magisk-remove.out" ||
+    fail "Magisk removal did not report full private-state cleanup"
 
 echo "Packaging recovery flow tests passed"

@@ -12,6 +12,7 @@ ZAPRET_DIR="$MODPATH/zapret2"
 SCRIPT_DIR="$ZAPRET_DIR/scripts"
 STOP_SCRIPT="$SCRIPT_DIR/zapret-stop.sh"
 COMMON_SCRIPT="$SCRIPT_DIR/common.sh"
+PURGE_CONTRACT="$SCRIPT_DIR/lifecycle/purge-contract.sh"
 EXPECTED_STATE_DIR="/data/adb/zapret2-state"
 # Uninstall owns the same fixed privileged namespace as the installer. The
 # shared helpers permit STATE_DIR overrides for isolated callers, but an
@@ -474,13 +475,70 @@ publish_uninstall_tombstone() {
     uninstall_tombstone_allows_stop
 }
 
+magisk_removal_marker_is_exact() {
+    local marker="$MODPATH/remove" size
+    [ -f "$marker" ] && [ ! -L "$marker" ] && path_uid_is_root "$marker" &&
+        path_nlink_is_one "$marker" || return 1
+    size="$(wc -c < "$marker" 2>/dev/null)" || return 1
+    [ "$size" = 0 ]
+}
+
+magisk_remove_all_owned_state() {
+    local tool pending_nfqws="/data/adb/modules_update/zapret2/zapret2/nfqws2"
+    [ -f "$PURGE_CONTRACT" ] && [ ! -L "$PURGE_CONTRACT" ] || {
+        report_error "Magisk removal cleanup contract is unavailable"
+        return 1
+    }
+    . "$PURGE_CONTRACT" || return 1
+
+    # The root-owned empty Magisk remove marker is the durable global fence.
+    # zapret-start and every mutation entry refuse work while it exists, so no
+    # lifecycle tombstone is needed after the whole private state tree is gone.
+    stop_all_exact_owned_nfqws_for_path "$NFQWS2" || {
+        report_error "Unable to stop every exact live-module nfqws2 process"
+        return 1
+    }
+    if [ -f "$pending_nfqws" ] && [ ! -L "$pending_nfqws" ]; then
+        stop_all_exact_owned_nfqws_for_path "$pending_nfqws" || {
+            report_error "Unable to stop every exact staged-module nfqws2 process"
+            return 1
+        }
+    fi
+    for tool in iptables ip6tables; do
+        if ! command -v "$tool" >/dev/null 2>&1; then
+            [ "$tool" = ip6tables ] && continue
+            report_error "Unable to access $tool during Magisk removal"
+            return 1
+        fi
+        purge_zapret2_namespace "$tool" || {
+            report_error "Unable to remove the strict Zapret2 namespace from $tool"
+            return 1
+        }
+    done
+
+    if [ -e "$STATE_DIR" ] || [ -L "$STATE_DIR" ]; then
+        state_dir_is_secure && state_dir_resolves_exactly || {
+            report_error "Zapret2 state path is not the exact secure owned directory"
+            return 1
+        }
+    fi
+    z2_purge_remove_managed_tree "$Z2_PURGE_CANONICAL_PENDING_DIR" || return 1
+    z2_purge_remove_external_workspaces || return 1
+    z2_purge_remove_legacy_files || return 1
+    z2_purge_remove_managed_tree "$Z2_PURGE_CANONICAL_STATE_DIR" || return 1
+    sync >/dev/null 2>&1 || return 1
+    [ ! -e "$STATE_DIR" ] && [ ! -L "$STATE_DIR" ] || return 1
+    report_notice "Magisk removal marker verified; all Zapret2 service, firewall, and private state was removed"
+    return 0
+}
+
 if module_removal_pending; then
-    if [ -f "$MODPATH/remove" ] && [ ! -L "$MODPATH/remove" ]; then
-        report_notice "Magisk removal marker is present; persistent uninstall tombstoning will provide the lifecycle gate"
-    else
+    if ! magisk_removal_marker_is_exact; then
         report_error "Magisk removal marker is unsafe; refusing uninstall"
         exit 1
     fi
+    magisk_remove_all_owned_state
+    exit $?
 else
     report_warning "Magisk removal marker is absent (non-Magisk manager or direct invocation); relying on the persistent uninstall tombstone"
 fi

@@ -301,8 +301,20 @@ validate_track_journal_identity() {
     esac
     is_decimal "$expected_pid" && [ "$expected_pid" -gt 0 ] 2>/dev/null || return 1
     identity="$(awk -F '|' -v mode="$expected_mode" -v tool="$expected_tool" -v module="$MODDIR" \
-        -v pid="$expected_pid" -v outchain="$ZAPRET2_OUT" -v inchain="$ZAPRET2_IN" -v probe="$ZAPRET2_PROBE" -v ruleprefix="Z2R_${FIREWALL_TAG}_" '
+        -v pid="$expected_pid" -v probe="$ZAPRET2_PROBE" '
+        function derive(chain, tag) {
+            if (length(chain) != 14 || (substr(chain,1,4) != "Z2O_" && substr(chain,1,4) != "Z2I_")) return 0
+            tag=substr(chain,5)
+            if (length(tag) != 10 || tag !~ /^[A-Za-z0-9]+$/) return 0
+            firewall_tag=tag
+            outchain="Z2O_" tag
+            inchain="Z2I_" tag
+            ruleprefix="Z2R_" tag "_"
+            identity_ready=1
+            return 1
+        }
         function ruleside(chain, suffix) {
+            if (!identity_ready) return ""
             if (index(chain,ruleprefix)!=1) return ""
             suffix=substr(chain,length(ruleprefix)+1)
             if (suffix ~ /^O[1-9][0-9]*$/) return "O"
@@ -321,11 +333,14 @@ validate_track_journal_identity() {
             expected=$2
             if ($3 !~ /^(pending|applied|consuming|consumed)$/) exit 1
             if (mode == "build" && $4 == "chain") {
+                if (!identity_ready && !derive($5)) exit 1
                 if (NF != 5 || ($5 != outchain && $5 != inchain && ruleside($5)=="")) exit 1
             } else if (mode == "build" && $4 == "anchor") {
+                if (!identity_ready) exit 1
                 if (NF != 6 || !(($5 == "OUTPUT" && $6 == outchain) || ($5 == "INPUT" && $6 == inchain) ||
                     ($5 == outchain && ruleside($6)=="O") || ($5 == inchain && ruleside($6)=="I"))) exit 1
             } else if (mode == "build" && $4 == "rule") {
+                if (!identity_ready) exit 1
                 if (NF != 15 || ruleside($5)=="" || $6 !~ /^(tcp|udp)$/ ||
                     $8 !~ /^[0-9]+(,[0-9]+)*$/ || $9 !~ /^[0-9]+$/ || $11 !~ /^[0-9]+$/ ||
                     $12 !~ /^(0x)?[0-9A-Fa-f]+$/ || $13 !~ /^(0|1)$/ || $14 !~ /^(0|1)$/ || $15 !~ /^(0|1)$/) exit 1
@@ -339,11 +354,21 @@ validate_track_journal_identity() {
             } else exit 1
             for (i=5; i<=NF; i++) if ($i == "" || $i !~ /^[A-Za-z0-9_,:.-]+$/) exit 1
         }
-        END { if (NR < 7) exit 1; print creator "|" start "|" boot }
+        END {
+            if (NR < 7) exit 1
+            if (mode == "build") {
+                if (expected > 0 && !identity_ready) exit 1
+                if (!identity_ready) firewall_tag=outchain=inchain="none"
+            } else {
+                firewall_tag="probe"; outchain=inchain=probe
+            }
+            print creator "|" start "|" boot "|" firewall_tag "|" outchain "|" inchain
+        }
     ' "$path" 2>/dev/null)" || return 1
     old_ifs="$IFS"; IFS='|'; set -- $identity; IFS="$old_ifs"
-    [ "$#" -eq 3 ] || return 1
+    [ "$#" -eq 6 ] || return 1
     TRACK_CREATOR_PID="$1"; TRACK_CREATOR_START="$2"; TRACK_BOOT_ID="$3"
+    TRACK_FIREWALL_TAG="$4"; TRACK_OUT_CHAIN="$5"; TRACK_IN_CHAIN="$6"
     TRACK_JOURNAL_MODE="$expected_mode"
     TRACK_JOURNAL_TOOL="$expected_tool"
     is_valid_boot_id "$TRACK_BOOT_ID"
@@ -356,7 +381,8 @@ stale_track_file_is_known() {
 }
 
 stale_track_clean_ownership_proof() {
-    local tool family_state canonical_nfqws effective_nfqws candidate checked=""
+    local scope="${1:-generation}" tool family_state canonical_nfqws effective_nfqws candidate checked=""
+    case "$scope" in generation|namespace) ;; *) return 1 ;; esac
     effective_nfqws="${AUDIT_NFQWS2_OVERRIDE:-$NFQWS2}"
     scan_exact_owned_nfqws_for_path "$effective_nfqws" >/dev/null 2>&1 || return 1
     [ -z "$OWNED_SCAN_PIDS" ] || return 1
@@ -371,7 +397,12 @@ stale_track_clean_ownership_proof() {
     for tool in $STALE_TRACK_REQUIRED_TOOLS; do command -v "$tool" >/dev/null 2>&1 || return 1; done
     for tool in iptables ip6tables; do
         command -v "$tool" >/dev/null 2>&1 || continue
-        owned_family_present "$tool" >/dev/null 2>&1; family_state=$?
+        if [ "$scope" = namespace ]; then
+            zapret2_namespace_present "$tool" >/dev/null 2>&1
+        else
+            owned_family_present "$tool" >/dev/null 2>&1
+        fi
+        family_state=$?
         case "$family_state" in 1) ;; *) return 1;; esac
     done
     return 0
@@ -425,7 +456,7 @@ recover_stale_owner_publication() {
     STALE_TRACK_REQUIRED_TOOLS=iptables
     [ "$OWNER_STATE_SCHEMA_VERSION" != 3 ] && [ "$OWNER_STATE_IPV6_ACTIVE" = 1 ] &&
         STALE_TRACK_REQUIRED_TOOLS="$STALE_TRACK_REQUIRED_TOOLS ip6tables"
-    stale_track_clean_ownership_proof || {
+    stale_track_clean_ownership_proof generation || {
         if [ "$legacy" = 1 ]; then
             STALE_TRACK_DIAGNOSTIC="legacy owner recovery lacks a clean process/firewall snapshot"
         else
@@ -483,7 +514,7 @@ classify_stale_track_journals() {
         case " $STALE_TRACK_REQUIRED_TOOLS " in *" $TRACK_JOURNAL_TOOL "*) ;; *) STALE_TRACK_REQUIRED_TOOLS="${STALE_TRACK_REQUIRED_TOOLS}${STALE_TRACK_REQUIRED_TOOLS:+ }$TRACK_JOURNAL_TOOL";; esac
     done
     [ "$found" = 1 ] || return 0
-    stale_track_clean_ownership_proof || { STALE_TRACK_DIAGNOSTIC="stale track cannot be retired while owned process/firewall state exists"; return 1; }
+    stale_track_clean_ownership_proof namespace || { STALE_TRACK_DIAGNOSTIC="stale track cannot be retired while owned process/firewall state exists"; return 1; }
     if caller_holds_exact_lifecycle_lock; then
         for path in $STALE_TRACK_FILES; do
             rm -f "$path" 2>/dev/null || return 1
@@ -2815,6 +2846,12 @@ stop_all_exact_owned_nfqws() {
     return "$rc"
 }
 
+stop_all_exact_owned_nfqws_for_path() {
+    local AUDIT_NFQWS2_OVERRIDE="$1"
+    [ -n "$AUDIT_NFQWS2_OVERRIDE" ] || return 1
+    stop_all_exact_owned_nfqws
+}
+
 # Refuse teardown when exact process publication cannot account for every
 # module-binary process.  In particular, a rejected PID/owner file must never
 # fall through to the broad exact-path scan and kill a listener.
@@ -3646,6 +3683,75 @@ zapret2_namespace_present() {
         }
         END { exit found ? 0 : 1 }
     '
+}
+
+zapret2_delete_simple_jump_all() {
+    local tool="$1" source="$2" target="$3" count=0
+    while "$tool" -t mangle -C "$source" -j "$target" >/dev/null 2>&1; do
+        [ "$count" -lt 4096 ] 2>/dev/null || return 1
+        "$tool" -t mangle -D "$source" -j "$target" >/dev/null 2>&1 || return 1
+        count=$((count + 1))
+    done
+    return 0
+}
+
+# The Magisk removal marker is a durable global start fence. Once that marker
+# has been authenticated, uninstall may remove every strictly named Zapret2
+# generation even when its interrupted build journal is unavailable. No broad
+# table flush or rule-number deletion is used: only exact module-created jumps
+# and the reserved chain namespace are touched.
+purge_zapret2_namespace() {
+    local tool="$1" listing chains chain rest tag suffix parent pass
+    listing="$("$tool" -t mangle -S 2>/dev/null)" || return 1
+    chains="$(printf '%s\n' "$listing" | awk '
+        function owned(name, tag, side, ordinal) {
+            if (name == "ZAPRET2_OUT" || name == "ZAPRET2_IN" || name == "ZAPRET2_PROBE") return 1
+            if ((index(name,"Z2O_")==1 || index(name,"Z2I_")==1) && length(name)==14) {
+                tag=substr(name,5,10)
+                return tag !~ /[^A-Za-z0-9]/
+            }
+            if (index(name,"Z2R_")==1 && length(name)>=17) {
+                tag=substr(name,5,10); side=substr(name,16,1); ordinal=substr(name,17)
+                return substr(name,15,1)=="_" && tag !~ /[^A-Za-z0-9]/ &&
+                    (side=="O" || side=="I") && ordinal ~ /^[1-9][0-9]*$/
+            }
+            return 0
+        }
+        $1 == "-N" && owned($2) { print $2 }
+    ')" || return 1
+
+    for chain in $chains; do
+        case "$chain" in
+            Z2R_*)
+                rest="${chain#Z2R_}"; tag="${rest%%_*}"; suffix="${rest#*_}"
+                case "$suffix" in O[1-9]* ) parent="Z2O_$tag" ;; I[1-9]* ) parent="Z2I_$tag" ;; *) return 1 ;; esac
+                zapret2_delete_simple_jump_all "$tool" "$parent" "$chain" || return 1
+                ;;
+            Z2O_*) zapret2_delete_simple_jump_all "$tool" OUTPUT "$chain" || return 1 ;;
+            Z2I_*) zapret2_delete_simple_jump_all "$tool" INPUT "$chain" || return 1 ;;
+            ZAPRET2_OUT) zapret2_delete_simple_jump_all "$tool" OUTPUT "$chain" || return 1 ;;
+            ZAPRET2_IN) zapret2_delete_simple_jump_all "$tool" INPUT "$chain" || return 1 ;;
+            ZAPRET2_PROBE) ;;
+            *) return 1 ;;
+        esac
+    done
+
+    for chain in $chains; do
+        "$tool" -t mangle -S "$chain" >/dev/null 2>&1 || continue
+        "$tool" -t mangle -F "$chain" >/dev/null 2>&1 || return 1
+    done
+    for pass in 1 2; do
+        for chain in $chains; do
+            case "$pass:$chain" in
+                1:Z2R_*|1:ZAPRET2_PROBE|2:Z2O_*|2:Z2I_*|2:ZAPRET2_OUT|2:ZAPRET2_IN) ;;
+                *) continue ;;
+            esac
+            "$tool" -t mangle -S "$chain" >/dev/null 2>&1 || continue
+            "$tool" -t mangle -X "$chain" >/dev/null 2>&1 || return 1
+        done
+    done
+    zapret2_namespace_present "$tool"
+    case $? in 1) return 0 ;; *) return 1 ;; esac
 }
 
 owned_family_absent() {

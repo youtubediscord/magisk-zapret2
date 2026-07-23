@@ -348,7 +348,13 @@ validate_build_track() {
     validate_track_journal_identity "$BUILD_TRACK_FILE" || return 1
     [ "$TRACK_JOURNAL_MODE" = "$BUILD_TRACK_MODE" ] && [ "$TRACK_JOURNAL_TOOL" = "$tool" ] &&
         [ "$TRACK_CREATOR_PID" = "$$" ] && [ "$TRACK_CREATOR_START" = "$(proc_starttime "$$")" ] &&
-        read_current_boot_id && [ "$TRACK_BOOT_ID" = "$CURRENT_BOOT_ID" ]
+        read_current_boot_id && [ "$TRACK_BOOT_ID" = "$CURRENT_BOOT_ID" ] || return 1
+    if [ "$BUILD_TRACK_MODE" = build ] && [ "$TRACK_FIREWALL_TAG" != none ]; then
+        [ "$TRACK_FIREWALL_TAG" = "$FIREWALL_TAG" ] &&
+            [ "$TRACK_OUT_CHAIN" = "$ZAPRET2_OUT" ] &&
+            [ "$TRACK_IN_CHAIN" = "$ZAPRET2_IN" ] || return 1
+    fi
+    return 0
 }
 
 publish_build_track_temp() {
@@ -1008,6 +1014,11 @@ main() {
     if [ -e "$MODDIR/disable" ] || [ -L "$MODDIR/disable" ]; then
         release_lifecycle_lock
         echo "ERROR: start blocked because the module is disabled; re-enable it in the root manager first"
+        exit 1
+    fi
+    if module_removal_pending; then
+        release_lifecycle_lock
+        echo "ERROR: start blocked because Magisk scheduled the module for removal"
         exit 1
     fi
     # Update serialization is checked before log rotation, status writes,

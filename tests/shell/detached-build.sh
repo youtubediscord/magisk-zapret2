@@ -57,6 +57,8 @@ case "$args" in
     *' -D Z2O_'*' -j Z2R_'*|*' -D Z2I_'*' -j Z2R_'*)
         parent=${args##* -D }; parent=${parent%% *}; inc "$prefix.jump_d" >/dev/null
         dec "$prefix.jumps.$parent" && dec "$prefix.jumps"; exit $? ;;
+    *' -C Z2O_'*' -j Z2R_'*|*' -C Z2I_'*' -j Z2R_'*)
+        parent=${args##* -C }; parent=${parent%% *}; [ "$(get "$prefix.jumps.$parent")" -gt 0 ] ;;
     *' -A OUTPUT -j Z2O_'*|*' -A INPUT -j Z2I_'*)
         n=$(inc "$prefix.anchor_append")
         [ "$n" != "${Z2_FAIL_ANCHOR:-0}" ] || exit 1
@@ -67,6 +69,9 @@ case "$args" in
         case "$args" in *' -D OUTPUT '*) builtin=OUTPUT;; *) builtin=INPUT;; esac
         count=$(get "$prefix.anchor.$builtin"); [ "$count" -gt 0 ] || exit 1
         printf '%s\n' $((count - 1)) > "$prefix.anchor.$builtin"; exit 0 ;;
+    *' -C OUTPUT -j Z2O_'*|*' -C INPUT -j Z2I_'*)
+        case "$args" in *' -C OUTPUT '*) builtin=OUTPUT;; *) builtin=INPUT;; esac
+        [ "$(get "$prefix.anchor.$builtin")" -gt 0 ] ;;
     *' -X '*)
         chain=${args##* -X }; chain=${chain%% *}
         if [ "$chain" = ZAPRET2_PROBE ]; then
@@ -90,6 +95,11 @@ case "$args" in
         case "$args" in *' -S OUTPUT '*) builtin=OUTPUT; target="$Z2_OUT_CHAIN";; *) builtin=INPUT; target="$Z2_IN_CHAIN";; esac
         count=$(get "$prefix.anchor.$builtin")
         while [ "$count" -gt 0 ]; do echo "-A $builtin -j $target"; count=$((count - 1)); done
+        exit 0 ;;
+    *' -F '*)
+        chain=${args##* -F }; chain=${chain%% *}
+        printf '%s\n' 0 > "$prefix.rules.$chain"
+        printf '%s\n' 0 > "$prefix.jumps.$chain"
         exit 0 ;;
     *' -S '*)
         for file in "$prefix".chain.*; do [ -e "$file" ] || continue; echo "-N ${file##*.chain.}"; done
@@ -190,6 +200,17 @@ cleanup_tracked_family iptables || fail "UDP-only cleanup failed"
 assert_clean iptables
 PORTS_TCP=80,443
 PORTS_UDP=443,3478,5349,19302
+
+# Magisk removal is authorized by its durable remove marker, not by possibly
+# damaged lifecycle journals. It removes only exact module-created jumps and
+# the reserved chain namespace; no broad table flush is allowed.
+reset_all
+build_detached_family iptables || fail "Magisk namespace purge fixture build failed"
+commit_family iptables || fail "Magisk namespace purge fixture commit failed"
+purge_zapret2_namespace iptables || fail "Magisk namespace purge failed"
+zapret2_namespace_present iptables && fail "Magisk namespace purge left owned objects"
+[ "$(read_count "$CASE/fw.iptables.anchor.OUTPUT")" = 0 ] || fail "Magisk purge left OUTPUT anchor"
+[ "$(read_count "$CASE/fw.iptables.anchor.INPUT")" = 0 ] || fail "Magisk purge left INPUT anchor"
 
 if [ "${Z2_NEW_ONLY:-0}" != 1 ]; then
 for tool in iptables ip6tables; do
@@ -353,6 +374,61 @@ assert_different_boot_retires() {
     [ ! -e "$journal" ] && [ ! -L "$journal" ] || fail "locked different-boot recovery did not retire journal"
     drop_lifecycle_lock
 }
+
+# Installation sources common.sh in a fresh shell after the previous module has
+# been removed. A valid cross-boot journal must authenticate its own dynamic
+# firewall generation instead of depending on globals that only existed in the
+# interrupted zapret-start process.
+reset_all
+begin_tracked_family iptables || fail "fresh-installer recovery fixture begin failed"
+BUILD_TRACK_TOOL=iptables
+build_track_add_pending "chain|$ZAPRET2_OUT" || fail "fresh-installer recovery journal failed"
+fresh_journal="$BUILD_TRACK_FILE"
+FIREWALL_TAG=""
+ZAPRET2_OUT=ZAPRET2_OUT
+ZAPRET2_IN=ZAPRET2_IN
+export FIREWALL_TAG ZAPRET2_OUT ZAPRET2_IN
+assert_different_boot_retires "$fresh_journal"
+FIREWALL_TAG="$Z2_FIREWALL_TAG"
+ZAPRET2_OUT="$Z2_OUT_CHAIN"
+ZAPRET2_IN="$Z2_IN_CHAIN"
+export FIREWALL_TAG ZAPRET2_OUT ZAPRET2_IN
+
+# The self-contained identity is still fail-closed: mixed generations cannot
+# authenticate, and a fresh installer must detect dynamic residue without
+# knowing the interrupted process's tag.
+reset_all
+begin_tracked_family iptables || fail "mixed-generation fixture begin failed"
+BUILD_TRACK_TOOL=iptables
+build_track_add_pending "chain|$ZAPRET2_OUT" || fail "mixed-generation output record failed"
+build_track_add_pending "chain|$ZAPRET2_IN" || fail "mixed-generation input record failed"
+mixed_journal="$BUILD_TRACK_FILE"
+sed "s/$ZAPRET2_IN/Z2I_ZzYyXxWwVv/" "$mixed_journal" > "$mixed_journal.bad"
+mv "$mixed_journal.bad" "$mixed_journal"
+chmod 0600 "$mixed_journal"
+Z2_TEST_BOOT_ID=22222222-2222-2222-2222-222222222222
+audit_recovery_artifacts install && fail "mixed firewall generations authenticated"
+[ -e "$mixed_journal" ] || fail "mixed-generation evidence was deleted"
+
+reset_all
+begin_tracked_family iptables || fail "fresh-installer residue fixture begin failed"
+BUILD_TRACK_TOOL=iptables
+build_track_add_pending "chain|$ZAPRET2_OUT" || fail "fresh-installer residue journal failed"
+residue_journal="$BUILD_TRACK_FILE"
+iptables -t mangle -N "$ZAPRET2_OUT" || fail "fresh-installer residue chain failed"
+FIREWALL_TAG=""
+ZAPRET2_OUT=ZAPRET2_OUT
+ZAPRET2_IN=ZAPRET2_IN
+export FIREWALL_TAG ZAPRET2_OUT ZAPRET2_IN
+Z2_TEST_BOOT_ID=22222222-2222-2222-2222-222222222222
+arm_lifecycle_lock
+audit_recovery_artifacts install && fail "fresh installer ignored dynamic firewall residue"
+[ -e "$residue_journal" ] || fail "residue journal was deleted"
+drop_lifecycle_lock
+FIREWALL_TAG="$Z2_FIREWALL_TAG"
+ZAPRET2_OUT="$Z2_OUT_CHAIN"
+ZAPRET2_IN="$Z2_IN_CHAIN"
+export FIREWALL_TAG ZAPRET2_OUT ZAPRET2_IN
 
 # Every non-track wildcard in the shared recovery inventory must expand even
 # when zapret-start has disabled globbing. Enumeration must restore that caller
