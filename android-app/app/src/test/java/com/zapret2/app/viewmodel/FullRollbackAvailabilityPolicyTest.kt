@@ -88,7 +88,11 @@ class FullRollbackAvailabilityPolicyTest {
         assertFalse(baseline.copy(hasRootAccess = false).canFullRollback)
         assertFalse(baseline.copy(moduleInstallState = ModuleInstallState.MISSING).canFullRollback)
         assertFalse(baseline.copy(moduleInstallState = ModuleInstallState.PARTIAL).canFullRollback)
-        assertFalse(baseline.copy(moduleInstallState = ModuleInstallState.UPDATING).canFullRollback)
+        assertFalse(
+            baseline.copy(
+                moduleMutationState = com.zapret2.app.data.ModuleMutationState.IN_PROGRESS,
+            ).canFullRollback,
+        )
         assertFalse(baseline.copy(isToggling = true).canFullRollback)
         assertFalse(baseline.copy(isCheckingForUpdates = true).canFullRollback)
         assertFalse(baseline.copy(isUpdating = true).canFullRollback)
