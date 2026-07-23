@@ -513,11 +513,11 @@ preview_compiled_artifact_machine() {
     printf 'Z2_COMMAND_PREVIEW\t1\t%s\tTCP=%s\tUDP=%s\n' \
         "$logical_name" "$COMPILED_TCP_PORTS" "$COMPILED_UDP_PORTS"
     printf 'Z2_COMMAND_EXECUTABLE\t%s\n' "$NFQWS2"
-    if nfqws_daemon_mode_supported; then
-        printf 'Z2_COMMAND_ARGUMENT\t--daemon\n'
-        printf 'Z2_COMMAND_ARGUMENT\t--pidfile=%s\n' "$PIDFILE"
-        count=2
-    fi
+    # Preview is a pure projection of the packaged launcher contract. Runtime
+    # capability checks and binary execution belong to preflight/start.
+    printf 'Z2_COMMAND_ARGUMENT\t--daemon\n'
+    printf 'Z2_COMMAND_ARGUMENT\t--pidfile=%s\n' "$PIDFILE"
+    count=2
     while IFS= read -r line || [ -n "$line" ]; do
         if [ "$in_args" -eq 0 ]; then
             [ "$line" != ARGS ] || in_args=1
@@ -646,11 +646,10 @@ if [ "$COMMAND_BUILDER_CLI_MODE" -eq 1 ]; then
             artifact="${STATE_DIR}/preset-preview.$$"
             state_file_target_is_safe "$artifact" || { printf 'Z2_PRESET_ERROR\tUNSAFE_PREVIEW_TARGET\n'; exit 2; }
             if compile_preset_artifact "$3" "$4" "$artifact" &&
-                run_compiled_artifact "$artifact" dry-run >/dev/null 2>&1 &&
                 preview_compiled_artifact_machine "$artifact" "$4"; then
                 rm -f "$artifact"; exit 0
             fi
-            [ "$PRESET_VALIDATION_CODE" != OK ] || PRESET_VALIDATION_CODE=NFQWS_DRY_RUN_FAILED
+            [ "$PRESET_VALIDATION_CODE" != OK ] || PRESET_VALIDATION_CODE=PREVIEW_FAILED
             rm -f "$artifact"
             printf 'Z2_COMMAND_PREVIEW\t0\t%s\t%s\n' "$PRESET_VALIDATION_CODE" "$4"
             exit 1
