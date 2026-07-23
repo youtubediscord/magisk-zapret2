@@ -265,7 +265,8 @@ write_ok_status() {
     STATUS_OWNER_METADATA_VERIFIED=1; STATUS_RULESET_VERIFIED=1; STATUS_RULES_EXPECTED="$1"
     STATUS_IPV4_ACTIVE=1; STATUS_IPV6_ACTIVE="$3"
     STATUS_IPV4_RULES="$OWNER_STATE_IPV4_RULES"; STATUS_IPV6_RULES="$OWNER_STATE_IPV6_RULES"
-    STATUS_CHAINS=$((2 + 2 * STATUS_IPV6_ACTIVE)); STATUS_ANCHORS="$STATUS_CHAINS"
+    STATUS_CHAINS=$((1 + IPV4_CONNBYTES + STATUS_IPV6_ACTIVE * (1 + IPV6_CONNBYTES)))
+    STATUS_ANCHORS="$STATUS_CHAINS"
     STATUS_NFQUEUE_SUPPORTED=1; STATUS_QUEUE_BYPASS_SUPPORTED=1
     STATUS_CONNBYTES_SUPPORTED="${IPV4_CONNBYTES:-1}"
     STATUS_MULTIPORT_SUPPORTED="${IPV4_MULTIPORT:-1}"
@@ -631,25 +632,34 @@ capture_prior_healthy_generation() {
     mv -f "$tmp" "$PRIOR_ARGV_FILE" || { rm -f "$tmp"; return 1; }
     rules_tmp="$PRIOR_RULES_V4.tmp.$$"
     [ ! -e "$rules_tmp" ] && [ ! -L "$rules_tmp" ] || { discard_prior_snapshot; return 1; }
-    { iptables -t mangle -S "$ZAPRET2_OUT"; iptables -t mangle -S "$ZAPRET2_IN"; } > "$rules_tmp" 2>/dev/null || { rm -f "$rules_tmp"; discard_prior_snapshot; return 1; }
+    {
+        iptables -t mangle -S "$ZAPRET2_OUT"
+        [ "$OWNER_STATE_IPV4_CONNBYTES" != 1 ] || iptables -t mangle -S "$ZAPRET2_IN"
+    } > "$rules_tmp" 2>/dev/null || { rm -f "$rules_tmp"; discard_prior_snapshot; return 1; }
     chmod 0600 "$rules_tmp" 2>/dev/null && mv -f "$rules_tmp" "$PRIOR_RULES_V4" || { rm -f "$rules_tmp"; discard_prior_snapshot; return 1; }
     if [ "$PRIOR_IPV6" = 1 ]; then
         rules_tmp="$PRIOR_RULES_V6.tmp.$$"
         [ ! -e "$rules_tmp" ] && [ ! -L "$rules_tmp" ] || { discard_prior_snapshot; return 1; }
-        { ip6tables -t mangle -S "$ZAPRET2_OUT"; ip6tables -t mangle -S "$ZAPRET2_IN"; } > "$rules_tmp" 2>/dev/null || { rm -f "$rules_tmp"; discard_prior_snapshot; return 1; }
+        {
+            ip6tables -t mangle -S "$ZAPRET2_OUT"
+            [ "$OWNER_STATE_IPV6_CONNBYTES" != 1 ] || ip6tables -t mangle -S "$ZAPRET2_IN"
+        } > "$rules_tmp" 2>/dev/null || { rm -f "$rules_tmp"; discard_prior_snapshot; return 1; }
         chmod 0600 "$rules_tmp" 2>/dev/null && mv -f "$rules_tmp" "$PRIOR_RULES_V6" || { rm -f "$rules_tmp"; discard_prior_snapshot; return 1; }
     fi
     PRIOR_HEALTHY=1
 }
 
 restore_family_snapshot() {
-    local tool="$1" file="$2" line chain spec
+    local tool="$1" file="$2" connbytes="${3:-1}" line chain spec
     [ -f "$file" ] && [ ! -L "$file" ] || return 1
     "$tool" -t mangle -N "$ZAPRET2_OUT" 2>/dev/null || return 1
-    "$tool" -t mangle -N "$ZAPRET2_IN" 2>/dev/null || { destroy_owned_chain "$tool" "$ZAPRET2_OUT" >/dev/null 2>&1; return 1; }
+    if [ "$connbytes" = 1 ]; then
+        "$tool" -t mangle -N "$ZAPRET2_IN" 2>/dev/null || { destroy_owned_chain "$tool" "$ZAPRET2_OUT" >/dev/null 2>&1; return 1; }
+    fi
     while IFS= read -r line || [ -n "$line" ]; do
         case "$line" in
-            "-N $ZAPRET2_OUT"|"-N $ZAPRET2_IN") continue ;;
+            "-N $ZAPRET2_OUT") continue ;;
+            "-N $ZAPRET2_IN") [ "$connbytes" = 1 ] || return 1; continue ;;
             "-A $ZAPRET2_OUT "*) chain="$ZAPRET2_OUT"; spec="${line#"-A $ZAPRET2_OUT "}" ;;
             "-A $ZAPRET2_IN "*) chain="$ZAPRET2_IN"; spec="${line#"-A $ZAPRET2_IN "}" ;;
             *) return 1 ;;
@@ -658,19 +668,28 @@ restore_family_snapshot() {
         "$tool" -t mangle -A "$chain" "$@" 2>/dev/null || return 1
         "$tool" -t mangle -C "$chain" "$@" 2>/dev/null || return 1
     done < "$file"
-    commit_family "$tool" || return 1
+    commit_family "$tool" "$connbytes" || return 1
     [ "$(exact_anchor_count "$tool" OUTPUT "$ZAPRET2_OUT")" = 1 ] || return 1
-    [ "$(exact_anchor_count "$tool" INPUT "$ZAPRET2_IN")" = 1 ] || return 1
     [ "$(owned_chain_reference_count "$tool" "$ZAPRET2_OUT")" = 1 ] || return 1
-    [ "$(owned_chain_reference_count "$tool" "$ZAPRET2_IN")" = 1 ] || return 1
-    verify_family_snapshot_exact "$tool" "$file"
+    if [ "$connbytes" = 1 ]; then
+        [ "$(exact_anchor_count "$tool" INPUT "$ZAPRET2_IN")" = 1 ] || return 1
+        [ "$(owned_chain_reference_count "$tool" "$ZAPRET2_IN")" = 1 ] || return 1
+    else
+        if owned_chain_exists "$tool" "$ZAPRET2_IN"; then return 1
+        else case $? in 1) ;; *) return 1;; esac; fi
+        [ "$(exact_anchor_count "$tool" INPUT "$ZAPRET2_IN")" = 0 ] || return 1
+    fi
+    verify_family_snapshot_exact "$tool" "$file" "$connbytes"
 }
 
 verify_family_snapshot_exact() {
-    local tool="$1" expected="$2" actual="$expected.verify.$$" rc=0
+    local tool="$1" expected="$2" connbytes="${3:-1}" actual="$expected.verify.$$" rc=0
     state_path_is_managed_file "$actual" || return 1
     [ ! -e "$actual" ] && [ ! -L "$actual" ] || return 1
-    { "$tool" -t mangle -S "$ZAPRET2_OUT"; "$tool" -t mangle -S "$ZAPRET2_IN"; } > "$actual" 2>/dev/null || {
+    {
+        "$tool" -t mangle -S "$ZAPRET2_OUT"
+        [ "$connbytes" != 1 ] || "$tool" -t mangle -S "$ZAPRET2_IN"
+    } > "$actual" 2>/dev/null || {
         rm -f "$actual"
         return 1
     }
@@ -719,15 +738,15 @@ restore_prior_healthy_generation() {
             read_owner_state || { OWNER_STATE="$live_owner"; return 1; }
             OWNER_STATE="$live_owner"; owner_loaded_generation_for_write || return 1
             write_owner_state "$candidate" "$start" "$restored_argv_sha256" "$QNUM" "$PRIOR_GENERATION" active || return 1
-            restore_family_snapshot iptables "$PRIOR_RULES_V4" || return 1
+            restore_family_snapshot iptables "$PRIOR_RULES_V4" "$OWNER_STATE_IPV4_CONNBYTES" || return 1
             if [ "$PRIOR_IPV6" = 1 ]; then
-                restore_family_snapshot ip6tables "$PRIOR_RULES_V6" || return 1
+                restore_family_snapshot ip6tables "$PRIOR_RULES_V6" "$OWNER_STATE_IPV6_CONNBYTES" || return 1
             fi
             read_verified_pidfile || return 1
             [ "$VERIFIED_PID" = "$candidate" ] && [ "$VERIFIED_PID_START" = "$start" ] || return 1
             [ "$OWNER_STATE_QNUM" = "$PRIOR_QNUM" ] && [ "$OWNER_STATE_ARGV_SHA256" = "$PRIOR_ARGV_SHA256" ] || return 1
-            verify_family_snapshot_exact iptables "$PRIOR_RULES_V4" || return 1
-            [ "$PRIOR_IPV6" != 1 ] || verify_family_snapshot_exact ip6tables "$PRIOR_RULES_V6" || return 1
+            verify_family_snapshot_exact iptables "$PRIOR_RULES_V4" "$OWNER_STATE_IPV4_CONNBYTES" || return 1
+            [ "$PRIOR_IPV6" != 1 ] || verify_family_snapshot_exact ip6tables "$PRIOR_RULES_V6" "$OWNER_STATE_IPV6_CONNBYTES" || return 1
             HEALTH_PID="$VERIFIED_PID"; HEALTH_PID_START="$VERIFIED_PID_START"
             HEALTH_GENERATION="$PRIOR_GENERATION"; HEALTH_IPV6="$PRIOR_IPV6"
             HEALTH_RULES=$((OWNER_STATE_IPV4_RULES + OWNER_STATE_IPV6_RULES))
@@ -859,7 +878,7 @@ fail_start() {
     [ -n "${IPV4_CONNBYTES:-}" ] && STATUS_CONNBYTES_SUPPORTED="$IPV4_CONNBYTES"
     [ -n "${IPV4_MULTIPORT:-}" ] && STATUS_MULTIPORT_SUPPORTED="$IPV4_MULTIPORT"
     [ -n "${IPV4_MARK:-}" ] && STATUS_MARK_SUPPORTED="$IPV4_MARK"
-    STATUS_FALLBACK_MODE=0
+    STATUS_FALLBACK_MODE="${FALLBACK_MODE:-0}"
     z2_error_set "$domain" "$code" "$stage" "$message" ||
         z2_error_set LIFECYCLE LIFECYCLE_FAILED START "$message"
     STATUS_ERROR_STATUS="$Z2_ERROR_STATUS"
@@ -974,11 +993,18 @@ build_detached_family() {
     begin_tracked_family "$tool" || return 1
     BUILD_TRACK_TOOL="$tool"
     tracked_create_chain "$tool" "$ZAPRET2_OUT" || { cleanup_tracked_family "$tool" >/dev/null 2>&1; return 1; }
-    tracked_create_chain "$tool" "$ZAPRET2_IN" || { cleanup_tracked_family "$tool" >/dev/null 2>&1; return 1; }
     append_port_set "$tool" "$ZAPRET2_OUT" tcp out "$PORTS_TCP" "$PKT_OUT" original || { cleanup_tracked_family "$tool" >/dev/null 2>&1; return 1; }
     append_port_set "$tool" "$ZAPRET2_OUT" udp out "$PORTS_UDP" "$PKT_OUT" original || { cleanup_tracked_family "$tool" >/dev/null 2>&1; return 1; }
-    append_port_set "$tool" "$ZAPRET2_IN" tcp in "$PORTS_TCP" "$PKT_IN" reply || { cleanup_tracked_family "$tool" >/dev/null 2>&1; return 1; }
-    append_port_set "$tool" "$ZAPRET2_IN" udp in "$PORTS_UDP" "$PKT_IN" reply || { cleanup_tracked_family "$tool" >/dev/null 2>&1; return 1; }
+    # Pinned upstream's KEEPALIVE mode deliberately omits connbytes from the
+    # outgoing rule. Incoming interception is a separate PKT_IN rule and still
+    # requires connbytes. Our preset contract rejects --in-range, so nfqws2
+    # keeps its upstream default --in-range=x. On kernels without xt_connbytes
+    # the exact upstream-compatible topology is therefore outgoing-only.
+    if [ "$BUILD_CONNBYTES" = 1 ]; then
+        tracked_create_chain "$tool" "$ZAPRET2_IN" || { cleanup_tracked_family "$tool" >/dev/null 2>&1; return 1; }
+        append_port_set "$tool" "$ZAPRET2_IN" tcp in "$PORTS_TCP" "$PKT_IN" reply || { cleanup_tracked_family "$tool" >/dev/null 2>&1; return 1; }
+        append_port_set "$tool" "$ZAPRET2_IN" udp in "$PORTS_UDP" "$PKT_IN" reply || { cleanup_tracked_family "$tool" >/dev/null 2>&1; return 1; }
+    fi
     return 0
 }
 
@@ -1039,11 +1065,11 @@ stop_failed_fallback_launch() {
 }
 
 commit_family() {
-    local tool="$1"
+    local tool="$1" connbytes="${2:-${BUILD_CONNBYTES:-1}}"
     build_track_for_tool "$tool" || return 1
     BUILD_TRACK_TOOL="$tool"
     tracked_append_anchor "$tool" OUTPUT "$ZAPRET2_OUT" || return 1
-    tracked_append_anchor "$tool" INPUT "$ZAPRET2_IN" || return 1
+    [ "$connbytes" != 1 ] || tracked_append_anchor "$tool" INPUT "$ZAPRET2_IN" || return 1
     return 0
 }
 
@@ -1157,18 +1183,26 @@ main() {
     IPV4_NFQUEUE="$PROBE_NFQUEUE"; IPV4_QUEUE_BYPASS="$PROBE_QUEUE_BYPASS"
     IPV4_CONNBYTES="$PROBE_CONNBYTES"; IPV4_MULTIPORT="$PROBE_MULTIPORT"; IPV4_MARK="$PROBE_MARK"
     [ "$IPV4_NFQUEUE" = 1 ] && [ "$IPV4_QUEUE_BYPASS" = 1 ] || fail_start "IPv4 NFQUEUE --queue-bypass is required"
-    [ "$IPV4_CONNBYTES" = 1 ] || fail_start "IPv4 connbytes packet limiter is required for safe queueing"
     [ "$IPV4_MULTIPORT" = 1 ] || fail_start "IPv4 multiport match is required for exact scoped queueing"
     [ "$IPV4_MARK" = 1 ] || fail_start "IPv4 mark match is required to prevent NFQUEUE recirculation"
     FALLBACK_MODE=0
+    if [ "$IPV4_CONNBYTES" != 1 ]; then
+        FALLBACK_MODE=1
+        DIAGNOSTICS="${DIAGNOSTICS}IPv4 connbytes unavailable; using upstream KEEPALIVE-style outgoing-only interception; "
+    fi
 
     IPV6_AVAILABLE=0
+    IPV6_CONNBYTES=0; IPV6_MULTIPORT=0; IPV6_MARK=0
     probe_family ip6tables
     case $? in
         0)
             if [ "$PROBE_NFQUEUE" = 1 ] && [ "$PROBE_QUEUE_BYPASS" = 1 ] &&
-               [ "$PROBE_CONNBYTES" = 1 ] && [ "$PROBE_MULTIPORT" = 1 ] && [ "$PROBE_MARK" = 1 ]; then
+               [ "$PROBE_MULTIPORT" = 1 ] && [ "$PROBE_MARK" = 1 ]; then
                 IPV6_AVAILABLE=1; IPV6_CONNBYTES="$PROBE_CONNBYTES"; IPV6_MULTIPORT="$PROBE_MULTIPORT"; IPV6_MARK="$PROBE_MARK"
+                if [ "$IPV6_CONNBYTES" != 1 ]; then
+                    FALLBACK_MODE=1
+                    DIAGNOSTICS="${DIAGNOSTICS}IPv6 connbytes unavailable; using upstream KEEPALIVE-style outgoing-only interception; "
+                fi
             else DIAGNOSTICS="${DIAGNOSTICS}IPv6 mandatory queue safety capability unavailable; IPv6 skipped; "; fi
             ;;
         2) DIAGNOSTICS="${DIAGNOSTICS}IPv6 unavailable; IPv6 skipped; " ;;

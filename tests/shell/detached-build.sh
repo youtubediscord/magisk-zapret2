@@ -34,6 +34,9 @@ case "$args" in
     *' -A ZAPRET2_PROBE '*)
         n=$(inc "$prefix.probe_append")
         [ "$n" != "${Z2_FAIL_PROBE_APPEND:-0}" ] || exit 1
+        case "$args" in
+            *' -m connbytes '*) [ "${Z2_NO_CONNBYTES:-0}" != 1 ] || exit 1 ;;
+        esac
         count=$(get "$prefix.probe_rules"); printf '%s\n' $((count + 1)) > "$prefix.probe_rules"; exit 0 ;;
     *' -D ZAPRET2_PROBE '*)
         n=$(inc "$prefix.probe_delete")
@@ -170,7 +173,7 @@ reset_all() {
     rm -f "$CASE"/fw.* "$STATE"/build-track.* "$STATE"/probe-track.* "$Z2_SYNC_COUNT" "$Z2_MV_COUNT"
     rm -rf "$LIFECYCLE_LOCK"
     set -f
-    unset Z2_FAIL_N Z2_FAIL_APPEND Z2_FAIL_JUMP Z2_FAIL_ANCHOR Z2_FAIL_SYNC Z2_FAIL_MV Z2_FAIL_PROBE_APPEND Z2_FAIL_PROBE_DELETE Z2_FAIL_PROBE_X Z2_MOCK_OWNED_PROCESS Z2_FAIL_BASELINE_TOOL
+    unset Z2_FAIL_N Z2_FAIL_APPEND Z2_FAIL_JUMP Z2_FAIL_ANCHOR Z2_FAIL_SYNC Z2_FAIL_MV Z2_FAIL_PROBE_APPEND Z2_FAIL_PROBE_DELETE Z2_FAIL_PROBE_X Z2_MOCK_OWNED_PROCESS Z2_FAIL_BASELINE_TOOL Z2_NO_CONNBYTES
     Z2_TEST_BOOT_ID=11111111-1111-1111-1111-111111111111
     BUILD_TRACK_AMBIGUOUS=0
     LOCK_HELD=0; LOCK_OWNER_PID=""; LOCK_OWNER_START=""; LOCK_OWNER_TOKEN=""
@@ -631,6 +634,26 @@ probe_track_for_tool iptables
 [ ! -e "$BUILD_TRACK_FILE" ] || fail "successful probe left its journal"
 [ ! -e "$CASE/fw.iptables.chain.ZAPRET2_PROBE" ] || fail "successful probe left its chain"
 [ "$(read_count "$CASE/fw.iptables.probe_rules")" = 0 ] || fail "successful probe left a rule"
+
+# Android kernels may provide the userspace xtables extension while omitting
+# the optional xt_connbytes kernel match. Pinned upstream maps that case to its
+# outgoing KEEPALIVE path; incoming PKT_IN interception is not installed.
+reset_all
+Z2_NO_CONNBYTES=1; export Z2_NO_CONNBYTES
+probe_family iptables || fail "missing connbytes made the capability probe ambiguous"
+[ "$PROBE_NFQUEUE:$PROBE_QUEUE_BYPASS:$PROBE_CONNBYTES:$PROBE_MULTIPORT:$PROBE_MARK" = 1:1:0:1:1 ] ||
+    fail "missing connbytes changed an unrelated capability"
+BUILD_CONNBYTES="$PROBE_CONNBYTES"; BUILD_MULTIPORT="$PROBE_MULTIPORT"; BUILD_MARK="$PROBE_MARK"
+build_detached_family iptables || fail "upstream KEEPALIVE-style build failed"
+[ "$(read_count "$CASE/fw.iptables.rules")" = 2 ] || fail "connbytes fallback did not create one outgoing rule per protocol"
+[ -e "$CASE/fw.iptables.chain.$ZAPRET2_OUT" ] || fail "connbytes fallback omitted its outgoing chain"
+[ ! -e "$CASE/fw.iptables.chain.$ZAPRET2_IN" ] || fail "connbytes fallback created an unused incoming chain"
+commit_family iptables || fail "connbytes fallback commit failed"
+[ "$(read_count "$CASE/fw.iptables.anchor.OUTPUT")" = 1 ] || fail "connbytes fallback omitted its OUTPUT anchor"
+[ "$(read_count "$CASE/fw.iptables.anchor.INPUT")" = 0 ] || fail "connbytes fallback installed an INPUT anchor"
+cleanup_tracked_family iptables || fail "connbytes fallback tracked cleanup failed"
+assert_clean iptables
+BUILD_CONNBYTES=1
 
 # Model SIGKILL immediately after every probe append and after every exact
 # delete. The fixture creator is still live, so re-entry on the same boot

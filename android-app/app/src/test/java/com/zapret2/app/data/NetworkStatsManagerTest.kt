@@ -23,7 +23,7 @@ class NetworkStatsManagerTest {
         connbytes = false,
         multiport = false,
         markCapability = false,
-        expectedRuleCount = 10,
+        expectedRuleCount = 5,
     )
 
     @Test
@@ -82,12 +82,12 @@ class NetworkStatsManagerTest {
 
         assertTrue(result.topologyVerified)
         assertTrue(result.hasState)
-        assertEquals(12, result.chainCount)
-        assertEquals(2, result.anchorCount)
-        assertEquals(10, result.mainJumpCount)
-        assertEquals(10, result.nfqueueRulesCount)
+        assertEquals(6, result.chainCount)
+        assertEquals(1, result.anchorCount)
+        assertEquals(5, result.mainJumpCount)
+        assertEquals(5, result.nfqueueRulesCount)
         assertEquals(5, result.outNfqueueCount)
-        assertEquals(5, result.inNfqueueCount)
+        assertEquals(0, result.inNfqueueCount)
     }
 
     @Test
@@ -193,6 +193,19 @@ class NetworkStatsManagerTest {
     }
 
     @Test
+    fun topology_rejectsIncomingObjectsInConnbytesFallback() {
+        val unexpectedIncoming = listOf(
+            "-N Z2I_Ab12Cd34Ef",
+            "-N Z2R_Ab12Cd34Ef_I1",
+            "-A INPUT -j Z2I_Ab12Cd34Ef",
+            "-A Z2I_Ab12Cd34Ef -j Z2R_Ab12Cd34Ef_I1",
+            "-A Z2R_Ab12Cd34Ef_I1 -p tcp --sport 80 -j NFQUEUE --queue-num 200 --queue-bypass",
+        )
+
+        assertFalse(verify(validTopology() + unexpectedIncoming).topologyVerified)
+    }
+
+    @Test
     fun topology_neverTreatsLegacyV5ChainsAsActive() {
         val legacy = listOf(
             "-N ZAPRET2_OUT",
@@ -228,11 +241,6 @@ class NetworkStatsManagerTest {
             "-A Z2R_Ab12Cd34Ef_O3 -p udp --dport 3478 -j NFQUEUE --queue-num 200 --queue-bypass",
             "-A Z2R_Ab12Cd34Ef_O4 -p udp --dport 5349 -j NFQUEUE --queue-num 200 --queue-bypass",
             "-A Z2R_Ab12Cd34Ef_O5 -p udp --dport 19302 -j NFQUEUE --queue-num 200 --queue-bypass",
-            "-A Z2R_Ab12Cd34Ef_I1 -p tcp --sport 80 -j NFQUEUE --queue-num 200 --queue-bypass",
-            "-A Z2R_Ab12Cd34Ef_I2 -p udp --sport 443 -j NFQUEUE --queue-num 200 --queue-bypass",
-            "-A Z2R_Ab12Cd34Ef_I3 -p udp --sport 3478 -j NFQUEUE --queue-num 200 --queue-bypass",
-            "-A Z2R_Ab12Cd34Ef_I4 -p udp --sport 5349 -j NFQUEUE --queue-num 200 --queue-bypass",
-            "-A Z2R_Ab12Cd34Ef_I5 -p udp --sport 19302 -j NFQUEUE --queue-num 200 --queue-bypass",
         ),
     )
 
@@ -259,17 +267,18 @@ class NetworkStatsManagerTest {
         "-j NFQUEUE --queue-num 200 --queue-bypass"
 
     private fun topology(payloads: List<String>): List<String> = buildList {
-        val perSide = payloads.size / 2
+        val outCount = payloads.count { "_O" in it.substringBefore(" -p ") }
+        val inCount = payloads.count { "_I" in it.substringBefore(" -p ") }
         add("-P INPUT ACCEPT")
         add("-P OUTPUT ACCEPT")
         add("-N Z2O_Ab12Cd34Ef")
-        add("-N Z2I_Ab12Cd34Ef")
-        (1..perSide).forEach { add("-N Z2R_Ab12Cd34Ef_O$it") }
-        (1..perSide).forEach { add("-N Z2R_Ab12Cd34Ef_I$it") }
+        if (inCount > 0) add("-N Z2I_Ab12Cd34Ef")
+        (1..outCount).forEach { add("-N Z2R_Ab12Cd34Ef_O$it") }
+        (1..inCount).forEach { add("-N Z2R_Ab12Cd34Ef_I$it") }
         add("-A OUTPUT -j Z2O_Ab12Cd34Ef")
-        add("-A INPUT -j Z2I_Ab12Cd34Ef")
-        (1..perSide).forEach { add("-A Z2O_Ab12Cd34Ef -j Z2R_Ab12Cd34Ef_O$it") }
-        (1..perSide).forEach { add("-A Z2I_Ab12Cd34Ef -j Z2R_Ab12Cd34Ef_I$it") }
+        if (inCount > 0) add("-A INPUT -j Z2I_Ab12Cd34Ef")
+        (1..outCount).forEach { add("-A Z2O_Ab12Cd34Ef -j Z2R_Ab12Cd34Ef_O$it") }
+        (1..inCount).forEach { add("-A Z2I_Ab12Cd34Ef -j Z2R_Ab12Cd34Ef_I$it") }
         addAll(payloads)
     }
 }

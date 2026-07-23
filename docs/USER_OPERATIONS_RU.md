@@ -12,7 +12,7 @@ Magisk-модуля. Он описывает контракт исходнико
 | Архитектура | ARM64 или ARM; x86/x86_64 не поставляются |
 | Root-менеджер | Magisk 20.4+ |
 | Установка ZIP | Только boot mode: приложение Magisk или `magisk --install-module` из Zapret2 Control |
-| Firewall | IPv4 `iptables` с `NFQUEUE`, `--queue-bypass`, `connbytes`, `multiport` и `mark` |
+| Firewall | IPv4 `iptables` с `NFQUEUE`, `--queue-bypass`, `multiport` и `mark`; `connbytes` необязателен и при отсутствии включает исходящий `KEEPALIVE`-режим оригинального zapret2 |
 | IPv6 | Требует того же набора в `ip6tables`; при его отсутствии IPv6 явно не перехватывается |
 | Интерфейс | Jetpack Compose, Material 3 Expressive, светлая/тёмная тема и dynamic color на Android 12+ |
 

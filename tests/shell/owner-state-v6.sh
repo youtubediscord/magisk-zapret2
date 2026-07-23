@@ -99,6 +99,22 @@ if write_owner_state 123 456 "$ARGV_SHA256" 200 "$oversized_generation" active; 
 fi
 cmp -s "$CASE/owner.v7" "$OWNER_STATE" || fail "rejected oversized owner changed the committed record"
 
+# xt_connbytes is optional on Android kernels. The authenticated v7 owner
+# contract represents pinned upstream's outgoing-only KEEPALIVE topology with
+# connbytes=0 and exactly one direction worth of payload rules.
+IPV4_CONNBYTES=0
+prepare_owner_generation_spec 1 0 || fail "could not prepare connbytes fallback owner generation"
+[ "$OWNER_WRITE_IPV4_RULES" = 2 ] || fail "connbytes fallback owner rule count is not outgoing-only"
+write_owner_state 123 456 "$ARGV_SHA256" 200 owner-v7-fallback active ||
+    fail "could not write connbytes fallback owner"
+chmod 0600 "$OWNER_STATE"
+read_owner_state && owner_state_is_current_boot || fail "connbytes fallback owner round trip failed"
+[ "$OWNER_STATE_IPV4_CONNBYTES:$OWNER_STATE_IPV4_RULES" = 0:2 ] ||
+    fail "connbytes fallback owner topology changed after read"
+IPV4_CONNBYTES=1
+cp "$CASE/owner.v7" "$OWNER_STATE"; chmod 0600 "$OWNER_STATE"
+read_owner_state && owner_state_is_current_boot || fail "canonical owner was not restored after fallback test"
+
 assert_owner_rejected() {
     candidate="$1"
     cp "$candidate" "$OWNER_STATE"; chmod 0600 "$OWNER_STATE"

@@ -25,6 +25,30 @@ class OwnerStateSchemaTest {
     }
 
     @Test
+    fun currentV7_acceptsUpstreamKeepaliveTopologyWithoutConnbytes() {
+        val canonical = linesFor(OwnerStateSchema.currentFields, OwnerStateSchema.VERSION.toString(), bootId)
+        val fallbackSpec = "family:ipv4;active:1;tag:Ab12Cd34Ef;outchain:Z2O_Ab12Cd34Ef;inchain:Z2I_Ab12Cd34Ef;qnum:200;tcp:80,443;udp:443;stun:0;out:20;in:10;mark:0x40000000;connbytes:0;multiport:1;markcap:1;rules:2"
+        val ipv6Spec = canonical.first { it.startsWith("ipv6_spec=") }.substringAfter('=')
+        val fingerprint = MessageDigest.getInstance("SHA-256")
+            .digest("$fallbackSpec\n$ipv6Spec\n".toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it.toInt() and 0xff) }
+        val fallback = canonical.map {
+            when {
+                it.startsWith("ipv4_connbytes=") -> "ipv4_connbytes=0"
+                it.startsWith("ipv4_rules=") -> "ipv4_rules=2"
+                it.startsWith("ipv4_spec=") -> "ipv4_spec=$fallbackSpec"
+                it.startsWith("firewall_fingerprint=") -> "firewall_fingerprint=$fingerprint"
+                else -> it
+            }
+        }
+
+        val result = OwnerStateSchema.reconcile(fallback, bootId)
+
+        assertEquals(OwnerStateSchema.Disposition.CURRENT, result.disposition)
+        assertTrue(result.isHealthyCandidate)
+    }
+
+    @Test
     fun ownerFileBound_coversOnlyCompactMetadata() {
         assertEquals(1024 * 1024, OwnerStateSchema.MAX_FILE_BYTES)
         assertEquals(64 * 1024, OwnerStateSchema.MAX_CURRENT_FILE_BYTES)

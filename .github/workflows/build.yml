@@ -127,10 +127,26 @@ jobs:
             exit 1
           fi
 
+          RELEASES_JSON=$(curl --fail --silent --show-error --location --max-time 30 \
+            'https://api.github.com/repos/youtubediscord/magisk-zapret2/releases?per_page=100')
+          LATEST_CANONICAL=$(jq -cer '
+            map(select(
+              (.draft | not) and
+              (.prerelease | not) and
+              (.tag_name | test("^v[0-9]+[.][0-9]+[.][0-9]+$")) and
+              any(.assets[]; .name == "update.json")
+            )) | first
+          ' <<<"$RELEASES_JSON")
+          LATEST_CANONICAL_TAG=$(jq -er '.tag_name' <<<"$LATEST_CANONICAL")
+          LATEST_UPDATE_URL=$(jq -er \
+            '.assets | map(select(.name == "update.json")) | first.browser_download_url' \
+            <<<"$LATEST_CANONICAL")
           LATEST_JSON=$(curl --fail --silent --show-error --location --max-time 30 \
-            https://github.com/youtubediscord/magisk-zapret2/releases/latest/download/update.json)
+            "$LATEST_UPDATE_URL")
+          LATEST_VERSION=$(jq -er '.version | strings' <<<"$LATEST_JSON")
           LATEST_VERSION_CODE=$(jq -er '.versionCode | select(type == "number" and floor == .)' \
             <<<"$LATEST_JSON")
+          [[ "$LATEST_VERSION" == "$LATEST_CANONICAL_TAG" ]]
           if (( VERSION_CODE <= LATEST_VERSION_CODE )); then
             echo "versionCode $VERSION_CODE must exceed published versionCode $LATEST_VERSION_CODE"
             exit 1
@@ -430,44 +446,6 @@ jobs:
           package_contract_validate_all "$PACKAGE_AUDIT_ROOT" package
           package_contract_validate_modes "$PACKAGE_AUDIT_ROOT" package
           sudo rm -rf "$PACKAGE_AUDIT_ROOT"
-          # The command entry points are immutable regular package assets. The
-          # Android updater validates the same two-line byte contract.
-          test -d system/bin
-          test ! -L system
-          test ! -L system/bin
-          WRAPPER_EXPECTED="$(mktemp)"
-          test -f zapret2/scripts/zapret-update-guard.sh
-          test ! -L zapret2/scripts/zapret-update-guard.sh
-          test -s zapret2/scripts/zapret-update-guard.sh
-          test -x zapret2/scripts/zapret-update-guard.sh
-          test "$(sed -n '1p' zapret2/scripts/zapret-update-guard.sh)" = '#!/system/bin/sh'
-          if LC_ALL=C grep -q $'\r' zapret2/scripts/zapret-update-guard.sh; then exit 1; fi
-          test -f zapret2/scripts/zapret-full-rollback.sh
-          test ! -L zapret2/scripts/zapret-full-rollback.sh
-          test -x zapret2/scripts/zapret-full-rollback.sh
-          test "$(sed -n '1p' zapret2/scripts/zapret-full-rollback.sh)" = '#!/system/bin/sh'
-          if LC_ALL=C grep -q $'\r' zapret2/scripts/zapret-full-rollback.sh; then exit 1; fi
-          for purge_script in zapret2/scripts/lifecycle/purge-contract.sh zapret2/scripts/lifecycle/zapret-purge.sh; do
-            test -f "$purge_script"
-            test ! -L "$purge_script"
-            test -s "$purge_script"
-            test -x "$purge_script"
-            test "$(sed -n '1p' "$purge_script")" = '#!/system/bin/sh'
-            if LC_ALL=C grep -q $'\r' "$purge_script"; then exit 1; fi
-          done
-          for command_name in start stop status restart full-rollback; do
-            wrapper="system/bin/zapret2-${command_name}"
-            target="/data/adb/modules/zapret2/zapret2/scripts/zapret-${command_name}.sh"
-            test -f "$wrapper"
-            test ! -L "$wrapper"
-            test -x "$wrapper"
-            {
-              printf '%s\n' '#!/system/bin/sh'
-              printf 'exec %s "$@"\n' "$target"
-            } > "$WRAPPER_EXPECTED"
-            cmp -s "$WRAPPER_EXPECTED" "$wrapper"
-          done
-          rm -f "$WRAPPER_EXPECTED"
 
       - name: Create ZIP
         env:
@@ -505,54 +483,14 @@ jobs:
           package_contract_validate_all "$PACKAGE_VALIDATE_ROOT" package
           package_contract_validate_exact_tree "$PACKAGE_VALIDATE_ROOT" package
           package_contract_validate_modes "$PACKAGE_VALIDATE_ROOT" package
-          grep -Fxq 'system/bin/' "$ZIP_LIST"
-          WRAPPER_EXPECTED="$(mktemp)"
-          WRAPPER_ACTUAL="$(mktemp)"
-          for command_name in start stop status restart full-rollback; do
-            entry="system/bin/zapret2-${command_name}"
-            target="/data/adb/modules/zapret2/zapret2/scripts/zapret-${command_name}.sh"
-            test "$(grep -Fxc "$entry" "$ZIP_LIST")" -eq 1
-            zipinfo -l "$ZIP_NAME" "$entry" | grep -Eq '^-rwxr-xr-x[[:space:]]'
-            {
-              printf '%s\n' '#!/system/bin/sh'
-              printf 'exec %s "$@"\n' "$target"
-            } > "$WRAPPER_EXPECTED"
-            unzip -p "$ZIP_NAME" "$entry" > "$WRAPPER_ACTUAL"
-            cmp -s "$WRAPPER_EXPECTED" "$WRAPPER_ACTUAL"
-          done
-          UPDATE_GUARD_ENTRY='zapret2/scripts/zapret-update-guard.sh'
-          test "$(grep -Fxc "$UPDATE_GUARD_ENTRY" "$ZIP_LIST")" -eq 1
-          zipinfo -l "$ZIP_NAME" "$UPDATE_GUARD_ENTRY" | grep -Eq '^-rwxr-xr-x[[:space:]]'
-          unzip -p "$ZIP_NAME" "$UPDATE_GUARD_ENTRY" > "$WRAPPER_ACTUAL"
-          test -s "$WRAPPER_ACTUAL"
-          cmp -s "$UPDATE_GUARD_ENTRY" "$WRAPPER_ACTUAL"
-          test "$(sed -n '1p' "$WRAPPER_ACTUAL")" = '#!/system/bin/sh'
-          if LC_ALL=C grep -q $'\r' "$WRAPPER_ACTUAL"; then exit 1; fi
-          ROLLBACK_SCRIPT_ENTRY='zapret2/scripts/zapret-full-rollback.sh'
-          test "$(grep -Fxc "$ROLLBACK_SCRIPT_ENTRY" "$ZIP_LIST")" -eq 1
-          zipinfo -l "$ZIP_NAME" "$ROLLBACK_SCRIPT_ENTRY" | grep -Eq '^-rwxr-xr-x[[:space:]]'
-          unzip -p "$ZIP_NAME" "$ROLLBACK_SCRIPT_ENTRY" > "$WRAPPER_ACTUAL"
-          cmp -s "$ROLLBACK_SCRIPT_ENTRY" "$WRAPPER_ACTUAL"
-          if LC_ALL=C grep -q $'\r' "$WRAPPER_ACTUAL"; then exit 1; fi
-          for PURGE_SCRIPT_ENTRY in \
-            zapret2/scripts/lifecycle/purge-contract.sh \
-            zapret2/scripts/lifecycle/zapret-purge.sh; do
-            test "$(grep -Fxc "$PURGE_SCRIPT_ENTRY" "$ZIP_LIST")" -eq 1
-            zipinfo -l "$ZIP_NAME" "$PURGE_SCRIPT_ENTRY" | grep -Eq '^-rwxr-xr-x[[:space:]]'
-            unzip -p "$ZIP_NAME" "$PURGE_SCRIPT_ENTRY" > "$WRAPPER_ACTUAL"
-            test -s "$WRAPPER_ACTUAL"
-            cmp -s "$PURGE_SCRIPT_ENTRY" "$WRAPPER_ACTUAL"
-            test "$(sed -n '1p' "$WRAPPER_ACTUAL")" = '#!/system/bin/sh'
-            if LC_ALL=C grep -q $'\r' "$WRAPPER_ACTUAL"; then exit 1; fi
-          done
-          test "$(grep -Fxc 'action.sh' "$ZIP_LIST")" -eq 1
-          zipinfo -l "$ZIP_NAME" action.sh | grep -Eq '^-rwxr-xr-x[[:space:]]'
           if grep -Eq '^META-INF(/|$)' "$ZIP_LIST"; then
             echo "Recovery flashing metadata must not be published" >&2
             exit 1
           fi
           PROVENANCE_ENTRY='zapret2/upstream-zapret2.commit'
           test "$(grep -Fxc "$PROVENANCE_ENTRY" "$ZIP_LIST")" -eq 1
+          WRAPPER_EXPECTED="$(mktemp)"
+          WRAPPER_ACTUAL="$(mktemp)"
           printf '%s\n' "$UPSTREAM_ZAPRET2_SHA" > "$WRAPPER_EXPECTED"
           unzip -p "$ZIP_NAME" "$PROVENANCE_ENTRY" > "$WRAPPER_ACTUAL"
           cmp -s "$WRAPPER_EXPECTED" "$WRAPPER_ACTUAL"

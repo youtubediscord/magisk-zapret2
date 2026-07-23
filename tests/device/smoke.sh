@@ -359,6 +359,7 @@ probe_help() {
 
 probe_firewall_family() {
     pff_tool=$1 pff_dir=$2 pff_ready=1
+    PFF_CONNBYTES=0
     mkdir "$pff_dir" || fail "cannot create capability evidence directory"
     set +e
     adb_root "command -v $pff_tool && $pff_tool --version" > "$pff_dir/version.txt" 2>&1
@@ -367,7 +368,7 @@ probe_firewall_family() {
     [ "$pff_rc" -eq 0 ] || pff_ready=0
     probe_help "$pff_tool" '-j NFQUEUE' 'NFQUEUE' "$pff_dir/nfqueue.txt" || pff_ready=0
     probe_help "$pff_tool" '-j NFQUEUE' '--queue-bypass' "$pff_dir/queue-bypass.txt" || pff_ready=0
-    probe_help "$pff_tool" '-m connbytes' '--connbytes' "$pff_dir/connbytes.txt" || pff_ready=0
+    probe_help "$pff_tool" '-m connbytes' '--connbytes' "$pff_dir/connbytes.txt" && PFF_CONNBYTES=1 || :
     probe_help "$pff_tool" '-m multiport' '--dports' "$pff_dir/multiport.txt" || pff_ready=0
     probe_help "$pff_tool" '-m mark' '--mark' "$pff_dir/mark.txt" || pff_ready=0
     [ "$pff_ready" -eq 1 ]
@@ -688,12 +689,16 @@ preflight_device() {
     [ "$pd_entry" = "$STATUS_ENTRY" ] || fail "unexpected status entry: $pd_entry"
 
     if ! probe_firewall_family iptables "$pd_dir/iptables-capabilities"; then
-        fail "IPv4 iptables lacks NFQUEUE/queue-bypass, connbytes, multiport, or mark support"
+        fail "IPv4 iptables lacks NFQUEUE/queue-bypass, multiport, or mark support"
     fi
-    printf 'ipv4_capabilities\tready\n' >> "$pd_report"
+    IPV4_CONNBYTES_READY="$PFF_CONNBYTES"
+    printf 'ipv4_capabilities\tready\nipv4_connbytes\t%s\n' \
+        "$([ "$IPV4_CONNBYTES_READY" = 1 ] && printf ready || printf optional-fallback)" >> "$pd_report"
     if probe_firewall_family ip6tables "$pd_dir/ip6tables-capabilities"; then
         IPV6_READY=1
-        printf 'ipv6_capabilities\tready\n' >> "$pd_report"
+        IPV6_CONNBYTES_READY="$PFF_CONNBYTES"
+        printf 'ipv6_capabilities\tready\nipv6_connbytes\t%s\n' \
+            "$([ "$IPV6_CONNBYTES_READY" = 1 ] && printf ready || printf optional-fallback)" >> "$pd_report"
     else
         IPV6_READY=0
         printf 'ipv6_capabilities\tunavailable\n' >> "$pd_report"

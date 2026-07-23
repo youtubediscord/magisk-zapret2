@@ -171,14 +171,14 @@ internal object OwnerStateSchema {
         val mark = values["desync_mark"].orEmpty()
         if (ProtocolMark.canonicalOrNull(mark) != mark) return false
 
-        fun expectedRules(active: Int, multiport: Int): Long =
+        fun expectedRules(active: Int, connbytes: Int, multiport: Int): Long =
             (if (multiport == 1) {
-                2L * listOf(tcpPorts, udpPorts).count { it.isNotEmpty() }
+                listOf(tcpPorts, udpPorts).count { it.isNotEmpty() }.toLong()
             } else {
-                2L * (tcpPorts.size + udpPorts.size)
-            }) * active
-        if (ipv4Rules != expectedRules(ipv4Active, ipv4Multiport) ||
-            ipv6Rules != expectedRules(ipv6Active, ipv6Multiport)
+                (tcpPorts.size + udpPorts.size).toLong()
+            }) * (1L + connbytes) * active
+        if (ipv4Rules != expectedRules(ipv4Active, ipv4Connbytes, ipv4Multiport) ||
+            ipv6Rules != expectedRules(ipv6Active, ipv6Connbytes, ipv6Multiport)
         ) {
             return false
         }

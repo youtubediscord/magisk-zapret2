@@ -1980,7 +1980,7 @@ owner_spec_fingerprint() {
 }
 
 prepare_owner_generation_spec() {
-    local ipv4_active="${1:-1}" ipv6_active="${2:-0}" tcp_count udp_count per_family
+    local ipv4_active="${1:-1}" ipv6_active="${2:-0}" tcp_count udp_count per_direction
     read_install_generation_meta || return 1
     is_safe_firewall_identity "${FIREWALL_TAG:-}" "${ZAPRET2_OUT:-}" "${ZAPRET2_IN:-}" || prepare_new_firewall_identity || return 1
     OWNER_WRITE_FIREWALL_TAG="$FIREWALL_TAG"; OWNER_WRITE_OUT_CHAIN="$ZAPRET2_OUT"; OWNER_WRITE_IN_CHAIN="$ZAPRET2_IN"
@@ -2001,13 +2001,13 @@ prepare_owner_generation_spec() {
     tcp_count="$(owner_port_rule_count "$OWNER_WRITE_PORTS_TCP")" || return 1
     udp_count="$(owner_port_rule_count "$OWNER_WRITE_PORTS_UDP")" || return 1
     if [ "$OWNER_WRITE_IPV4_MULTIPORT" = 1 ]; then
-        per_family=0; [ -z "$OWNER_WRITE_PORTS_TCP" ] || per_family=$((per_family + 2)); [ -z "$OWNER_WRITE_PORTS_UDP" ] || per_family=$((per_family + 2))
-    else per_family=$((2 * (tcp_count + udp_count))); fi
-    OWNER_WRITE_IPV4_RULES=$((per_family * ipv4_active))
+        per_direction=0; [ -z "$OWNER_WRITE_PORTS_TCP" ] || per_direction=$((per_direction + 1)); [ -z "$OWNER_WRITE_PORTS_UDP" ] || per_direction=$((per_direction + 1))
+    else per_direction=$((tcp_count + udp_count)); fi
+    OWNER_WRITE_IPV4_RULES=$((per_direction * (1 + OWNER_WRITE_IPV4_CONNBYTES) * ipv4_active))
     if [ "$OWNER_WRITE_IPV6_MULTIPORT" = 1 ]; then
-        per_family=0; [ -z "$OWNER_WRITE_PORTS_TCP" ] || per_family=$((per_family + 2)); [ -z "$OWNER_WRITE_PORTS_UDP" ] || per_family=$((per_family + 2))
-    else per_family=$((2 * (tcp_count + udp_count))); fi
-    OWNER_WRITE_IPV6_RULES=$((per_family * ipv6_active))
+        per_direction=0; [ -z "$OWNER_WRITE_PORTS_TCP" ] || per_direction=$((per_direction + 1)); [ -z "$OWNER_WRITE_PORTS_UDP" ] || per_direction=$((per_direction + 1))
+    else per_direction=$((tcp_count + udp_count)); fi
+    OWNER_WRITE_IPV6_RULES=$((per_direction * (1 + OWNER_WRITE_IPV6_CONNBYTES) * ipv6_active))
     OWNER_WRITE_IPV4_SPEC="$(owner_build_family_spec ipv4 "$ipv4_active" "$OWNER_WRITE_IPV4_CONNBYTES" "$OWNER_WRITE_IPV4_MULTIPORT" "$OWNER_WRITE_IPV4_MARK" "$OWNER_WRITE_IPV4_RULES")"
     OWNER_WRITE_IPV6_SPEC="$(owner_build_family_spec ipv6 "$ipv6_active" "$OWNER_WRITE_IPV6_CONNBYTES" "$OWNER_WRITE_IPV6_MULTIPORT" "$OWNER_WRITE_IPV6_MARK" "$OWNER_WRITE_IPV6_RULES")"
     OWNER_WRITE_FIREWALL_FINGERPRINT="$(owner_spec_fingerprint "$OWNER_WRITE_IPV4_SPEC" "$OWNER_WRITE_IPV6_SPEC")" || return 1
@@ -2151,12 +2151,14 @@ read_owner_state() {
     tcp_count="$(owner_port_rule_count "$OWNER_STATE_PORTS_TCP")" || return 1
     udp_count="$(owner_port_rule_count "$OWNER_STATE_PORTS_UDP")" || return 1
     if [ "$OWNER_STATE_IPV4_MULTIPORT" = 1 ]; then
-        expected=0; [ -z "$OWNER_STATE_PORTS_TCP" ] || expected=$((expected + 2)); [ -z "$OWNER_STATE_PORTS_UDP" ] || expected=$((expected + 2))
-    else expected=$((2 * (tcp_count + udp_count))); fi
+        expected=0; [ -z "$OWNER_STATE_PORTS_TCP" ] || expected=$((expected + 1)); [ -z "$OWNER_STATE_PORTS_UDP" ] || expected=$((expected + 1))
+    else expected=$((tcp_count + udp_count)); fi
+    expected=$((expected * (1 + OWNER_STATE_IPV4_CONNBYTES)))
     [ "$OWNER_STATE_IPV4_RULES" = $((expected * OWNER_STATE_IPV4_ACTIVE)) ] || return 1
     if [ "$OWNER_STATE_IPV6_MULTIPORT" = 1 ]; then
-        expected=0; [ -z "$OWNER_STATE_PORTS_TCP" ] || expected=$((expected + 2)); [ -z "$OWNER_STATE_PORTS_UDP" ] || expected=$((expected + 2))
-    else expected=$((2 * (tcp_count + udp_count))); fi
+        expected=0; [ -z "$OWNER_STATE_PORTS_TCP" ] || expected=$((expected + 1)); [ -z "$OWNER_STATE_PORTS_UDP" ] || expected=$((expected + 1))
+    else expected=$((tcp_count + udp_count)); fi
+    expected=$((expected * (1 + OWNER_STATE_IPV6_CONNBYTES)))
     [ "$OWNER_STATE_IPV6_RULES" = $((expected * OWNER_STATE_IPV6_ACTIVE)) ] || return 1
     [ "$OWNER_STATE_SCHEMA_VERSION" = "$OWNER_STATE_VERSION" ] || return 0
     # A cold lifecycle process has no prior OWNER_WRITE_* generation.  Build
@@ -2673,24 +2675,34 @@ owner_family_generation_healthy() {
         FIREWALL_CLEANUP_PREFLIGHT_ERROR="$tool mangle ruleset is unavailable"
         return 1
     }
-    owned_chain_exists "$tool" "$ZAPRET2_OUT" && owned_chain_exists "$tool" "$ZAPRET2_IN" || return 1
+    owned_chain_exists "$tool" "$ZAPRET2_OUT" || return 1
     owned_chain_exists "$tool" "$ZAPRET2_PROBE" && return 1
     out_anchor="$(exact_anchor_count "$tool" OUTPUT "$ZAPRET2_OUT")" || return 1
     in_anchor="$(exact_anchor_count "$tool" INPUT "$ZAPRET2_IN")" || return 1
-    [ "$out_anchor" = 1 ] && [ "$in_anchor" = 1 ] || return 1
     out_refs="$(owned_chain_reference_count "$tool" "$ZAPRET2_OUT")" || return 1
     in_refs="$(owned_chain_reference_count "$tool" "$ZAPRET2_IN")" || return 1
-    [ "$out_refs" = 1 ] && [ "$in_refs" = 1 ] || return 1
+    [ "$out_anchor" = 1 ] && [ "$out_refs" = 1 ] || return 1
+    if [ "$connbytes" = 1 ]; then
+        owned_chain_exists "$tool" "$ZAPRET2_IN" || return 1
+        [ "$in_anchor" = 1 ] && [ "$in_refs" = 1 ] || return 1
+    else
+        if owned_chain_exists "$tool" "$ZAPRET2_IN"; then return 1
+        else case $? in 1) ;; *) return 1;; esac; fi
+        [ "$in_anchor" = 0 ] && [ "$in_refs" = 0 ] || return 1
+    fi
     out_count="$(chain_owned_rule_count "$tool" "$ZAPRET2_OUT")" || return 1
-    in_count="$(chain_owned_rule_count "$tool" "$ZAPRET2_IN")" || return 1
+    if [ "$connbytes" = 1 ]; then in_count="$(chain_owned_rule_count "$tool" "$ZAPRET2_IN")" || return 1
+    else in_count=0; fi
     [ $((out_count + in_count)) = "$expected" ] || return 1
     subchains="$("$tool" -t mangle -S 2>/dev/null | awk -v p="Z2R_${FIREWALL_TAG}_" '$1=="-N"&&index($2,p)==1{n++} END{print n+0}')" || return 1
     [ "$subchains" = "$expected" ] || return 1
     OWNER_PAYLOAD_OUT_ORDINAL=0; OWNER_PAYLOAD_IN_ORDINAL=0
     owner_payload_rule_set "$tool" "$ZAPRET2_OUT" tcp out "$OWNER_STATE_PORTS_TCP" "$OWNER_STATE_PKT_OUT" original "$OWNER_STATE_QNUM" "$OWNER_STATE_DESYNC_MARK" "$connbytes" "$multiport" "$markcap" || return 1
     owner_payload_rule_set "$tool" "$ZAPRET2_OUT" udp out "$OWNER_STATE_PORTS_UDP" "$OWNER_STATE_PKT_OUT" original "$OWNER_STATE_QNUM" "$OWNER_STATE_DESYNC_MARK" "$connbytes" "$multiport" "$markcap" || return 1
-    owner_payload_rule_set "$tool" "$ZAPRET2_IN" tcp in "$OWNER_STATE_PORTS_TCP" "$OWNER_STATE_PKT_IN" reply "$OWNER_STATE_QNUM" "$OWNER_STATE_DESYNC_MARK" "$connbytes" "$multiport" "$markcap" || return 1
-    owner_payload_rule_set "$tool" "$ZAPRET2_IN" udp in "$OWNER_STATE_PORTS_UDP" "$OWNER_STATE_PKT_IN" reply "$OWNER_STATE_QNUM" "$OWNER_STATE_DESYNC_MARK" "$connbytes" "$multiport" "$markcap" || return 1
+    if [ "$connbytes" = 1 ]; then
+        owner_payload_rule_set "$tool" "$ZAPRET2_IN" tcp in "$OWNER_STATE_PORTS_TCP" "$OWNER_STATE_PKT_IN" reply "$OWNER_STATE_QNUM" "$OWNER_STATE_DESYNC_MARK" "$connbytes" "$multiport" "$markcap" || return 1
+        owner_payload_rule_set "$tool" "$ZAPRET2_IN" udp in "$OWNER_STATE_PORTS_UDP" "$OWNER_STATE_PKT_IN" reply "$OWNER_STATE_QNUM" "$OWNER_STATE_DESYNC_MARK" "$connbytes" "$multiport" "$markcap" || return 1
+    fi
     return 0
 }
 
@@ -2843,10 +2855,10 @@ teardown_snapshot_rule_hex() {
 }
 
 owner_family_snapshot_structurally_healthy() {
-    local family="$1" listing="$2" active expected result
-    if [ "$family" = ipv4 ]; then active="$OWNER_STATE_IPV4_ACTIVE"; expected="$OWNER_STATE_IPV4_RULES"
-    else active="$OWNER_STATE_IPV6_ACTIVE"; expected="$OWNER_STATE_IPV6_RULES"; fi
-    result="$(printf '%s\n' "$listing" | awk -v active="$active" -v expected="$expected" -v out="$ZAPRET2_OUT" -v inchain="$ZAPRET2_IN" -v probe="$ZAPRET2_PROBE" -v prefix="Z2R_${FIREWALL_TAG}_" '
+    local family="$1" listing="$2" active connbytes expected result
+    if [ "$family" = ipv4 ]; then active="$OWNER_STATE_IPV4_ACTIVE"; connbytes="$OWNER_STATE_IPV4_CONNBYTES"; expected="$OWNER_STATE_IPV4_RULES"
+    else active="$OWNER_STATE_IPV6_ACTIVE"; connbytes="$OWNER_STATE_IPV6_CONNBYTES"; expected="$OWNER_STATE_IPV6_RULES"; fi
+    result="$(printf '%s\n' "$listing" | awk -v active="$active" -v connbytes="$connbytes" -v expected="$expected" -v out="$ZAPRET2_OUT" -v inchain="$ZAPRET2_IN" -v probe="$ZAPRET2_PROBE" -v prefix="Z2R_${FIREWALL_TAG}_" '
         $1=="-N" { if($2==out) no++; else if($2==inchain) ni++; else if($2==probe) np++; else if(index($2,prefix)==1){ ns++; declared[$2]++ } }
         $1=="-A" {
             if($2==out || $2==inchain) {
@@ -2864,7 +2876,8 @@ owner_family_snapshot_structurally_healthy() {
             for(c in declared) if(declared[c]!=1 || jumps[c]!=1 || subrefs[c]!=1 || payload[c]!=1) bad=1
             for(c in jumps) if(declared[c]!=1) bad=1
             if(active==0) ok=(no+ni+np+ns+refsout+refsin+refsprobe==0)
-            else ok=(!bad&&no==1&&ni==1&&np==0&&ao==1&&ai==1&&refsout==1&&refsin==1&&refsprobe==0&&ns==expected&&parentrules==expected)
+            else if(connbytes==1) ok=(!bad&&no==1&&ni==1&&np==0&&ao==1&&ai==1&&refsout==1&&refsin==1&&refsprobe==0&&ns==expected&&parentrules==expected)
+            else ok=(!bad&&no==1&&ni==0&&np==0&&ao==1&&ai==0&&refsout==1&&refsin==0&&refsprobe==0&&ns==expected&&parentrules==expected)
             print ok?"ok":"bad"
         }
     ')" || return 1
@@ -2896,13 +2909,17 @@ create_teardown_operation_journal() {
         owner_family_snapshot_structurally_healthy "$family" "$TEARDOWN_FAMILY_SNAPSHOT" || { rm -f "$tmp"; return 1; }
         TEARDOWN_OUT_ORDINAL=0; TEARDOWN_IN_ORDINAL=0
         TEARDOWN_RECORD_ID=$((TEARDOWN_RECORD_ID + 1)); printf 'record|%s|pending|%s|anchor|OUTPUT|%s|Z2M%s_%s_%s\n' "$TEARDOWN_RECORD_ID" "$family" "$ZAPRET2_OUT" "${family#ipv}" "$TEARDOWN_RECORD_ID" "$TEARDOWN_TOKEN_SHORT" >> "$tmp"
-        TEARDOWN_RECORD_ID=$((TEARDOWN_RECORD_ID + 1)); printf 'record|%s|pending|%s|anchor|INPUT|%s|Z2M%s_%s_%s\n' "$TEARDOWN_RECORD_ID" "$family" "$ZAPRET2_IN" "${family#ipv}" "$TEARDOWN_RECORD_ID" "$TEARDOWN_TOKEN_SHORT" >> "$tmp"
         teardown_append_rule_records "$tmp" "$family" "$ZAPRET2_OUT" tcp out "$OWNER_STATE_PORTS_TCP" "$OWNER_STATE_PKT_OUT" original "$OWNER_STATE_QNUM" "$OWNER_STATE_DESYNC_MARK" "$connbytes" "$multiport" "$markcap" || { rm -f "$tmp"; return 1; }
         teardown_append_rule_records "$tmp" "$family" "$ZAPRET2_OUT" udp out "$OWNER_STATE_PORTS_UDP" "$OWNER_STATE_PKT_OUT" original "$OWNER_STATE_QNUM" "$OWNER_STATE_DESYNC_MARK" "$connbytes" "$multiport" "$markcap" || { rm -f "$tmp"; return 1; }
-        teardown_append_rule_records "$tmp" "$family" "$ZAPRET2_IN" tcp in "$OWNER_STATE_PORTS_TCP" "$OWNER_STATE_PKT_IN" reply "$OWNER_STATE_QNUM" "$OWNER_STATE_DESYNC_MARK" "$connbytes" "$multiport" "$markcap" || { rm -f "$tmp"; return 1; }
-        teardown_append_rule_records "$tmp" "$family" "$ZAPRET2_IN" udp in "$OWNER_STATE_PORTS_UDP" "$OWNER_STATE_PKT_IN" reply "$OWNER_STATE_QNUM" "$OWNER_STATE_DESYNC_MARK" "$connbytes" "$multiport" "$markcap" || { rm -f "$tmp"; return 1; }
+        if [ "$connbytes" = 1 ]; then
+            TEARDOWN_RECORD_ID=$((TEARDOWN_RECORD_ID + 1)); printf 'record|%s|pending|%s|anchor|INPUT|%s|Z2M%s_%s_%s\n' "$TEARDOWN_RECORD_ID" "$family" "$ZAPRET2_IN" "${family#ipv}" "$TEARDOWN_RECORD_ID" "$TEARDOWN_TOKEN_SHORT" >> "$tmp"
+            teardown_append_rule_records "$tmp" "$family" "$ZAPRET2_IN" tcp in "$OWNER_STATE_PORTS_TCP" "$OWNER_STATE_PKT_IN" reply "$OWNER_STATE_QNUM" "$OWNER_STATE_DESYNC_MARK" "$connbytes" "$multiport" "$markcap" || { rm -f "$tmp"; return 1; }
+            teardown_append_rule_records "$tmp" "$family" "$ZAPRET2_IN" udp in "$OWNER_STATE_PORTS_UDP" "$OWNER_STATE_PKT_IN" reply "$OWNER_STATE_QNUM" "$OWNER_STATE_DESYNC_MARK" "$connbytes" "$multiport" "$markcap" || { rm -f "$tmp"; return 1; }
+        fi
         TEARDOWN_RECORD_ID=$((TEARDOWN_RECORD_ID + 1)); printf 'record|%s|pending|%s|chain|%s|Z2X%s_%s_%s\n' "$TEARDOWN_RECORD_ID" "$family" "$ZAPRET2_OUT" "${family#ipv}" "$TEARDOWN_RECORD_ID" "$TEARDOWN_TOKEN_SHORT" >> "$tmp"
-        TEARDOWN_RECORD_ID=$((TEARDOWN_RECORD_ID + 1)); printf 'record|%s|pending|%s|chain|%s|Z2X%s_%s_%s\n' "$TEARDOWN_RECORD_ID" "$family" "$ZAPRET2_IN" "${family#ipv}" "$TEARDOWN_RECORD_ID" "$TEARDOWN_TOKEN_SHORT" >> "$tmp"
+        if [ "$connbytes" = 1 ]; then
+            TEARDOWN_RECORD_ID=$((TEARDOWN_RECORD_ID + 1)); printf 'record|%s|pending|%s|chain|%s|Z2X%s_%s_%s\n' "$TEARDOWN_RECORD_ID" "$family" "$ZAPRET2_IN" "${family#ipv}" "$TEARDOWN_RECORD_ID" "$TEARDOWN_TOKEN_SHORT" >> "$tmp"
+        fi
     done
     chmod 0600 "$tmp" 2>/dev/null || { rm -f "$tmp"; return 1; }
     mv -f "$tmp" "$TEARDOWN_JOURNAL" || { rm -f "$tmp"; return 1; }
@@ -2934,12 +2951,15 @@ validate_teardown_operation_journal() {
         }
         function family(f,active,conn,multi,markcap) {
             if(active!=1) return
-            add(f,"anchor|OUTPUT|" outchain); add(f,"anchor|INPUT|" inchain)
+            add(f,"anchor|OUTPUT|" outchain)
             rules(f,outchain,"tcp","out",tcp,po,"original",conn,multi,markcap)
             rules(f,outchain,"udp","out",udp,po,"original",conn,multi,markcap)
-            rules(f,inchain,"tcp","in",tcp,pi,"reply",conn,multi,markcap)
-            rules(f,inchain,"udp","in",udp,pi,"reply",conn,multi,markcap)
-            add(f,"chain|" outchain); add(f,"chain|" inchain)
+            if(conn==1) {
+                add(f,"anchor|INPUT|" inchain)
+                rules(f,inchain,"tcp","in",tcp,pi,"reply",conn,multi,markcap)
+                rules(f,inchain,"udp","in",udp,pi,"reply",conn,multi,markcap)
+            }
+            add(f,"chain|" outchain); if(conn==1) add(f,"chain|" inchain)
         }
         BEGIN { family("ipv4",a4,c4,m4,k4); family("ipv6",a6,c6,m6,k6) }
         NR==1 { if ($0 != "version=" version) exit 1; next }
