@@ -8,14 +8,16 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.zapret2.app.R
 import com.zapret2.app.data.ArtifactValidationReason
-import com.zapret2.app.data.ControlDiagnosticsRepository
 import com.zapret2.app.data.DownloadFailureReason
 import com.zapret2.app.data.MAX_PACKET_COUNT
 import com.zapret2.app.data.ModuleInstallState
+import com.zapret2.app.data.ModuleMutationState
 import com.zapret2.app.data.ModuleMutationCoordinator
 import com.zapret2.app.data.ModulePurgeAppDataCleaner
 import com.zapret2.app.data.ModulePurgeController
+import com.zapret2.app.data.ModuleServiceAccess
 import com.zapret2.app.data.NetworkStatsManager
+import com.zapret2.app.data.PendingModuleState
 import com.zapret2.app.data.ProtectedTextRead
 import com.zapret2.app.data.RuntimeConfigStore
 import com.zapret2.app.data.RuntimeConfigRollbackException
@@ -27,6 +29,7 @@ import com.zapret2.app.data.UpdateManager
 import com.zapret2.app.data.UpdateProgress
 import com.zapret2.app.data.UpdateStage
 import com.zapret2.app.data.UpdateTerminalOutcome
+import com.zapret2.app.data.Zapret2ModuleRepository
 import com.zapret2.app.data.toTerminalOutcome
 import com.zapret2.app.ui.UiText
 import com.zapret2.app.ui.labelRes
@@ -52,6 +55,9 @@ enum class ControlStatus(@param:StringRes val labelRes: Int) {
     ROOT_MANAGER_UNAVAILABLE(R.string.control_status_root_manager_unavailable),
     ROOT_SHELL_FAILED(R.string.control_status_root_shell_failed),
     ROOT_TIMEOUT(R.string.control_status_root_timeout),
+    NOT_INSTALLED(R.string.control_status_not_installed),
+    REBOOT_REQUIRED(R.string.control_status_reboot_required),
+    MODULE_NOT_READY(R.string.control_status_module_not_ready),
     UNAVAILABLE(R.string.control_status_unavailable),
 }
 
@@ -71,11 +77,38 @@ internal val ModuleInstallState.labelRes: Int
         ModuleInstallState.READY -> R.string.control_module_state_ready
         ModuleInstallState.DISABLED -> R.string.control_module_state_disabled
         ModuleInstallState.REMOVAL_PENDING -> R.string.control_module_state_removal_pending
-        ModuleInstallState.UPDATING -> R.string.control_module_state_updating
         ModuleInstallState.PARTIAL -> R.string.control_module_state_partial
         ModuleInstallState.UNSUPPORTED_ABI -> R.string.control_module_state_unsupported_abi
         ModuleInstallState.UNREADABLE -> R.string.control_module_state_unreadable
     }
+
+@get:StringRes
+internal val ControlUiState.moduleStateLabelRes: Int
+    get() = when {
+        moduleMutationState == ModuleMutationState.IN_PROGRESS ->
+            R.string.control_module_state_updating
+        pendingModuleState == PendingModuleState.READY &&
+            moduleInstallState == ModuleInstallState.MISSING ->
+            R.string.control_module_state_installed_reboot
+        pendingModuleState == PendingModuleState.READY ->
+            R.string.control_module_state_update_reboot
+        pendingModuleState == PendingModuleState.PARTIAL ->
+            R.string.control_module_state_pending_partial
+        pendingModuleState == PendingModuleState.UNSUPPORTED_ABI ->
+            R.string.control_module_state_pending_unsupported_abi
+        pendingModuleState == PendingModuleState.UNREADABLE ->
+            R.string.control_module_state_pending_unreadable
+        else -> moduleInstallState.labelRes
+    }
+
+internal fun ModuleServiceAccess.statusWithoutQuery(): ControlStatus? = when (this) {
+    ModuleServiceAccess.QUERY_ACTIVE -> null
+    ModuleServiceAccess.NOT_INSTALLED -> ControlStatus.NOT_INSTALLED
+    ModuleServiceAccess.REBOOT_REQUIRED -> ControlStatus.REBOOT_REQUIRED
+    ModuleServiceAccess.NOT_READY -> ControlStatus.MODULE_NOT_READY
+    ModuleServiceAccess.MUTATING -> ControlStatus.CHECKING
+    ModuleServiceAccess.UNKNOWN -> ControlStatus.UNAVAILABLE
+}
 
 enum class ControlDialogKind {
     UPDATE,
@@ -293,6 +326,8 @@ data class ControlUiState(
     val hasRootAccess: Boolean = false,
     val rootAccessState: ServiceLifecycleController.RootAccessState? = null,
     val moduleInstallState: ModuleInstallState = ModuleInstallState.UNKNOWN,
+    val pendingModuleState: PendingModuleState = PendingModuleState.NONE,
+    val moduleMutationState: ModuleMutationState = ModuleMutationState.IDLE,
     val nfqueueSupported: Boolean = false,
     val isCheckingForUpdates: Boolean = false,
     val isUpdating: Boolean = false,
@@ -310,7 +345,9 @@ data class ControlUiState(
     val lastResult: ControlLastResult? = null,
     val message: UiText? = null,
 ) {
-    val isModuleOperational: Boolean get() = moduleInstallState.isOperational
+    val isModuleOperational: Boolean
+        get() = moduleInstallState.isOperational &&
+            moduleMutationState == ModuleMutationState.IDLE
     val isFullRollbackInProgress: Boolean get() = fullRollback is FullRollbackUiState.InProgress
     val isModulePurgeInProgress: Boolean get() = modulePurge is ModulePurgeUiState.InProgress
     val canEditSettings: Boolean get() = status in setOf(
@@ -321,20 +358,23 @@ data class ControlUiState(
         hasAuthoritativeRuntimeSettings &&
         !isToggling && !isCheckingForUpdates && !isUpdating &&
         !isSavingSettings && !isFullRollbackInProgress && !isModulePurgeInProgress
-    val canFullRollback: Boolean get() = FullRollbackAvailabilityPolicy.isAvailable(
-        status = status,
-        hasRootAccess = hasRootAccess,
-        moduleInstallState = moduleInstallState,
-        isToggling = isToggling || isSavingSettings,
-        isCheckingForUpdates = isCheckingForUpdates,
-        isUpdating = isUpdating,
-        isRollingBack = isFullRollbackInProgress || isModulePurgeInProgress,
-    )
+    val canFullRollback: Boolean
+        get() = moduleMutationState == ModuleMutationState.IDLE &&
+            FullRollbackAvailabilityPolicy.isAvailable(
+                status = status,
+                hasRootAccess = hasRootAccess,
+                moduleInstallState = moduleInstallState,
+                isToggling = isToggling || isSavingSettings,
+                isCheckingForUpdates = isCheckingForUpdates,
+                isUpdating = isUpdating,
+                isRollingBack = isFullRollbackInProgress || isModulePurgeInProgress,
+            )
     val canPurgeModule: Boolean get() = status in setOf(
         ControlStatus.RUNNING,
         ControlStatus.DEGRADED,
         ControlStatus.STOPPED,
-    ) && hasRootAccess && moduleInstallState.allowsFullRollback &&
+    ) && hasRootAccess && moduleMutationState == ModuleMutationState.IDLE &&
+        moduleInstallState.allowsFullRollback &&
         !isToggling && !isCheckingForUpdates && !isUpdating && !isSavingSettings &&
         !isFullRollbackInProgress && !isModulePurgeInProgress
 }
@@ -803,7 +843,7 @@ class ControlViewModel @Inject constructor(
     private val prefs: SharedPreferences,
     private val serviceEventBus: ServiceEventBus,
     private val savedStateHandle: SavedStateHandle,
-    private val diagnosticsRepository: ControlDiagnosticsRepository,
+    private val moduleRepository: Zapret2ModuleRepository,
     private val logRepository: RuntimeLogRepository,
     private val modulePurgeAppDataCleaner: ModulePurgeAppDataCleaner,
 ) : ViewModel() {
@@ -1086,6 +1126,8 @@ class ControlViewModel @Inject constructor(
                                 canStopService = false,
                                 status = ControlStatus.STOPPED,
                                 moduleInstallState = ModuleInstallState.MISSING,
+                                pendingModuleState = PendingModuleState.NONE,
+                                moduleMutationState = ModuleMutationState.IDLE,
                                 moduleVersion = "",
                                 hasAuthoritativeRuntimeSettings = false,
                                 iptablesActive = false,
@@ -1237,15 +1279,17 @@ class ControlViewModel @Inject constructor(
                 val rootAccess = ServiceLifecycleController.checkRootAccess()
                 detectedRootState = rootAccess.state
                 val environment = if (rootAccess.granted) {
-                    diagnosticsRepository.readEnvironment()
+                    moduleRepository.reconcileEnvironment()
                         ?: throw EnvironmentProbeException()
                 } else {
                     null
                 }
-                val stableModuleConfig = environment?.moduleState in setOf(
-                    ModuleInstallState.READY,
-                    ModuleInstallState.DISABLED,
-                )
+                val stableModuleConfig =
+                    environment?.mutationState == ModuleMutationState.IDLE &&
+                        environment.activeState in setOf(
+                            ModuleInstallState.READY,
+                            ModuleInstallState.DISABLED,
+                        )
                 val coreValues = if (stableModuleConfig) RuntimeConfigStore.readCore() else emptyMap()
                 if (stableModuleConfig && coreValues.isEmpty()) throw EnvironmentProbeException()
                 val pktOut = if (stableModuleConfig) {
@@ -1280,9 +1324,12 @@ class ControlViewModel @Inject constructor(
                     state.copy(
                         hasRootAccess = rootAccess.granted,
                         rootAccessState = rootAccess.state,
-                        moduleInstallState = environment?.moduleState ?: ModuleInstallState.UNKNOWN,
+                        moduleInstallState = environment?.activeState ?: ModuleInstallState.UNKNOWN,
+                        pendingModuleState = environment?.pendingState ?: PendingModuleState.NONE,
+                        moduleMutationState =
+                            environment?.mutationState ?: ModuleMutationState.IDLE,
                         nfqueueSupported = environment?.nfqueueSupported == true,
-                        moduleVersion = environment?.moduleVersion.orEmpty(),
+                        moduleVersion = environment?.displayedVersion.orEmpty(),
                         autostart = coreValues["autostart"] != "0",
                         pktOut = pktOut,
                         pktIn = pktIn,
@@ -1412,12 +1459,82 @@ class ControlViewModel @Inject constructor(
      */
     private suspend fun refreshStatus(): ServiceSnapshot {
         val refreshId = statusRefreshSequence.incrementAndGet()
-        val serviceStatus = ServiceLifecycleController.getStatus()
-        val environment = if (serviceStatus.rootGranted) {
-            diagnosticsRepository.readEnvironment()
-        } else {
-            null
+        val rootAccess = ServiceLifecycleController.checkRootAccess()
+        if (!rootAccess.granted) {
+            if (refreshId == statusRefreshSequence.get()) {
+                _uiState.update {
+                    it.copy(
+                        isRunning = false,
+                        canStopService = false,
+                        status = rootAccess.state.toControlStatus(),
+                        hasRootAccess = false,
+                        rootAccessState = rootAccess.state,
+                        hasAuthoritativeRuntimeSettings = false,
+                        iptablesActive = false,
+                        nfqueueRulesCount = 0,
+                        iptablesDetail = NetworkStatsManager.IptablesDetail(),
+                        processStats = ProcessStats(),
+                    )
+                }
+            }
+            return ServiceSnapshot(isRunning = false, canStopService = false)
         }
+
+        val environment = moduleRepository.reconcileEnvironment()
+        if (environment == null) {
+            if (refreshId == statusRefreshSequence.get()) {
+                _uiState.update {
+                    it.copy(
+                        isRunning = false,
+                        canStopService = false,
+                        status = ControlStatus.UNAVAILABLE,
+                        hasRootAccess = true,
+                        rootAccessState = ServiceLifecycleController.RootAccessState.GRANTED,
+                        moduleInstallState = ModuleInstallState.UNKNOWN,
+                        pendingModuleState = PendingModuleState.NONE,
+                        moduleMutationState = ModuleMutationState.IDLE,
+                        moduleVersion = "",
+                        nfqueueSupported = false,
+                        hasAuthoritativeRuntimeSettings = false,
+                        iptablesActive = false,
+                        nfqueueRulesCount = 0,
+                        iptablesDetail = NetworkStatsManager.IptablesDetail(),
+                        processStats = ProcessStats(),
+                    )
+                }
+            }
+            return ServiceSnapshot(isRunning = false, canStopService = false)
+        }
+
+        val statusWithoutQuery = environment.serviceAccess.statusWithoutQuery()
+        if (statusWithoutQuery != null) {
+            if (refreshId == statusRefreshSequence.get()) {
+                _uiState.update {
+                    it.copy(
+                        isRunning = false,
+                        canStopService = false,
+                        status = statusWithoutQuery,
+                        networkType = UiText.Resource(networkStatsManager.getNetworkType().labelRes),
+                        uptime = "",
+                        iptablesActive = false,
+                        nfqueueRulesCount = 0,
+                        iptablesDetail = NetworkStatsManager.IptablesDetail(),
+                        processStats = ProcessStats(),
+                        hasRootAccess = true,
+                        rootAccessState = ServiceLifecycleController.RootAccessState.GRANTED,
+                        moduleInstallState = environment.activeState,
+                        pendingModuleState = environment.pendingState,
+                        moduleMutationState = environment.mutationState,
+                        moduleVersion = environment.displayedVersion,
+                        nfqueueSupported = environment.nfqueueSupported,
+                        hasAuthoritativeRuntimeSettings = false,
+                    )
+                }
+            }
+            return ServiceSnapshot(isRunning = false, canStopService = false)
+        }
+
+        val serviceStatus = ServiceLifecycleController.getStatus()
         val netStats = networkStatsManager.getNetworkStats(serviceStatus)
         val detail = netStats.iptablesDetail
         // A healthy machine payload is necessary but not sufficient: Android also re-reads the
@@ -1434,7 +1551,7 @@ class ControlViewModel @Inject constructor(
         }.orEmpty()
 
         val processStats = if (serviceStatus.processRunning && processPid.isNotEmpty()) {
-            diagnosticsRepository.readProcessMetrics(processPid).let { metrics ->
+            moduleRepository.readProcessMetrics(processPid).let { metrics ->
                 ProcessStats(
                     pid = processPid,
                     memory = metrics.memoryKb.takeIf(String::isNotBlank)?.let { "$it KB" }.orEmpty(),
@@ -1466,11 +1583,14 @@ class ControlViewModel @Inject constructor(
                     processStats = processStats,
                     hasRootAccess = serviceStatus.rootGranted,
                     rootAccessState = serviceStatus.rootAccessState,
-                    moduleInstallState = environment?.moduleState ?: ModuleInstallState.UNKNOWN,
-                    moduleVersion = environment?.moduleVersion.orEmpty(),
-                    nfqueueSupported = environment?.nfqueueSupported == true,
+                    moduleInstallState = environment.activeState,
+                    pendingModuleState = environment.pendingState,
+                    moduleMutationState = environment.mutationState,
+                    moduleVersion = environment.displayedVersion,
+                    nfqueueSupported = environment.nfqueueSupported,
                     hasAuthoritativeRuntimeSettings = it.hasAuthoritativeRuntimeSettings &&
-                        environment?.moduleState == ModuleInstallState.READY,
+                        environment.activeState == ModuleInstallState.READY &&
+                        environment.mutationState == ModuleMutationState.IDLE,
                 )
             }
         }
@@ -1748,14 +1868,19 @@ class ControlViewModel @Inject constructor(
     ) {
         val state = _uiState.value
         val comparableModuleVersion = state.moduleVersion.takeIf {
-            it.isNotBlank() && state.moduleInstallState in setOf(
-                ModuleInstallState.READY,
-                ModuleInstallState.DISABLED,
-            )
+            it.isNotBlank() && (
+                state.moduleInstallState in setOf(
+                    ModuleInstallState.READY,
+                    ModuleInstallState.DISABLED,
+                ) || state.pendingModuleState == PendingModuleState.READY
+                )
         }
         val result = updateManager.checkForUpdates(
             currentModuleVersion = comparableModuleVersion,
-            allowModuleUpdate = state.hasRootAccess && state.moduleInstallState.allowsModuleUpdate,
+            allowModuleUpdate = state.hasRootAccess &&
+                state.moduleMutationState == ModuleMutationState.IDLE &&
+                state.pendingModuleState == PendingModuleState.NONE &&
+                state.moduleInstallState.allowsModuleUpdate,
         )
         if (
             _uiState.value.isFullRollbackInProgress ||

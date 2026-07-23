@@ -149,6 +149,9 @@
     <string name="control_status_root_manager_unavailable">Root-менеджер недоступен</string>
     <string name="control_status_root_shell_failed">Сбой root-оболочки</string>
     <string name="control_status_root_timeout">Истекло время запроса root</string>
+    <string name="control_status_not_installed">Модуль не установлен</string>
+    <string name="control_status_reboot_required">Требуется перезагрузка</string>
+    <string name="control_status_module_not_ready">Установка модуля требует внимания</string>
     <string name="control_status_unavailable">Статус недоступен</string>
     <string name="control_module_state">Состояние модуля</string>
     <string name="control_module_state_unknown">Не проверено</string>
@@ -157,6 +160,11 @@
     <string name="control_module_state_disabled">Отключён в root-менеджере</string>
     <string name="control_module_state_removal_pending">Ожидает удаления</string>
     <string name="control_module_state_updating">Выполняется обновление или восстановление</string>
+    <string name="control_module_state_installed_reboot">Установлен; требуется перезагрузка</string>
+    <string name="control_module_state_update_reboot">Обновление установлено; требуется перезагрузка</string>
+    <string name="control_module_state_pending_partial">Ожидающая установка неполная</string>
+    <string name="control_module_state_pending_unsupported_abi">Ожидающая установка не поддерживает архитектуру устройства</string>
+    <string name="control_module_state_pending_unreadable">Невозможно проверить ожидающую установку</string>
     <string name="control_module_state_partial">Установка неполная или небезопасная</string>
     <string name="control_module_state_unsupported_abi">Архитектура устройства не поддерживается</string>
     <string name="control_module_state_unreadable">Невозможно проверить установку</string>

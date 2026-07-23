@@ -6,46 +6,72 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-class ControlDiagnosticsRepositoryTest {
+class Zapret2ModuleRepositoryTest {
 
-    private val repository = ControlDiagnosticsRepository()
+    private val repository = Zapret2ModuleRepository()
 
     @Test
-    fun environmentParser_mapsEveryExactModuleState() {
-        val states = mapOf(
+    fun environmentParser_mapsActivePendingAndMutationIndependently() {
+        val activeStates = mapOf(
             "missing" to ModuleInstallState.MISSING,
             "ready" to ModuleInstallState.READY,
             "disabled" to ModuleInstallState.DISABLED,
             "removal_pending" to ModuleInstallState.REMOVAL_PENDING,
-            "updating" to ModuleInstallState.UPDATING,
             "partial" to ModuleInstallState.PARTIAL,
-            "unsupported_abi" to ModuleInstallState.UNSUPPORTED_ABI,
             "unreadable" to ModuleInstallState.UNREADABLE,
         )
+        val pendingStates = mapOf(
+            "missing" to PendingModuleState.NONE,
+            "ready" to PendingModuleState.READY,
+            "partial" to PendingModuleState.PARTIAL,
+            "unreadable" to PendingModuleState.UNREADABLE,
+        )
 
-        states.forEach { (wireValue, expected) ->
+        activeStates.forEach { (wireValue, expected) ->
             val parsed = repository.parseEnvironmentOutput(
-                listOf(
-                    "Z2_MODULE_STATE=$wireValue",
-                    "Z2_NFQUEUE=1",
-                ),
+                payload(active = wireValue),
             )
-            assertEquals(expected, parsed?.moduleState)
+            assertEquals(expected, parsed?.activeState)
         }
+        pendingStates.forEach { (wireValue, expected) ->
+            val parsed = repository.parseEnvironmentOutput(
+                payload(pending = wireValue),
+            )
+            assertEquals(expected, parsed?.pendingState)
+        }
+        assertEquals(
+            ModuleMutationState.IN_PROGRESS,
+            repository.parseEnvironmentOutput(payload(mutation = "in_progress"))?.mutationState,
+        )
     }
 
     @Test
     fun environmentParser_rejectsMalformedDuplicateUnknownAndContradictoryPayloads() {
-        val valid = listOf(
-            "Z2_MODULE_STATE=ready",
-            "Z2_NFQUEUE=1",
-        )
+        val valid = payload()
 
         assertNull(repository.parseEnvironmentOutput(valid + "Z2_NFQUEUE=1"))
         assertNull(repository.parseEnvironmentOutput(valid.dropLast(1)))
         assertNull(repository.parseEnvironmentOutput(valid + "Z2_FUTURE=1"))
-        assertNull(repository.parseEnvironmentOutput(valid.map { if (it == "Z2_NFQUEUE=1") "Z2_NFQUEUE=yes" else it }))
-        assertNull(repository.parseEnvironmentOutput(valid.map { if (it.startsWith("Z2_MODULE_STATE=")) "Z2_MODULE_STATE=broken" else it }))
+        assertNull(
+            repository.parseEnvironmentOutput(
+                valid.map { if (it == "Z2_NFQUEUE=1") "Z2_NFQUEUE=yes" else it },
+            ),
+        )
+        assertNull(repository.parseEnvironmentOutput(payload(active = "broken")))
+        assertNull(repository.parseEnvironmentOutput(payload(pending = "disabled")))
+        assertNull(repository.parseEnvironmentOutput(payload(mutation = "stale")))
+    }
+
+    @Test
+    fun installationProbe_ownsBothMagiskSlotsWithoutExecutingRuntimeStrategies() {
+        val command = repository.buildProbeCommand("arm64-v8a")
+
+        assertTrue(command.contains(Zapret2ModuleRepository.ACTIVE_MODULE_DIR))
+        assertTrue(command.contains(Zapret2ModuleRepository.PENDING_MODULE_DIR))
+        assertTrue(command.contains("zapret2/bin/arm64-v8a/nfqws2"))
+        assertFalse(command.contains("package_contract_validate_runtime_selection"))
+        assertFalse(command.contains("--validate-strategies-machine"))
+        assertFalse(command.contains("--preflight-preset-machine"))
     }
 
     @Test
@@ -60,10 +86,7 @@ class ControlDiagnosticsRepositoryTest {
             updateJson=https://github.com/youtubediscord/magisk-zapret2/releases/latest/download/update.json
         """.trimIndent() + "\n"
 
-        assertEquals(
-            "v2.0.100",
-            repository.parseModulePropVersion(valid),
-        )
+        assertEquals("v2.0.100", repository.parseModulePropVersion(valid))
         assertNull(repository.parseModulePropVersion(valid.replace("id=zapret2", "id=other")))
         assertNull(repository.parseModulePropVersion(valid.replace("versionCode=100", "versionCode=99")))
         assertNull(repository.parseModulePropVersion(valid.replace("version=v2.0.100", "version=v2.0.0100")))
@@ -90,7 +113,6 @@ class ControlDiagnosticsRepositoryTest {
             ModuleInstallState.UNKNOWN,
             ModuleInstallState.MISSING,
             ModuleInstallState.REMOVAL_PENDING,
-            ModuleInstallState.UPDATING,
             ModuleInstallState.PARTIAL,
             ModuleInstallState.UNSUPPORTED_ABI,
             ModuleInstallState.UNREADABLE,
@@ -102,4 +124,15 @@ class ControlDiagnosticsRepositoryTest {
             }
         }
     }
+
+    private fun payload(
+        active: String = "ready",
+        pending: String = "missing",
+        mutation: String = "idle",
+    ) = listOf(
+        "Z2_ACTIVE_STATE=$active",
+        "Z2_PENDING_STATE=$pending",
+        "Z2_MUTATION_STATE=$mutation",
+        "Z2_NFQUEUE=1",
+    )
 }

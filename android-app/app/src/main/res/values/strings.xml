@@ -149,6 +149,9 @@
     <string name="control_status_root_manager_unavailable">Root manager unavailable</string>
     <string name="control_status_root_shell_failed">Root shell failed</string>
     <string name="control_status_root_timeout">Root request timed out</string>
+    <string name="control_status_not_installed">Module is not installed</string>
+    <string name="control_status_reboot_required">Reboot required</string>
+    <string name="control_status_module_not_ready">Module installation requires attention</string>
     <string name="control_status_unavailable">Status unavailable</string>
     <string name="control_module_state">Module state</string>
     <string name="control_module_state_unknown">Not checked</string>
@@ -157,6 +160,11 @@
     <string name="control_module_state_disabled">Disabled in root manager</string>
     <string name="control_module_state_removal_pending">Removal pending</string>
     <string name="control_module_state_updating">Update or recovery in progress</string>
+    <string name="control_module_state_installed_reboot">Installed; reboot required</string>
+    <string name="control_module_state_update_reboot">Update installed; reboot required</string>
+    <string name="control_module_state_pending_partial">Pending installation is incomplete</string>
+    <string name="control_module_state_pending_unsupported_abi">Pending installation does not support this device ABI</string>
+    <string name="control_module_state_pending_unreadable">Pending installation cannot be verified</string>
     <string name="control_module_state_partial">Incomplete or unsafe installation</string>
     <string name="control_module_state_unsupported_abi">Device ABI is unsupported</string>
     <string name="control_module_state_unreadable">Installation cannot be verified</string>

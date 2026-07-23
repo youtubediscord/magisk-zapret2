@@ -95,6 +95,7 @@ import com.zapret2.app.viewmodel.FullRollbackUiState
 import com.zapret2.app.viewmodel.ModulePurgeUiState
 import com.zapret2.app.viewmodel.PacketTarget
 import com.zapret2.app.viewmodel.labelRes
+import com.zapret2.app.viewmodel.moduleStateLabelRes
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -294,7 +295,7 @@ fun ControlScreen(
                         Spacer(Modifier.height(SpacingTokens.Small))
                         SettingRow(
                             title = stringResource(R.string.control_module_state),
-                            value = stringResource(state.moduleInstallState.labelRes),
+                            value = stringResource(state.moduleStateLabelRes),
                         )
                         Spacer(Modifier.height(SpacingTokens.Small))
                         SettingRow(
@@ -480,8 +481,11 @@ private fun ServiceStatusCard(
             ControlStatus.ROOT_MANAGER_UNAVAILABLE,
             ControlStatus.ROOT_SHELL_FAILED,
             ControlStatus.ROOT_TIMEOUT,
+            ControlStatus.NOT_INSTALLED,
+            ControlStatus.MODULE_NOT_READY,
             ControlStatus.UNAVAILABLE,
             -> error.color
+            ControlStatus.REBOOT_REQUIRED -> warning.color
             ControlStatus.CHECKING,
             ControlStatus.STOPPED,
             -> MaterialTheme.colorScheme.onSurfaceVariant
