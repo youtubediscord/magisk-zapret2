@@ -43,7 +43,10 @@ case "$args" in
     *' -C ZAPRET2_PROBE '*) [ "$(get "$prefix.probe_rules")" -gt 0 ] ;;
     *' -A Z2R_'*' -j NFQUEUE '*)
         n=$(inc "$prefix.append")
-        [ "$n" != "${Z2_FAIL_APPEND:-0}" ] || exit 1
+        [ "$n" != "${Z2_FAIL_APPEND:-0}" ] || {
+            echo "mock xtables lock contention" >&2
+            exit 1
+        }
         chain=${args##* -A }; chain=${chain%% *}
         inc "$prefix.rules" >/dev/null; inc "$prefix.rules.$chain" >/dev/null; exit 0 ;;
     *' -D Z2R_'*' -j NFQUEUE '*)
@@ -234,6 +237,12 @@ for tool in iptables ip6tables; do
     while [ "$position" -le 4 ]; do
         reset_all; Z2_FAIL_APPEND="$position"; export Z2_FAIL_APPEND
         build_detached_family "$tool" && fail "$tool rule -A $position unexpectedly succeeded"
+        [ "$FIREWALL_FAILURE_STAGE" = BUILD_RULE ] ||
+            fail "$tool rule -A $position lost its typed mutation stage"
+        case "$FIREWALL_FAILURE_DETAIL" in
+            *"mock xtables lock contention"*) ;;
+            *) fail "$tool rule -A $position suppressed the firewall diagnostic" ;;
+        esac
         assert_clean "$tool"
         position=$((position + 1))
     done

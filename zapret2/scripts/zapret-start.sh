@@ -34,6 +34,8 @@ BUILD_TRACK_MODE=build
 TRACK_CREATOR_START=""
 TRACK_CREATOR_BOOT_ID=""
 DIAGNOSTICS=""
+FIREWALL_FAILURE_DETAIL=""
+FIREWALL_FAILURE_STAGE=""
 PRIOR_HEALTHY=0
 PRIOR_TORN_DOWN=0
 PRIOR_ARGV_FILE="$STATE_DIR/replace.argv.$$"
@@ -60,6 +62,15 @@ log_debug() {
 }
 
 log_section() { log_msg "==== $1 ===="; }
+
+start_error_exit() {
+    local domain="$1" code="$2" stage="$3" retryable="$4" message="$5"
+    z2_error_set "$domain" "$code" "$stage" "$retryable" ||
+        z2_error_set LIFECYCLE LIFECYCLE_FAILED START 0
+    z2_error_emit_machine
+    echo "ERROR: $message"
+    exit 1
+}
 
 set_default_config() {
     set_core_config_defaults
@@ -260,6 +271,8 @@ write_ok_status() {
     STATUS_MULTIPORT_SUPPORTED="${IPV4_MULTIPORT:-1}"
     STATUS_MARK_SUPPORTED="${IPV4_MARK:-1}"
     STATUS_FALLBACK_MODE="${FALLBACK_MODE:-0}"
+    STATUS_ERROR_DOMAIN=NONE; STATUS_ERROR_CODE=NONE
+    STATUS_ERROR_STAGE=NONE; STATUS_ERROR_RETRYABLE=0
     STATUS_DIAGNOSTICS="$DIAGNOSTICS"
     write_iptables_status ok
 }
@@ -392,11 +405,28 @@ build_track_transition() {
     publish_build_track_temp "$tmp" || return 1
 }
 
+run_firewall_mutation() {
+    local stage="$1" tool rc detail
+    shift
+    tool="$1"
+    FIREWALL_FAILURE_DETAIL=""
+    FIREWALL_FAILURE_STAGE=""
+    : > "$ERROR_LOG" 2>/dev/null || return 1
+    chmod 0600 "$ERROR_LOG" 2>/dev/null || return 1
+    "$@" 2> "$ERROR_LOG"
+    rc=$?
+    [ "$rc" -ne 0 ] || return 0
+    detail="$(head -c 512 "$ERROR_LOG" 2>/dev/null | tr '\r\n' '  ')"
+    FIREWALL_FAILURE_STAGE="$stage"
+    FIREWALL_FAILURE_DETAIL="$tool $stage failed (exit $rc)${detail:+: $detail}"
+    return "$rc"
+}
+
 tracked_create_chain() {
     local tool="$1" chain="$2" id
     build_track_add_pending "chain|$chain" || return 1
     id="$BUILD_TRACK_RECORD_ID"
-    if ! "$tool" -t mangle -N "$chain" 2>/dev/null; then
+    if ! run_firewall_mutation BUILD_CHAIN "$tool" -t mangle -N "$chain"; then
         build_track_transition "$id" pending consumed || true
         return 1
     fi
@@ -407,7 +437,7 @@ tracked_append_anchor() {
     local tool="$1" builtin="$2" target="$3" id
     build_track_add_pending "anchor|$builtin|$target" || return 1
     id="$BUILD_TRACK_RECORD_ID"
-    if ! "$tool" -t mangle -A "$builtin" -j "$target" 2>/dev/null; then
+    if ! run_firewall_mutation COMMIT_ANCHOR "$tool" -t mangle -A "$builtin" -j "$target"; then
         build_track_transition "$id" pending consumed || true
         return 1
     fi
@@ -763,7 +793,13 @@ snapshot_owned_state() {
 }
 
 fail_start() {
-    local message="$1" rollback_ready=1
+    local message="$1" domain="${2:-LIFECYCLE}" code="${3:-LIFECYCLE_FAILED}"
+    local stage="${4:-START}" retryable="${5:-0}" rollback_ready=1
+    z2_error_set "$domain" "$code" "$stage" "$retryable" ||
+        z2_error_set LIFECYCLE LIFECYCLE_FAILED START 0
+    if [ -n "$FIREWALL_FAILURE_DETAIL" ]; then
+        message="$message; $FIREWALL_FAILURE_DETAIL"
+    fi
     trap '' HUP INT TERM
     if ! rollback_legacy_migration; then
         rollback_ready=0
@@ -777,6 +813,7 @@ fail_start() {
         discard_prior_snapshot
         release_lifecycle_lock
         trap - HUP INT TERM
+        z2_error_emit_machine
         echo "ERROR: $message"
         exit 1
     fi
@@ -793,6 +830,7 @@ fail_start() {
             discard_prior_snapshot
             release_lifecycle_lock
             trap - HUP INT TERM
+            z2_error_emit_machine
             echo "ERROR: $message; prior healthy service restored"
             exit 1
         fi
@@ -818,18 +856,21 @@ fail_start() {
     [ -n "${IPV4_MULTIPORT:-}" ] && STATUS_MULTIPORT_SUPPORTED="$IPV4_MULTIPORT"
     [ -n "${IPV4_MARK:-}" ] && STATUS_MARK_SUPPORTED="$IPV4_MARK"
     STATUS_FALLBACK_MODE=0
+    STATUS_ERROR_DOMAIN="$Z2_ERROR_DOMAIN"; STATUS_ERROR_CODE="$Z2_ERROR_CODE"
+    STATUS_ERROR_STAGE="$Z2_ERROR_STAGE"; STATUS_ERROR_RETRYABLE="$Z2_ERROR_RETRYABLE"
     STATUS_DIAGNOSTICS="$DIAGNOSTICS"
     write_iptables_status error >/dev/null 2>&1 || true
     discard_prior_snapshot
     release_lifecycle_lock
     trap - HUP INT TERM
+    z2_error_emit_machine
     echo "ERROR: $message"
     exit 1
 }
 
 handle_signal() {
     local signal="$1"
-    fail_start "start interrupted by $signal"
+    fail_start "start interrupted by $signal" LIFECYCLE LIFECYCLE_FAILED START_SIGNAL 1
 }
 
 probe_family() {
@@ -898,7 +939,7 @@ append_nfqueue_rule() {
         set -- "$@" -m mark ! --mark "$DESYNC_MARK/$DESYNC_MARK"
     fi
     set -- "$@" -j NFQUEUE --queue-num "$QNUM" --queue-bypass
-    if ! "$tool" "$@" 2>/dev/null; then
+    if ! run_firewall_mutation BUILD_RULE "$tool" "$@"; then
         build_track_transition "$id" pending consumed || true
         return 1
     fi
@@ -1009,36 +1050,37 @@ main() {
         esac
         shift
     done
-    if ! ensure_state_dir; then echo "ERROR: insecure or unavailable zapret2 state directory: $STATE_DIR"; exit 1; fi
-    if ! acquire_lifecycle_lock; then echo "ERROR: zapret2 lifecycle is busy"; exit 1; fi
+    ensure_state_dir ||
+        start_error_exit STATE STATE_UNAVAILABLE START_STATE 0 \
+            "insecure or unavailable zapret2 state directory: $STATE_DIR"
+    acquire_lifecycle_lock ||
+        start_error_exit LIFECYCLE LIFECYCLE_BUSY START_LOCK 1 "zapret2 lifecycle is busy"
     if [ -e "$MODDIR/disable" ] || [ -L "$MODDIR/disable" ]; then
         release_lifecycle_lock
-        echo "ERROR: start blocked because the module is disabled; re-enable it in the root manager first"
-        exit 1
+        start_error_exit LIFECYCLE MODULE_DISABLED START_PREFLIGHT 0 \
+            "start blocked because the module is disabled; re-enable it in the root manager first"
     fi
     if module_removal_pending; then
         release_lifecycle_lock
-        echo "ERROR: start blocked because Magisk scheduled the module for removal"
-        exit 1
+        start_error_exit LIFECYCLE MODULE_REMOVAL_PENDING START_PREFLIGHT 0 \
+            "start blocked because Magisk scheduled the module for removal"
     fi
     # Update serialization is checked before log rotation, status writes,
     # configuration migration, probes, or any other lifecycle mutation.
     if ! update_lock_allows_start; then
         message="start blocked by update serialization: $UPDATE_LOCK_ERROR"
         release_lifecycle_lock
-        echo "ERROR: $message"
-        exit 1
+        start_error_exit UPDATE UPDATE_BLOCKED START_UPDATE 1 "$message"
     fi
     if ! audit_recovery_artifacts lifecycle; then
         release_lifecycle_lock
-        echo "ERROR: ${RECOVERY_ARTIFACT_DIAGNOSTIC:-recovery artifacts block start}"
-        exit 1
+        start_error_exit LIFECYCLE RECOVERY_BLOCKED START_RECOVERY 0 \
+            "${RECOVERY_ARTIFACT_DIAGNOSTIC:-recovery artifacts block start}"
     fi
     if ! uninstall_tombstone_allows_start; then
         message="start blocked by uninstall serialization: $UNINSTALL_TOMBSTONE_ERROR"
         release_lifecycle_lock
-        echo "ERROR: $message"
-        exit 1
+        start_error_exit LIFECYCLE UNINSTALL_BLOCKED START_UNINSTALL 1 "$message"
     fi
 
     # Authenticate the installer-owned generation before status/log/config or
@@ -1046,8 +1088,8 @@ main() {
     # teardown transaction.
     if ! read_install_generation_meta; then
         release_lifecycle_lock
-        echo "ERROR: install generation metadata is missing, unsafe, or malformed"
-        exit 1
+        start_error_exit STATE STATE_UNAVAILABLE START_GENERATION 0 \
+            "install generation metadata is missing, unsafe, or malformed"
     fi
     if [ "$REPAIR_RUNTIME_ONLY" = 1 ]; then
         if load_effective_core_config; then
@@ -1068,9 +1110,12 @@ main() {
     # Capture an independently verified old generation before reading the new
     # configuration, rotating logs, probing firewall capabilities, publishing
     # command metadata, or performing any other fallible lifecycle work.
-    capture_prior_healthy_generation || fail_start "cannot snapshot prior healthy generation before preflight"
+    capture_prior_healthy_generation ||
+        fail_start "cannot snapshot prior healthy generation before preflight" \
+            LIFECYCLE PREFLIGHT_FAILED START_SNAPSHOT 0
 
-    write_runtime_owner_marker || fail_start "cannot publish secure runtime ownership marker"
+    write_runtime_owner_marker ||
+        fail_start "cannot publish secure runtime ownership marker" STATE STATE_UNAVAILABLE START_OWNER 0
 
     if ! prepare_lifecycle_log; then
         LOG_READY=0
@@ -1081,11 +1126,20 @@ main() {
 
     [ -n "$UPDATE_LOCK_DIAGNOSTIC" ] && DIAGNOSTICS="${DIAGNOSTICS}${UPDATE_LOCK_DIAGNOSTIC}; "
 
-    load_config || fail_start "configuration load failed: ${RUNTIME_CONFIG_ERROR:-invalid configuration}"
-    validate_config || fail_start "invalid core firewall configuration"
-    preflight_wifi_only || fail_start "WIFI_ONLY cannot be safely scoped to a verified Wi-Fi interface"
-    legacy_migrate_firewall || fail_start "legacy firewall migration blocked: $LEGACY_MIGRATION_ERROR"
-    [ "$LEGACY_MIGRATION_VERIFIED" = 1 ] || fail_start "legacy firewall migration did not reach a verified commit"
+    load_config ||
+        fail_start "configuration load failed: ${RUNTIME_CONFIG_ERROR:-invalid configuration}" \
+            CONFIG CONFIG_INVALID START_CONFIG 0
+    validate_config ||
+        fail_start "invalid core firewall configuration" CONFIG CONFIG_INVALID START_CONFIG 0
+    preflight_wifi_only ||
+        fail_start "WIFI_ONLY cannot be safely scoped to a verified Wi-Fi interface" \
+            CONFIG PREFLIGHT_FAILED START_WIFI 0
+    legacy_migrate_firewall ||
+        fail_start "legacy firewall migration blocked: $LEGACY_MIGRATION_ERROR" \
+            FIREWALL FIREWALL_CLEANUP_FAILED START_LEGACY 0
+    [ "$LEGACY_MIGRATION_VERIFIED" = 1 ] ||
+        fail_start "legacy firewall migration did not reach a verified commit" \
+            FIREWALL POSTCONDITION_FAILED START_LEGACY 0
 
     if [ "$REPLACE" = 0 ] && normal_health_ok; then
         DIAGNOSTICS="already healthy; no process or firewall churn"
@@ -1096,9 +1150,12 @@ main() {
         exit 0
     fi
 
-    prepare_options || fail_start "nfqws2 preflight/dry-run failed"
+    prepare_options ||
+        fail_start "nfqws2 preflight/dry-run failed" CONFIG PREFLIGHT_FAILED START_NFQWS_PREFLIGHT 0
 
-    probe_family iptables || fail_start "mandatory IPv4 NFQUEUE probe failed"
+    probe_family iptables ||
+        fail_start "mandatory IPv4 NFQUEUE probe failed" \
+            FIREWALL FIREWALL_PROBE_FAILED START_PROBE_IPV4 0
     IPV4_NFQUEUE="$PROBE_NFQUEUE"; IPV4_QUEUE_BYPASS="$PROBE_QUEUE_BYPASS"
     IPV4_CONNBYTES="$PROBE_CONNBYTES"; IPV4_MULTIPORT="$PROBE_MULTIPORT"; IPV4_MARK="$PROBE_MARK"
     [ "$IPV4_NFQUEUE" = 1 ] && [ "$IPV4_QUEUE_BYPASS" = 1 ] || fail_start "IPv4 NFQUEUE --queue-bypass is required"
@@ -1117,21 +1174,30 @@ main() {
             else DIAGNOSTICS="${DIAGNOSTICS}IPv6 mandatory queue safety capability unavailable; IPv6 skipped; "; fi
             ;;
         2) DIAGNOSTICS="${DIAGNOSTICS}IPv6 unavailable; IPv6 skipped; " ;;
-        *) fail_start "IPv6 detached probe cleanup failed" ;;
+        *) fail_start "IPv6 detached probe cleanup failed" \
+               FIREWALL FIREWALL_PROBE_FAILED START_PROBE_IPV6 0 ;;
     esac
 
     # Only now may a failure roll back module-owned process/chains.  Earlier
     # failures preserve the old owner/status generation exactly.
     CONTROLLED_TEARDOWN_STARTED=1
     FIREWALL_MUTATED=1
-    cleanup_owned_firewall || fail_start "cannot remove exact owned firewall artifacts"
-    stop_pidfile_process || fail_start "cannot stop verified previous nfqws2 process"
+    cleanup_owned_firewall ||
+        fail_start "cannot remove exact owned firewall artifacts" \
+            FIREWALL FIREWALL_CLEANUP_FAILED START_CLEANUP 0
+    stop_pidfile_process ||
+        fail_start "cannot stop verified previous nfqws2 process" \
+            PROCESS PROCESS_STOP_FAILED START_CLEANUP 0
     [ "$PRIOR_HEALTHY" != 1 ] || PRIOR_TORN_DOWN=1
     OWNER_WRITE_READY=0; OWNER_WRITE_QNUM=""; OWNER_WRITE_SOURCE_GENERATION=""
-    prepare_new_firewall_identity || fail_start "cannot allocate stable firewall generation identity"
+    prepare_new_firewall_identity ||
+        fail_start "cannot allocate stable firewall generation identity" \
+            FIREWALL PREFLIGHT_FAILED START_IDENTITY 0
 
     BUILD_CONNBYTES="$IPV4_CONNBYTES"; BUILD_MULTIPORT="$IPV4_MULTIPORT"; BUILD_MARK="$IPV4_MARK"
-    build_detached_family iptables || fail_start "cannot build detached IPv4 chains"
+    build_detached_family iptables ||
+        fail_start "cannot build detached IPv4 chains" \
+            FIREWALL FIREWALL_BUILD_FAILED "START_IPV4_${FIREWALL_FAILURE_STAGE:-BUILD}" 1
     IPV4_RULES="$BUILD_RULES"; IPV4_BUILT=1
 
     if [ "$IPV6_AVAILABLE" = 1 ]; then
@@ -1144,8 +1210,12 @@ main() {
         fi
     fi
 
-    launch_nfqws2 || fail_start "nfqws2 did not produce a verified module-owned PID"
-    commit_family iptables || fail_start "mandatory IPv4 anchor commit failed"
+    launch_nfqws2 ||
+        fail_start "nfqws2 did not produce a verified module-owned PID" \
+            PROCESS PROCESS_LAUNCH_FAILED START_LAUNCH 1
+    commit_family iptables ||
+        fail_start "mandatory IPv4 anchor commit failed" \
+            FIREWALL FIREWALL_COMMIT_FAILED START_COMMIT_IPV4 1
     IPV4_ACTIVE=1
     IPV6_ACTIVE=0
     if [ "$IPV6_BUILT" = 1 ]; then
@@ -1159,8 +1229,12 @@ main() {
         fi
     fi
 
-    set_owner_phase active || fail_start "cannot mark verified nfqws2 owner active"
-    normal_health_ok || fail_start "post-commit ownership/ruleset verification failed"
+    set_owner_phase active ||
+        fail_start "cannot mark verified nfqws2 owner active" \
+            PROCESS POSTCONDITION_FAILED START_VERIFY 0
+    normal_health_ok ||
+        fail_start "post-commit ownership/ruleset verification failed" \
+            LIFECYCLE POSTCONDITION_FAILED START_VERIFY 0
     [ "$HEALTH_PID" = "$STARTED_PID" ] && [ "$HEALTH_PID_START" = "$STARTED_PID_START" ] ||
         fail_start "post-commit PID identity changed"
     [ "$HEALTH_IPV6" = "$IPV6_ACTIVE" ] || fail_start "post-commit IPv6 state mismatch"

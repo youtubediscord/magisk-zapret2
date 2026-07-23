@@ -9,6 +9,15 @@ log_msg() {
     if command -v log >/dev/null 2>&1; then log -t Zapret2 "$1" 2>/dev/null; fi
 }
 
+stop_error_exit() {
+    local domain="$1" code="$2" stage="$3" retryable="$4" message="$5"
+    z2_error_set "$domain" "$code" "$stage" "$retryable" ||
+        z2_error_set LIFECYCLE LIFECYCLE_FAILED STOP 0
+    z2_error_emit_machine
+    echo "ERROR: $message"
+    exit 1
+}
+
 write_stop_status() {
     local state="$1" message="$2"
     restore_status_facts
@@ -27,6 +36,15 @@ write_stop_status() {
     STATUS_MULTIPORT_SUPPORTED="${STATUS_MULTIPORT_SUPPORTED:-0}"
     STATUS_MARK_SUPPORTED="${STATUS_MARK_SUPPORTED:-0}"
     STATUS_FALLBACK_MODE=0; STATUS_DIAGNOSTICS="$message"
+    if [ "$state" = stopped ]; then
+        STATUS_ERROR_DOMAIN=NONE; STATUS_ERROR_CODE=NONE
+        STATUS_ERROR_STAGE=NONE; STATUS_ERROR_RETRYABLE=0
+    else
+        STATUS_ERROR_DOMAIN="${STOP_ERROR_DOMAIN:-LIFECYCLE}"
+        STATUS_ERROR_CODE="${STOP_ERROR_CODE:-LIFECYCLE_FAILED}"
+        STATUS_ERROR_STAGE="${STOP_ERROR_STAGE:-STOP}"
+        STATUS_ERROR_RETRYABLE="${STOP_ERROR_RETRYABLE:-0}"
+    fi
     write_iptables_status "$state"
 }
 
@@ -64,25 +82,25 @@ firewall_is_clean() {
 }
 
 main() {
-    if ! ensure_state_dir; then echo "ERROR: insecure or unavailable zapret2 state directory: $STATE_DIR"; exit 1; fi
-    if ! acquire_lifecycle_lock; then echo "ERROR: zapret2 lifecycle is busy"; exit 1; fi
+    ensure_state_dir ||
+        stop_error_exit STATE STATE_UNAVAILABLE STOP_STATE 0 \
+            "insecure or unavailable zapret2 state directory: $STATE_DIR"
+    acquire_lifecycle_lock ||
+        stop_error_exit LIFECYCLE LIFECYCLE_BUSY STOP_LOCK 1 "zapret2 lifecycle is busy"
     if ! update_lock_allows_stop; then
         message="stop blocked by update serialization: $UPDATE_LOCK_ERROR"
         release_lifecycle_lock
-        echo "ERROR: $message"
-        exit 1
+        stop_error_exit UPDATE UPDATE_BLOCKED STOP_UPDATE 1 "$message"
     fi
     if ! audit_recovery_artifacts lifecycle; then
         message="stop blocked by recovery state: ${RECOVERY_ARTIFACT_DIAGNOSTIC:-unsafe recovery artifact}"
         release_lifecycle_lock
-        echo "ERROR: $message"
-        exit 1
+        stop_error_exit LIFECYCLE RECOVERY_BLOCKED STOP_RECOVERY 0 "$message"
     fi
     if ! uninstall_tombstone_allows_stop; then
         message="stop blocked by uninstall serialization: $UNINSTALL_TOMBSTONE_ERROR"
         release_lifecycle_lock
-        echo "ERROR: $message"
-        exit 1
+        stop_error_exit LIFECYCLE UNINSTALL_BLOCKED STOP_UNINSTALL 1 "$message"
     fi
     trap stop_interrupted HUP INT TERM
     if ! prepare_lifecycle_log; then
@@ -106,17 +124,23 @@ main() {
 
     rc=0
     errors=""
+    STOP_ERROR_DOMAIN=NONE; STOP_ERROR_CODE=NONE
+    STOP_ERROR_STAGE=NONE; STOP_ERROR_RETRYABLE=0
     # Prove the complete process identity/publication before legacy migration
     # or any current-chain mutation. The later stop consumes this same snapshot
     # and generation, so a replacement process cannot be killed after teardown.
     if ! preflight_owned_process_cleanup; then
         errors="process cleanup preflight blocked: $PROCESS_CLEANUP_PREFLIGHT_ERROR; firewall and daemon teardown were not attempted"
+        STOP_ERROR_DOMAIN=PROCESS; STOP_ERROR_CODE=PROCESS_STOP_FAILED; STOP_ERROR_STAGE=STOP_PREFLIGHT
     elif ! audit_owned_firewall_for_cleanup "$STOP_QNUM"; then
         errors="firewall generation preflight blocked: $FIREWALL_CLEANUP_PREFLIGHT_ERROR; firewall and daemon teardown were not attempted"
+        STOP_ERROR_DOMAIN=FIREWALL; STOP_ERROR_CODE=FIREWALL_CLEANUP_FAILED; STOP_ERROR_STAGE=STOP_PREFLIGHT
     elif ! legacy_migrate_firewall; then
         errors="legacy firewall migration blocked: $LEGACY_MIGRATION_ERROR; daemon teardown was not attempted"
+        STOP_ERROR_DOMAIN=FIREWALL; STOP_ERROR_CODE=FIREWALL_CLEANUP_FAILED; STOP_ERROR_STAGE=STOP_LEGACY
     elif [ "$LEGACY_MIGRATION_VERIFIED" != 1 ]; then
         errors="legacy firewall migration did not reach a verified commit; daemon teardown was not attempted"
+        STOP_ERROR_DOMAIN=FIREWALL; STOP_ERROR_CODE=POSTCONDITION_FAILED; STOP_ERROR_STAGE=STOP_LEGACY
     fi
     if [ -n "$errors" ]; then
         trap '' HUP INT TERM
@@ -127,16 +151,21 @@ main() {
         release_lifecycle_lock
         trap - HUP INT TERM
         log_msg "ERROR: $errors"
+        z2_error_set "$STOP_ERROR_DOMAIN" "$STOP_ERROR_CODE" "$STOP_ERROR_STAGE" 0 ||
+            z2_error_set LIFECYCLE LIFECYCLE_FAILED STOP 0
+        z2_error_emit_machine
         echo "ERROR: Zapret2 stop incomplete: $errors"
         exit 1
     fi
     firewall_detached=0
     if ! cleanup_owned_firewall; then
         rc=1
+        STOP_ERROR_DOMAIN=FIREWALL; STOP_ERROR_CODE=FIREWALL_CLEANUP_FAILED; STOP_ERROR_STAGE=STOP_FIREWALL
         if [ -n "$errors" ]; then errors="$errors; owned firewall cleanup failed"
         else errors="owned firewall cleanup failed: ${FIREWALL_CLEANUP_PREFLIGHT_ERROR:-ambiguous ownership}; daemon teardown was not attempted"; fi
     elif ! firewall_is_clean; then
         rc=1
+        STOP_ERROR_DOMAIN=FIREWALL; STOP_ERROR_CODE=POSTCONDITION_FAILED; STOP_ERROR_STAGE=STOP_FIREWALL
         if [ -n "$errors" ]; then errors="$errors; owned firewall artifacts remain"
         else errors="owned firewall artifacts remain; daemon teardown was not attempted"; fi
     else
@@ -145,17 +174,20 @@ main() {
 
     if [ "$firewall_detached" = 1 ] && ! stop_pidfile_process; then
         rc=1
+        STOP_ERROR_DOMAIN=PROCESS; STOP_ERROR_CODE=PROCESS_STOP_FAILED; STOP_ERROR_STAGE=STOP_PROCESS
         if [ -n "$errors" ]; then errors="$errors; verified process stop failed"
         else errors="verified process stop failed"; fi
     fi
 
     if [ "$firewall_detached" = 1 ] && read_verified_pidfile; then
         rc=1
+        STOP_ERROR_DOMAIN=PROCESS; STOP_ERROR_CODE=POSTCONDITION_FAILED; STOP_ERROR_STAGE=STOP_VERIFY
         if [ -n "$errors" ]; then errors="$errors; verified nfqws2 process remains"
         else errors="verified nfqws2 process remains"; fi
     elif [ -e "$PIDFILE" ]; then
         if read_live_pidfile; then
             rc=1
+            STOP_ERROR_DOMAIN=PROCESS; STOP_ERROR_CODE=POSTCONDITION_FAILED; STOP_ERROR_STAGE=STOP_VERIFY
             if [ -n "$errors" ]; then errors="$errors; unverified live PID remains"
             else errors="unverified live PID remains"; fi
         fi
@@ -190,6 +222,9 @@ main() {
         echo "Zapret2 stopped"
     else
         log_msg "ERROR: $errors"
+        z2_error_set "$STOP_ERROR_DOMAIN" "$STOP_ERROR_CODE" "$STOP_ERROR_STAGE" 0 ||
+            z2_error_set LIFECYCLE LIFECYCLE_FAILED STOP 0
+        z2_error_emit_machine
         echo "ERROR: Zapret2 stop incomplete: $errors"
     fi
     exit "$rc"

@@ -91,6 +91,13 @@ class ServiceLifecycleControllerTest {
             ServiceLifecycleController.CommandResult(success = true),
             uid = "root",
         )
+        val busy = ServiceLifecycleController.classifyRootAccess(
+            ServiceLifecycleController.CommandResult(
+                success = false,
+                lifecycleError = LifecycleErrorContract.rootQueueBusy,
+            ),
+            uid = null,
+        )
 
         assertEquals(ServiceLifecycleController.RootAccessState.GRANTED, granted.state)
         assertEquals(ServiceLifecycleController.RootAccessState.DENIED, deniedByUid.state)
@@ -100,7 +107,9 @@ class ServiceLifecycleControllerTest {
             missingManager.state,
         )
         assertEquals(ServiceLifecycleController.RootAccessState.TIMEOUT, timedOut.state)
+        assertEquals(LifecycleErrorCode.ROOT_COMMAND_TIMEOUT, timedOut.lifecycleError?.code)
         assertEquals(ServiceLifecycleController.RootAccessState.SHELL_FAILURE, shellFailure.state)
+        assertEquals(LifecycleErrorCode.ROOT_SHELL_FAILED, shellFailure.lifecycleError?.code)
         assertEquals(
             ServiceLifecycleController.RootAccessState.DENIED,
             deniedWithoutShellDiagnostic.state,
@@ -109,11 +118,14 @@ class ServiceLifecycleControllerTest {
             "Root access was not granted by the root manager",
             deniedWithoutShellDiagnostic.error,
         )
+        assertEquals(LifecycleErrorCode.ROOT_DENIED, deniedWithoutShellDiagnostic.lifecycleError?.code)
         assertEquals(
             ServiceLifecycleController.RootAccessState.SHELL_FAILURE,
             failedGrantedShell.state,
         )
         assertEquals(ServiceLifecycleController.RootAccessState.SHELL_FAILURE, malformedUid.state)
+        assertEquals(ServiceLifecycleController.RootAccessState.BUSY, busy.state)
+        assertEquals(LifecycleErrorCode.ROOT_COMMAND_QUEUE_BUSY, busy.lifecycleError?.code)
     }
 
     @Test
@@ -179,6 +191,46 @@ class ServiceLifecycleControllerTest {
         assertEquals(3, status.nfqueueRulesCount)
         assertEquals(200, status.qnum)
         assertNull(status.error)
+    }
+
+    @Test
+    fun parseStatusOutput_acceptsVersionTwoAndCarriesTypedModuleError() {
+        val lines = stoppedStatusLines().toMutableList().apply {
+            add(0, "Z2_PROTOCOL=2")
+            add(lastIndex, "Z2_ERROR_SCHEMA=1")
+            add(lastIndex, "Z2_ERROR_DOMAIN=FIREWALL")
+            add(lastIndex, "Z2_ERROR_CODE=FIREWALL_BUILD_FAILED")
+            add(lastIndex, "Z2_ERROR_STAGE=START_IPV4_BUILD_RULE")
+            add(lastIndex, "Z2_ERROR_RETRYABLE=1")
+        }
+
+        val status = ServiceLifecycleController.parseStatusOutput(lines)
+
+        assertTrue(status.metadataComplete)
+        assertTrue(status.fullyStopped)
+        assertEquals(LifecycleErrorDomain.FIREWALL, status.lifecycleError?.domain)
+        assertEquals(LifecycleErrorCode.FIREWALL_BUILD_FAILED, status.lifecycleError?.code)
+        assertEquals("START_IPV4_BUILD_RULE", status.lifecycleError?.stage)
+        assertTrue(status.lifecycleError?.retryable == true)
+    }
+
+    @Test
+    fun parseStatusOutput_rejectsPartialOrUnknownVersionTwoErrorContract() {
+        val valid = stoppedStatusLines().toMutableList().apply {
+            add(0, "Z2_PROTOCOL=2")
+            add(lastIndex, "Z2_ERROR_SCHEMA=1")
+            add(lastIndex, "Z2_ERROR_DOMAIN=NONE")
+            add(lastIndex, "Z2_ERROR_CODE=NONE")
+            add(lastIndex, "Z2_ERROR_STAGE=NONE")
+            add(lastIndex, "Z2_ERROR_RETRYABLE=0")
+        }
+        val partial = valid.filterNot { it.startsWith("Z2_ERROR_STAGE=") }
+        val unknown = valid.map {
+            if (it.startsWith("Z2_ERROR_CODE=")) "Z2_ERROR_CODE=FUTURE_FAILURE" else it
+        }
+
+        assertFalse(ServiceLifecycleController.parseStatusOutput(partial).metadataComplete)
+        assertFalse(ServiceLifecycleController.parseStatusOutput(unknown).metadataComplete)
     }
 
     @Test
@@ -473,6 +525,29 @@ class ServiceLifecycleControllerTest {
 
         assertEquals(
             "root command failed\niptables failed\nqueue unavailable",
+            result.diagnosticText(),
+        )
+    }
+
+    @Test
+    fun commandDiagnostics_includeStableErrorCodeBeforeShellDetail() {
+        val result = ServiceLifecycleController.CommandResult(
+            success = false,
+            stdout = listOf(
+                "Z2_ERROR_CODE=FIREWALL_BUILD_FAILED",
+                "ERROR: cannot build detached IPv4 chains; iptables BUILD_RULE failed: xtables lock",
+            ),
+            lifecycleError = LifecycleError(
+                domain = LifecycleErrorDomain.FIREWALL,
+                code = LifecycleErrorCode.FIREWALL_BUILD_FAILED,
+                stage = "START_IPV4_BUILD_RULE",
+                retryable = true,
+            ),
+        )
+
+        assertEquals(
+            "FIREWALL_BUILD_FAILED [FIREWALL/START_IPV4_BUILD_RULE] (retryable)\n" +
+                "cannot build detached IPv4 chains; iptables BUILD_RULE failed: xtables lock",
             result.diagnosticText(),
         )
     }
