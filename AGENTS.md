@@ -222,6 +222,20 @@ reported as lifecycle failures; they must not restore an obsolete generation or
 leave duplicate trees behind. Never delete user-owned configuration or data
 outside the explicit replacement/preservation contract.
 
+### Runtime-cost invariant
+
+Deep archive, manifest, catalog, strategy, and immutable-byte validation belongs
+to CI/release qualification or the single pre-publication staging boundary. A
+published generation is represented by its authenticated generation receipt.
+Status polling and ordinary lifecycle observation must be constant in the size
+of the package and the device process table: they may verify bounded owner/PID,
+boot, and snapshot metadata, but must not rescan every package file, preset,
+iptables rule through repeated subprocesses, or every `/proc` entry.
+
+Hot replacement is permitted only when the Magisk-facing bootstrap and
+lifecycle compatibility marker are unchanged. Otherwise install through
+Magisk's pending `modules_update` path and require a reboot.
+
 Before changing code:
 
 1. Reproduce the failure and identify the violated contract, ownership boundary,

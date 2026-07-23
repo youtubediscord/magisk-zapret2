@@ -83,15 +83,20 @@ if read_verified_pidfile && [ "$OWNER_STATE_PHASE" = active ] &&
     Z2_OWNER_METADATA_VERIFIED=1
     Z2_PROCESS=1
 else
-    scan_exact_owned_nfqws >/dev/null 2>&1
-    Z2_ORPHANS="$OWNED_SCAN_PIDS"
-    set -- $OWNED_SCAN_PIDS
-    if [ "$#" -eq 1 ]; then
-        Z2_PID="$1"
-        Z2_PID_STARTTIME="$(proc_starttime "$1" 2>/dev/null)"
-        Z2_PROCESS=1
-    elif [ "$#" -gt 1 ]; then
-        Z2_PROCESS=1
+    # A status poll is an observer, not a recovery audit. Full /proc discovery
+    # belongs to start/stop/recovery; running it every few seconds makes Android
+    # root IPC scale with every process on the device.
+    if [ "$MACHINE" != 1 ]; then
+        scan_exact_owned_nfqws >/dev/null 2>&1
+        Z2_ORPHANS="$OWNED_SCAN_PIDS"
+        set -- $OWNED_SCAN_PIDS
+        if [ "$#" -eq 1 ]; then
+            Z2_PID="$1"
+            Z2_PID_STARTTIME="$(proc_starttime "$1" 2>/dev/null)"
+            Z2_PROCESS=1
+        elif [ "$#" -gt 1 ]; then
+            Z2_PROCESS=1
+        fi
     fi
 fi
 
@@ -102,8 +107,43 @@ Z2_IPV6_RULES=0
 IPV4_VERIFIED=0
 IPV6_VERIFIED=0
 IPV6_UNKNOWN=0
+Z2_FAST_SNAPSHOT=0
 
-if command -v iptables >/dev/null 2>&1; then
+# Machine consumers already run an independent, rate-limited firewall watchdog.
+# Bind the durable snapshot to the exact live owner generation and avoid dozens
+# of repeated iptables subprocesses on the normal polling path.
+if [ "$MACHINE" = 1 ] && [ "$Z2_OWNER_METADATA_VERIFIED" = 1 ] &&
+   [ "$STATUS_FILE_STATUS" = ok ] &&
+   [ "$STATUS_FILE_OWN_PID" = "$Z2_PID" ] &&
+   [ "$STATUS_FILE_OWN_PID_STARTTIME" = "$Z2_PID_STARTTIME" ] &&
+   [ "$STATUS_FILE_OWNER_GENERATION" = "$Z2_OWNER_GENERATION" ] &&
+   [ "$STATUS_FILE_QNUM" = "$Z2_QNUM" ] &&
+   [ "$STATUS_FILE_OWNER_METADATA_VERIFIED" = 1 ] &&
+   [ "$STATUS_FILE_RULESET_VERIFIED" = 1 ] &&
+   [ "$STATUS_FILE_IPV4_ACTIVE" = "$OWNER_STATE_IPV4_ACTIVE" ] &&
+   [ "$STATUS_FILE_IPV6_ACTIVE" = "$OWNER_STATE_IPV6_ACTIVE" ] &&
+   [ "$STATUS_FILE_IPV4_RULES" = "$OWNER_STATE_IPV4_RULES" ] &&
+   [ "$STATUS_FILE_IPV6_RULES" = "$OWNER_STATE_IPV6_RULES" ] &&
+   [ "$STATUS_FILE_RULES_TOTAL" = "$STATUS_FILE_RULES_EXPECTED" ] &&
+   [ "$STATUS_FILE_RULES_EXPECTED" = "$((OWNER_STATE_IPV4_RULES + OWNER_STATE_IPV6_RULES))" ]; then
+    Z2_FAST_SNAPSHOT=1
+    Z2_IPV4="$STATUS_FILE_IPV4_ACTIVE"
+    Z2_IPV6="$STATUS_FILE_IPV6_ACTIVE"
+    Z2_IPV4_RULES="$STATUS_FILE_IPV4_RULES"
+    Z2_IPV6_RULES="$STATUS_FILE_IPV6_RULES"
+    IPV4_VERIFIED="$Z2_IPV4"
+    [ "$Z2_IPV6" = 0 ] || IPV6_VERIFIED=1
+elif [ "$MACHINE" = 1 ] && [ "$Z2_PROCESS" = 0 ] &&
+     [ ! -e "$PIDFILE" ] && [ ! -L "$PIDFILE" ] &&
+     [ ! -e "$OWNER_STATE" ] && [ ! -L "$OWNER_STATE" ] &&
+     [ "$STATUS_FILE_STATUS" = stopped ] &&
+     [ "$STATUS_FILE_RULES_TOTAL" = 0 ] &&
+     [ "$STATUS_FILE_RULESET_VERIFIED" = 1 ]; then
+    Z2_FAST_SNAPSHOT=1
+    IPV4_VERIFIED=1
+fi
+
+if [ "$Z2_FAST_SNAPSHOT" = 0 ] && command -v iptables >/dev/null 2>&1; then
     if owned_family_present iptables; then
         Z2_IPV4=1
         Z2_IPV4_RULES=$(( $(chain_owned_rule_count iptables "$ZAPRET2_OUT") + $(chain_owned_rule_count iptables "$ZAPRET2_IN") ))
@@ -116,7 +156,7 @@ if command -v iptables >/dev/null 2>&1; then
     fi
 fi
 
-if command -v ip6tables >/dev/null 2>&1; then
+if [ "$Z2_FAST_SNAPSHOT" = 0 ] && command -v ip6tables >/dev/null 2>&1; then
     if owned_family_present ip6tables; then
         Z2_IPV6=1
         Z2_IPV6_RULES=$(( $(chain_owned_rule_count ip6tables "$ZAPRET2_OUT") + $(chain_owned_rule_count ip6tables "$ZAPRET2_IN") ))

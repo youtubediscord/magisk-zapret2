@@ -74,6 +74,10 @@ class Zapret2ModuleRepositoryTest {
         assertFalse(command.contains("package_contract_validate_runtime_selection"))
         assertFalse(command.contains("--validate-strategies-machine"))
         assertFalse(command.contains("--preflight-preset-machine"))
+        assertFalse(command.contains("runtime-manifest.tsv"))
+        assertFalse(command.contains("strategy-catalogs"))
+        assertFalse(command.contains("zapret2/lua/"))
+        assertTrue(command.contains(InstallGenerationMetadata.RELATIVE_PATH))
     }
 
     @Test
