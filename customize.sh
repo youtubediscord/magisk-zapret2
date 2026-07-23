@@ -4,8 +4,9 @@ SKIPUNZIP=1
 ##########################################################################################
 # Zapret2 Magisk Module - boot-mode customization
 #
-# Magisk owns archive extraction, staging under modules_update, default permissions, and
-# cleanup.  This script performs only device-dependent preparation and user-state carryover.
+# Magisk owns staging under modules_update and final publication. This script
+# validates and extracts the archive itself, then performs device preparation
+# and user-state carryover.
 ##########################################################################################
 
 umask 077
@@ -230,6 +231,12 @@ fi
 if [ -e "$LIVE_MODPATH" ] || [ -L "$LIVE_MODPATH" ]; then
     [ -d "$LIVE_MODPATH" ] && [ ! -L "$LIVE_MODPATH" ] && path_uid_is_root "$LIVE_MODPATH" ||
         abort "! Existing module directory is unsafe"
+else
+    retire_unverifiable_tracks_for_absent_module "$LIVE_NFQWS2" ||
+        abort "! Removed-module recovery cannot prove a clean process/firewall state"
+    if [ "$REMOVED_MODULE_TRACKS_RETIRED" = 1 ]; then
+        ui_print "- Retired orphaned interrupted-build state from the removed module"
+    fi
 fi
 
 if ! audit_live_install_recovery_artifacts; then

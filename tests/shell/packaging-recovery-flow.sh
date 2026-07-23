@@ -283,8 +283,42 @@ elif [ ! -x /system/bin/sh ]; then
     fail "/system exists without a usable /system/bin/sh"
 fi
 
-# A fresh boot-mode install publishes only to modules_update.
-run_installer || fail "fresh standard install failed"
+# A module removed by an older release can leave a malformed interrupted-build
+# journal behind. A fresh installer may retire it only after proving the whole
+# reserved namespace is empty; visible residue must preserve the evidence.
+cat > "$MOCK/iptables" <<'EOF'
+#!/bin/sh
+case "$*" in
+    *'-t mangle -S'*)
+        [ "${Z2_TEST_NAMESPACE:-0}" != 1 ] || printf '%s\n' '-N Z2O_AbCdEf1234'
+        exit 0
+        ;;
+    *) exit 1 ;;
+esac
+EOF
+cp "$MOCK/iptables" "$MOCK/ip6tables"
+chmod 0755 "$MOCK/iptables" "$MOCK/ip6tables"
+mkdir -p "$LIVE_STATE"
+chmod 0700 "$LIVE_STATE"
+printf '%s\n' 'malformed interrupted build evidence' > "$LIVE_STATE/build-track.ipv4.4115"
+chmod 0600 "$LIVE_STATE/build-track.ipv4.4115"
+Z2_TEST_NAMESPACE=1
+export Z2_TEST_NAMESPACE
+set +e
+PATH="$MOCK:$PATH" run_installer
+residue_install_rc=$?
+set -e
+unset Z2_TEST_NAMESPACE
+[ "$residue_install_rc" = 1 ] || fail "fresh install discarded a track while firewall residue remained"
+[ -f "$LIVE_STATE/build-track.ipv4.4115" ] ||
+    fail "blocked fresh install deleted malformed track evidence"
+
+# With no live module, process, mixed recovery artifact, or reserved firewall
+# object, the track is now orphaned and cannot protect any remaining mutation.
+PATH="$MOCK:$PATH" run_installer || fail "fresh standard install did not recover orphaned track"
+[ ! -e "$LIVE_STATE/build-track.ipv4.4115" ] &&
+    [ ! -L "$LIVE_STATE/build-track.ipv4.4115" ] ||
+    fail "fresh standard install left orphaned track evidence"
 [ -f "$UPDATE/zapret2/install-generation.meta" ] || fail "fresh install generation was not published"
 grep -Eq '^archive_sha256=[0-9a-f]{64}$' "$UPDATE/zapret2/install-generation.meta" || fail "archive hash is invalid"
 [ ! -e "$UPDATE/customize.sh" ] || fail "installer-only customize.sh remained in the installed shape"
