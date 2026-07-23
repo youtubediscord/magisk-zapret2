@@ -306,6 +306,14 @@ fun ControlScreen(
                                 stringResource(R.string.control_not_available)
                             },
                         )
+                        state.moduleDiagnostic?.let { diagnostic ->
+                            Spacer(Modifier.height(SpacingTokens.Small))
+                            Text(
+                                text = diagnostic,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        }
                     }
                 }
 

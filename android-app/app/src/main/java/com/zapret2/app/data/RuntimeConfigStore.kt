@@ -3,34 +3,70 @@ package com.zapret2.app.data
 import com.topjohnwu.superuser.Shell
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.security.MessageDigest
 
 const val MAX_PACKET_COUNT = 999_999_999
 
-class RuntimeConfigRollbackException : IllegalStateException(
-    "The previous runtime configuration could not be restored",
-)
+sealed interface RuntimeConfigReadResult {
+    data class Valid(
+        val values: Map<String, String>,
+        internal val content: String,
+        internal val digest: String,
+    ) : RuntimeConfigReadResult
+
+    data class Missing(val error: LifecycleError) : RuntimeConfigReadResult
+    data class UnsafeFile(val error: LifecycleError) : RuntimeConfigReadResult
+    data class Unavailable(val error: LifecycleError) : RuntimeConfigReadResult
+    data class Malformed(val error: LifecycleError) : RuntimeConfigReadResult
+    data class UnsupportedSchema(val error: LifecycleError) : RuntimeConfigReadResult
+    data class Failure(val error: LifecycleError) : RuntimeConfigReadResult
+}
+
+sealed interface RuntimeConfigSectionReadResult {
+    data class Valid(val values: Map<String, String>) : RuntimeConfigSectionReadResult
+    data class ConfigUnavailable(val config: RuntimeConfigReadResult) : RuntimeConfigSectionReadResult
+    data class Malformed(val sectionName: String) : RuntimeConfigSectionReadResult
+}
+
+sealed interface RuntimeConfigMutationResult {
+    data object Applied : RuntimeConfigMutationResult
+    data class InvalidInput(val error: LifecycleError? = null) : RuntimeConfigMutationResult
+    data class WriteFailed(val error: LifecycleError) : RuntimeConfigMutationResult
+    data class ConfigUnavailable(val config: RuntimeConfigReadResult) : RuntimeConfigMutationResult
+
+    val isSuccess: Boolean
+        get() = this === Applied
+}
+
+fun RuntimeConfigMutationResult.diagnosticTextOrNull(): String? = when (this) {
+    RuntimeConfigMutationResult.Applied -> null
+    is RuntimeConfigMutationResult.InvalidInput -> error?.diagnosticText()
+    is RuntimeConfigMutationResult.WriteFailed -> error.diagnosticText()
+    is RuntimeConfigMutationResult.ConfigUnavailable -> config.diagnosticText()
+}
+
+sealed interface RuntimeConfigRepairResult {
+    data class AlreadyValid(val config: RuntimeConfigReadResult.Valid) : RuntimeConfigRepairResult
+    data class Repaired(val config: RuntimeConfigReadResult.Valid) : RuntimeConfigRepairResult
+    data class Failed(val config: RuntimeConfigReadResult) : RuntimeConfigRepairResult
+}
+
+fun RuntimeConfigReadResult.diagnosticText(): String = when (this) {
+    is RuntimeConfigReadResult.Valid -> "runtime.ini: VALID"
+    is RuntimeConfigReadResult.Missing -> error.diagnosticText()
+    is RuntimeConfigReadResult.UnsafeFile -> error.diagnosticText()
+    is RuntimeConfigReadResult.Unavailable -> error.diagnosticText()
+    is RuntimeConfigReadResult.Malformed -> error.diagnosticText()
+    is RuntimeConfigReadResult.UnsupportedSchema -> error.diagnosticText()
+    is RuntimeConfigReadResult.Failure -> error.diagnosticText()
+}
 
 object RuntimeConfigStore {
 
     private const val moduleDir = "/data/adb/modules/zapret2"
     private const val runtimeConfigPath = "$moduleDir/zapret2/runtime.ini"
-    private const val initScriptPath = "$moduleDir/zapret2/scripts/runtime-init.sh"
+    private const val runtimeConfigToolPath = "$moduleDir/zapret2/scripts/runtime-config.sh"
     private const val maxRuntimeBytes = 256 * 1024
-    private val requiredCoreKeys = setOf(
-        "schema_version",
-        "config_format",
-        "runtime_source",
-        "autostart",
-        "wifi_only",
-        "debug",
-        "qnum",
-        "desync_mark",
-        "pkt_out",
-        "pkt_in",
-        "active_preset",
-        "nfqws_uid",
-        "log_mode",
-    )
     private val fileLock = Any()
 
     data class CoreSettingsUpdate(
@@ -57,483 +93,318 @@ object RuntimeConfigStore {
         }
     }
 
-    data class CoreReadResult(
-        val values: Map<String, String>,
-        val usesRuntimeConfig: Boolean
-    )
-
-    suspend fun runtimeConfigExists(): Boolean = withContext(Dispatchers.IO) {
-        synchronized(fileLock) { readRuntimeConfigContent() != null }
+    suspend fun inspect(): RuntimeConfigReadResult = withContext(Dispatchers.IO) {
+        synchronized(fileLock) { inspectRuntimeConfig() }
     }
 
-    suspend fun ensureRuntimeConfig(): Boolean = coordinatedMutation {
-        synchronized(fileLock) { ensureRuntimeConfigInternal() }
-    }
-
-    suspend fun readCore(): Map<String, String> = readCoreResult().values
-
-    suspend fun readCoreResult(): CoreReadResult {
-        val content = readRuntimeConfigContentEnsuring()
-        return if (content == null) {
-            CoreReadResult(values = emptyMap(), usesRuntimeConfig = false)
-        } else {
-            CoreReadResult(
-                values = withContext(Dispatchers.IO) { parseSectionValues(content, "core") },
-                usesRuntimeConfig = true
-            )
-        }
-    }
-
-    suspend fun readCoreValue(key: String): String? {
-        if (key.isBlank()) {
-            return null
-        }
-
-        val content = readRuntimeConfigContentEnsuring() ?: return null
-        return withContext(Dispatchers.IO) {
-            parseSectionValues(content, "core")[normalizeKey(key)]
-        }
-    }
+    suspend fun readCore(): RuntimeConfigReadResult = inspect()
 
     suspend fun upsertCoreValue(
         key: String,
         value: String,
         removeKeys: Set<String> = emptySet()
-    ): Boolean {
+    ): RuntimeConfigMutationResult {
         return upsertCoreValues(mapOf(key to value), removeKeys)
     }
 
     suspend fun upsertCoreValues(
         values: Map<String, String>,
         removeKeys: Set<String> = emptySet()
-    ): Boolean = coordinatedMutation {
+    ): RuntimeConfigMutationResult = coordinatedMutation {
         if (values.isEmpty() && removeKeys.isEmpty()) {
-            return@coordinatedMutation true
+            return@coordinatedMutation RuntimeConfigMutationResult.Applied
         }
 
         synchronized(fileLock) {
             val normalized = linkedMapOf<String, String>()
             values.forEach { (key, value) ->
-                val normalizedKey = normalizeKey(key)
+                val normalizedKey = RuntimeConfigCodec.normalizeKey(key)
                 if (normalizedKey.isNotEmpty()) {
-                    normalized[normalizedKey] = sanitizeValue(value)
+                    normalized[normalizedKey] = RuntimeConfigCodec.sanitizeValue(value)
                 }
             }
 
             val normalizedRemoveKeys = removeKeys
-                .map(::normalizeKey)
+                .map(RuntimeConfigCodec::normalizeKey)
                 .filter { it.isNotEmpty() }
                 .toSet()
 
             if (normalized.isEmpty() && normalizedRemoveKeys.isEmpty()) {
-                return@synchronized false
+                return@synchronized RuntimeConfigMutationResult.InvalidInput()
             }
 
-            val currentContent = readRuntimeConfigContentOrInitializeInternal() ?: return@synchronized false
-            val updatedContent = upsertSectionValues(currentContent, "core", normalized, normalizedRemoveKeys)
-            if (!hasCompleteRuntimeCore(updatedContent)) return@synchronized false
-            writeFileAtomically(runtimeConfigPath, updatedContent, currentContent)
+            val current = inspectRuntimeConfig()
+            if (current !is RuntimeConfigReadResult.Valid) {
+                return@synchronized RuntimeConfigMutationResult.ConfigUnavailable(current)
+            }
+            val currentContent = current.content
+            val updatedContent = RuntimeConfigCodec.upsertSectionValues(
+                currentContent,
+                "core",
+                normalized,
+                normalizedRemoveKeys,
+            )
+            commitCandidate(updatedContent, current.digest)
         }
     }
 
     suspend fun updateCoreSettings(
         update: CoreSettingsUpdate,
         removeKeys: Set<String> = emptySet()
-    ): Boolean {
+    ): RuntimeConfigMutationResult {
         return upsertCoreValues(update.toCorePairs(), removeKeys)
     }
 
-    suspend fun readDnsManager(): Map<String, String>? {
-        val content = readRuntimeConfigContentEnsuring() ?: return null
-        return withContext(Dispatchers.IO) { parseSectionValuesOrNull(content, "dns_manager") }
+    suspend fun readDnsManager(): RuntimeConfigSectionReadResult {
+        return when (val config = inspect()) {
+            is RuntimeConfigReadResult.Valid -> {
+                when (val section = RuntimeConfigCodec.parseSection(config.content, "dns_manager")) {
+                    is RuntimeConfigSectionResult.Valid ->
+                        RuntimeConfigSectionReadResult.Valid(section.values)
+                    is RuntimeConfigSectionResult.Malformed ->
+                        RuntimeConfigSectionReadResult.Malformed(section.sectionName)
+                }
+            }
+            else -> RuntimeConfigSectionReadResult.ConfigUnavailable(config)
+        }
     }
 
     suspend fun upsertDnsManagerValues(
         values: Map<String, String>,
         removeKeys: Set<String> = emptySet()
-    ): Boolean = coordinatedMutation {
+    ): RuntimeConfigMutationResult = coordinatedMutation {
         if (values.isEmpty() && removeKeys.isEmpty()) {
-            return@coordinatedMutation true
+            return@coordinatedMutation RuntimeConfigMutationResult.Applied
         }
 
         synchronized(fileLock) {
             val normalized = values.mapNotNull { (key, value) ->
-                normalizeKey(key).takeIf { it.isNotEmpty() }?.let { it to sanitizeValue(value) }
+                RuntimeConfigCodec.normalizeKey(key)
+                    .takeIf { it.isNotEmpty() }
+                    ?.let { it to RuntimeConfigCodec.sanitizeValue(value) }
             }.toMap(linkedMapOf())
-            val normalizedRemoveKeys = removeKeys.map(::normalizeKey).filter { it.isNotEmpty() }.toSet()
-            if (normalized.isEmpty() && normalizedRemoveKeys.isEmpty()) return@synchronized false
-            val currentContent = readRuntimeConfigContentOrInitializeInternal() ?: return@synchronized false
-            val updatedContent = upsertSectionValues(currentContent, "dns_manager", normalized, normalizedRemoveKeys)
-            writeFileAtomically(runtimeConfigPath, updatedContent, currentContent)
+            val normalizedRemoveKeys = removeKeys
+                .map(RuntimeConfigCodec::normalizeKey)
+                .filter { it.isNotEmpty() }
+                .toSet()
+            if (normalized.isEmpty() && normalizedRemoveKeys.isEmpty()) {
+                return@synchronized RuntimeConfigMutationResult.InvalidInput()
+            }
+            val current = inspectRuntimeConfig()
+            if (current !is RuntimeConfigReadResult.Valid) {
+                return@synchronized RuntimeConfigMutationResult.ConfigUnavailable(current)
+            }
+            val currentContent = current.content
+            val updatedContent = try {
+                RuntimeConfigCodec.upsertSectionValues(
+                    currentContent,
+                    "dns_manager",
+                    normalized,
+                    normalizedRemoveKeys,
+                )
+            } catch (_: IllegalArgumentException) {
+                return@synchronized RuntimeConfigMutationResult.InvalidInput()
+            }
+            commitCandidate(updatedContent, current.digest)
         }
     }
 
-    private fun ensureRuntimeConfigInternal(): Boolean {
-        return readRuntimeConfigContentOrInitializeInternal() != null
+    suspend fun repairRuntimeConfig(): RuntimeConfigRepairResult = coordinatedMutation {
+        synchronized(fileLock) {
+            val before = inspectRuntimeConfig()
+            if (before is RuntimeConfigReadResult.Valid) {
+                return@synchronized RuntimeConfigRepairResult.AlreadyValid(before)
+            }
+            if (before is RuntimeConfigReadResult.UnsafeFile ||
+                before is RuntimeConfigReadResult.Unavailable ||
+                before is RuntimeConfigReadResult.Failure
+            ) {
+                return@synchronized RuntimeConfigRepairResult.Failed(before)
+            }
+            val repairFlag = if (before is RuntimeConfigReadResult.Missing) "" else " --repair"
+            val command = "sh ${RootFileIo.shellQuote(runtimeConfigToolPath)}$repairFlag " +
+                RootFileIo.shellQuote(runtimeConfigPath)
+            val result = Shell.cmd(command).exec()
+            if (!result.isSuccess) {
+                return@synchronized RuntimeConfigRepairResult.Failed(inspectRuntimeConfig())
+            }
+            when (val after = inspectRuntimeConfig()) {
+                is RuntimeConfigReadResult.Valid -> RuntimeConfigRepairResult.Repaired(after)
+                else -> RuntimeConfigRepairResult.Failed(after)
+            }
+        }
     }
 
-    private suspend fun coordinatedMutation(block: suspend () -> Boolean): Boolean {
+    private suspend fun <T> coordinatedMutation(block: suspend () -> T): T {
         return ModuleMutationCoordinator.withMutation {
             withContext(Dispatchers.IO) { block() }
         }
     }
 
-    /**
-     * A missing, partial, or invalid runtime.ini requires a defaults-only repair, which is a module
-     * write. Reads may trigger that repair only while holding the same coordinator as every writer.
-     */
-    private suspend fun readRuntimeConfigContentEnsuring(): String? {
-        val existing = withContext(Dispatchers.IO) {
-            synchronized(fileLock) { readRuntimeConfigContent() }
+    private fun inspectRuntimeConfig(): RuntimeConfigReadResult {
+        val command = "sh ${RootFileIo.shellQuote(runtimeConfigToolPath)} --inspect-machine " +
+            RootFileIo.shellQuote(runtimeConfigPath)
+        val result = try {
+            Shell.cmd(command).exec()
+        } catch (error: Exception) {
+            return unavailable("Runtime inspection failed: ${error.message ?: error.javaClass.simpleName}")
         }
-        if (existing != null) return existing
-
-        return try {
-            ModuleMutationCoordinator.withMutation {
-                withContext(Dispatchers.IO) {
-                    synchronized(fileLock) { readRuntimeConfigContentOrInitializeInternal() }
-                }
-            }
-        } catch (_: ModuleMutationCoordinator.MutationBlockedException) {
-            // The read remains non-mutating while an update/recovery owns module state.
-            null
-        }
-    }
-
-    private fun readRuntimeConfigContent(): String? =
-        RootFileIo.readSecureRegularText(runtimeConfigPath, maxRuntimeBytes)
-            ?.takeIf(::hasCompleteRuntimeCore)
-
-    /** Caller must already own [ModuleMutationCoordinator] and [fileLock]. */
-    private fun readRuntimeConfigContentOrInitializeInternal(): String? {
-        readRuntimeConfigContent()?.let { return it }
-
-        val command = "sh ${RootFileIo.shellQuote(initScriptPath)} ${RootFileIo.shellQuote(runtimeConfigPath)}"
-        val result = Shell.cmd(command).exec()
         if (!result.isSuccess) {
-            return null
+            return unavailable(
+                (result.err + result.out).joinToString(" ").ifBlank {
+                    "runtime-config.sh exited unsuccessfully"
+                },
+            )
         }
+        val envelope = LifecycleErrorContract.parseLines(result.out)
+            ?: return unavailable("runtime-config.sh returned an invalid diagnostic envelope")
+        if (!envelope.isNone) return classifyRuntimeError(envelope)
 
-        return readRuntimeConfigContent()
+        val hashLines = result.out.filter { it.startsWith("Z2_RUNTIME_SHA256\t") }
+        val expectedHash = hashLines.singleOrNull()
+            ?.removePrefix("Z2_RUNTIME_SHA256\t")
+            ?.takeIf { it.matches(Regex("[0-9a-f]{64}")) }
+            ?: return unavailable("runtime-config.sh returned an invalid runtime digest")
+        val corePairs = result.out.filter { it.startsWith("Z2_RUNTIME_CORE\t") }.mapNotNull { line ->
+            val fields = line.split('\t', limit = 3)
+            if (fields.size == 3) fields[1] to fields[2] else null
+        }
+        val expectedKeys = setOf(
+            "schema_version", "config_format", "runtime_source", "autostart", "wifi_only",
+            "debug", "qnum", "desync_mark", "pkt_out", "pkt_in", "active_preset",
+            "nfqws_uid", "log_mode",
+        )
+        val counts = corePairs.groupingBy { it.first }.eachCount()
+        if (corePairs.size != expectedKeys.size ||
+            counts.keys != expectedKeys ||
+            expectedKeys.any { counts[it] != 1 }
+        ) {
+            return unavailable("runtime-config.sh returned an invalid core payload")
+        }
+        val content = RootFileIo.readSecureRegularText(runtimeConfigPath, maxRuntimeBytes)
+            ?: return unavailable("runtime.ini could not be read after validation")
+        if (sha256(content) != expectedHash) {
+            return unavailable("runtime.ini changed after validation")
+        }
+        return RuntimeConfigReadResult.Valid(
+            values = corePairs.toMap(linkedMapOf()),
+            content = content,
+            digest = expectedHash,
+        )
     }
 
-    private fun writeFileAtomically(path: String, content: String, previousContent: String): Boolean {
-        val written = try {
+    private fun classifyRuntimeError(error: LifecycleError): RuntimeConfigReadResult = when (error.code) {
+        "RUNTIME_MISSING" -> RuntimeConfigReadResult.Missing(error)
+        "UNSAFE_RUNTIME_FILE" -> RuntimeConfigReadResult.UnsafeFile(error)
+        "UNSUPPORTED_SCHEMA", "UNSUPPORTED_FORMAT" ->
+            RuntimeConfigReadResult.UnsupportedSchema(error)
+        "DUPLICATE_CORE", "INVALID_CORE_KEY", "INVALID_QUOTED_VALUE",
+        "MALFORMED_CORE_LINE", "DUPLICATE_CORE_KEY", "INVALID_RUNTIME_SOURCE",
+        "UNKNOWN_CORE_KEY", "MISSING_CORE", "INCOMPLETE_CORE", "INVALID_QNUM",
+        "INVALID_CORE_VALUE", "CONFIG_INVALID",
+        -> RuntimeConfigReadResult.Malformed(error)
+        "RUNTIME_METADATA_UNAVAILABLE", "RUNTIME_READ_FAILED", "RUNTIME_CHANGED" ->
+            RuntimeConfigReadResult.Unavailable(error)
+        else -> RuntimeConfigReadResult.Failure(error)
+    }
+
+    private fun unavailable(detail: String): RuntimeConfigReadResult.Unavailable =
+        RuntimeConfigReadResult.Unavailable(
+            LifecycleErrorContract.error(
+                domain = "CONFIG",
+                code = "RUNTIME_INSPECT_FAILED",
+                stage = "RUNTIME_INSPECT",
+                detail = detail,
+            ),
+        )
+
+    private fun sha256(content: String): String =
+        MessageDigest.getInstance("SHA-256")
+            .digest(
+                (
+                    content.replace("\r\n", "\n").replace('\r', '\n').trimEnd('\n') + "\n"
+                    ).toByteArray(Charsets.UTF_8),
+            )
+            .joinToString("") { "%02x".format(it) }
+
+    private fun commitCandidate(
+        content: String,
+        expectedCurrentDigest: String,
+    ): RuntimeConfigMutationResult {
+        val candidatePath =
+            "$runtimeConfigPath.candidate.${android.os.Process.myPid()}.${System.nanoTime()}"
+        val staged = try {
             RootFileIo.writeTextAtomically(
-                path,
+                candidatePath,
                 content,
-                "Z2_RUNTIME_CONFIG",
+                "Z2_RUNTIME_CANDIDATE",
                 fileMode = "0644",
             )
         } catch (_: Exception) {
             false
         }
-        if (written) return true
-
-        val current = try {
-            RootFileIo.readSecureRegularText(path, maxRuntimeBytes)
+        if (!staged) return mutationWriteFailed("runtime candidate could not be staged")
+        val command = "sh ${RootFileIo.shellQuote(runtimeConfigToolPath)} --commit-candidate " +
+            "${RootFileIo.shellQuote(candidatePath)} " +
+            "${RootFileIo.shellQuote(expectedCurrentDigest)} " +
+            RootFileIo.shellQuote(runtimeConfigPath)
+        val result = try {
+            Shell.cmd(command).exec()
         } catch (_: Exception) {
-            null
+            RootFileIo.removeFile(candidatePath)
+            return mutationWriteFailed("runtime candidate commit command failed")
         }
-        if (current != null && runtimeContentsEquivalent(current, previousContent)) return false
-        try {
-            RootFileIo.writeTextAtomically(
-                path,
-                previousContent,
-                "Z2_RUNTIME_ROLLBACK",
-                fileMode = "0644",
-            )
-        } catch (_: Exception) {
-            // The exact reread below remains the only rollback-success authority.
+        if (!result.isSuccess) {
+            RootFileIo.removeFile(candidatePath)
+            val error = LifecycleErrorContract.parseLines(result.out + result.err)
+            return if (error?.domain == "CONFIG" &&
+                error.stage == "RUNTIME_COMMIT" &&
+                error.code in setOf("CONFIG_INVALID", "UNSAFE_RUNTIME_CANDIDATE")
+            ) {
+                RuntimeConfigMutationResult.InvalidInput(error)
+            } else {
+                RuntimeConfigMutationResult.WriteFailed(
+                    error ?: LifecycleErrorContract.error(
+                        domain = "CONFIG",
+                        code = "RUNTIME_COMMIT_FAILED",
+                        stage = "RUNTIME_COMMIT",
+                        detail = "runtime candidate commit failed without a valid envelope",
+                    ),
+                )
+            }
         }
-        val restored = try {
-            RootFileIo.readSecureRegularText(path, maxRuntimeBytes)
-        } catch (_: Exception) {
-            null
+        val envelope = LifecycleErrorContract.parseLines(result.out)
+        if (envelope?.isNone != true) {
+            return mutationWriteFailed("runtime candidate commit returned an invalid envelope")
         }
-        if (restored == null || !runtimeContentsEquivalent(restored, previousContent)) {
-            throw RuntimeConfigRollbackException()
+        val published = inspectRuntimeConfig()
+        return if (published is RuntimeConfigReadResult.Valid &&
+            runtimeContentsEquivalent(published.content, content)
+        ) {
+            RuntimeConfigMutationResult.Applied
+        } else {
+            mutationWriteFailed("published runtime did not pass post-commit verification")
         }
-        return false
     }
+
+    private fun mutationWriteFailed(detail: String): RuntimeConfigMutationResult.WriteFailed =
+        RuntimeConfigMutationResult.WriteFailed(
+            LifecycleErrorContract.error(
+                domain = "CONFIG",
+                code = "RUNTIME_COMMIT_FAILED",
+                stage = "RUNTIME_COMMIT",
+                detail = detail,
+            ),
+        )
 
     private fun runtimeContentsEquivalent(first: String, second: String): Boolean =
         normalizeLineEndings(first).trimEnd('\n') == normalizeLineEndings(second).trimEnd('\n')
-
-    internal fun parseSectionValues(content: String, sectionName: String): Map<String, String> =
-        parseSectionValuesOrNull(content, sectionName).orEmpty()
-
-    private fun parseSectionValuesOrNull(content: String, sectionName: String): Map<String, String>? {
-        if (countExactSections(content, sectionName) > 1) return null
-        val values = linkedMapOf<String, String>()
-        val sectionHeader = sectionName
-        var currentSection = ""
-
-        normalizeLineEndings(content).lineSequence().forEach { rawLine ->
-            val line = rawLine.trim()
-            if (line.isEmpty() || line.startsWith("#") || line.startsWith(";")) {
-                return@forEach
-            }
-
-            if (line.startsWith("[") && line.endsWith("]")) {
-                currentSection = line.substring(1, line.length - 1)
-                return@forEach
-            }
-
-            if (currentSection != sectionHeader) {
-                return@forEach
-            }
-
-            val separatorIndex = line.indexOf('=')
-            if (separatorIndex <= 0) {
-                return null
-            }
-
-            val key = normalizeKey(line.substring(0, separatorIndex))
-            if (key.isEmpty()) {
-                return null
-            }
-            if (key in values) return null
-
-            val rawValue = line.substring(separatorIndex + 1).trim()
-            if (!hasValidIniScalarSyntax(rawValue)) return null
-            values[key] = decodeIniValue(rawValue)
-        }
-
-        return values
-    }
-
-    internal fun upsertSectionValues(
-        content: String,
-        sectionName: String,
-        updates: Map<String, String>,
-        removeKeys: Set<String> = emptySet()
-    ): String {
-        require(parseSectionValuesOrNull(content, sectionName) != null) {
-            "Malformed or ambiguous [$sectionName] section"
-        }
-        val lines = normalizeLineEndings(content).split('\n').toMutableList()
-        if (lines.isNotEmpty() && lines.last().isEmpty()) {
-            lines.removeAt(lines.lastIndex)
-        }
-
-        val targetSectionName = sectionName
-        var sectionStart = -1
-        var sectionEnd = lines.size
-
-        for (index in lines.indices) {
-            val trimmed = lines[index].trim()
-            if (!trimmed.startsWith("[") || !trimmed.endsWith("]")) {
-                continue
-            }
-
-            val currentSection = trimmed.substring(1, trimmed.length - 1)
-            if (sectionStart < 0 && currentSection == targetSectionName) {
-                sectionStart = index
-                continue
-            }
-
-            if (sectionStart >= 0) {
-                sectionEnd = index
-                break
-            }
-        }
-
-        if (sectionStart < 0) {
-            if (updates.isEmpty()) {
-                return lines.joinToString("\n").let {
-                    if (it.isEmpty()) "" else "$it\n"
-                }
-            }
-            if (lines.isNotEmpty() && lines.last().isNotBlank()) {
-                lines.add("")
-            }
-            lines.add("[$sectionName]")
-            updates.forEach { (key, value) ->
-                lines.add("$key=${encodeIniValue(value)}")
-            }
-            return lines.joinToString("\n") + "\n"
-        }
-
-        val existingKeys = mutableMapOf<String, Int>()
-        for (index in (sectionStart + 1) until sectionEnd) {
-            val trimmed = lines[index].trim()
-            if (trimmed.isEmpty() || trimmed.startsWith("#") || trimmed.startsWith(";")) {
-                continue
-            }
-
-            val separatorIndex = trimmed.indexOf('=')
-            if (separatorIndex <= 0) {
-                continue
-            }
-
-            val key = normalizeKey(trimmed.substring(0, separatorIndex))
-            if (key.isNotEmpty()) {
-                require(key !in existingKeys) {
-                    "Duplicate [$sectionName] key is ambiguous: $key"
-                }
-                existingKeys[key] = index
-            }
-        }
-
-        val indicesToRemove = removeKeys.mapNotNull(existingKeys::get).sortedDescending()
-        indicesToRemove.forEach { removeIndex ->
-            lines.removeAt(removeIndex)
-            existingKeys.entries.removeAll { it.value == removeIndex }
-            existingKeys.replaceAll { _, value ->
-                if (value > removeIndex) value - 1 else value
-            }
-            if (sectionEnd > removeIndex) {
-                sectionEnd -= 1
-            }
-        }
-
-        var insertionIndex = sectionEnd
-        updates.forEach { (key, value) ->
-            val encodedLine = "$key=${encodeIniValue(value)}"
-            val existingIndex = existingKeys[key]
-            if (existingIndex != null) {
-                lines[existingIndex] = encodedLine
-            } else {
-                lines.add(insertionIndex, encodedLine)
-                insertionIndex += 1
-            }
-        }
-
-        return lines.joinToString("\n") + "\n"
-    }
-
-    private fun countExactSections(content: String, sectionName: String): Int =
-        normalizeLineEndings(content).lineSequence().count { rawLine ->
-            val line = rawLine.trim()
-            line.startsWith("[") && line.endsWith("]") &&
-                line.substring(1, line.length - 1) == sectionName
-        }
-
-    private fun normalizeKey(key: String): String {
-        val normalized = key.trim().lowercase()
-        return normalized.takeIf { it.matches(Regex("[a-z0-9_-]+")) } ?: ""
-    }
-
-    private fun sanitizeValue(value: String): String {
-        return normalizeLineEndings(value).replace('\n', ' ').trim()
-    }
-
-    private fun encodeIniValue(value: String): String {
-        val sanitized = sanitizeValue(value)
-        if (sanitized.isEmpty()) {
-            return ""
-        }
-
-        val needsQuotes = sanitized.firstOrNull()?.isWhitespace() == true ||
-            sanitized.lastOrNull()?.isWhitespace() == true ||
-            sanitized.any { it.isWhitespace() || it == '#' || it == ';' || it == '"' }
-
-        if (!needsQuotes) {
-            return sanitized
-        }
-
-        return buildString {
-            append('"')
-            sanitized.forEach { ch ->
-                when (ch) {
-                    '\\' -> append("\\\\")
-                    '"' -> append("\\\"")
-                    else -> append(ch)
-                }
-            }
-            append('"')
-        }
-    }
-
-    private fun decodeIniValue(value: String): String {
-        if (value.length >= 2 && value.first() == '"' && value.last() == '"') {
-            return value.substring(1, value.length - 1)
-                .replace("\\\"", "\"")
-                .replace("\\\\", "\\")
-        }
-
-        if (value.length >= 2 && value.first() == '\'' && value.last() == '\'') {
-            return value.substring(1, value.length - 1)
-        }
-
-        return value
-    }
 
     private fun normalizeLineEndings(text: String): String {
         return text.replace("\r\n", "\n").replace('\r', '\n')
     }
 
-    internal fun hasCompleteRuntimeCore(content: String): Boolean {
-        val seen = linkedMapOf<String, String>()
-        var currentSection = ""
-        var coreSections = 0
-        for (rawLine in normalizeLineEndings(content).lineSequence()) {
-            val line = rawLine.trim()
-            if (line.isEmpty() || line.startsWith("#") || line.startsWith(";")) continue
-            if (line.startsWith("[") && line.endsWith("]")) {
-                currentSection = line.substring(1, line.length - 1)
-                if (currentSection == "core") coreSections += 1
-                if (coreSections > 1) return false
-                continue
-            }
-            if (currentSection != "core") continue
-            val separator = line.indexOf('=')
-            if (separator <= 0) return false
-            val key = line.substring(0, separator).trim()
-            if (!key.matches(Regex("[a-z0-9_-]+")) || seen.containsKey(key)) return false
-            val rawValue = line.substring(separator + 1).trim()
-            if (!hasValidIniScalarSyntax(rawValue)) return false
-            seen[key] = decodeIniValue(rawValue)
-        }
-        if (coreSections != 1 || seen.keys != requiredCoreKeys) return false
-        if (seen["schema_version"] != "1" || seen["config_format"] != "runtime-v1") return false
-        val runtimeSource = seen["runtime_source"].orEmpty()
-        if (!runtimeSource.matches(Regex("[A-Za-z0-9._-]+"))) return false
-        if (seen["autostart"] !in setOf("0", "1") || seen["wifi_only"] !in setOf("0", "1") ||
-            seen["debug"] !in setOf("0", "1")
-        ) {
-            return false
-        }
-        val qnum = seen["qnum"]?.takeIf { it.matches(Regex("[0-9]+")) }?.toIntOrNull()
-        if (qnum == null || qnum !in 1..65535) return false
-        if (ProtocolMark.canonicalOrNull(seen["desync_mark"].orEmpty()) == null) return false
-        if (positiveCountOrNull(seen["pkt_out"]) == null || positiveCountOrNull(seen["pkt_in"]) == null) return false
-        val activePreset = seen["active_preset"].orEmpty()
-        if (!isSafeRuntimeFileName(activePreset) || !activePreset.endsWith(".txt") || activePreset.startsWith("_")) return false
-        if (!isValidNfqwsIdentity(seen["nfqws_uid"].orEmpty())) return false
-        return seen["log_mode"] in setOf("android", "file", "syslog", "none")
-    }
-
-    internal fun positiveCountOrNull(value: String?): Int? {
-        val canonical = value?.takeIf { it.matches(Regex("[1-9][0-9]{0,8}")) } ?: return null
-        return canonical.toIntOrNull()
-    }
-
-    private fun hasValidIniScalarSyntax(value: String): Boolean {
-        if (value.any { it.isISOControl() }) return false
-        if (value.isEmpty()) return true
-        val first = value.first()
-        val last = value.last()
-        return when {
-            first == '"' || first == '\'' -> value.length >= 2 && last == first
-            last == '"' || last == '\'' -> false
-            else -> true
-        }
-    }
-
-    private fun isValidNfqwsIdentity(value: String): Boolean {
-        val components = value.split(':')
-        if (components.size != 2) return false
-        return components.all { component ->
-            component == "0" || (
-                component.matches(Regex("[1-9][0-9]{0,9}")) &&
-                    component.toLongOrNull() in 1L..2_147_483_647L
-                )
-        }
-    }
-
-    private fun isSafeRuntimeFileName(value: String): Boolean =
-        RootFileIo.isSimpleFileName(value)
+    internal fun positiveCountOrNull(value: String?): Int? =
+        RuntimeConfigCodec.positiveCountOrNull(value)
 
 }

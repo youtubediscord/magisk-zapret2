@@ -82,7 +82,7 @@
 --blob=zero64:0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 
 --name=chatgpt
---filter-tcp=80-65535
+--filter-tcp=80,443
 --hostlist=lists/chatgpt.txt
 --out-range=-d8
 --lua-desync=pass
@@ -106,7 +106,7 @@
 --new
 
 --name=Исключения (RU сайты)
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --ipset=lists/ipset-ru.txt
 --ipset=lists/ipset-dns.txt
 --ipset=lists/ipset-exclude.txt
@@ -188,7 +188,7 @@
 --new
 
 --name=Telegram
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --ipset=lists/ipset-telegram.txt
 --out-range=-d10
 --payload=all
@@ -234,7 +234,7 @@
 --new
 
 --name=EpicGames & Fortnite
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --hostlist=lists/epicgames-fortnite.txt
 --out-range=-d8
 --lua-desync=hostfakesplit:host=ozon.ru:tcp_ts=-1000:tcp_md5:repeats=4
@@ -250,7 +250,7 @@
 --new
 
 --name=Roblox TCP
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --hostlist=lists/roblox.txt
 --out-range=-d8
 --lua-desync=pass
@@ -258,7 +258,7 @@
 --new
 
 --name=Ubisoft
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --hostlist=lists/ubisoft.txt
 --out-range=-d8
 --lua-desync=hostfakesplit:host=ozon.ru:tcp_ts=-1000:tcp_md5:repeats=4
@@ -274,7 +274,7 @@
 --new
 
 --name=Google TCP
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --ipset=lists/ipset-google.txt
 --out-range=-d8
 --lua-desync=pass
@@ -320,7 +320,7 @@
 --new
 
 --name=static.whatsapp.net
---filter-tcp=80-65535
+--filter-tcp=80,443
 --hostlist=lists/static-whatsapp-net.txt
 --out-range=-d8
 --payload=tls_client_hello
@@ -351,7 +351,7 @@
 --new
 
 --name=Мои сайты
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --hostlist=lists/other.txt
 --out-range=-d10
 --payload=tls_client_hello
@@ -390,7 +390,7 @@
 --new
 
 --name=Cloudflare TCP
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --ipset=lists/ipset-cloudflare.txt
 --out-range=-d8
 --payload=all
@@ -399,7 +399,7 @@
 --new
 
 --name=Hetzner TCP
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --ipset=lists/ipset-hetzner.txt
 --out-range=-d8
 --lua-desync=send:repeats=2
@@ -409,7 +409,7 @@
 --new
 
 --name=WorldStream TCP
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --ipset=lists/ipset-worldstream.txt
 --out-range=-d8
 --lua-desync=hostfakesplit:host=ozon.ru:tcp_ts=-1000:tcp_md5:repeats=4
@@ -417,7 +417,7 @@
 --new
 
 --name=OVH TCP
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --ipset=lists/ipset-ovh.txt
 --out-range=-d10
 --payload=all
@@ -428,7 +428,7 @@
 --new
 
 --name=DigitalOcean TCP
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --ipset=lists/ipset-digitalocean.txt
 --out-range=-d8
 --lua-desync=hostfakesplit:host=ozon.ru:tcp_ts=-1000:tcp_md5:repeats=4
@@ -436,7 +436,7 @@
 --new
 
 --name=Datacamp TCP
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --ipset=lists/ipset-datacamp.txt
 --out-range=-d8
 --lua-desync=hostfakesplit:host=ozon.ru:tcp_ts=-1000:tcp_md5:repeats=4
@@ -444,7 +444,7 @@
 --new
 
 --name=NovoServe TCP
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --ipset=lists/ipset-novoserve.txt
 --out-range=-d8
 --lua-desync=hostfakesplit:host=ozon.ru:tcp_ts=-1000:tcp_md5:repeats=4
@@ -452,7 +452,7 @@
 --new
 
 --name=FranTech Solutions TCP
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --ipset=lists/ipset-frantech.txt
 --out-range=-d8
 --lua-desync=send:repeats=2
@@ -462,7 +462,7 @@
 --new
 
 --name=Fastly TCP
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --ipset=lists/ipset-fastly.txt
 --out-range=-n10
 --payload=tls_client_hello
@@ -471,7 +471,7 @@
 --new
 
 --name=Akamai TCP
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --ipset=lists/ipset-akamai.txt
 --out-range=-n10
 --payload=tls_client_hello
@@ -480,7 +480,7 @@
 --new
 
 --name=Railway TCP
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --ipset=lists/ipset-railway.txt
 --out-range=-d8
 --payload=tls_client_hello
@@ -489,7 +489,7 @@
 --new
 
 --name=Google Cloud TCP
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --ipset=lists/ipset-usa-google.txt
 --out-range=-d8
 --payload=tls_client_hello
@@ -498,7 +498,7 @@
 --new
 
 --name=Amazon TCP
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --ipset=lists/ipset-amazon.txt
 --out-range=-d10
 --payload=tls_client_hello
@@ -507,7 +507,7 @@
 --new
 
 --name=League of Legends RU TCP
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --ipset=lists/ipset-lol-ru.txt
 --out-range=-d10
 --payload=tls_client_hello
@@ -517,7 +517,7 @@
 --new
 
 --name=League of Legends EUW TCP
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --ipset=lists/ipset-lol-euw.txt
 --out-range=-d10
 --payload=tls_client_hello
@@ -527,7 +527,7 @@
 --new
 
 --name=WARP TCP
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --ipset=lists/ipset-warp.txt
 --out-range=-d10
 --payload=tls_client_hello
@@ -537,7 +537,7 @@
 --new
 
 --name=ZapretKVN TCP
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --ipset=lists/ipset-zapretkvn.txt
 --out-range=-d10
 --payload=all
@@ -547,7 +547,7 @@
 --new
 
 --name=Timeweb TCP
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --ipset=lists/ipset-timeweb.txt
 --out-range=-d10
 --payload=all

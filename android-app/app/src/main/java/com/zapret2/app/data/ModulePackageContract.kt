@@ -52,6 +52,7 @@ internal object ModulePackageContract {
         "zapret2/scripts/common.sh",
         COMMAND_BUILDER_SCRIPT_PATH,
         PACKAGE_CONTRACT_SCRIPT_PATH,
+        "zapret2/scripts/runtime-config.sh",
         "zapret2/scripts/runtime-init.sh",
         "zapret2/scripts/zapret-start.sh",
         "zapret2/scripts/zapret-stop.sh",

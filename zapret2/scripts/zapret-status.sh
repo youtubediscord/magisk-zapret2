@@ -9,8 +9,8 @@ MACHINE_VERSION=0
 case "${1:-}" in
     "") ;;
     --machine) MACHINE=1; MACHINE_VERSION=1 ;;
-    --machine-v2) MACHINE=1; MACHINE_VERSION=2 ;;
-    *) echo "ERROR: usage: $0 [--machine|--machine-v2]" >&2; exit 2 ;;
+    --machine-v3) MACHINE=1; MACHINE_VERSION=3 ;;
+    *) echo "ERROR: usage: $0 [--machine|--machine-v3]" >&2; exit 2 ;;
 esac
 
 CONFIG_VALID=1
@@ -182,20 +182,25 @@ else
     Z2_QUEUE_BYPASS="$STATUS_FILE_QUEUE_BYPASS_SUPPORTED"
 fi
 
-if [ "$STATUS_FILE_ERROR_SCHEMA" = "$Z2_ERROR_SCHEMA_VERSION" ] &&
-   [ "$STATUS_FILE_ERROR_CODE" != NONE ] &&
-   z2_error_fields_are_valid "$STATUS_FILE_ERROR_DOMAIN" "$STATUS_FILE_ERROR_CODE" \
-       "$STATUS_FILE_ERROR_STAGE" "$STATUS_FILE_ERROR_RETRYABLE"; then
+if [ "$CONFIG_VALID" = 0 ]; then
+    runtime_config_error_code "$RUNTIME_CONFIG_ERROR"
+    z2_error_set CONFIG "$RUNTIME_CONFIG_ERROR_CODE" RUNTIME_PARSE \
+        "${RUNTIME_CONFIG_ERROR:-runtime.ini validation failed}"
+elif [ "$STATUS_FILE_ERROR_SCHEMA" = "$Z2_ERROR_SCHEMA_VERSION" ] &&
+   [ "$STATUS_FILE_ERROR_STATUS" = ERROR ] &&
+   z2_error_fields_are_valid "$STATUS_FILE_ERROR_STATUS" "$STATUS_FILE_ERROR_DOMAIN" \
+       "$STATUS_FILE_ERROR_STAGE" "$STATUS_FILE_ERROR_CODE" "$STATUS_FILE_ERROR_DETAIL"; then
     z2_error_set "$STATUS_FILE_ERROR_DOMAIN" "$STATUS_FILE_ERROR_CODE" \
-        "$STATUS_FILE_ERROR_STAGE" "$STATUS_FILE_ERROR_RETRYABLE"
+        "$STATUS_FILE_ERROR_STAGE" "$STATUS_FILE_ERROR_DETAIL"
 elif [ "$Z2_STATUS" = degraded ]; then
-    z2_error_set STATUS STATUS_DEGRADED STATUS_QUERY 1
+    z2_error_set STATUS STATUS_DEGRADED STATUS_QUERY \
+        "Service state is degraded; inspect the lifecycle log for full details"
 else
     z2_error_clear
 fi
 
 emit_machine() {
-    [ "$MACHINE_VERSION" != 2 ] || echo "Z2_PROTOCOL=2"
+    [ "$MACHINE_VERSION" != 3 ] || echo "Z2_PROTOCOL=3"
     echo "Z2_STATUS=$Z2_STATUS"
     echo "Z2_OWNED=$Z2_OWNED"
     echo "Z2_PROCESS=$Z2_PROCESS"
@@ -217,7 +222,7 @@ emit_machine() {
     echo "Z2_QUEUE_BYPASS=$Z2_QUEUE_BYPASS"
     echo "Z2_UPDATE_BLOCKED=$Z2_UPDATE_BLOCKED"
     echo "Z2_UNINSTALL_TOMBSTONE=$Z2_UNINSTALL_TOMBSTONE"
-    [ "$MACHINE_VERSION" != 2 ] || z2_error_emit_machine
+    [ "$MACHINE_VERSION" != 3 ] || z2_error_emit_machine
     # Terminal sentinel lets strict callers reject truncated shell output.
     echo "Z2_COMPLETE=1"
 }

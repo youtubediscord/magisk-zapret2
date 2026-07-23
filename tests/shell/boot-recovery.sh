@@ -138,7 +138,7 @@ EOF
         export STATE_DIR MODDIR ZAPRET_DIR SCRIPT_DIR
         . "$module/zapret2/scripts/common.sh"
         read_current_boot_id() { CURRENT_BOOT_ID="$stale_boot"; }
-        QNUM=200; PORTS_TCP=80,443; PORTS_UDP=443,3478,5349,19302; PKT_OUT=20; PKT_IN=10; DESYNC_MARK=0x40000000
+        QNUM=200; PORTS_TCP=80:65535; PORTS_UDP=443:65535; PKT_OUT=20; PKT_IN=10; DESYNC_MARK=0x40000000
         FIREWALL_TAG=AbCdEf1234; ZAPRET2_OUT=Z2O_AbCdEf1234; ZAPRET2_IN=Z2I_AbCdEf1234
         IPV4_CONNBYTES=1; IPV4_MULTIPORT=1; IPV4_MARK=1
         IPV6_CONNBYTES=1; IPV6_MULTIPORT=1; IPV6_MARK=1
@@ -161,10 +161,10 @@ EOF
 -A Z2O_AbCdEf1234 -j Z2R_AbCdEf1234_O2
 -A Z2I_AbCdEf1234 -j Z2R_AbCdEf1234_I1
 -A Z2I_AbCdEf1234 -j Z2R_AbCdEf1234_I2
--A Z2R_AbCdEf1234_O1 -p tcp -m multiport --dports 80,443 -j NFQUEUE
--A Z2R_AbCdEf1234_O2 -p udp -m multiport --dports 443,3478,5349,19302 -j NFQUEUE
--A Z2R_AbCdEf1234_I1 -p tcp -m multiport --sports 80,443 -j NFQUEUE
--A Z2R_AbCdEf1234_I2 -p udp -m multiport --sports 443,3478,5349,19302 -j NFQUEUE
+-A Z2R_AbCdEf1234_O1 -p tcp -m multiport --dports 80:65535 -j NFQUEUE
+-A Z2R_AbCdEf1234_O2 -p udp -m multiport --dports 443:65535 -j NFQUEUE
+-A Z2R_AbCdEf1234_I1 -p tcp -m multiport --sports 80:65535 -j NFQUEUE
+-A Z2R_AbCdEf1234_I2 -p udp -m multiport --sports 443:65535 -j NFQUEUE
 EOF
         }
         create_teardown_operation_journal || exit 35

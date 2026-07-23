@@ -10,8 +10,11 @@ import com.zapret2.app.data.HostsOverlayRepository
 import com.zapret2.app.data.HostsOverlayMutationOutcome
 import com.zapret2.app.data.HostsOverlaySnapshot
 import com.zapret2.app.data.ModuleMutationCoordinator
+import com.zapret2.app.data.RuntimeConfigMutationResult
+import com.zapret2.app.data.RuntimeConfigSectionReadResult
 import com.zapret2.app.data.RuntimeConfigStore
-import com.zapret2.app.data.RuntimeConfigRollbackException
+import com.zapret2.app.data.diagnosticText
+import com.zapret2.app.data.diagnosticTextOrNull
 import com.zapret2.app.ui.UiText
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
@@ -59,6 +62,7 @@ class DnsManagerViewModel @Inject constructor(
         data object RollbackFailed : ApplyOutcome
         data object SavedForReboot : ApplyOutcome
         data object Blocked : ApplyOutcome
+        data class ModuleFailed(val diagnostic: String) : ApplyOutcome
     }
 
     init {
@@ -108,8 +112,17 @@ class DnsManagerViewModel @Inject constructor(
                     return@launch
                 }
 
-                val saved = withContext(Dispatchers.IO) { RuntimeConfigStore.readDnsManager() }
-                    ?: error("runtime.ini DNS state is unavailable or ambiguous")
+                val saved = when (
+                    val runtime = withContext(Dispatchers.IO) {
+                        RuntimeConfigStore.readDnsManager()
+                    }
+                ) {
+                    is RuntimeConfigSectionReadResult.Valid -> runtime.values
+                    is RuntimeConfigSectionReadResult.ConfigUnavailable ->
+                        error(runtime.config.diagnosticText())
+                    is RuntimeConfigSectionReadResult.Malformed ->
+                        error("runtime.ini: MALFORMED_SECTION: ${runtime.sectionName}")
+                }
                 val knownDns = data.dnsServices.mapTo(mutableSetOf()) { it.name }
                 val knownDirect = data.directServices.mapTo(mutableSetOf()) { it.name }
                 val dns = saved["selected_dns"]
@@ -136,7 +149,7 @@ class DnsManagerViewModel @Inject constructor(
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
-            } catch (_: Exception) {
+            } catch (error: Exception) {
                 _uiState.update {
                     it.copy(
                         hostsData = null,
@@ -145,7 +158,9 @@ class DnsManagerViewModel @Inject constructor(
                         selectedDirectServices = emptySet(),
                         operation = null,
                         loadingText = null,
-                        loadError = UiText.resource(R.string.dns_load_error_body),
+                        loadError = UiText.Dynamic(
+                            error.message ?: "runtime.ini: UNAVAILABLE: ${error.javaClass.simpleName}",
+                        ),
                     )
                 }
             } finally {
@@ -262,7 +277,7 @@ class DnsManagerViewModel @Inject constructor(
                                 return@withContext if (restored) ApplyOutcome.Failed else ApplyOutcome.RollbackFailed
                             }
                         }
-                        val configSaved = try {
+                        val configResult = try {
                             RuntimeConfigStore.upsertDnsManagerValues(
                                 mapOf(
                                     "dns_preset_index" to presetIndex.toString(),
@@ -272,15 +287,17 @@ class DnsManagerViewModel @Inject constructor(
                             )
                         } catch (cancelled: CancellationException) {
                             throw cancelled
-                        } catch (_: RuntimeConfigRollbackException) {
-                            restoreHostsOrFalse(previousOverlay)
-                            return@withContext ApplyOutcome.RollbackFailed
                         } catch (_: Exception) {
-                            false
+                            null
                         }
-                        if (!configSaved) {
+                        if (configResult?.isSuccess != true) {
                             val restored = restoreHostsOrFalse(previousOverlay)
-                            return@withContext if (restored) ApplyOutcome.Failed else ApplyOutcome.RollbackFailed
+                            val diagnostic = configResult?.diagnosticTextOrNull()
+                            return@withContext when {
+                                !restored -> ApplyOutcome.RollbackFailed
+                                diagnostic != null -> ApplyOutcome.ModuleFailed(diagnostic)
+                                else -> ApplyOutcome.Failed
+                            }
                         }
                         ApplyOutcome.SavedForReboot
                     }
@@ -342,7 +359,7 @@ class DnsManagerViewModel @Inject constructor(
                                 return@withContext if (restored) ApplyOutcome.Failed else ApplyOutcome.RollbackFailed
                             }
                         }
-                        val configSaved = try {
+                        val configResult: RuntimeConfigMutationResult? = try {
                             RuntimeConfigStore.upsertDnsManagerValues(
                                 values = emptyMap(),
                                 removeKeys = setOf(
@@ -353,15 +370,17 @@ class DnsManagerViewModel @Inject constructor(
                             )
                         } catch (cancelled: CancellationException) {
                             throw cancelled
-                        } catch (_: RuntimeConfigRollbackException) {
-                            restoreHostsOrFalse(previousOverlay)
-                            return@withContext ApplyOutcome.RollbackFailed
                         } catch (_: Exception) {
-                            false
+                            null
                         }
-                        if (!configSaved) {
+                        if (configResult?.isSuccess != true) {
                             val restored = restoreHostsOrFalse(previousOverlay)
-                            return@withContext if (restored) ApplyOutcome.Failed else ApplyOutcome.RollbackFailed
+                            val diagnostic = configResult?.diagnosticTextOrNull()
+                            return@withContext when {
+                                !restored -> ApplyOutcome.RollbackFailed
+                                diagnostic != null -> ApplyOutcome.ModuleFailed(diagnostic)
+                                else -> ApplyOutcome.Failed
+                            }
                         }
                         ApplyOutcome.SavedForReboot
                     }
@@ -422,16 +441,21 @@ class DnsManagerViewModel @Inject constructor(
                 } else {
                     state.loadError
                 },
-                message = UiText.resource(
-                    when (outcome) {
+                message = if (outcome is ApplyOutcome.ModuleFailed) {
+                    UiText.Dynamic(outcome.diagnostic)
+                } else {
+                    UiText.resource(
+                        when (outcome) {
                         ApplyOutcome.SavedForReboot -> successMessage
                         ApplyOutcome.Failed -> failureMessage
                         ApplyOutcome.CatalogChanged -> R.string.dns_catalog_changed
                         ApplyOutcome.SourceChanged -> R.string.dns_hosts_changed
                         ApplyOutcome.RollbackFailed -> R.string.dns_rollback_failed
                         ApplyOutcome.Blocked -> blockedMessage
-                    },
-                ),
+                            is ApplyOutcome.ModuleFailed -> error("handled above")
+                        },
+                    )
+                },
             )
         }
     }

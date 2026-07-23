@@ -5,6 +5,8 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.File
+import java.nio.file.Files
 
 class RuntimeConfigStoreTest {
 
@@ -26,38 +28,72 @@ class RuntimeConfigStoreTest {
     """.trimIndent()
 
     @Test
-    fun runtimeCore_requiresTheCompleteRuntimeV1Contract() {
-        assertTrue(RuntimeConfigStore.hasCompleteRuntimeCore(completeRuntime))
-        assertFalse(RuntimeConfigStore.hasCompleteRuntimeCore(completeRuntime.replace("qnum=200\n", "")))
-        assertFalse(RuntimeConfigStore.hasCompleteRuntimeCore(completeRuntime.replace("schema_version=1", "schema_version=2")))
-        assertFalse(RuntimeConfigStore.hasCompleteRuntimeCore(completeRuntime.replace("[core]", "[CORE]")))
-        assertFalse(RuntimeConfigStore.hasCompleteRuntimeCore(completeRuntime.replace("[core]", "[ core ]")))
-        assertTrue(RuntimeConfigStore.hasCompleteRuntimeCore(completeRuntime.replace("[core]", "  [core]  ")))
-        assertFalse(RuntimeConfigStore.hasCompleteRuntimeCore(completeRuntime.replace("autostart=1", "AUTOSTART=1")))
-        assertFalse(RuntimeConfigStore.hasCompleteRuntimeCore("$completeRuntime\nqnum=201"))
-        assertFalse(RuntimeConfigStore.hasCompleteRuntimeCore("$completeRuntime\n[core]\nqnum=201"))
-        assertFalse(RuntimeConfigStore.hasCompleteRuntimeCore(completeRuntime.replace("qnum=200", "qnum=65536")))
-        assertTrue(RuntimeConfigStore.hasCompleteRuntimeCore(completeRuntime.replace("pkt_out=20", "pkt_out=101")))
-        assertTrue(RuntimeConfigStore.hasCompleteRuntimeCore(completeRuntime.replace("pkt_out=20", "pkt_out=999999999")))
-        assertFalse(RuntimeConfigStore.hasCompleteRuntimeCore(completeRuntime.replace("pkt_out=20", "pkt_out=020")))
-        assertFalse(RuntimeConfigStore.hasCompleteRuntimeCore(completeRuntime.replace("pkt_out=20", "pkt_out=1000000000")))
-        assertFalse(RuntimeConfigStore.hasCompleteRuntimeCore(completeRuntime.replace("desync_mark=0x40000000", "desync_mark=0x100000000")))
-        assertTrue(RuntimeConfigStore.hasCompleteRuntimeCore(completeRuntime.replace("desync_mark=0x40000000", "desync_mark=4294967295")))
-        assertFalse(RuntimeConfigStore.hasCompleteRuntimeCore(completeRuntime.replace("Default v1 (game filter).txt", "../Default.txt")))
-        assertTrue(RuntimeConfigStore.hasCompleteRuntimeCore(completeRuntime.replace("Default v1 (game filter).txt", "Custom Options.txt")))
-        assertFalse(RuntimeConfigStore.hasCompleteRuntimeCore(completeRuntime.replace("Default v1 (game filter).txt", "runtime.ini")))
-        assertFalse(
-            RuntimeConfigStore.hasCompleteRuntimeCore(
-                completeRuntime.replace("Default v1 (game filter).txt", "\u044f".repeat(126) + ".txt"),
-            ),
+    fun sharedFixtures_areOwnedByTheRealShellParser() {
+        fixtureCases().forEach { (fixture, expected) ->
+            assertEquals("${fixture.name}: shell verdict", expected, shellVerdict(fixture))
+        }
+    }
+
+    @Test
+    fun kotlinTextEditor_outputIsAcceptedByTheRealShellParser() {
+        val source = fixtureDirectory().resolve("valid-default.ini").readText()
+        val updated = RuntimeConfigCodec.upsertSectionValues(
+            content = source,
+            sectionName = "core",
+            updates = mapOf("active_preset" to "Kotlin #1; mobile.txt"),
         )
-        assertFalse(RuntimeConfigStore.hasCompleteRuntimeCore(completeRuntime.replace("nfqws_uid=0:0", "nfqws_uid=root")))
-        assertTrue(RuntimeConfigStore.hasCompleteRuntimeCore(completeRuntime.replace("nfqws_uid=0:0", "nfqws_uid=2147483647:2147483647")))
-        assertFalse(RuntimeConfigStore.hasCompleteRuntimeCore(completeRuntime.replace("nfqws_uid=0:0", "nfqws_uid=01:0")))
-        assertFalse(RuntimeConfigStore.hasCompleteRuntimeCore(completeRuntime.replace("nfqws_uid=0:0", "nfqws_uid=2147483648:0")))
-        assertFalse(RuntimeConfigStore.hasCompleteRuntimeCore("$completeRuntime\nfuture_option=value"))
-        assertFalse(RuntimeConfigStore.hasCompleteRuntimeCore("$completeRuntime\nfuture_option=\"unterminated"))
-        assertFalse(RuntimeConfigStore.hasCompleteRuntimeCore("$completeRuntime\nfuture_option=value\tpoison"))
+        val candidate = Files.createTempFile("runtime-kotlin-writer-", ".ini").toFile()
+        try {
+            candidate.writeText(updated)
+            assertEquals("VALID", shellVerdict(candidate))
+        } finally {
+            candidate.delete()
+        }
+    }
+
+    @Test
+    fun shellWriter_outputIsAcceptedByTheRealShellParser() {
+        val directory = Files.createTempDirectory("runtime-shell-writer-").toFile()
+        val target = directory.resolve("runtime.ini")
+        try {
+            val process = ProcessBuilder(
+                "sh",
+                repositoryRoot().resolve("zapret2/scripts/runtime-config.sh").path,
+                target.path,
+            ).redirectErrorStream(true).start()
+            val output = process.inputStream.bufferedReader().readText()
+            assertEquals(output, 0, process.waitFor())
+            assertEquals("VALID", shellVerdict(target))
+        } finally {
+            target.delete()
+            directory.delete()
+        }
+    }
+
+    @Test
+    fun runtimeDiagnostics_renderTheOpaqueEnvelopeWithoutEnums() {
+        val error = LifecycleErrorContract.error(
+            domain = "FUTURE_DOMAIN",
+            stage = "FUTURE_STAGE",
+            code = "FUTURE_CODE",
+            detail = "new module detail",
+        )
+
+        assertEquals(
+            """
+                schema=1
+                status=ERROR
+                domain=FUTURE_DOMAIN
+                stage=FUTURE_STAGE
+                code=FUTURE_CODE
+                detail=new module detail
+            """.trimIndent(),
+            RuntimeConfigReadResult.Failure(error).diagnosticText(),
+        )
+        assertEquals(
+            error.diagnosticText(),
+            RuntimeConfigMutationResult.WriteFailed(error).diagnosticTextOrNull(),
+        )
     }
 
     @Test
@@ -98,19 +134,31 @@ class RuntimeConfigStoreTest {
     }
 
     @Test
-    fun coreReadsAndWrites_ignoreCaseOrWhitespaceDecoySections() {
+    fun coreTextEdits_ignoreCaseOrWhitespaceDecoySections() {
         val content = "[CORE]\npkt_out=91\n[ core ]\npkt_out=92\n$completeRuntime\n"
 
-        assertEquals("20", RuntimeConfigStore.parseSectionValues(content, "core")["pkt_out"])
-        val updated = RuntimeConfigStore.upsertSectionValues(
+        val parsed = RuntimeConfigCodec.parseSection(content, "core")
+        assertTrue(parsed is RuntimeConfigSectionResult.Valid)
+        assertEquals("20", (parsed as RuntimeConfigSectionResult.Valid).values["pkt_out"])
+        val updated = RuntimeConfigCodec.upsertSectionValues(
             content = content,
             sectionName = "core",
             updates = mapOf("pkt_out" to "21"),
         )
-        assertEquals("21", RuntimeConfigStore.parseSectionValues(updated, "core")["pkt_out"])
+        val updatedSection = RuntimeConfigCodec.parseSection(updated, "core")
+        assertEquals(
+            "21",
+            (updatedSection as RuntimeConfigSectionResult.Valid).values["pkt_out"],
+        )
         assertTrue(updated.contains("[CORE]\npkt_out=91"))
         assertTrue(updated.contains("[ core ]\npkt_out=92"))
-        assertTrue(RuntimeConfigStore.hasCompleteRuntimeCore(updated))
+        val candidate = Files.createTempFile("runtime-decoy-", ".ini").toFile()
+        try {
+            candidate.writeText(updated)
+            assertEquals("VALID", shellVerdict(candidate))
+        } finally {
+            candidate.delete()
+        }
     }
 
     @Test
@@ -119,29 +167,18 @@ class RuntimeConfigStoreTest {
         val duplicateKey = "$completeRuntime\n[dns_manager]\nselected_dns=one\nselected_dns=two\n"
         val malformed = "$completeRuntime\n[dns_manager]\nselected_dns=\"unterminated\n"
 
-        assertTrue(RuntimeConfigStore.parseSectionValues(duplicated, "dns_manager").isEmpty())
-        assertTrue(RuntimeConfigStore.parseSectionValues(duplicateKey, "dns_manager").isEmpty())
-        assertTrue(RuntimeConfigStore.parseSectionValues(malformed, "dns_manager").isEmpty())
-        assertThrows(IllegalArgumentException::class.java) {
-            RuntimeConfigStore.upsertSectionValues(
-                content = duplicated,
-                sectionName = "dns_manager",
-                updates = mapOf("selected_dns" to "three"),
+        listOf(duplicated, duplicateKey, malformed).forEach { content ->
+            assertTrue(
+                RuntimeConfigCodec.parseSection(content, "dns_manager") is
+                    RuntimeConfigSectionResult.Malformed,
             )
-        }
-        assertThrows(IllegalArgumentException::class.java) {
-            RuntimeConfigStore.upsertSectionValues(
-                content = duplicateKey,
-                sectionName = "dns_manager",
-                updates = mapOf("selected_dns" to "three"),
-            )
-        }
-        assertThrows(IllegalArgumentException::class.java) {
-            RuntimeConfigStore.upsertSectionValues(
-                content = malformed,
-                sectionName = "dns_manager",
-                updates = mapOf("selected_dns" to "three"),
-            )
+            assertThrows(IllegalArgumentException::class.java) {
+                RuntimeConfigCodec.upsertSectionValues(
+                    content = content,
+                    sectionName = "dns_manager",
+                    updates = mapOf("selected_dns" to "three"),
+                )
+            }
         }
     }
 
@@ -155,5 +192,38 @@ class RuntimeConfigStoreTest {
         assertEquals(null, RuntimeConfigStore.positiveCountOrNull("0"))
         assertEquals(null, RuntimeConfigStore.positiveCountOrNull("01"))
         assertEquals(null, RuntimeConfigStore.positiveCountOrNull("1000000000"))
+    }
+
+    private fun fixtureCases(): List<Pair<File, String>> {
+        val fixtureDirectory = fixtureDirectory()
+        return fixtureDirectory.resolve("manifest.tsv").readLines()
+            .filterNot { it.isBlank() || it.startsWith("#") }
+            .map { row ->
+                val fields = row.split('\t')
+                require(fields.size == 2) { "Invalid runtime fixture manifest row: $row" }
+                fixtureDirectory.resolve(fields[0]) to fields[1]
+            }
+    }
+
+    private fun shellVerdict(file: File): String {
+        val process = ProcessBuilder(
+            "sh",
+            repositoryRoot().resolve("tests/shell/runtime-config-contract.sh").path,
+            "--file",
+            file.path,
+        ).redirectErrorStream(true).start()
+        val output = process.inputStream.bufferedReader().readText().trim()
+        assertEquals(output, 0, process.waitFor())
+        return output
+    }
+
+    private fun fixtureDirectory(): File =
+        repositoryRoot().resolve("tests/fixtures/runtime-config")
+
+    private fun repositoryRoot(): File {
+        val workingDirectory = requireNotNull(System.getProperty("user.dir"))
+        return generateSequence(File(workingDirectory).canonicalFile) { it.parentFile }
+            .firstOrNull { it.resolve("tests/fixtures/runtime-config/manifest.tsv").isFile }
+            ?: error("Repository root with runtime fixtures was not found")
     }
 }

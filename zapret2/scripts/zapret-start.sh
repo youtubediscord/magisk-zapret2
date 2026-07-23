@@ -65,8 +65,8 @@ log_section() { log_msg "==== $1 ===="; }
 
 start_error_exit() {
     local domain="$1" code="$2" stage="$3" retryable="$4" message="$5"
-    z2_error_set "$domain" "$code" "$stage" "$retryable" ||
-        z2_error_set LIFECYCLE LIFECYCLE_FAILED START 0
+    z2_error_set "$domain" "$code" "$stage" "$message" ||
+        z2_error_set LIFECYCLE LIFECYCLE_FAILED START "$message"
     z2_error_emit_machine
     echo "ERROR: $message"
     exit 1
@@ -271,8 +271,8 @@ write_ok_status() {
     STATUS_MULTIPORT_SUPPORTED="${IPV4_MULTIPORT:-1}"
     STATUS_MARK_SUPPORTED="${IPV4_MARK:-1}"
     STATUS_FALLBACK_MODE="${FALLBACK_MODE:-0}"
-    STATUS_ERROR_DOMAIN=NONE; STATUS_ERROR_CODE=NONE
-    STATUS_ERROR_STAGE=NONE; STATUS_ERROR_RETRYABLE=0
+    STATUS_ERROR_STATUS=OK; STATUS_ERROR_DOMAIN=NONE; STATUS_ERROR_CODE=NONE
+    STATUS_ERROR_STAGE=NONE; STATUS_ERROR_DETAIL=""
     STATUS_DIAGNOSTICS="$DIAGNOSTICS"
     write_iptables_status ok
 }
@@ -795,8 +795,8 @@ snapshot_owned_state() {
 fail_start() {
     local message="$1" domain="${2:-LIFECYCLE}" code="${3:-LIFECYCLE_FAILED}"
     local stage="${4:-START}" retryable="${5:-0}" rollback_ready=1
-    z2_error_set "$domain" "$code" "$stage" "$retryable" ||
-        z2_error_set LIFECYCLE LIFECYCLE_FAILED START 0
+    z2_error_set "$domain" "$code" "$stage" "$message" ||
+        z2_error_set LIFECYCLE LIFECYCLE_FAILED START "$message"
     if [ -n "$FIREWALL_FAILURE_DETAIL" ]; then
         message="$message; $FIREWALL_FAILURE_DETAIL"
     fi
@@ -813,6 +813,8 @@ fail_start() {
         discard_prior_snapshot
         release_lifecycle_lock
         trap - HUP INT TERM
+        z2_error_set "$domain" "$code" "$stage" "$message" ||
+            z2_error_set LIFECYCLE LIFECYCLE_FAILED START "$message"
         z2_error_emit_machine
         echo "ERROR: $message"
         exit 1
@@ -830,6 +832,8 @@ fail_start() {
             discard_prior_snapshot
             release_lifecycle_lock
             trap - HUP INT TERM
+            z2_error_set "$domain" "$code" "$stage" "$message" ||
+                z2_error_set LIFECYCLE LIFECYCLE_FAILED START "$message"
             z2_error_emit_machine
             echo "ERROR: $message; prior healthy service restored"
             exit 1
@@ -856,8 +860,11 @@ fail_start() {
     [ -n "${IPV4_MULTIPORT:-}" ] && STATUS_MULTIPORT_SUPPORTED="$IPV4_MULTIPORT"
     [ -n "${IPV4_MARK:-}" ] && STATUS_MARK_SUPPORTED="$IPV4_MARK"
     STATUS_FALLBACK_MODE=0
+    z2_error_set "$domain" "$code" "$stage" "$message" ||
+        z2_error_set LIFECYCLE LIFECYCLE_FAILED START "$message"
+    STATUS_ERROR_STATUS="$Z2_ERROR_STATUS"
     STATUS_ERROR_DOMAIN="$Z2_ERROR_DOMAIN"; STATUS_ERROR_CODE="$Z2_ERROR_CODE"
-    STATUS_ERROR_STAGE="$Z2_ERROR_STAGE"; STATUS_ERROR_RETRYABLE="$Z2_ERROR_RETRYABLE"
+    STATUS_ERROR_STAGE="$Z2_ERROR_STAGE"; STATUS_ERROR_DETAIL="$Z2_ERROR_DETAIL"
     STATUS_DIAGNOSTICS="$DIAGNOSTICS"
     write_iptables_status error >/dev/null 2>&1 || true
     discard_prior_snapshot

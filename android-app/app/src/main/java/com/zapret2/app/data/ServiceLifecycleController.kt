@@ -251,7 +251,7 @@ object ServiceLifecycleController {
         appGrantedRoot: Boolean? = null,
     ): RootAccess {
         if (result.success && uid == "0") return RootAccess(RootAccessState.GRANTED)
-        if (result.lifecycleError?.code == LifecycleErrorCode.ROOT_COMMAND_QUEUE_BUSY) {
+        if (result.lifecycleError?.code == LifecycleErrorContract.ROOT_COMMAND_QUEUE_BUSY) {
             return RootAccess(
                 state = RootAccessState.BUSY,
                 error = result.error,
@@ -285,26 +285,29 @@ object ServiceLifecycleController {
             diagnostic
         }
         val classifiedTransportError = result.lifecycleError?.takeUnless {
-            it.code == LifecycleErrorCode.ROOT_COMMAND_FAILED && it.stage == "ROOT_COMMAND"
+            it.code == LifecycleErrorContract.ROOT_COMMAND_FAILED && it.stage == "ROOT_COMMAND"
         }
         val lifecycleError = classifiedTransportError ?: when (state) {
             RootAccessState.GRANTED -> null
             RootAccessState.DENIED ->
-                LifecycleErrorContract.rootAccess(LifecycleErrorCode.ROOT_DENIED, retryable = true)
+                LifecycleErrorContract.rootAccess(
+                    LifecycleErrorContract.ROOT_DENIED,
+                    message,
+                )
             RootAccessState.MANAGER_UNAVAILABLE ->
                 LifecycleErrorContract.rootAccess(
-                    LifecycleErrorCode.ROOT_MANAGER_UNAVAILABLE,
-                    retryable = false,
+                    LifecycleErrorContract.ROOT_MANAGER_UNAVAILABLE,
+                    message,
                 )
             RootAccessState.SHELL_FAILURE ->
                 LifecycleErrorContract.rootAccess(
-                    LifecycleErrorCode.ROOT_SHELL_FAILED,
-                    retryable = true,
+                    LifecycleErrorContract.ROOT_SHELL_FAILED,
+                    message,
                 )
             RootAccessState.TIMEOUT ->
                 LifecycleErrorContract.rootAccess(
-                    LifecycleErrorCode.ROOT_COMMAND_TIMEOUT,
-                    retryable = true,
+                    LifecycleErrorContract.ROOT_COMMAND_TIMEOUT,
+                    message,
                 )
             RootAccessState.BUSY -> LifecycleErrorContract.rootQueueBusy
         }
@@ -572,7 +575,7 @@ object ServiceLifecycleController {
     }
 
     private suspend fun getStatusLocked(): ServiceStatus {
-        val versioned = executeRoot(buildStatusCommand(version = 2))
+        val versioned = executeRoot(buildStatusCommand(version = 3))
         val result = if (
             versioned.rootGranted &&
             versioned.exitCode == 2 &&
@@ -932,7 +935,7 @@ object ServiceLifecycleController {
     }
 
     private fun buildStatusCommand(version: Int): String {
-        val argument = if (version == 2) "--machine-v2" else "--machine"
+        val argument = if (version == 3) "--machine-v3" else "--machine"
         return "sh \"$STATUS_SCRIPT\" $argument"
     }
 }

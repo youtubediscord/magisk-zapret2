@@ -82,7 +82,7 @@
 --blob=zero64:0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 
 --name=Исключения (RU сайты)
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --ipset=lists/ipset-ru.txt
 --ipset=lists/ipset-dns.txt
 --ipset=lists/ipset-exclude.txt
@@ -148,7 +148,7 @@
 --new
 
 --name=Мои сайты
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --ipset=lists/ipset-all.txt
 --out-range=-n8
 --lua-desync=fake:blob=tls14:tcp_ack=-66000:ip_autottl=0,3-20:ip6_autottl=0,3-20:tls_mod=rnd,dupsid
@@ -184,7 +184,7 @@
 --new
 
 --name=Roblox TCP
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --hostlist=lists/roblox.txt
 --out-range=-d10
 --lua-desync=send:repeats=2
@@ -273,7 +273,7 @@
 --new
 
 --name=Tanki X
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --hostlist=lists/tankix.txt
 --out-range=-n8
 --lua-desync=send:repeats=2
@@ -282,7 +282,7 @@
 --new
 
 --name=discord.com
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --ipset=lists/ipset-discord.txt
 --out-range=-n8
 --lua-desync=fake:blob=tls14:tcp_ack=-66000:ip_autottl=0,3-20:ip6_autottl=0,3-20:tls_mod=rnd,dupsid
@@ -291,7 +291,7 @@
 --new
 
 --name=Cloudflare TCP
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --hostlist=lists/cloudflare.txt
 --out-range=-n8
 --lua-desync=fake:blob=tls14:tcp_ack=-66000:ip_autottl=0,3-20:ip6_autottl=0,3-20:tls_mod=rnd,dupsid
@@ -300,7 +300,7 @@
 --new
 
 --name=cloudfront.net
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --hostlist=lists/cloudfront.txt
 --out-range=-n8
 --lua-desync=fake:blob=tls14:tcp_ack=-66000:ip_autottl=0,3-20:ip6_autottl=0,3-20:tls_mod=rnd,dupsid
@@ -309,7 +309,7 @@
 --new
 
 --name=Amazon TCP
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --hostlist=lists/amazon.txt
 --out-range=-n8
 --lua-desync=fake:blob=tls14:tcp_ack=-66000:ip_autottl=0,3-20:ip6_autottl=0,3-20:tls_mod=rnd,dupsid
@@ -318,7 +318,7 @@
 --new
 
 --name=EpicGames & Fortnite
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --hostlist=lists/epicgames-fortnite.txt
 --out-range=-n8
 --lua-desync=fake:blob=tls14:tcp_ack=-66000:ip_autottl=0,3-20:ip6_autottl=0,3-20:tls_mod=rnd,dupsid
@@ -327,7 +327,7 @@
 --new
 
 --name=League of Legends RU TCP
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --ipset=lists/ipset-lol-ru.txt
 --out-range=-n8
 --lua-desync=fake:blob=tls14:tcp_ack=-66000:ip_autottl=0,3-20:ip6_autottl=0,3-20:tls_mod=rnd,dupsid
@@ -336,7 +336,7 @@
 --new
 
 --name=League of Legends EUW TCP
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --ipset=lists/ipset-lol-euw.txt
 --out-range=-n8
 --lua-desync=fake:blob=tls14:tcp_ack=-66000:ip_autottl=0,3-20:ip6_autottl=0,3-20:tls_mod=rnd,dupsid
@@ -345,7 +345,7 @@
 --new
 
 --name=OVH TCP
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --ipset=lists/ipset-ovh.txt
 --out-range=-n8
 --lua-desync=fake:blob=tls14:tcp_ack=-66000:ip_autottl=0,3-20:ip6_autottl=0,3-20:tls_mod=rnd,dupsid
@@ -354,7 +354,7 @@
 --new
 
 --name=WhatsApp
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --ipset=lists/ipset-whatsapp.txt
 --out-range=-n8
 --lua-desync=fake:blob=tls14:tcp_ack=-66000:ip_autottl=0,3-20:ip6_autottl=0,3-20:tls_mod=rnd,dupsid
@@ -363,7 +363,7 @@
 --new
 
 --name=WARP TCP
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --ipset=lists/ipset-warp.txt
 --out-range=-n8
 --lua-desync=fake:blob=tls14:tcp_ack=-66000:ip_autottl=0,3-20:ip6_autottl=0,3-20:tls_mod=rnd,dupsid
@@ -372,7 +372,7 @@
 --new
 
 --name=ZapretKVN TCP
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --ipset=lists/ipset-zapretkvn.txt
 --out-range=-n8
 --lua-desync=fake:blob=tls14:tcp_ack=-66000:ip_autottl=0,3-20:ip6_autottl=0,3-20:tls_mod=rnd,dupsid
@@ -381,7 +381,7 @@
 --new
 
 --name=Timeweb TCP
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --ipset=lists/ipset-timeweb.txt
 --out-range=-n8
 --lua-desync=fake:blob=tls14:tcp_ack=-66000:ip_autottl=0,3-20:ip6_autottl=0,3-20:tls_mod=rnd,dupsid

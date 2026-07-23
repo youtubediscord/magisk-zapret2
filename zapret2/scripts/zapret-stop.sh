@@ -11,8 +11,8 @@ log_msg() {
 
 stop_error_exit() {
     local domain="$1" code="$2" stage="$3" retryable="$4" message="$5"
-    z2_error_set "$domain" "$code" "$stage" "$retryable" ||
-        z2_error_set LIFECYCLE LIFECYCLE_FAILED STOP 0
+    z2_error_set "$domain" "$code" "$stage" "$message" ||
+        z2_error_set LIFECYCLE LIFECYCLE_FAILED STOP "$message"
     z2_error_emit_machine
     echo "ERROR: $message"
     exit 1
@@ -37,13 +37,14 @@ write_stop_status() {
     STATUS_MARK_SUPPORTED="${STATUS_MARK_SUPPORTED:-0}"
     STATUS_FALLBACK_MODE=0; STATUS_DIAGNOSTICS="$message"
     if [ "$state" = stopped ]; then
-        STATUS_ERROR_DOMAIN=NONE; STATUS_ERROR_CODE=NONE
-        STATUS_ERROR_STAGE=NONE; STATUS_ERROR_RETRYABLE=0
+        STATUS_ERROR_STATUS=OK; STATUS_ERROR_DOMAIN=NONE; STATUS_ERROR_CODE=NONE
+        STATUS_ERROR_STAGE=NONE; STATUS_ERROR_DETAIL=""
     else
+        STATUS_ERROR_STATUS=ERROR
         STATUS_ERROR_DOMAIN="${STOP_ERROR_DOMAIN:-LIFECYCLE}"
         STATUS_ERROR_CODE="${STOP_ERROR_CODE:-LIFECYCLE_FAILED}"
         STATUS_ERROR_STAGE="${STOP_ERROR_STAGE:-STOP}"
-        STATUS_ERROR_RETRYABLE="${STOP_ERROR_RETRYABLE:-0}"
+        STATUS_ERROR_DETAIL="$(z2_error_detail_normalize "$message")"
     fi
     write_iptables_status "$state"
 }
@@ -63,6 +64,9 @@ stop_interrupted() {
     if ! rollback_legacy_migration; then
         message="$message; exact legacy-rule rollback failed; daemon retained"
     fi
+    STOP_ERROR_DOMAIN=LIFECYCLE
+    STOP_ERROR_CODE=LIFECYCLE_FAILED
+    STOP_ERROR_STAGE=STOP_SIGNAL
     write_stop_status error "$message" >/dev/null 2>&1 || true
     release_lifecycle_lock
     trap - HUP INT TERM
@@ -145,8 +149,8 @@ main() {
         release_lifecycle_lock
         trap - HUP INT TERM
         log_msg "ERROR: $errors"
-        z2_error_set "$STOP_ERROR_DOMAIN" "$STOP_ERROR_CODE" "$STOP_ERROR_STAGE" 0 ||
-            z2_error_set LIFECYCLE LIFECYCLE_FAILED STOP 0
+        z2_error_set "$STOP_ERROR_DOMAIN" "$STOP_ERROR_CODE" "$STOP_ERROR_STAGE" "$errors" ||
+            z2_error_set LIFECYCLE LIFECYCLE_FAILED STOP "$errors"
         z2_error_emit_machine
         echo "ERROR: Zapret2 stop incomplete: $errors"
         exit 1
@@ -216,8 +220,8 @@ main() {
         echo "Zapret2 stopped"
     else
         log_msg "ERROR: $errors"
-        z2_error_set "$STOP_ERROR_DOMAIN" "$STOP_ERROR_CODE" "$STOP_ERROR_STAGE" 0 ||
-            z2_error_set LIFECYCLE LIFECYCLE_FAILED STOP 0
+        z2_error_set "$STOP_ERROR_DOMAIN" "$STOP_ERROR_CODE" "$STOP_ERROR_STAGE" "$errors" ||
+            z2_error_set LIFECYCLE LIFECYCLE_FAILED STOP "$errors"
         z2_error_emit_machine
         echo "ERROR: Zapret2 stop incomplete: $errors"
     fi

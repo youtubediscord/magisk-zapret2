@@ -6,89 +6,69 @@ MODDIR="${MODDIR:-$(dirname "$ZAPRET_DIR")}"
 
 umask 077
 
-# Stable adapter-owned error protocol shared by lifecycle scripts and the
-# Android app. Human diagnostics may evolve; these machine fields may not.
+# Stable adapter-owned error protocol shared by module scripts and the Android
+# app. The app validates only these bounds and displays all identity fields
+# opaquely, so adding a future domain, stage or code does not require an APK.
 Z2_ERROR_SCHEMA_VERSION=1
+Z2_ERROR_DETAIL_MAX_BYTES=512
 
-z2_error_domain_is_valid() {
-    case "$1" in
-        NONE|ROOT|STATE|LIFECYCLE|CONFIG|FIREWALL|PROCESS|STATUS|UPDATE) return 0 ;;
-        *) return 1 ;;
-    esac
-}
-
-z2_error_code_is_valid() {
-    case "$1" in
-        NONE|ROOT_DENIED|ROOT_MANAGER_UNAVAILABLE|ROOT_SHELL_FAILED|ROOT_COMMAND_QUEUE_BUSY|\
-        ROOT_COMMAND_TIMEOUT|ROOT_COMMAND_FAILED|STATE_UNAVAILABLE|LIFECYCLE_BUSY|UPDATE_BLOCKED|\
-        RECOVERY_BLOCKED|UNINSTALL_BLOCKED|MODULE_DISABLED|MODULE_REMOVAL_PENDING|\
-        CONFIG_INVALID|PREFLIGHT_FAILED|\
-        FIREWALL_PROBE_FAILED|FIREWALL_BUILD_FAILED|FIREWALL_CLEANUP_FAILED|\
-        FIREWALL_COMMIT_FAILED|PROCESS_LAUNCH_FAILED|PROCESS_STOP_FAILED|\
-        POSTCONDITION_FAILED|STATUS_DEGRADED|LIFECYCLE_FAILED) return 0 ;;
-        *) return 1 ;;
-    esac
-}
-
-z2_error_stage_is_valid() {
-    [ -n "$1" ] || return 1
+z2_error_token_is_valid() {
+    [ -n "$1" ] && [ "${#1}" -le 64 ] || return 1
     case "$1" in *[!A-Z0-9_]*) return 1 ;; esac
 }
 
-z2_error_code_matches_domain() {
-    case "$1:$2" in
-        NONE:NONE) return 0 ;;
-        ROOT:ROOT_DENIED|ROOT:ROOT_MANAGER_UNAVAILABLE|ROOT:ROOT_SHELL_FAILED|\
-        ROOT:ROOT_COMMAND_QUEUE_BUSY|ROOT:ROOT_COMMAND_TIMEOUT|ROOT:ROOT_COMMAND_FAILED) return 0 ;;
-        STATE:STATE_UNAVAILABLE) return 0 ;;
-        LIFECYCLE:LIFECYCLE_BUSY|LIFECYCLE:RECOVERY_BLOCKED|LIFECYCLE:UNINSTALL_BLOCKED|\
-        LIFECYCLE:MODULE_DISABLED|LIFECYCLE:MODULE_REMOVAL_PENDING|\
-        LIFECYCLE:POSTCONDITION_FAILED|LIFECYCLE:LIFECYCLE_FAILED) return 0 ;;
-        CONFIG:CONFIG_INVALID|CONFIG:PREFLIGHT_FAILED) return 0 ;;
-        FIREWALL:PREFLIGHT_FAILED|FIREWALL:FIREWALL_PROBE_FAILED|\
-        FIREWALL:FIREWALL_BUILD_FAILED|FIREWALL:FIREWALL_CLEANUP_FAILED|\
-        FIREWALL:FIREWALL_COMMIT_FAILED|FIREWALL:POSTCONDITION_FAILED) return 0 ;;
-        PROCESS:PROCESS_LAUNCH_FAILED|PROCESS:PROCESS_STOP_FAILED|\
-        PROCESS:POSTCONDITION_FAILED) return 0 ;;
-        STATUS:STATUS_DEGRADED) return 0 ;;
-        UPDATE:UPDATE_BLOCKED) return 0 ;;
-        *) return 1 ;;
-    esac
+z2_error_detail_normalize() {
+    printf '%s' "$1" | tr '\r\n\t' '   ' | cut -b "1-$Z2_ERROR_DETAIL_MAX_BYTES"
+}
+
+z2_error_detail_is_valid() {
+    local normalized
+    normalized="$(z2_error_detail_normalize "$1")"
+    [ "$1" = "$normalized" ]
 }
 
 z2_error_fields_are_valid() {
-    local domain="$1" code="$2" stage="$3" retryable="$4"
-    z2_error_domain_is_valid "$domain" && z2_error_code_is_valid "$code" &&
-        z2_error_stage_is_valid "$stage" &&
-        z2_error_code_matches_domain "$domain" "$code" || return 1
-    case "$retryable" in 0|1) ;; *) return 1 ;; esac
-    if [ "$code" = NONE ]; then
-        [ "$domain" = NONE ] && [ "$stage" = NONE ] && [ "$retryable" = 0 ]
+    local status="$1" domain="$2" stage="$3" code="$4" detail="$5"
+    case "$status" in OK|ERROR) ;; *) return 1 ;; esac
+    z2_error_token_is_valid "$domain" && z2_error_token_is_valid "$stage" &&
+        z2_error_token_is_valid "$code" && z2_error_detail_is_valid "$detail" || return 1
+    if [ "$status" = OK ]; then
+        [ "$domain" = NONE ] && [ "$stage" = NONE ] && [ "$code" = NONE ] &&
+            [ -z "$detail" ]
     else
-        [ "$domain" != NONE ] && [ "$stage" != NONE ]
+        [ "$domain" != NONE ] && [ "$stage" != NONE ] && [ "$code" != NONE ] &&
+            [ -n "$detail" ]
     fi
 }
 
 z2_error_set() {
-    z2_error_fields_are_valid "$1" "$2" "$3" "$4" || return 1
+    local detail
+    detail="$(z2_error_detail_normalize "$4")"
+    z2_error_fields_are_valid ERROR "$1" "$3" "$2" "$detail" || return 1
+    Z2_ERROR_STATUS=ERROR
     Z2_ERROR_DOMAIN="$1"
     Z2_ERROR_CODE="$2"
     Z2_ERROR_STAGE="$3"
-    Z2_ERROR_RETRYABLE="$4"
+    Z2_ERROR_DETAIL="$detail"
 }
 
 z2_error_clear() {
-    z2_error_set NONE NONE NONE 0
+    Z2_ERROR_STATUS=OK
+    Z2_ERROR_DOMAIN=NONE
+    Z2_ERROR_STAGE=NONE
+    Z2_ERROR_CODE=NONE
+    Z2_ERROR_DETAIL=""
 }
 
 z2_error_emit_machine() {
-    z2_error_fields_are_valid "${Z2_ERROR_DOMAIN:-}" "${Z2_ERROR_CODE:-}" \
-        "${Z2_ERROR_STAGE:-}" "${Z2_ERROR_RETRYABLE:-}" || return 1
-    echo "Z2_ERROR_SCHEMA=$Z2_ERROR_SCHEMA_VERSION"
-    echo "Z2_ERROR_DOMAIN=$Z2_ERROR_DOMAIN"
-    echo "Z2_ERROR_CODE=$Z2_ERROR_CODE"
-    echo "Z2_ERROR_STAGE=$Z2_ERROR_STAGE"
-    echo "Z2_ERROR_RETRYABLE=$Z2_ERROR_RETRYABLE"
+    z2_error_fields_are_valid "${Z2_ERROR_STATUS:-}" "${Z2_ERROR_DOMAIN:-}" \
+        "${Z2_ERROR_STAGE:-}" "${Z2_ERROR_CODE:-}" "${Z2_ERROR_DETAIL:-}" || return 1
+    printf 'Z2_ERROR_SCHEMA=%s\n' "$Z2_ERROR_SCHEMA_VERSION"
+    printf 'Z2_ERROR_STATUS=%s\n' "$Z2_ERROR_STATUS"
+    printf 'Z2_ERROR_DOMAIN=%s\n' "$Z2_ERROR_DOMAIN"
+    printf 'Z2_ERROR_STAGE=%s\n' "$Z2_ERROR_STAGE"
+    printf 'Z2_ERROR_CODE=%s\n' "$Z2_ERROR_CODE"
+    printf 'Z2_ERROR_DETAIL=%s\n' "$Z2_ERROR_DETAIL"
 }
 
 z2_error_clear
@@ -1114,48 +1094,13 @@ ensure_runtime_core_config() {
 }
 
 regenerate_runtime_core_config() {
-    local tmp="$RUNTIME_CONFIG.tmp.$$" preserved="$RUNTIME_CONFIG.sections.$$"
-    normalize_unsupported_wifi_only || return 1
-    normalize_qnum "$QNUM" || return 1
-    QNUM="$QNUM_NORMALIZED"
-    umask 077
-    [ ! -e "$tmp" ] && [ ! -L "$tmp" ] && [ ! -e "$preserved" ] && [ ! -L "$preserved" ] || return 1
+    local runtime_tool="$SCRIPT_DIR/runtime-config.sh"
+    [ -f "$runtime_tool" ] && [ ! -L "$runtime_tool" ] || return 1
     if runtime_config_exists; then
-        awk '
-            BEGIN { in_core=0; keep=0 }
-            /^[[:space:]]*\[[^]]+\][[:space:]]*$/ {
-                section=$0
-                gsub(/^[[:space:]]*\[/, "", section)
-                gsub(/\][[:space:]]*$/, "", section)
-                normalized=tolower(section)
-                if (normalized == "core") { in_core=1; keep=0; next }
-                in_core=0; keep=1
-            }
-            keep && !in_core { print }
-        ' "$RUNTIME_CONFIG" > "$preserved" || { rm -f "$preserved"; return 1; }
+        sh "$runtime_tool" --repair "$RUNTIME_CONFIG" >/dev/null 2>&1 || return 1
     else
-        : > "$preserved" || return 1
+        sh "$runtime_tool" "$RUNTIME_CONFIG" >/dev/null 2>&1 || return 1
     fi
-    {
-        echo "# Zapret2 runtime configuration"
-        echo "# Self-healed from built-in runtime defaults; bootstrap files were not read."
-        echo "[core]"
-        echo "schema_version=1"
-        echo "config_format=runtime-v1"
-        echo "runtime_source=self-healed-runtime"
-        printf 'autostart=%s\nwifi_only=%s\ndebug=%s\nqnum=%s\n' "$AUTOSTART" "$WIFI_ONLY" "$DEBUG" "$QNUM"
-        printf 'desync_mark=%s\npkt_out=%s\npkt_in=%s\n' "$DESYNC_MARK" "$PKT_OUT" "$PKT_IN"
-        printf 'active_preset=%s\n' "$ACTIVE_PRESET"
-        printf 'nfqws_uid=%s\nlog_mode=%s\n' "$NFQWS_UID" "$LOG_MODE"
-        if [ -s "$preserved" ]; then
-            echo
-            cat "$preserved"
-        fi
-    } > "$tmp" || { rm -f "$tmp" "$preserved"; return 1; }
-    rm -f "$preserved" || { rm -f "$tmp"; return 1; }
-    chmod 0600 "$tmp" 2>/dev/null || { rm -f "$tmp"; return 1; }
-    mv -f "$tmp" "$RUNTIME_CONFIG" || { rm -f "$tmp"; return 1; }
-    chmod 0644 "$RUNTIME_CONFIG" 2>/dev/null || return 1
     runtime_config_exists
 }
 
@@ -1267,6 +1212,7 @@ is_safe_runtime_file_name() {
 }
 
 set_core_config_defaults() {
+    RUNTIME_SOURCE="builtin-defaults"
     AUTOSTART=1
     WIFI_ONLY=0
     DEBUG=0
@@ -1355,10 +1301,15 @@ apply_runtime_core_overrides() {
                 ;;
             runtime_source)
                 case "$value" in ""|*[!A-Za-z0-9._-]*) RUNTIME_CONFIG_ERROR="invalid runtime.ini runtime_source"; return 1;; esac
+                RUNTIME_SOURCE="$value"
                 ;;
             autostart|wifi_only|debug|qnum|desync_mark|pkt_out|pkt_in|active_preset|nfqws_uid|log_mode)
                 apply_core_config_key "$key" "$value" || {
-                    RUNTIME_CONFIG_ERROR="invalid [core] value for $key"
+                    if [ "$key" = qnum ]; then
+                        RUNTIME_CONFIG_ERROR="qnum=$value, expected 1..65535"
+                    else
+                        RUNTIME_CONFIG_ERROR="$key=$value is invalid"
+                    fi
                     return 1
                 }
                 ;;
@@ -1387,6 +1338,32 @@ apply_runtime_core_overrides() {
     fi
     QNUM="$QNUM_NORMALIZED"
     return 0
+}
+
+runtime_config_error_code() {
+    case "$1" in
+        "unsupported runtime.ini schema_version") RUNTIME_CONFIG_ERROR_CODE=UNSUPPORTED_SCHEMA ;;
+        "unsupported runtime.ini config_format") RUNTIME_CONFIG_ERROR_CODE=UNSUPPORTED_FORMAT ;;
+        "runtime.ini contains duplicate [core] sections") RUNTIME_CONFIG_ERROR_CODE=DUPLICATE_CORE ;;
+        "invalid runtime.ini [core] key:"*) RUNTIME_CONFIG_ERROR_CODE=INVALID_CORE_KEY ;;
+        "invalid quoted value for [core]"*) RUNTIME_CONFIG_ERROR_CODE=INVALID_QUOTED_VALUE ;;
+        "malformed runtime.ini [core] line") RUNTIME_CONFIG_ERROR_CODE=MALFORMED_CORE_LINE ;;
+        "duplicate runtime.ini [core] key:"*) RUNTIME_CONFIG_ERROR_CODE=DUPLICATE_CORE_KEY ;;
+        "invalid runtime.ini runtime_source") RUNTIME_CONFIG_ERROR_CODE=INVALID_RUNTIME_SOURCE ;;
+        "unsupported runtime.ini [core] key:"*) RUNTIME_CONFIG_ERROR_CODE=UNKNOWN_CORE_KEY ;;
+        "runtime.ini has no [core] section") RUNTIME_CONFIG_ERROR_CODE=MISSING_CORE ;;
+        "runtime.ini [core] is partial;"*) RUNTIME_CONFIG_ERROR_CODE=INCOMPLETE_CORE ;;
+        "invalid [core] qnum"*|"invalid [core] value for qnum"|qnum=*", expected 1..65535")
+            RUNTIME_CONFIG_ERROR_CODE=INVALID_QNUM
+            ;;
+        "invalid [core] value for"*|*" is invalid")
+            RUNTIME_CONFIG_ERROR_CODE=INVALID_CORE_VALUE
+            ;;
+        "runtime.ini is required for read-only status")
+            RUNTIME_CONFIG_ERROR_CODE=RUNTIME_MISSING
+            ;;
+        *) RUNTIME_CONFIG_ERROR_CODE=CONFIG_INVALID ;;
+    esac
 }
 
 load_effective_core_config() {
@@ -2977,7 +2954,14 @@ validate_teardown_operation_journal() {
             digit=substr($4,4,1)
             if ($5=="anchor") { if (NF!=8 || $6 !~ /^[A-Za-z0-9_]+$/ || $7 !~ /^[A-Za-z0-9_]+$/ || $8 != "Z2M" digit "_" id "_" short || seen_name[$8]++) exit 1; actual=$4 "|anchor|" $6 "|" $7 }
             else if ($5=="chain") { if (NF!=7 || $6 !~ /^[A-Za-z0-9_]+$/ || $7 != "Z2X" digit "_" id "_" short || seen_name[$7]++) exit 1; actual=$4 "|chain|" $6 }
-            else if ($5=="rule") { if (NF!=19 || index($6,"Z2R_" tag "_")!=1 || $7 !~ /^(tcp|udp)$/ || $8 !~ /^(out|in)$/ || $9 !~ /^[0-9]+(,[0-9]+)*$/ || $10 !~ /^[0-9]+$/ || $11 !~ /^(original|reply)$/ || $12 !~ /^[0-9]+$/ || $13 !~ /^(0x)?[0-9A-Fa-f]+$/ || $14 !~ /^(0|1)$/ || $15 !~ /^(0|1)$/ || $16 !~ /^(0|1)$/ || $17 != 1 || $18 !~ /^[0-9a-f]+$/ || $19 != "Z2M" digit "_" id "_" short || seen_name[$19]++) exit 1; actual=$4 "|rule|" $6 "|" $7 "|" $8 "|" $9 "|" $10 "|" $11 "|" $12 "|" $13 "|" $14 "|" $15 "|" $16 "|" $17 }
+            else if ($5=="rule") {
+                # The port field is authenticated below by exact equality with
+                # the already normalized owner metadata.  Do not duplicate its
+                # grammar here: doing so previously rejected valid ranges such
+                # as 80:65535 after this writer had durably emitted them.
+                if (NF!=19 || index($6,"Z2R_" tag "_")!=1 || $7 !~ /^(tcp|udp)$/ || $8 !~ /^(out|in)$/ || $10 !~ /^[0-9]+$/ || $11 !~ /^(original|reply)$/ || $12 !~ /^[0-9]+$/ || $13 !~ /^(0x)?[0-9A-Fa-f]+$/ || $14 !~ /^(0|1)$/ || $15 !~ /^(0|1)$/ || $16 !~ /^(0|1)$/ || $17 != 1 || $18 !~ /^[0-9a-f]+$/ || $19 != "Z2M" digit "_" id "_" short || seen_name[$19]++) exit 1
+                actual=$4 "|rule|" $6 "|" $7 "|" $8 "|" $9 "|" $10 "|" $11 "|" $12 "|" $13 "|" $14 "|" $15 "|" $16 "|" $17
+            }
             else exit 1
             if (id>expected_n || actual!=expected[id]) { if (ENVIRON["Z2_WAL_DEBUG"]=="1") print "manifest mismatch " id ": " actual " != " expected[id] > "/dev/stderr"; exit 1 }
         }
@@ -4118,10 +4102,11 @@ STATUS_FILE_OWN_PID_STARTTIME=""
 STATUS_FILE_OWNER_GENERATION=""
 STATUS_FILE_DIAGNOSTICS=""
 STATUS_FILE_ERROR_SCHEMA=0
+STATUS_FILE_ERROR_STATUS=OK
 STATUS_FILE_ERROR_DOMAIN=NONE
 STATUS_FILE_ERROR_CODE=NONE
 STATUS_FILE_ERROR_STAGE=NONE
-STATUS_FILE_ERROR_RETRYABLE=0
+STATUS_FILE_ERROR_DETAIL=""
 
 read_iptables_status() {
     local path="${1:-$IPTABLES_STATUS}"
@@ -4132,8 +4117,9 @@ read_iptables_status() {
     STATUS_FILE_IPV4_RULES=0; STATUS_FILE_IPV6_RULES=0; STATUS_FILE_RULESET_VERIFIED=0
     STATUS_FILE_OWNER_METADATA_VERIFIED=0; STATUS_FILE_RULES_EXPECTED=0; STATUS_FILE_DIAGNOSTICS=""
     STATUS_FILE_OWN_PID=""; STATUS_FILE_OWN_PID_STARTTIME=""; STATUS_FILE_OWNER_GENERATION=""
-    STATUS_FILE_ERROR_SCHEMA=0; STATUS_FILE_ERROR_DOMAIN=NONE; STATUS_FILE_ERROR_CODE=NONE
-    STATUS_FILE_ERROR_STAGE=NONE; STATUS_FILE_ERROR_RETRYABLE=0
+    STATUS_FILE_ERROR_SCHEMA=0; STATUS_FILE_ERROR_STATUS=OK
+    STATUS_FILE_ERROR_DOMAIN=NONE; STATUS_FILE_ERROR_CODE=NONE
+    STATUS_FILE_ERROR_STAGE=NONE; STATUS_FILE_ERROR_DETAIL=""
     if [ "$path" = "$IPTABLES_STATUS" ]; then
         state_file_is_secure "$path" && [ -r "$path" ] || return 1
     else
@@ -4164,10 +4150,11 @@ read_iptables_status() {
             owner_generation) STATUS_FILE_OWNER_GENERATION="$value" ;;
             diagnostics) STATUS_FILE_DIAGNOSTICS="$value" ;;
             error_schema) STATUS_FILE_ERROR_SCHEMA="$value" ;;
+            error_status) STATUS_FILE_ERROR_STATUS="$value" ;;
             error_domain) STATUS_FILE_ERROR_DOMAIN="$value" ;;
             error_code) STATUS_FILE_ERROR_CODE="$value" ;;
             error_stage) STATUS_FILE_ERROR_STAGE="$value" ;;
-            error_retryable) STATUS_FILE_ERROR_RETRYABLE="$value" ;;
+            error_detail) STATUS_FILE_ERROR_DETAIL="$value" ;;
         esac
     done < "$path"
     normalize_qnum "$STATUS_FILE_QNUM" && STATUS_FILE_QNUM="$QNUM_NORMALIZED" || STATUS_FILE_QNUM=""
@@ -4188,12 +4175,13 @@ read_iptables_status() {
             is_safe_token "$STATUS_FILE_OWNER_GENERATION" || return 1
     fi
     if [ "$STATUS_FILE_ERROR_SCHEMA" = "$Z2_ERROR_SCHEMA_VERSION" ] &&
-       z2_error_fields_are_valid "$STATUS_FILE_ERROR_DOMAIN" "$STATUS_FILE_ERROR_CODE" \
-           "$STATUS_FILE_ERROR_STAGE" "$STATUS_FILE_ERROR_RETRYABLE"; then
+       z2_error_fields_are_valid "$STATUS_FILE_ERROR_STATUS" "$STATUS_FILE_ERROR_DOMAIN" \
+           "$STATUS_FILE_ERROR_STAGE" "$STATUS_FILE_ERROR_CODE" "$STATUS_FILE_ERROR_DETAIL"; then
         :
     elif [ "$STATUS_FILE_ERROR_SCHEMA" = 0 ]; then
+        STATUS_FILE_ERROR_STATUS=OK
         STATUS_FILE_ERROR_DOMAIN=NONE; STATUS_FILE_ERROR_CODE=NONE
-        STATUS_FILE_ERROR_STAGE=NONE; STATUS_FILE_ERROR_RETRYABLE=0
+        STATUS_FILE_ERROR_STAGE=NONE; STATUS_FILE_ERROR_DETAIL=""
     else
         return 1
     fi
@@ -4213,11 +4201,14 @@ restore_status_facts() {
 
 write_iptables_status() {
     local state="$1" tmp="$IPTABLES_STATUS.tmp.$$" errors diagnostics
+    local error_status="${STATUS_ERROR_STATUS:-OK}"
     local error_domain="${STATUS_ERROR_DOMAIN:-NONE}" error_code="${STATUS_ERROR_CODE:-NONE}"
-    local error_stage="${STATUS_ERROR_STAGE:-NONE}" error_retryable="${STATUS_ERROR_RETRYABLE:-0}"
+    local error_stage="${STATUS_ERROR_STAGE:-NONE}" error_detail
     errors="$(status_safe_value "${STATUS_ERRORS:-}")"
     diagnostics="$(status_safe_value "${STATUS_DIAGNOSTICS:-}")"
-    z2_error_fields_are_valid "$error_domain" "$error_code" "$error_stage" "$error_retryable" ||
+    error_detail="$(z2_error_detail_normalize "${STATUS_ERROR_DETAIL:-}")"
+    z2_error_fields_are_valid "$error_status" "$error_domain" "$error_stage" "$error_code" \
+        "$error_detail" ||
         return 1
     ensure_state_dir || return 1
     state_file_target_is_safe "$IPTABLES_STATUS" || return 1
@@ -4253,11 +4244,12 @@ write_iptables_status() {
         echo "multiport_supported=${STATUS_MULTIPORT_SUPPORTED:-0}"
         echo "mark_supported=${STATUS_MARK_SUPPORTED:-0}"
         echo "fallback_mode=${STATUS_FALLBACK_MODE:-0}"
-        echo "error_schema=$Z2_ERROR_SCHEMA_VERSION"
-        echo "error_domain=$error_domain"
-        echo "error_code=$error_code"
-        echo "error_stage=$error_stage"
-        echo "error_retryable=$error_retryable"
+        printf 'error_schema=%s\n' "$Z2_ERROR_SCHEMA_VERSION"
+        printf 'error_status=%s\n' "$error_status"
+        printf 'error_domain=%s\n' "$error_domain"
+        printf 'error_code=%s\n' "$error_code"
+        printf 'error_stage=%s\n' "$error_stage"
+        printf 'error_detail=%s\n' "$error_detail"
         echo "diagnostics=$diagnostics"
     } > "$tmp" || { rm -f "$tmp"; return 1; }
     chmod 0600 "$tmp" 2>/dev/null || { rm -f "$tmp"; return 1; }
