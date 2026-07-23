@@ -283,9 +283,10 @@ elif [ ! -x /system/bin/sh ]; then
     fail "/system exists without a usable /system/bin/sh"
 fi
 
-# A module removed by an older release can leave a malformed interrupted-build
-# journal behind. A fresh installer may retire it only after proving the whole
-# reserved namespace is empty; visible residue must preserve the evidence.
+# A build/probe track is an ephemeral WAL owned by a serialized runtime
+# lifecycle operation, not an installation ABI. Once the installer owns the
+# exact lifecycle lock it retires a safe canonical track without parsing its
+# old contents or requiring the interrupted firewall namespace to be empty.
 cat > "$MOCK/iptables" <<'EOF'
 #!/bin/sh
 case "$*" in
@@ -304,46 +305,48 @@ printf '%s\n' 'malformed interrupted build evidence' > "$LIVE_STATE/build-track.
 chmod 0600 "$LIVE_STATE/build-track.ipv4.4115"
 Z2_TEST_NAMESPACE=1
 export Z2_TEST_NAMESPACE
-set +e
-PATH="$MOCK:$PATH" run_installer
-residue_install_rc=$?
-set -e
+PATH="$MOCK:$PATH" run_installer || fail "fresh install did not retire an opaque runtime track"
 unset Z2_TEST_NAMESPACE
-[ "$residue_install_rc" = 1 ] || fail "fresh install discarded a track while firewall residue remained"
-[ -f "$LIVE_STATE/build-track.ipv4.4115" ] ||
-    fail "blocked fresh install deleted malformed track evidence"
-
-# With no live module, process, mixed recovery artifact, or reserved firewall
-# object, the track is now orphaned and cannot protect any remaining mutation.
-PATH="$MOCK:$PATH" run_installer || fail "fresh standard install did not recover orphaned track"
 [ ! -e "$LIVE_STATE/build-track.ipv4.4115" ] &&
     [ ! -L "$LIVE_STATE/build-track.ipv4.4115" ] ||
-    fail "fresh standard install left orphaned track evidence"
+    fail "fresh standard install left opaque runtime tracking"
 [ -f "$UPDATE/zapret2/install-generation.meta" ] || fail "fresh install generation was not published"
 grep -Eq '^archive_sha256=[0-9a-f]{64}$' "$UPDATE/zapret2/install-generation.meta" || fail "archive hash is invalid"
 [ ! -e "$UPDATE/customize.sh" ] || fail "installer-only customize.sh remained in the installed shape"
 mv "$UPDATE" "$LIVE"
 
 # A root-manager disable fence on a complete live module must survive a
-# standard modules_update install byte-for-byte. Terminal IPv4/IPv6 build
-# journals from a dead same-boot start owner must not block that update even
-# though the active module directory still exists.
+# standard modules_update install byte-for-byte. Reproduce the real device
+# failure: a dead same-boot start left unfinished IPv4/IPv6 WAL records and
+# partial firewall objects. Their contents belong to the old runtime lifecycle,
+# so they must not gate staging the new module.
 track_boot=$(cat /proc/sys/kernel/random/boot_id)
 for track_family in ipv4 ipv6; do
+    track_tool=iptables
+    track_tag=e4755ceb92
+    [ "$track_family" = ipv4 ] || { track_tool=ip6tables; track_tag=f4755ceb92; }
     cat > "$LIVE_STATE/build-track.$track_family.99999997" <<EOF
 version=2
 mode=build
-tool=$(if [ "$track_family" = ipv4 ]; then echo iptables; else echo ip6tables; fi)
+tool=$track_tool
 module_dir=$LIVE
 creator_pid=99999997
 creator_starttime=1
 boot_id=$track_boot
+record|1|applied|chain|Z2O_$track_tag
+record|2|applied|chain|Z2I_$track_tag
+record|3|applied|chain|Z2R_${track_tag}_O1
+record|4|applied|anchor|Z2O_$track_tag|Z2R_${track_tag}_O1
+record|5|pending|rule|Z2R_${track_tag}_O1|tcp|out|80:65535|20|original|200|0x40000000|1|1|1
 EOF
     chmod 0600 "$LIVE_STATE/build-track.$track_family.99999997"
 done
 : > "$LIVE/disable"
 chmod 0600 "$LIVE/disable"
-run_installer || fail "disabled standard install failed"
+Z2_TEST_NAMESPACE=1
+export Z2_TEST_NAMESPACE
+PATH="$MOCK:$PATH" run_installer || fail "live standard install was blocked by old runtime WAL"
+unset Z2_TEST_NAMESPACE
 [ ! -e "$LIVE_STATE/build-track.ipv4.99999997" ] ||
     fail "standard update left terminal IPv4 build tracking"
 [ ! -e "$LIVE_STATE/build-track.ipv6.99999997" ] ||

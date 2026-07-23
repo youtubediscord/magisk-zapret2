@@ -477,6 +477,32 @@ audit_recovery_artifacts lifecycle || fail "locked same-boot dead creator recove
     fail "locked same-boot dead creator recovery did not retire journal"
 drop_lifecycle_lock
 
+# The validator accepts the exact journal grammar emitted for a ranged port
+# list. This fixture mirrors the device report that exposed a reader/writer
+# contract mismatch around 80:65535.
+reset_all
+device_journal="$STATE/build-track.ipv4.99999995"
+cat > "$device_journal" <<EOF
+version=2
+mode=build
+tool=iptables
+module_dir=$MOD
+creator_pid=99999995
+creator_starttime=2374
+boot_id=$Z2_TEST_BOOT_ID
+record|1|applied|chain|Z2O_e4755ceb92
+record|2|applied|chain|Z2I_e4755ceb92
+record|3|applied|chain|Z2R_e4755ceb92_O1
+record|4|applied|anchor|Z2O_e4755ceb92|Z2R_e4755ceb92_O1
+record|5|pending|rule|Z2R_e4755ceb92_O1|tcp|out|80:65535|20|original|200|0x40000000|1|1|1
+EOF
+chmod 0600 "$device_journal"
+validate_track_journal_identity "$device_journal" ||
+    fail "ranged-port device journal was rejected"
+[ "$TRACK_FIREWALL_TAG" = e4755ceb92 ] && [ "$TRACK_JOURNAL_TOOL" = iptables ] ||
+    fail "ranged-port device journal identity was parsed incorrectly"
+rm -f "$device_journal"
+
 # Terminal build journals do not need a family baseline: zero records or only
 # consumed records prove that no unfinished mutation remains. This is the
 # update regression for both build-track.ipv4 and build-track.ipv6 on devices
