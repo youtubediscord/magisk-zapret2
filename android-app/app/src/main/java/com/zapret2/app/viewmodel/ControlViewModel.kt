@@ -2056,7 +2056,7 @@ class ControlViewModel @Inject constructor(
                                 },
                             ),
                         )
-                        if (!terminal.requiresReboot) {
+                        if (!terminal.requiresReboot && !terminal.restartService) {
                             refreshStatusAfterUpdate()
                         }
                     }
@@ -2102,7 +2102,7 @@ class ControlViewModel @Inject constructor(
                                 },
                             ),
                         )
-                        if (!requiresReboot) {
+                        if (!requiresReboot && !terminal.restartService) {
                             refreshStatusAfterUpdate()
                         }
                     }
@@ -2111,6 +2111,7 @@ class ControlViewModel @Inject constructor(
                         details = UiText.Resource(R.string.control_unknown_error),
                     )
                 }
+                if (report.restartService) restoreRunningServiceAfterUpdate()
             }.onFailure {
                 showErrorDialog(
                     kind = ControlErrorKind.UPDATE,
@@ -2123,6 +2124,44 @@ class ControlViewModel @Inject constructor(
     private suspend fun refreshStatusAfterUpdate() {
         delay(UPDATE_STATUS_REFRESH_DELAY_MS)
         if (screenStarted) pollStatusOnce(forceFirewallWatchdog = true)
+    }
+
+    /**
+     * A module update commits and releases its mutation lock before this lifecycle action begins.
+     * Slow firewall startup can therefore never hold the installer in "module installing" or
+     * roll the verified software generation back.
+     */
+    private suspend fun restoreRunningServiceAfterUpdate() {
+        if (!exclusiveActionInProgress.compareAndSet(false, true)) return
+        _uiState.update { it.copy(isToggling = true) }
+        try {
+            val lifecycleResult = ServiceLifecycleController.start()
+            val verifiedState = refreshStatus(forceFirewallWatchdog = true)
+            if (lifecycleResult.success && verifiedState.isRunning) {
+                serviceEventBus.notifyServiceRestarted()
+                return
+            }
+            val diagnostic = lifecycleResult.diagnosticText()
+                .ifBlank { readServiceFailureLogs() }
+            showErrorDialog(
+                kind = ControlErrorKind.START_SERVICE,
+                details = if (diagnostic.isBlank()) {
+                    UiText.Resource(R.string.control_service_expected_state_error)
+                } else {
+                    UiText.Dynamic(diagnostic)
+                },
+            )
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            showErrorDialog(
+                kind = ControlErrorKind.START_SERVICE,
+                details = UiText.Resource(R.string.control_service_expected_state_error),
+            )
+        } finally {
+            _uiState.update { it.copy(isToggling = false) }
+            exclusiveActionInProgress.set(false)
+        }
     }
 
     private suspend fun restartService() {

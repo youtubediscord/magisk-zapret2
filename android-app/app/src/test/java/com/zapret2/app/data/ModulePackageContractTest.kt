@@ -100,6 +100,7 @@ class ModulePackageContractTest {
         val expected = setOf(
             "immutable-file|0644|module.prop",
             "immutable-file|0644|zapret2/runtime-manifest.tsv",
+            "immutable-file|0644|zapret2/lifecycle-contract.version",
             "immutable-file|0644|zapret2/upstream-zapret2.commit",
             "immutable-file|0644|zapret2/strategy-catalogs/tcp.txt",
             "immutable-file|0644|zapret2/strategy-catalogs/udp.txt",
@@ -169,6 +170,30 @@ class ModulePackageContractTest {
         writeValidPackage(invalidWrapper)
         File(invalidWrapper, wrapper.relativePath).appendText("# invalid\n")
         assertNotNull(ModulePackageContract.validateStaging(invalidWrapper, "arm64-v8a"))
+    }
+
+    @Test
+    fun lifecycleContractMarker_isMandatoryAndExact() {
+        val valid = temporaryFolder.newFolder("valid-lifecycle-contract")
+        writeValidPackage(valid)
+        assertEquals(
+            "${ModulePackageContract.LIFECYCLE_CONTRACT_VERSION}\n",
+            File(valid, ModulePackageContract.LIFECYCLE_CONTRACT_PATH).readText(),
+        )
+        assertNull(ModulePackageContract.validateStaging(valid, "arm64-v8a"))
+
+        listOf("", "1\n", "2", "2\nextra\n").forEachIndexed { index, content ->
+            val invalid = temporaryFolder.newFolder("invalid-lifecycle-contract-$index")
+            writeValidPackage(invalid)
+            File(invalid, ModulePackageContract.LIFECYCLE_CONTRACT_PATH).writeText(content)
+            assertNotNull(ModulePackageContract.validateStaging(invalid, "arm64-v8a"))
+            assertNotNull(
+                ModulePackageContract.validateArchive(
+                    zip(invalid, "invalid-lifecycle-contract-$index.zip"),
+                    "arm64-v8a",
+                )
+            )
+        }
     }
 
     @Test
@@ -665,6 +690,8 @@ class ModulePackageContractTest {
                     parentFile?.mkdirs()
                     when (relative) {
                         "module.prop" -> writeText(validModuleProp())
+                        ModulePackageContract.LIFECYCLE_CONTRACT_PATH ->
+                            writeText("${ModulePackageContract.LIFECYCLE_CONTRACT_VERSION}\n")
                         ModulePackageContract.UPDATE_GUARD_PATH -> {
                             writeText("#!/system/bin/sh\necho guarded\n")
                             setExecutable(true, false)
