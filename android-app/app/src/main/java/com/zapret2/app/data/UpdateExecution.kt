@@ -80,6 +80,7 @@ internal sealed interface ModuleArtifactOutcome {
 
     data class Installed(
         val requiresReboot: Boolean,
+        val restartService: Boolean = false,
     ) : ModuleArtifactOutcome
 
     /** The requested module was deliberately not installed because another preflight failed. */
@@ -115,6 +116,9 @@ internal data class UpdateExecutionReport(
     val requiresReboot: Boolean
         get() = (module as? ModuleArtifactOutcome.Installed)?.requiresReboot == true
 
+    val restartService: Boolean
+        get() = (module as? ModuleArtifactOutcome.Installed)?.restartService == true
+
     val madeProgress: Boolean
         get() = module is ModuleArtifactOutcome.Installed || apk is ApkArtifactOutcome.InstallerPending
 
@@ -138,24 +142,31 @@ internal sealed interface UpdateTerminalOutcome {
     data class Partial(
         val requiresReboot: Boolean,
         val failure: UpdateFailure?,
+        val restartService: Boolean = false,
     ) : UpdateTerminalOutcome
 
     data class Failed(val failure: UpdateFailure) : UpdateTerminalOutcome
 
-    data class ApkInstallerPending(val requiresReboot: Boolean) : UpdateTerminalOutcome
+    data class ApkInstallerPending(
+        val requiresReboot: Boolean,
+        val restartService: Boolean = false,
+    ) : UpdateTerminalOutcome
 
-    data class Installed(val requiresReboot: Boolean) : UpdateTerminalOutcome
+    data class Installed(
+        val requiresReboot: Boolean,
+        val restartService: Boolean = false,
+    ) : UpdateTerminalOutcome
 
     data object Invalid : UpdateTerminalOutcome
 }
 
 internal fun UpdateExecutionReport.toTerminalOutcome(): UpdateTerminalOutcome = when {
-    isPartial -> UpdateTerminalOutcome.Partial(requiresReboot, primaryFailure)
+    isPartial -> UpdateTerminalOutcome.Partial(requiresReboot, primaryFailure, restartService)
     hasFailure -> UpdateTerminalOutcome.Failed(requireNotNull(primaryFailure))
     apk is ApkArtifactOutcome.InstallerPending ->
-        UpdateTerminalOutcome.ApkInstallerPending(requiresReboot)
+        UpdateTerminalOutcome.ApkInstallerPending(requiresReboot, restartService)
     module is ModuleArtifactOutcome.Installed ->
-        UpdateTerminalOutcome.Installed(requiresReboot)
+        UpdateTerminalOutcome.Installed(requiresReboot, restartService)
     else -> UpdateTerminalOutcome.Invalid
 }
 

@@ -69,6 +69,8 @@ class Zapret2ModuleRepositoryTest {
         assertTrue(command.contains(Zapret2ModuleRepository.ACTIVE_MODULE_DIR))
         assertTrue(command.contains(Zapret2ModuleRepository.PENDING_MODULE_DIR))
         assertTrue(command.contains("zapret2/bin/arm64-v8a/nfqws2"))
+        assertTrue(command.contains(ModulePackageContract.LIFECYCLE_CONTRACT_PATH))
+        assertTrue(command.contains("= ${ModulePackageContract.LIFECYCLE_CONTRACT_VERSION} ]"))
         assertFalse(command.contains("package_contract_validate_runtime_selection"))
         assertFalse(command.contains("--validate-strategies-machine"))
         assertFalse(command.contains("--preflight-preset-machine"))

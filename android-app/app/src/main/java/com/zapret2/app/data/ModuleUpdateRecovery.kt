@@ -250,12 +250,17 @@ object ModuleUpdateRecovery {
         }
 
         if (directories.backup) {
-            if (directories.module && transaction.phase in setOf("verified", "restored") &&
+            if (directories.module && transaction.phase == "verified" &&
+                verifyPublishedGeneration(transaction.disableMarkerExpectation)
+            ) {
+                return finishTerminalRecovery(transaction, transaction.phase, marker)
+            }
+            if (directories.module && transaction.phase == "restored" &&
                 restoreExpectedState(
                     transaction.preUpdateState,
                     transaction.disableMarkerExpectation,
                     marker,
-                    requireInstallGeneration = transaction.phase == "verified",
+                    requireInstallGeneration = false,
                 )
             ) {
                 return finishTerminalRecovery(transaction, transaction.phase, marker)
@@ -278,11 +283,19 @@ object ModuleUpdateRecovery {
             if (!unambiguousActive) {
                 return Result.Failed("The update backup is missing in phase ${transaction.phase}; ambiguous files were preserved")
             }
+            if (transaction.phase == "verified") {
+                if (!verifyPublishedGeneration(transaction.disableMarkerExpectation)) {
+                    return Result.Failed(
+                        "The committed software generation failed integrity verification; update metadata was preserved"
+                    )
+                }
+                return finishTerminalRecovery(transaction, "verified", marker)
+            }
             if (!restoreExpectedState(
                     transaction.preUpdateState,
                     transaction.disableMarkerExpectation,
                     marker,
-                    requireInstallGeneration = transaction.phase == "verified",
+                    requireInstallGeneration = false,
                 )
             ) {
                 return Result.Failed("The only available module copy could not reach the verified pre-update state; update metadata was preserved")
@@ -637,6 +650,17 @@ object ModuleUpdateRecovery {
         append(" && ").append(safeRootDirectoryPredicate("$moduleDir/zapret2"))
         append(" && ").append(safeRootDirectoryPredicate("$moduleDir/zapret2/scripts"))
         append(" && ").append(secureRootRegularFilePredicate("$moduleDir/module.prop", "644"))
+        if (requireInstallGeneration) {
+            append(" && ").append(
+                secureRootRegularFilePredicate(
+                    "$moduleDir/${ModulePackageContract.LIFECYCLE_CONTRACT_PATH}",
+                    "644",
+                )
+            )
+            append(" && [ \"${'$'}(cat ")
+                .append(RootFileIo.shellQuote("$moduleDir/${ModulePackageContract.LIFECYCLE_CONTRACT_PATH}"))
+                .append(" 2>/dev/null)\" = 2 ]")
+        }
         append(" && ").append(secureRootRegularFilePredicate("$moduleDir/zapret2/nfqws2", "755"))
         listOf(
             "common.sh",
@@ -993,6 +1017,13 @@ object ModuleUpdateRecovery {
         ModuleUpdatePreservation.expectedDisableMarkerPredicate(moduleDir, expectation)
     ).success
 
+    private suspend fun verifyPublishedGeneration(
+        expectation: ModuleUpdatePreservation.DisableMarkerExpectation,
+    ): Boolean = dependencies().executeRoot(
+        "{ ${activeModuleIntegrityPredicate(requireInstallGeneration = true)}; } && " +
+            "{ ${ModuleUpdatePreservation.expectedDisableMarkerPredicate(MODULE_DIR, expectation)}; }"
+    ).success
+
     private suspend fun writeTransactionPhase(
         transaction: Transaction,
         phase: String,
@@ -1110,8 +1141,10 @@ object ModuleUpdateRecovery {
         val activeIntegrity = activeModuleIntegrityPredicate(
             requireInstallGeneration = transaction.phase == "verified"
         )
-        return "{ $activeIntegrity; } && " +
-            "{ ${ModuleUpdatePreservation.expectedDisableMarkerPredicate(MODULE_DIR, transaction.disableMarkerExpectation)}; } && " +
+        val generationPrerequisite = "{ $activeIntegrity; } && " +
+            "{ ${ModuleUpdatePreservation.expectedDisableMarkerPredicate(MODULE_DIR, transaction.disableMarkerExpectation)}; }"
+        if (transaction.phase == "verified") return generationPrerequisite
+        return "$generationPrerequisite && " +
             "{ z2_terminal_status=0; ${authorizedRecoveryLifecycle(marker, statusScript, listOf("--machine"))} >/dev/null 2>&1 || " +
             "z2_terminal_status=${'$'}?; [ \"${'$'}z2_terminal_status\" -eq $expectedExit ]; }"
     }

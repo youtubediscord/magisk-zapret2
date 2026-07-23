@@ -211,6 +211,11 @@ class Zapret2ModuleRepository @Inject constructor() {
                     fi
                 done
                 if [ "${'$'}z2_state" = ready ]; then
+                    z2_contract="${'$'}z2_slot/${ModulePackageContract.LIFECYCLE_CONTRACT_PATH}"
+                    [ "${'$'}(cat "${'$'}z2_contract" 2>/dev/null)" = ${ModulePackageContract.LIFECYCLE_CONTRACT_VERSION} ] ||
+                        z2_state=partial
+                fi
+                if [ "${'$'}z2_state" = ready ]; then
                     for z2_relative in $executablePaths
                     do
                         z2_required="${'$'}z2_slot/${'$'}z2_relative"

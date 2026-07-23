@@ -9,6 +9,7 @@ immutable-exec|0755|service.sh
 immutable-exec|0755|uninstall.sh
 immutable-exec|0755|action.sh
 immutable-file|0644|zapret2/runtime-manifest.tsv
+immutable-file|0644|zapret2/lifecycle-contract.version
 immutable-file|0644|zapret2/upstream-zapret2.commit
 immutable-exec|0755|zapret2/scripts/common.sh
 immutable-exec|0755|zapret2/scripts/command-builder.sh

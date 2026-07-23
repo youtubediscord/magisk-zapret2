@@ -302,6 +302,7 @@ package_contract_validate_manifest() {
     for required_entry in \
         "immutable-file|0644|module.prop" \
         "immutable-file|0644|zapret2/runtime-manifest.tsv" \
+        "immutable-file|0644|zapret2/lifecycle-contract.version" \
         "immutable-file|0644|zapret2/upstream-zapret2.commit" \
         "immutable-file|0644|zapret2/strategy-catalogs/tcp.txt" \
         "immutable-file|0644|zapret2/strategy-catalogs/udp.txt" \
@@ -439,6 +440,19 @@ package_contract_validate_module_prop() {
         }
     ' "$file" || {
         package_contract_fail "MODULE_PROP_INVALID" "module.prop"
+        return 1
+    }
+    return 0
+}
+
+package_contract_validate_lifecycle_contract() {
+    local root="$1"
+    local relative="zapret2/lifecycle-contract.version"
+    local file="$root/$relative"
+    package_contract_check_regular "$file" "$relative" || return 1
+    [ "$(wc -l < "$file" 2>/dev/null)" = 1 ] &&
+        [ "$(cat "$file" 2>/dev/null)" = 2 ] || {
+        package_contract_fail "LIFECYCLE_CONTRACT_INVALID" "$relative"
         return 1
     }
     return 0
@@ -645,6 +659,48 @@ package_contract_assemble_package() {
 package_contract_content_callback() {
     local root="$1" class="$2" mode="$3" path="$4"
     package_contract_check_regular "$root/$path" "$path"
+}
+
+package_contract_compare_release_callback() {
+    local source_root="$1" class="$2" mode="$3" path="$4"
+    local source="$source_root/$path"
+    local target="$PACKAGE_CONTRACT_COMPARE_TARGET/$path"
+    case "$class" in
+        immutable-file|immutable-exec|runtime-dependency-immutable|abi-exec|preset-compatible|preset-quarantined) ;;
+        *) return 0 ;;
+    esac
+    [ "$path" != customize.sh ] || return 0
+    package_contract_check_regular "$source" "$path" || return 1
+    package_contract_check_regular "$target" "$path" || return 1
+    cmp -s "$source" "$target" || {
+        package_contract_fail "PACKAGE_GENERATION_MISMATCH" "$path"
+        return 1
+    }
+}
+
+# Proves that every package-owned immutable byte in an installed candidate came
+# from one source release. Mutable seeds, hostlists, custom presets, the selected
+# installed ABI binary, and installer metadata have their own explicit contracts.
+package_contract_compare_release() {
+    local source_root="${1%/}" target_root="${2%/}" result=0
+    [ -n "$source_root" ] && [ -d "$source_root" ] && [ ! -L "$source_root" ] || {
+        package_contract_fail "PACKAGE_ROOT_INVALID" "$source_root"; return 1;
+    }
+    [ -n "$target_root" ] && [ -d "$target_root" ] && [ ! -L "$target_root" ] || {
+        package_contract_fail "PACKAGE_ROOT_INVALID" "$target_root"; return 1;
+    }
+    package_contract_validate_manifest "$source_root" || return 1
+    package_contract_validate_manifest "$target_root" || return 1
+    cmp -s "$source_root/$PACKAGE_CONTRACT_MANIFEST_REL" \
+        "$target_root/$PACKAGE_CONTRACT_MANIFEST_REL" || {
+        package_contract_fail "PACKAGE_GENERATION_MISMATCH" "$PACKAGE_CONTRACT_MANIFEST_REL"
+        return 1
+    }
+    PACKAGE_CONTRACT_COMPARE_TARGET="$target_root"
+    package_contract_for_each_path "$source_root" installed package_contract_compare_release_callback
+    result=$?
+    unset PACKAGE_CONTRACT_COMPARE_TARGET
+    return "$result"
 }
 
 package_contract_shell_exec_callback() {
@@ -1056,6 +1112,7 @@ package_contract_validate_all() {
     local root="$1" profile="${2:-package}"
     package_contract_validate_tree "$root" "$profile" || return 1
     package_contract_validate_module_prop "$root" || return 1
+    package_contract_validate_lifecycle_contract "$root" || return 1
     package_contract_for_each_path "$root" "$profile" package_contract_shell_exec_callback || return 1
     package_contract_validate_catalog "$root" || return 1
     return 0

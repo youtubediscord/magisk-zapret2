@@ -205,6 +205,23 @@ fix. No-op stubs, disabled validation, catch-all fallbacks, arbitrary retries,
 hard-coded happy paths, test-only production exceptions, and similar workarounds
 are not acceptable substitutes for a correct design.
 
+### Clean-state invariant
+
+The steady state of every project-owned system must be minimal and unambiguous.
+Keep exactly one authoritative active generation and only the runtime state that
+the current contract requires. Old generations, retained backups, superseded
+metadata, obsolete compatibility artifacts, abandoned transaction directories,
+and other project-owned residue must not remain after a successful operation or
+recovery.
+
+Temporary files or quarantine directories are allowed only inside a journaled
+atomic transaction when they are required for crash safety. They must have a
+single owner, a bounded lifetime, and deterministic commit/recovery cleanup.
+Service-health failures after a verified software-generation commit must be
+reported as lifecycle failures; they must not restore an obsolete generation or
+leave duplicate trees behind. Never delete user-owned configuration or data
+outside the explicit replacement/preservation contract.
+
 Before changing code:
 
 1. Reproduce the failure and identify the violated contract, ownership boundary,

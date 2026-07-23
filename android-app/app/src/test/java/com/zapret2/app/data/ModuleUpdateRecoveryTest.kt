@@ -100,6 +100,19 @@ class ModuleUpdateRecoveryTest {
     }
 
     @Test
+    fun verifiedGenerationRecovery_commitsCleanupWithoutCallingLifecycleScripts() = runBlocking {
+        val backend = FakeRecoveryDependencies(
+            transactionPresent = true,
+            cleanupState = CleanupMatrixState.ABSENT,
+            lockState = LockMatrixState.STALE,
+        )
+
+        assertTrue(ModuleUpdateRecovery.recoverLocked(backend) is ModuleUpdateRecovery.Result.Recovered)
+        assertTrue(backend.commands.none { it.contains("--machine") })
+        assertTrue(backend.commands.none { it.contains("ZAPRET2_UPDATE_TOKEN=") })
+    }
+
+    @Test
     fun recoverLocked_cancellationAfterAcquireAlwaysReleasesAndPreservesEvidence() = runBlocking {
         val backend = FakeRecoveryDependencies(
             transactionPresent = false,
@@ -491,6 +504,7 @@ class ModuleUpdateRecoveryTest {
     ) : ModuleUpdateRecovery.RecoveryDependencies {
         var acquireCount = 0
         var releaseCount = 0
+        val commands = mutableListOf<String>()
 
         private val transactionLines = validLines("matrix-recovery").map { line ->
             when {
@@ -503,6 +517,7 @@ class ModuleUpdateRecoveryTest {
         private val transactionDigest = UpdateTransactionProtocol.sha256(transactionContent)
 
         override suspend fun executeRoot(command: String): ServiceLifecycleController.CommandResult {
+            commands += command
             fun ok(lines: List<String> = emptyList()) =
                 ServiceLifecycleController.CommandResult(success = true, stdout = lines)
             fun failed() = ServiceLifecycleController.CommandResult(success = false, exitCode = 1)

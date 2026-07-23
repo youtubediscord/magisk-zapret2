@@ -16,6 +16,8 @@ internal object ModulePackageContract {
     const val RUNTIME_MANIFEST_PATH = "zapret2/runtime-manifest.tsv"
     internal const val PACKAGE_CONTRACT_SCRIPT_PATH = "zapret2/scripts/package-contract.sh"
     internal const val COMMAND_BUILDER_SCRIPT_PATH = "zapret2/scripts/command-builder.sh"
+    internal const val LIFECYCLE_CONTRACT_PATH = "zapret2/lifecycle-contract.version"
+    internal const val LIFECYCLE_CONTRACT_VERSION = "2"
     internal const val UPDATE_GUARD_PATH = "zapret2/scripts/zapret-update-guard.sh"
     internal const val PURGE_CONTRACT_PATH = "zapret2/scripts/lifecycle/purge-contract.sh"
     internal const val PURGE_SCRIPT_PATH = "zapret2/scripts/lifecycle/zapret-purge.sh"
@@ -80,6 +82,7 @@ internal object ModulePackageContract {
     private val mandatoryImmutableFiles = listOf(
         "module.prop",
         RUNTIME_MANIFEST_PATH,
+        LIFECYCLE_CONTRACT_PATH,
         "zapret2/upstream-zapret2.commit",
         "zapret2/strategy-catalogs/tcp.txt",
         "zapret2/strategy-catalogs/udp.txt",
@@ -185,6 +188,17 @@ internal object ModulePackageContract {
                 }
                 val manifest = parseRuntimeManifest(manifestBytes)
                     ?: return "Runtime manifest is invalid"
+                val lifecycleContractEntry = entriesByName[LIFECYCLE_CONTRACT_PATH]
+                    .orEmpty()
+                    .singleOrNull()
+                    ?.takeUnless { it.isDirectory }
+                    ?: return "Lifecycle contract marker is missing or invalid"
+                val lifecycleContract = zip.getInputStream(lifecycleContractEntry).use {
+                    it.readBoundedBytes(16) ?: return "Lifecycle contract marker is too large"
+                }
+                if (lifecycleContract.toString(Charsets.UTF_8) != "$LIFECYCLE_CONTRACT_VERSION\n") {
+                    return "Lifecycle contract marker is invalid"
+                }
                 val allowedFiles = manifest.packagePaths().toSet()
                 val allowedDirectories = allowedFiles.ancestorDirectories()
                 archiveEntries.forEach { entry ->
@@ -279,6 +293,13 @@ internal object ModulePackageContract {
                 ?: return "Runtime manifest exceeds the size limit"
         }
         val manifest = parseRuntimeManifest(manifestBytes) ?: return "Runtime manifest is invalid"
+        val lifecycleContract = File(stagingDir, LIFECYCLE_CONTRACT_PATH)
+        if (!lifecycleContract.isRegularNonLink() ||
+            lifecycleContract.length() > 16L ||
+            lifecycleContract.readText() != "$LIFECYCLE_CONTRACT_VERSION\n"
+        ) {
+            return "Lifecycle contract marker is invalid"
+        }
         val allowedFiles = manifest.packagePaths().toSet()
         val allowedDirectories = allowedFiles.ancestorDirectories()
         stagingDir.walkTopDown().drop(1).forEach { entry ->
