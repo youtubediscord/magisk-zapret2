@@ -456,9 +456,9 @@ for artifact in \
     rm -f "$artifact" "$CASE/enumerated.out"
 done
 
-# Creator PID/starttime plus boot identity, not PID liveness alone, bind every
-# journal.  Same-boot ambiguity is immutable; an old-PID journal is retired on
-# another boot only after a clean proof and exact lifecycle-lock ownership.
+# Creator PID/starttime plus boot identity bind every journal. A live creator
+# remains a hard gate. A same-boot dead creator is observed twice and may be
+# retired only after the same clean proof and exact lifecycle-lock ownership.
 reset_all
 begin_tracked_family iptables || fail "identity fixture begin failed"
 BUILD_TRACK_TOOL=iptables
@@ -469,8 +469,68 @@ old_journal="$STATE/build-track.ipv4.99999999"
 sed 's/^creator_pid=.*/creator_pid=99999999/' "$journal" > "$old_journal"
 chmod 0600 "$old_journal"
 rm -f "$journal"
-audit_recovery_artifacts lifecycle && fail "same-boot dead/unknown creator journal was accepted"
-assert_different_boot_retires "$old_journal"
+audit_recovery_artifacts lifecycle || fail "same-boot dead creator preflight failed: $RECOVERY_ARTIFACT_DIAGNOSTIC"
+[ -e "$old_journal" ] || fail "pre-lock same-boot audit retired a journal"
+arm_lifecycle_lock
+audit_recovery_artifacts lifecycle || fail "locked same-boot dead creator recovery failed: $RECOVERY_ARTIFACT_DIAGNOSTIC"
+[ ! -e "$old_journal" ] && [ ! -L "$old_journal" ] ||
+    fail "locked same-boot dead creator recovery did not retire journal"
+drop_lifecycle_lock
+
+# Terminal build journals do not need a family baseline: zero records or only
+# consumed records prove that no unfinished mutation remains. This is the
+# update regression for both build-track.ipv4 and build-track.ipv6 on devices
+# where a frontend exists but its kernel family query fails.
+for terminal_tool in iptables ip6tables; do
+    reset_all
+    begin_tracked_family "$terminal_tool" || fail "$terminal_tool terminal fixture begin failed"
+    terminal_source="$BUILD_TRACK_FILE"
+    case "$terminal_tool" in
+        iptables) terminal_journal="$STATE/build-track.ipv4.99999998" ;;
+        ip6tables) terminal_journal="$STATE/build-track.ipv6.99999998" ;;
+    esac
+    sed 's/^creator_pid=.*/creator_pid=99999998/' "$terminal_source" > "$terminal_journal"
+    chmod 0600 "$terminal_journal"
+    rm -f "$terminal_source"
+    Z2_FAIL_BASELINE_TOOL="$terminal_tool"; export Z2_FAIL_BASELINE_TOOL
+    Z2_MOCK_OWNED_PROCESS=4242; export Z2_MOCK_OWNED_PROCESS
+    audit_recovery_artifacts install ||
+        fail "$terminal_tool terminal same-boot preflight failed: $RECOVERY_ARTIFACT_DIAGNOSTIC"
+    [ -e "$terminal_journal" ] || fail "$terminal_tool terminal pre-lock audit deleted evidence"
+    arm_lifecycle_lock
+    audit_recovery_artifacts install ||
+        fail "$terminal_tool terminal locked recovery failed: $RECOVERY_ARTIFACT_DIAGNOSTIC"
+    [ ! -e "$terminal_journal" ] && [ ! -L "$terminal_journal" ] ||
+        fail "$terminal_tool terminal journal was not retired"
+    drop_lifecycle_lock
+done
+
+# Once exact owner/process/topology verification has made owner.meta
+# authoritative, an unfinished journal from its dead start process is obsolete.
+# The active nfqws process must no longer make update recovery self-blocking.
+(
+    reset_all
+    begin_tracked_family iptables || fail "published-owner track fixture begin failed"
+    BUILD_TRACK_TOOL=iptables
+    build_track_add_pending "chain|$ZAPRET2_OUT" ||
+        fail "published-owner track fixture pending record failed"
+    published_source="$BUILD_TRACK_FILE"
+    published_journal="$STATE/build-track.ipv4.99999996"
+    sed 's/^creator_pid=.*/creator_pid=99999996/' "$published_source" > "$published_journal"
+    chmod 0600 "$published_journal"
+    rm -f "$published_source"
+    Z2_MOCK_OWNED_PROCESS=4242; export Z2_MOCK_OWNED_PROCESS
+    authenticated_published_owner_generation_healthy() {
+        OWNER_STATE_FIREWALL_TAG="$Z2_FIREWALL_TAG"
+        return 0
+    }
+    arm_lifecycle_lock
+    audit_recovery_artifacts install ||
+        fail "authenticated published owner did not supersede its stale track: $RECOVERY_ARTIFACT_DIAGNOSTIC"
+    [ ! -e "$published_journal" ] && [ ! -L "$published_journal" ] ||
+        fail "authenticated published owner left its stale track"
+    drop_lifecycle_lock
+)
 
 for corruption in tamper missing; do
     reset_all
@@ -541,8 +601,8 @@ probe_track_for_tool iptables
 [ "$(read_count "$CASE/fw.iptables.probe_rules")" = 0 ] || fail "successful probe left a rule"
 
 # Model SIGKILL immediately after every probe append and after every exact
-# delete. Re-entry on the same boot refuses; a mock reboot clears netfilter and
-# permits serialized retirement. No creator-PID liveness inference is used.
+# delete. The fixture creator is still live, so re-entry on the same boot
+# refuses; a mock reboot clears netfilter and permits serialized retirement.
 for kind in queue_bypass queue connbytes multiport mark; do
     reset_all
     begin_probe_track iptables || fail "$kind pre-append interruption begin failed"

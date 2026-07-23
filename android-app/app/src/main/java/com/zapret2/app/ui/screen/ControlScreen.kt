@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PowerSettingsNew
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -248,6 +249,7 @@ fun ControlScreen(
                     ServiceStatusCard(
                         state = state,
                         onToggle = { activeViewModel?.toggleService() },
+                        onRefresh = { activeViewModel?.refreshStatusManually() },
                     )
                 }
 
@@ -463,6 +465,7 @@ fun ControlScreen(
 private fun ServiceStatusCard(
     state: ControlUiState,
     onToggle: () -> Unit,
+    onRefresh: () -> Unit,
 ) {
     val reduceMotion = LocalReducedMotionEnabled.current
     val checking = state.status == ControlStatus.CHECKING
@@ -476,7 +479,9 @@ private fun ServiceStatusCard(
     val statusColor by animateColorAsState(
         targetValue = when (state.status) {
             ControlStatus.RUNNING -> success.color
-            ControlStatus.DEGRADED -> warning.color
+            ControlStatus.DEGRADED,
+            ControlStatus.UNCONFIRMED,
+            -> warning.color
             ControlStatus.ROOT_DENIED,
             ControlStatus.ROOT_MANAGER_UNAVAILABLE,
             ControlStatus.ROOT_SHELL_FAILED,
@@ -540,6 +545,21 @@ private fun ServiceStatusCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+            }
+            IconButton(
+                onClick = onRefresh,
+                enabled = !state.isToggling &&
+                    !state.isCheckingForUpdates &&
+                    !state.isUpdating &&
+                    !state.isSavingSettings &&
+                    !state.isFullRollbackInProgress &&
+                    !state.isModulePurgeInProgress &&
+                    !checking,
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Refresh,
+                    contentDescription = stringResource(R.string.action_refresh),
+                )
             }
         }
         Spacer(Modifier.height(SpacingTokens.CardContent))

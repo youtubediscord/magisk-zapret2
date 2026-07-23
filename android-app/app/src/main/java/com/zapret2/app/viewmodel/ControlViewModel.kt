@@ -51,6 +51,7 @@ enum class ControlStatus(@param:StringRes val labelRes: Int) {
     RUNNING(R.string.control_service_running),
     STOPPED(R.string.control_service_stopped),
     DEGRADED(R.string.control_status_degraded),
+    UNCONFIRMED(R.string.control_status_unconfirmed),
     ROOT_DENIED(R.string.control_status_root_denied),
     ROOT_MANAGER_UNAVAILABLE(R.string.control_status_root_manager_unavailable),
     ROOT_SHELL_FAILED(R.string.control_status_root_shell_failed),
@@ -59,6 +60,27 @@ enum class ControlStatus(@param:StringRes val labelRes: Int) {
     REBOOT_REQUIRED(R.string.control_status_reboot_required),
     MODULE_NOT_READY(R.string.control_status_module_not_ready),
     UNAVAILABLE(R.string.control_status_unavailable),
+}
+
+internal fun confirmedRunning(
+    serviceStatus: ServiceLifecycleController.ServiceStatus,
+    watchdogVerdict: NetworkStatsManager.FirewallWatchdogVerdict,
+): Boolean =
+    serviceStatus.healthy &&
+        watchdogVerdict == NetworkStatsManager.FirewallWatchdogVerdict.VERIFIED
+
+internal fun projectedControlStatus(
+    serviceStatus: ServiceLifecycleController.ServiceStatus,
+    watchdogVerdict: NetworkStatsManager.FirewallWatchdogVerdict,
+    canStopService: Boolean,
+): ControlStatus = when {
+    !serviceStatus.rootGranted -> serviceStatus.rootAccessState.toControlStatus()
+    serviceStatus.error != null -> ControlStatus.UNAVAILABLE
+    watchdogVerdict == NetworkStatsManager.FirewallWatchdogVerdict.MISMATCH ->
+        ControlStatus.UNCONFIRMED
+    confirmedRunning(serviceStatus, watchdogVerdict) -> ControlStatus.RUNNING
+    canStopService -> ControlStatus.DEGRADED
+    else -> ControlStatus.STOPPED
 }
 
 internal fun ServiceLifecycleController.RootAccessState.toControlStatus(): ControlStatus = when (this) {
@@ -869,6 +891,11 @@ class ControlViewModel @Inject constructor(
     private val statusRefreshSequence = AtomicLong(0)
 
     init {
+        viewModelScope.launch {
+            serviceEventBus.serviceRestarted.collect {
+                networkStatsManager.requestFirewallWatchdog()
+            }
+        }
         loadInitialState()
         if (_uiState.value.fullRollback is FullRollbackUiState.InProgress) {
             startFullRollback(FullRollbackLaunchReason.RESTORED)
@@ -1383,7 +1410,7 @@ class ControlViewModel @Inject constructor(
     private fun startPolling(refreshImmediately: Boolean) {
         pollingJob?.cancel()
         pollingJob = viewModelScope.launch {
-            if (refreshImmediately) pollStatusOnce()
+            if (refreshImmediately) pollStatusOnce(forceFirewallWatchdog = true)
             while (isActive) {
                 delay(if (_uiState.value.isRunning) 3000L else 10000L)
                 pollStatusOnce()
@@ -1391,9 +1418,9 @@ class ControlViewModel @Inject constructor(
         }
     }
 
-    private suspend fun pollStatusOnce() {
+    private suspend fun pollStatusOnce(forceFirewallWatchdog: Boolean = false) {
         try {
-            checkStatus()
+            checkStatus(forceFirewallWatchdog)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {
@@ -1412,8 +1439,8 @@ class ControlViewModel @Inject constructor(
         val canStopService: Boolean
     )
 
-    private suspend fun checkStatus(): ServiceSnapshot {
-        val snapshot = refreshStatus()
+    private suspend fun checkStatus(forceFirewallWatchdog: Boolean = false): ServiceSnapshot {
+        val snapshot = refreshStatus(forceFirewallWatchdog)
         if (_uiState.value.isModuleOperational && !_uiState.value.hasAuthoritativeRuntimeSettings) {
             revalidateRuntimeSettings()
         }
@@ -1457,7 +1484,9 @@ class ControlViewModel @Inject constructor(
      * wrap this method in a view-model mutex: settings saves intentionally keep the module
      * coordinator while restarting, and a reverse wait here would deadlock polling against saves.
      */
-    private suspend fun refreshStatus(): ServiceSnapshot {
+    private suspend fun refreshStatus(
+        forceFirewallWatchdog: Boolean = false,
+    ): ServiceSnapshot {
         val refreshId = statusRefreshSequence.incrementAndGet()
         val rootAccess = ServiceLifecycleController.checkRootAccess()
         if (!rootAccess.granted) {
@@ -1535,11 +1564,18 @@ class ControlViewModel @Inject constructor(
         }
 
         val serviceStatus = ServiceLifecycleController.getStatus()
-        val netStats = networkStatsManager.getNetworkStats(serviceStatus)
+        val netStats = networkStatsManager.getNetworkStats(
+            status = serviceStatus,
+            forceFirewallWatchdog = forceFirewallWatchdog,
+        )
         val detail = netStats.iptablesDetail
-        // A healthy machine payload is necessary but not sufficient: Android also re-reads the
-        // current owner identity and exact generation-bound iptables topology before showing RUNNING.
-        val isRunning = serviceStatus.healthy && netStats.iptablesActive
+        // Shell machine status remains authoritative for every refresh. The independent Kotlin
+        // topology verifier is a watchdog: it is forced at lifecycle boundaries and otherwise
+        // reuses its exact-snapshot verdict until the rare background deadline.
+        val isRunning = confirmedRunning(
+            serviceStatus = serviceStatus,
+            watchdogVerdict = netStats.firewallWatchdogVerdict,
+        )
         val statusRulesCount = serviceStatus.nfqueueRulesCount
         val effectiveRulesCount = if (netStats.hasOwnedIptablesState) {
             netStats.nfqueueRulesCount
@@ -1561,13 +1597,11 @@ class ControlViewModel @Inject constructor(
             }
         } else ProcessStats()
 
-        val status = when {
-            !serviceStatus.rootGranted -> serviceStatus.rootAccessState.toControlStatus()
-            serviceStatus.error != null -> ControlStatus.UNAVAILABLE
-            isRunning -> ControlStatus.RUNNING
-            canStopService -> ControlStatus.DEGRADED
-            else -> ControlStatus.STOPPED
-        }
+        val status = projectedControlStatus(
+            serviceStatus = serviceStatus,
+            watchdogVerdict = netStats.firewallWatchdogVerdict,
+            canStopService = canStopService,
+        )
 
         if (refreshId == statusRefreshSequence.get()) {
             _uiState.update {
@@ -1599,6 +1633,14 @@ class ControlViewModel @Inject constructor(
             isRunning = isRunning,
             canStopService = canStopService
         )
+    }
+
+    fun refreshStatusManually() {
+        if (!screenStarted) return
+        networkStatsManager.requestFirewallWatchdog()
+        viewModelScope.launch {
+            pollStatusOnce(forceFirewallWatchdog = true)
+        }
     }
 
     fun toggleService() {
@@ -1636,7 +1678,7 @@ class ControlViewModel @Inject constructor(
                 } else {
                     ServiceLifecycleController.start()
                 }
-                val verifiedState = refreshStatus()
+                val verifiedState = refreshStatus(forceFirewallWatchdog = !shouldStop)
 
                 val verified = if (shouldStop) !verifiedState.canStopService else verifiedState.isRunning
                 if (lifecycleResult.success && verified) {
@@ -2062,7 +2104,7 @@ class ControlViewModel @Inject constructor(
 
     private suspend fun refreshStatusAfterUpdate() {
         delay(UPDATE_STATUS_REFRESH_DELAY_MS)
-        if (screenStarted) pollStatusOnce()
+        if (screenStarted) pollStatusOnce(forceFirewallWatchdog = true)
     }
 
     private suspend fun restartService() {
@@ -2070,7 +2112,7 @@ class ControlViewModel @Inject constructor(
             val currentStatus = refreshStatus()
             if (!currentStatus.isRunning) return
             val result = ServiceLifecycleController.restart()
-            val verifiedState = refreshStatus()
+            val verifiedState = refreshStatus(forceFirewallWatchdog = true)
             if (result.success && verifiedState.isRunning) {
                 serviceEventBus.notifyServiceRestarted()
                 return

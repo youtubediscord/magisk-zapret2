@@ -325,10 +325,29 @@ grep -Eq '^archive_sha256=[0-9a-f]{64}$' "$UPDATE/zapret2/install-generation.met
 mv "$UPDATE" "$LIVE"
 
 # A root-manager disable fence on a complete live module must survive a
-# standard modules_update install byte-for-byte.
+# standard modules_update install byte-for-byte. Terminal IPv4/IPv6 build
+# journals from a dead same-boot start owner must not block that update even
+# though the active module directory still exists.
+track_boot=$(cat /proc/sys/kernel/random/boot_id)
+for track_family in ipv4 ipv6; do
+    cat > "$LIVE_STATE/build-track.$track_family.99999997" <<EOF
+version=2
+mode=build
+tool=$(if [ "$track_family" = ipv4 ]; then echo iptables; else echo ip6tables; fi)
+module_dir=$LIVE
+creator_pid=99999997
+creator_starttime=1
+boot_id=$track_boot
+EOF
+    chmod 0600 "$LIVE_STATE/build-track.$track_family.99999997"
+done
 : > "$LIVE/disable"
 chmod 0600 "$LIVE/disable"
 run_installer || fail "disabled standard install failed"
+[ ! -e "$LIVE_STATE/build-track.ipv4.99999997" ] ||
+    fail "standard update left terminal IPv4 build tracking"
+[ ! -e "$LIVE_STATE/build-track.ipv6.99999997" ] ||
+    fail "standard update left terminal IPv6 build tracking"
 [ -f "$UPDATE/disable" ] && [ ! -L "$UPDATE/disable" ] || fail "disable marker was not preserved"
 [ ! -s "$UPDATE/disable" ] && [ "$(stat -c '%a' "$UPDATE/disable")" = 600 ] || fail "disable marker contract changed"
 [ -f "$UPDATE/zapret2/install-generation.meta" ] || fail "install generation was not published"

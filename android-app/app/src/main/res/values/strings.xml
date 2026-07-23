@@ -145,6 +145,7 @@
     <string name="control_packet_count">Packet count</string>
     <string name="control_packet_range">Enter a value from 1 to 999,999,999</string>
     <string name="control_status_degraded">Service degraded</string>
+    <string name="control_status_unconfirmed">State not confirmed</string>
     <string name="control_status_root_denied">Grant root access in your root manager</string>
     <string name="control_status_root_manager_unavailable">Root manager unavailable</string>
     <string name="control_status_root_shell_failed">Root shell failed</string>

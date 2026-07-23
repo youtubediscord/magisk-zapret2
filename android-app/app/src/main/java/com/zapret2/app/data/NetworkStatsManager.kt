@@ -6,6 +6,8 @@ import android.net.NetworkCapabilities
 import com.zapret2.app.AppDebugLog
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.lang.ref.WeakReference
 
@@ -46,6 +48,49 @@ internal data class OwnedIptablesFamily(
 ) {
     val nfqueueRulesCount: Int
         get() = outNfqueueCount + inNfqueueCount
+}
+
+internal class FirewallWatchdogGate(
+    private val intervalMillis: Long = 60_000L,
+    private val nowMillis: () -> Long = { System.nanoTime() / 1_000_000L },
+) {
+    private var requested = true
+    private var lastRunMillis: Long? = null
+    private var shellWasDegraded = false
+
+    @Synchronized
+    fun request() {
+        requested = true
+    }
+
+    @Synchronized
+    fun noteNotRequired() {
+        shellWasDegraded = false
+    }
+
+    @Synchronized
+    fun shouldRun(
+        force: Boolean,
+        shellDegraded: Boolean,
+        cachedSnapshotMatches: Boolean,
+    ): Boolean {
+        val now = nowMillis()
+        val enteredDegraded = shellDegraded && !shellWasDegraded
+        shellWasDegraded = shellDegraded
+        val lastRun = lastRunMillis
+        val intervalElapsed =
+            lastRun == null || now < lastRun || now - lastRun >= intervalMillis
+        val run = force ||
+            requested ||
+            !cachedSnapshotMatches ||
+            enteredDegraded ||
+            intervalElapsed
+        if (run) {
+            requested = false
+            lastRunMillis = now
+        }
+        return run
+    }
 }
 
 /** Pure, fail-closed verifier for the generation-bound v6 firewall topology. */
@@ -428,6 +473,9 @@ class NetworkStatsManager(context: Context) {
     private val connectivityManager: ConnectivityManager? by lazy {
         contextRef.get()?.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
     }
+    private val firewallWatchdogGate = FirewallWatchdogGate()
+    private val firewallWatchdogMutex = Mutex()
+    private var cachedFirewallWatchdog: CachedFirewallWatchdog? = null
 
     /**
      * Network type enumeration
@@ -497,8 +545,15 @@ class NetworkStatsManager(context: Context) {
         val iptablesActive: Boolean,
         val nfqueueRulesCount: Int,
         val hasOwnedIptablesState: Boolean = false,
-        val iptablesDetail: IptablesDetail = IptablesDetail()
+        val iptablesDetail: IptablesDetail = IptablesDetail(),
+        val firewallWatchdogVerdict: FirewallWatchdogVerdict = FirewallWatchdogVerdict.NOT_REQUIRED,
     )
+
+    enum class FirewallWatchdogVerdict {
+        NOT_REQUIRED,
+        VERIFIED,
+        MISMATCH,
+    }
 
     private data class OwnedIptablesState(
         val active: Boolean = false,
@@ -507,6 +562,15 @@ class NetworkStatsManager(context: Context) {
         val chainCount: Int = 0,
         val anchorCount: Int = 0,
     )
+
+    private data class CachedFirewallWatchdog(
+        val detail: IptablesDetail,
+        val state: OwnedIptablesState,
+    )
+
+    fun requestFirewallWatchdog() {
+        firewallWatchdogGate.request()
+    }
 
     /**
      * Gets the current network type
@@ -727,21 +791,53 @@ class NetworkStatsManager(context: Context) {
      */
     suspend fun getNetworkStats(
         status: ServiceLifecycleController.ServiceStatus,
+        forceFirewallWatchdog: Boolean = false,
     ): NetworkStats = withContext(Dispatchers.IO) {
         val networkType = getNetworkType()
         val iptablesDetail = getIptablesDetail(status)
-        val ownedIptablesState = getOwnedIptablesState(iptablesDetail)
+        val ownedIptablesState = firewallWatchdogMutex.withLock {
+            if (status.fullyStopped) {
+                cachedFirewallWatchdog = null
+                firewallWatchdogGate.noteNotRequired()
+                null
+            } else {
+                val cached = cachedFirewallWatchdog
+                val snapshotMatches = cached?.detail == iptablesDetail
+                if (
+                    firewallWatchdogGate.shouldRun(
+                        force = forceFirewallWatchdog,
+                        shellDegraded = !status.healthy,
+                        cachedSnapshotMatches = snapshotMatches,
+                    )
+                ) {
+                    getOwnedIptablesState(iptablesDetail).also { observed ->
+                        cachedFirewallWatchdog = CachedFirewallWatchdog(
+                            detail = iptablesDetail,
+                            state = observed,
+                        )
+                    }
+                } else {
+                    checkNotNull(cached).state
+                }
+            }
+        }
+        val watchdogVerdict = when {
+            ownedIptablesState == null -> FirewallWatchdogVerdict.NOT_REQUIRED
+            ownedIptablesState.active -> FirewallWatchdogVerdict.VERIFIED
+            else -> FirewallWatchdogVerdict.MISMATCH
+        }
         val observedDetail = iptablesDetail.copy(
-            chains = ownedIptablesState.chainCount,
-            anchors = ownedIptablesState.anchorCount,
+            chains = ownedIptablesState?.chainCount ?: iptablesDetail.chains,
+            anchors = ownedIptablesState?.anchorCount ?: iptablesDetail.anchors,
         )
 
         NetworkStats(
             networkType = networkType,
-            iptablesActive = ownedIptablesState.active,
-            nfqueueRulesCount = ownedIptablesState.nfqueueRulesCount,
-            hasOwnedIptablesState = ownedIptablesState.hasState,
-            iptablesDetail = observedDetail
+            iptablesActive = ownedIptablesState?.active ?: false,
+            nfqueueRulesCount = ownedIptablesState?.nfqueueRulesCount ?: 0,
+            hasOwnedIptablesState = ownedIptablesState?.hasState ?: false,
+            iptablesDetail = observedDetail,
+            firewallWatchdogVerdict = watchdogVerdict,
         )
     }
 

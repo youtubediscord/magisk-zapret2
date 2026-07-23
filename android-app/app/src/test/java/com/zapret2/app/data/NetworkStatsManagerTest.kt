@@ -27,6 +27,37 @@ class NetworkStatsManagerTest {
     )
 
     @Test
+    fun watchdog_reusesMatchingSnapshotUntilRareBackgroundDeadline() {
+        var now = 1_000L
+        val gate = FirewallWatchdogGate(intervalMillis = 60_000L) { now }
+
+        assertTrue(gate.shouldRun(force = false, shellDegraded = false, cachedSnapshotMatches = false))
+        now += 59_999L
+        assertFalse(gate.shouldRun(force = false, shellDegraded = false, cachedSnapshotMatches = true))
+        now += 1L
+        assertTrue(gate.shouldRun(force = false, shellDegraded = false, cachedSnapshotMatches = true))
+    }
+
+    @Test
+    fun watchdog_runsForRequestsForcingSnapshotChangesAndDegradedTransitions() {
+        var now = 1_000L
+        val gate = FirewallWatchdogGate(intervalMillis = 60_000L) { now }
+
+        assertTrue(gate.shouldRun(force = false, shellDegraded = false, cachedSnapshotMatches = false))
+        assertFalse(gate.shouldRun(force = false, shellDegraded = false, cachedSnapshotMatches = true))
+
+        gate.request()
+        assertTrue(gate.shouldRun(force = false, shellDegraded = false, cachedSnapshotMatches = true))
+        assertTrue(gate.shouldRun(force = true, shellDegraded = false, cachedSnapshotMatches = true))
+        assertTrue(gate.shouldRun(force = false, shellDegraded = false, cachedSnapshotMatches = false))
+
+        assertTrue(gate.shouldRun(force = false, shellDegraded = true, cachedSnapshotMatches = true))
+        assertFalse(gate.shouldRun(force = false, shellDegraded = true, cachedSnapshotMatches = true))
+        gate.noteNotRequired()
+        assertTrue(gate.shouldRun(force = false, shellDegraded = true, cachedSnapshotMatches = true))
+    }
+
+    @Test
     fun ownerMetadata_enforcesQueueNumberBoundaries() {
         fun detail(qnum: Int?) = NetworkStatsManager.IptablesDetail(
             ownPid = "4242",

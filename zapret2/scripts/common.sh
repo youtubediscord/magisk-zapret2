@@ -374,6 +374,92 @@ validate_track_journal_identity() {
     is_valid_boot_id "$TRACK_BOOT_ID"
 }
 
+track_journal_is_terminal() {
+    local path="$1"
+    # validate_track_journal_identity() has already authenticated the complete
+    # grammar. A journal with no records, or only durable consumed records, no
+    # longer protects an uncommitted firewall mutation. In particular, it is
+    # safe to retire without querying a family whose iptables frontend is
+    # present but unusable on this kernel.
+    awk -F '|' '
+        $1 == "record" && $3 != "consumed" { terminal=0; exit }
+        BEGIN { terminal=1 }
+        END { exit !terminal }
+    ' "$path" 2>/dev/null
+}
+
+track_creator_liveness() {
+    local actual
+    TRACK_CREATOR_LIVENESS=unknown
+    [ -n "$CURRENT_BOOT_ID" ] || read_current_boot_id || return 1
+    if [ "$TRACK_BOOT_ID" != "$CURRENT_BOOT_ID" ]; then
+        TRACK_CREATOR_LIVENESS=stale
+        return 0
+    fi
+    if actual="$(proc_starttime "$TRACK_CREATOR_PID" 2>/dev/null)"; then
+        if [ "$actual" = "$TRACK_CREATOR_START" ]; then
+            TRACK_CREATOR_LIVENESS=live
+        else
+            # The numeric PID was reused; the journal's exact creator identity
+            # is dead even though another process now owns that PID.
+            TRACK_CREATOR_LIVENESS=stale
+        fi
+        return 0
+    fi
+    if [ ! -e "/proc/$TRACK_CREATOR_PID" ] && [ ! -L "/proc/$TRACK_CREATOR_PID" ]; then
+        TRACK_CREATOR_LIVENESS=stale
+    fi
+    return 0
+}
+
+same_boot_track_creator_is_stably_stale() {
+    local path="$1" pid="$TRACK_CREATOR_PID" start="$TRACK_CREATOR_START"
+    local boot="$TRACK_BOOT_ID" mode="$TRACK_JOURNAL_MODE" tool="$TRACK_JOURNAL_TOOL"
+    local tag="$TRACK_FIREWALL_TAG" out="$TRACK_OUT_CHAIN" in="$TRACK_IN_CHAIN"
+    track_creator_liveness || return 1
+    [ "$TRACK_CREATOR_LIVENESS" = stale ] || return 1
+    sleep 1
+    validate_track_journal_identity "$path" || return 1
+    [ "$TRACK_CREATOR_PID" = "$pid" ] && [ "$TRACK_CREATOR_START" = "$start" ] &&
+        [ "$TRACK_BOOT_ID" = "$boot" ] && [ "$TRACK_JOURNAL_MODE" = "$mode" ] &&
+        [ "$TRACK_JOURNAL_TOOL" = "$tool" ] && [ "$TRACK_FIREWALL_TAG" = "$tag" ] &&
+        [ "$TRACK_OUT_CHAIN" = "$out" ] && [ "$TRACK_IN_CHAIN" = "$in" ] || return 1
+    track_creator_liveness || return 1
+    [ "$TRACK_CREATOR_LIVENESS" = stale ]
+}
+
+track_generation_absent() {
+    local listing
+    [ "$TRACK_JOURNAL_MODE" = build ] && [ "$TRACK_FIREWALL_TAG" != none ] || return 1
+    listing="$("$TRACK_JOURNAL_TOOL" -t mangle -S 2>/dev/null)" || return 1
+    printf '%s\n' "$listing" | awk \
+        -v out="$TRACK_OUT_CHAIN" -v inchain="$TRACK_IN_CHAIN" \
+        -v prefix="Z2R_${TRACK_FIREWALL_TAG}_" '
+        $1 == "-N" && ($2 == out || $2 == inchain || index($2,prefix)==1) { found=1 }
+        $1 == "-A" {
+            for (i=3; i<=NF; i++) {
+                if (($i=="-j" || $i=="--jump" || $i=="-g" || $i=="--goto") &&
+                    ($(i+1)==out || $(i+1)==inchain || index($(i+1),prefix)==1)) found=1
+            }
+        }
+        END { exit found ? 1 : 0 }
+    '
+}
+
+authenticated_published_owner_generation_healthy() {
+    read_verified_pidfile || return 1
+    [ "$OWNER_STATE_SCHEMA_VERSION" = "$OWNER_STATE_VERSION" ] || return 1
+    case "$OWNER_STATE_PHASE" in launched|active) ;; *) return 1 ;; esac
+    [ "$OWNER_STATE_IPV4_ACTIVE" = 1 ] || return 1
+    owner_family_generation_healthy iptables ipv4 || return 1
+    if command -v ip6tables >/dev/null 2>&1; then
+        owner_family_generation_healthy ip6tables ipv6 || return 1
+    else
+        [ "$OWNER_STATE_IPV6_ACTIVE" = 0 ] || return 1
+    fi
+    return 0
+}
+
 stale_track_file_is_known() {
     local wanted="$1" item
     for item in $STALE_TRACK_FILES; do [ "$item" = "$wanted" ] && return 0; done
@@ -561,7 +647,8 @@ recover_stale_owner_publication() {
 }
 
 classify_stale_track_journals() {
-    local path found=0 restore_noglob=0
+    local path found=0 restore_noglob=0 needs_clean_proof=0 retired_files
+    local owner_healthy owner_tag
     STALE_TRACK_FILES=""; STALE_TRACK_REQUIRED_TOOLS=""; STALE_TRACK_DIAGNOSTIC=""; CURRENT_BOOT_ID=""
     case "$-" in *f*) restore_noglob=1; set +f;; esac
     set -- "$STATE_DIR"/build-track.* "$STATE_DIR"/probe-track.*
@@ -573,16 +660,60 @@ classify_stale_track_journals() {
             read_current_boot_id || { STALE_TRACK_DIAGNOSTIC="current boot identity is unavailable"; return 1; }
         fi
         validate_track_journal_identity "$path" || { STALE_TRACK_DIAGNOSTIC="unsafe or unauthenticated track journal: $path"; return 1; }
-        [ "$TRACK_BOOT_ID" != "$CURRENT_BOOT_ID" ] || { STALE_TRACK_DIAGNOSTIC="same-boot track ambiguity remains: $path"; return 1; }
+        if [ "$TRACK_BOOT_ID" = "$CURRENT_BOOT_ID" ]; then
+            track_creator_liveness || { STALE_TRACK_DIAGNOSTIC="track creator identity is unavailable: $path"; return 1; }
+            case "$TRACK_CREATOR_LIVENESS" in
+                live) STALE_TRACK_DIAGNOSTIC="track creator is still active: $path"; return 1 ;;
+                stale)
+                    same_boot_track_creator_is_stably_stale "$path" || {
+                        STALE_TRACK_DIAGNOSTIC="same-boot track creator did not remain stably stale: $path"
+                        return 1
+                    }
+                    ;;
+                *) STALE_TRACK_DIAGNOSTIC="same-boot track creator identity is ambiguous: $path"; return 1 ;;
+            esac
+        fi
         STALE_TRACK_FILES="${STALE_TRACK_FILES}${STALE_TRACK_FILES:+ }$path"
-        case " $STALE_TRACK_REQUIRED_TOOLS " in *" $TRACK_JOURNAL_TOOL "*) ;; *) STALE_TRACK_REQUIRED_TOOLS="${STALE_TRACK_REQUIRED_TOOLS}${STALE_TRACK_REQUIRED_TOOLS:+ }$TRACK_JOURNAL_TOOL";; esac
+        if ! track_journal_is_terminal "$path"; then
+            owner_healthy=0
+            owner_tag=""
+            if [ "$TRACK_JOURNAL_MODE" = build ] &&
+               authenticated_published_owner_generation_healthy; then
+                owner_healthy=1
+                owner_tag="$OWNER_STATE_FIREWALL_TAG"
+            fi
+            # owner.meta becomes authoritative after exact process and complete
+            # topology verification. A dead start process may therefore leave
+            # an unfinished WAL for either the committed generation itself or
+            # an older failed generation that is now proven absent. Neither
+            # case may permanently fence update/install.
+            if [ "$owner_healthy" = 1 ] &&
+               { [ "$TRACK_FIREWALL_TAG" = "$owner_tag" ] || track_generation_absent; }; then
+                :
+            else
+                needs_clean_proof=1
+                case " $STALE_TRACK_REQUIRED_TOOLS " in
+                    *" $TRACK_JOURNAL_TOOL "*) ;;
+                    *) STALE_TRACK_REQUIRED_TOOLS="${STALE_TRACK_REQUIRED_TOOLS}${STALE_TRACK_REQUIRED_TOOLS:+ }$TRACK_JOURNAL_TOOL" ;;
+                esac
+            fi
+        fi
     done
     [ "$found" = 1 ] || return 0
-    stale_track_clean_ownership_proof namespace || { STALE_TRACK_DIAGNOSTIC="stale track cannot be retired while owned process/firewall state exists"; return 1; }
+    if [ "$needs_clean_proof" = 1 ]; then
+        stale_track_clean_ownership_proof namespace || {
+            STALE_TRACK_DIAGNOSTIC="unfinished stale track cannot be retired while owned process/firewall state exists"
+            return 1
+        }
+    fi
     if caller_holds_exact_lifecycle_lock; then
+        retired_files="$STALE_TRACK_FILES"
         for path in $STALE_TRACK_FILES; do
             rm -f "$path" 2>/dev/null || return 1
             sync >/dev/null 2>&1 || return 1
+        done
+        for path in $retired_files; do
+            [ ! -e "$path" ] && [ ! -L "$path" ] || return 1
         done
         STALE_TRACK_FILES=""
     fi
