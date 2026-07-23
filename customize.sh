@@ -231,12 +231,12 @@ fi
 if [ -e "$LIVE_MODPATH" ] || [ -L "$LIVE_MODPATH" ]; then
     [ -d "$LIVE_MODPATH" ] && [ ! -L "$LIVE_MODPATH" ] && path_uid_is_root "$LIVE_MODPATH" ||
         abort "! Existing module directory is unsafe"
-else
-    retire_unverifiable_tracks_for_absent_module "$LIVE_NFQWS2" ||
-        abort "! Removed-module recovery cannot prove a clean process/firewall state"
-    if [ "$REMOVED_MODULE_TRACKS_RETIRED" = 1 ]; then
-        ui_print "- Retired orphaned interrupted-build state from the removed module"
-    fi
+fi
+
+retire_installer_ephemeral_track_journals ||
+    abort "! Cannot retire interrupted runtime build state safely"
+if [ "$INSTALLER_TRACKS_RETIRED" = 1 ]; then
+    ui_print "- Retired interrupted runtime build state"
 fi
 
 if ! audit_live_install_recovery_artifacts; then

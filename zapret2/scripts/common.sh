@@ -342,7 +342,8 @@ validate_track_journal_identity() {
             } else if (mode == "build" && $4 == "rule") {
                 if (!identity_ready) exit 1
                 if (NF != 15 || ruleside($5)=="" || $6 !~ /^(tcp|udp)$/ ||
-                    $8 !~ /^[0-9]+(,[0-9]+)*$/ || $9 !~ /^[0-9]+$/ || $11 !~ /^[0-9]+$/ ||
+                    $8 !~ /^[0-9]+(:[0-9]+)?(,[0-9]+(:[0-9]+)?)*$/ ||
+                    $9 !~ /^[0-9]+$/ || $11 !~ /^[0-9]+$/ ||
                     $12 !~ /^(0x)?[0-9A-Fa-f]+$/ || $13 !~ /^(0|1)$/ || $14 !~ /^(0|1)$/ || $15 !~ /^(0|1)$/) exit 1
                 if (ruleside($5)=="O" && ($7 != "out" || $10 != "original")) exit 1
                 if (ruleside($5)=="I" && ($7 != "in" || $10 != "reply")) exit 1
@@ -494,67 +495,51 @@ stale_track_clean_ownership_proof() {
     return 0
 }
 
-REMOVED_MODULE_TRACKS_RETIRED=0
+INSTALLER_TRACKS_RETIRED=0
 
-# A previous Magisk release may have been deleted before its uninstall hook
-# learned to purge private state. If the live module is now absent, an
-# interrupted track can no longer authenticate through package bytes that no
-# longer exist. Its contents are not needed when an exact quiet snapshot proves
-# that no process or object remains in the entire reserved firewall namespace.
-# This recovery is installer-only, lock-owned, and rejects every mixed artifact.
-retire_unverifiable_tracks_for_absent_module() {
-    local live_nfqws2="$1" path artifact base expected_pid size found=0
-    local restore_noglob=0 AUDIT_NFQWS2_OVERRIDE="$live_nfqws2"
-    REMOVED_MODULE_TRACKS_RETIRED=0
-    [ -n "$live_nfqws2" ] || return 1
-    [ ! -e "$MODDIR" ] && [ ! -L "$MODDIR" ] || return 1
+# Build/probe journals are private write-ahead logs of one serialized runtime
+# lifecycle operation. They are not part of the installed configuration and
+# must never become an ABI gate between an old live module and a newly staged
+# Magisk release. Once customize.sh owns the exact lifecycle lock, no runtime
+# operation can still own or append one of these files. The installer may
+# therefore retire the bounded canonical files without parsing versioned WAL
+# contents or requiring the old release's partially mutated firewall namespace
+# to be empty. Runtime start/stop audits remain strict and keep using the WAL
+# grammar for recovery classification.
+retire_installer_ephemeral_track_journals() {
+    local path base suffix found=0 retired="" restore_noglob=0
+    INSTALLER_TRACKS_RETIRED=0
     caller_holds_exact_lifecycle_lock || return 1
     state_dir_is_secure || return 1
 
-    STALE_TRACK_FILES=""; STALE_TRACK_REQUIRED_TOOLS=""; STALE_TRACK_DIAGNOSTIC=""
     case "$-" in *f*) restore_noglob=1; set +f;; esac
     set -- "$STATE_DIR"/build-track.* "$STATE_DIR"/probe-track.*
     [ "$restore_noglob" = 1 ] && set -f
     for path in "$@"; do
         { [ -e "$path" ] || [ -L "$path" ]; } || continue
         found=1
-        state_file_is_secure "$path" && path_mode_is_0600 "$path" &&
-            path_nlink_is_one "$path" || return 1
-        size="$(wc -c < "$path" 2>/dev/null)" || return 1
-        is_decimal "$size" && [ "$size" -le 131072 ] 2>/dev/null || return 1
         base="${path##*/}"
         case "$base" in
-            build-track.ipv4.*) expected_pid="${base#build-track.ipv4.}"; artifact=iptables ;;
-            build-track.ipv6.*) expected_pid="${base#build-track.ipv6.}"; artifact=ip6tables ;;
-            probe-track.ipv4.*) expected_pid="${base#probe-track.ipv4.}"; artifact=iptables ;;
-            probe-track.ipv6.*) expected_pid="${base#probe-track.ipv6.}"; artifact=ip6tables ;;
+            build-track.ipv4.*) suffix="${base#build-track.ipv4.}" ;;
+            build-track.ipv6.*) suffix="${base#build-track.ipv6.}" ;;
+            probe-track.ipv4.*) suffix="${base#probe-track.ipv4.}" ;;
+            probe-track.ipv6.*) suffix="${base#probe-track.ipv6.}" ;;
             *) return 1 ;;
         esac
-        is_decimal "$expected_pid" && [ "$expected_pid" -gt 0 ] 2>/dev/null || return 1
-        STALE_TRACK_FILES="${STALE_TRACK_FILES}${STALE_TRACK_FILES:+ }$path"
-        case " $STALE_TRACK_REQUIRED_TOOLS " in
-            *" $artifact "*) ;;
-            *) STALE_TRACK_REQUIRED_TOOLS="${STALE_TRACK_REQUIRED_TOOLS}${STALE_TRACK_REQUIRED_TOOLS:+ }$artifact" ;;
-        esac
+        is_decimal "$suffix" && [ "$suffix" -gt 0 ] 2>/dev/null || return 1
+        state_file_is_secure "$path" && path_mode_is_0600 "$path" &&
+            path_nlink_is_one "$path" || return 1
+        [ "$(wc -c < "$path" 2>/dev/null)" -le 131072 ] 2>/dev/null || return 1
+        retired="${retired}${retired:+ }$path"
     done
     [ "$found" = 1 ] || return 0
 
-    for artifact in "$OWNER_STATE" "$PIDFILE" "$TEARDOWN_JOURNAL"; do
-        [ ! -e "$artifact" ] && [ ! -L "$artifact" ] || return 1
-    done
-    for artifact in $(enumerate_recovery_artifacts); do
-        stale_track_file_is_known "$artifact" || return 1
-    done
-    stale_track_clean_ownership_proof namespace || return 1
-    for path in $STALE_TRACK_FILES; do
-        rm -f "$path" 2>/dev/null || return 1
-    done
+    for path in $retired; do rm -f "$path" 2>/dev/null || return 1; done
     sync >/dev/null 2>&1 || return 1
-    for path in $STALE_TRACK_FILES; do
+    for path in $retired; do
         [ ! -e "$path" ] && [ ! -L "$path" ] || return 1
     done
-    STALE_TRACK_FILES=""
-    REMOVED_MODULE_TRACKS_RETIRED=1
+    INSTALLER_TRACKS_RETIRED=1
     return 0
 }
 
