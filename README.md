@@ -2,7 +2,7 @@
 
 Модуль для обхода блокировок YouTube, Discord и других сайтов на Android.
 
-<img width="2025" height="1125" alt="image" src="https://github.com/user-attachments/assets/7e23e26c-2b78-46f1-973a-94d9b7071d82" />
+<img width="1916" height="821" alt="image" src="https://github.com/user-attachments/assets/6e10e827-a8e1-4ec4-b2fd-c839029873ce" />
 
 ## Что это и зачем нужно?
 
