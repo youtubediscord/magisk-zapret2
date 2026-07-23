@@ -114,6 +114,8 @@ jobs:
 
       - name: Read canonical release version
         id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           VERSION_METADATA=$(sh tools/release-version.sh)
@@ -127,8 +129,8 @@ jobs:
             exit 1
           fi
 
-          RELEASES_JSON=$(curl --fail --silent --show-error --location --max-time 30 \
-            'https://api.github.com/repos/youtubediscord/magisk-zapret2/releases?per_page=100')
+          RELEASES_JSON=$(gh api --method GET \
+            repos/youtubediscord/magisk-zapret2/releases -f per_page=100)
           LATEST_CANONICAL=$(jq -cer '
             map(select(
               (.draft | not) and
@@ -138,11 +140,12 @@ jobs:
             )) | first
           ' <<<"$RELEASES_JSON")
           LATEST_CANONICAL_TAG=$(jq -er '.tag_name' <<<"$LATEST_CANONICAL")
-          LATEST_UPDATE_URL=$(jq -er \
-            '.assets | map(select(.name == "update.json")) | first.browser_download_url' \
+          LATEST_UPDATE_ASSET_ID=$(jq -er \
+            '.assets | map(select(.name == "update.json")) | first.id' \
             <<<"$LATEST_CANONICAL")
-          LATEST_JSON=$(curl --fail --silent --show-error --location --max-time 30 \
-            "$LATEST_UPDATE_URL")
+          LATEST_JSON=$(gh api \
+            "repos/youtubediscord/magisk-zapret2/releases/assets/$LATEST_UPDATE_ASSET_ID" \
+            -H 'Accept: application/octet-stream')
           LATEST_VERSION=$(jq -er '.version | strings' <<<"$LATEST_JSON")
           LATEST_VERSION_CODE=$(jq -er '.versionCode | select(type == "number" and floor == .)' \
             <<<"$LATEST_JSON")
