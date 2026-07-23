@@ -133,7 +133,7 @@
 --new
 
 --name=Мои сайты
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --hostlist=lists/other.txt
 --out-range=-d10
 --lua-desync=multisplit:pos=1:seqovl=740:seqovl_pattern=stun_pat
@@ -165,7 +165,7 @@
 --new
 
 --name=Roblox TCP
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --hostlist=lists/roblox.txt
 --out-range=-d10
 --lua-desync=multisplit:pos=1:seqovl=740:seqovl_pattern=stun_pat
@@ -245,7 +245,7 @@
 --new
 
 --name=Tanki X
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --hostlist=lists/tankix.txt
 --out-range=-n8
 --lua-desync=fake:blob=fake_default_http:repeats=4:ip_autottl=2,3-20:ip6_autottl=2,3-20:tcp_md5

@@ -82,7 +82,7 @@
 --blob=zero64:0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 
 --name=Исключения (RU сайты)
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --ipset=lists/ipset-ru.txt
 --ipset=lists/ipset-dns.txt
 --ipset=lists/ipset-exclude.txt
@@ -93,7 +93,7 @@
 --new
 
 --name=Все сайты (айпи)
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --ipset-exclude=lists/ipset-ru.txt
 --ipset-exclude=lists/ipset-dns.txt
 --ipset-exclude=lists/ipset-exclude.txt
@@ -154,7 +154,7 @@
 --new
 
 --name=Мои сайты
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --ipset=lists/ipset-all.txt
 --out-range=-d8
 --lua-desync=hostfakesplit:host=www.google.com:repeats=4:tcp_ts=-600000
@@ -186,7 +186,7 @@
 --new
 
 --name=Roblox TCP
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --hostlist=lists/roblox.txt
 --out-range=-d8
 --lua-desync=hostfakesplit:host=www.google.com:repeats=4:tcp_ts=-600000

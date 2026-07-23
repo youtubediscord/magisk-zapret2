@@ -82,7 +82,7 @@
 --blob=zero64:0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 
 --name=Исключения (RU сайты)
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --ipset=lists/ipset-ru.txt
 --ipset=lists/ipset-dns.txt
 --ipset=lists/ipset-exclude.txt
@@ -210,7 +210,7 @@
 --new
 
 --name=Roblox TCP
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --hostlist=lists/roblox.txt
 --out-range=-d10
 --lua-desync=send:repeats=2
@@ -220,7 +220,7 @@
 --new
 
 --name=itch.io
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --hostlist=lists/itch.txt
 --out-range=-d10
 --lua-desync=send:repeats=2
@@ -230,7 +230,7 @@
 --new
 
 --name=Facebook
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --hostlist=lists/facebook.txt
 --out-range=-d10
 --lua-desync=send:repeats=2
@@ -240,7 +240,7 @@
 --new
 
 --name=Instagram
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --hostlist=lists/instagram.txt
 --out-range=-d10
 --lua-desync=send:repeats=2
@@ -250,7 +250,7 @@
 --new
 
 --name=WhatsApp
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --hostlist=lists/whatsapp.txt
 --out-range=-d10
 --lua-desync=send:repeats=2
@@ -286,7 +286,7 @@
 --new
 
 --name=WARP TCP
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --ipset=lists/ipset-warp.txt
 --out-range=-d8
 --lua-desync=send:repeats=2
@@ -296,7 +296,7 @@
 --new
 
 --name=Cloudflare TCP
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --hostlist=lists/cloudflare.txt
 --out-range=-d8
 --lua-desync=send:repeats=2
@@ -306,7 +306,7 @@
 --new
 
 --name=cloudfront.net
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --hostlist=lists/cloudfront.txt
 --out-range=-d8
 --lua-desync=send:repeats=2
@@ -316,7 +316,7 @@
 --new
 
 --name=Мои сайты
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --hostlist=lists/other.txt
 --out-range=-d10
 --lua-desync=send:repeats=2
@@ -345,7 +345,7 @@
 --new
 
 --name=ZapretKVN TCP
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --ipset=lists/ipset-zapretkvn.txt
 --out-range=-n8
 --lua-desync=send:repeats=2
@@ -355,7 +355,7 @@
 --new
 
 --name=Timeweb TCP
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --ipset=lists/ipset-timeweb.txt
 --out-range=-d10
 --lua-desync=send:repeats=2

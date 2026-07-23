@@ -1,144 +1,116 @@
 package com.zapret2.app.data
 
-enum class LifecycleErrorDomain {
-    NONE,
-    ROOT,
-    STATE,
-    LIFECYCLE,
-    CONFIG,
-    FIREWALL,
-    PROCESS,
-    STATUS,
-    UPDATE,
-}
-
-enum class LifecycleErrorCode {
-    NONE,
-    ROOT_DENIED,
-    ROOT_MANAGER_UNAVAILABLE,
-    ROOT_SHELL_FAILED,
-    ROOT_COMMAND_QUEUE_BUSY,
-    ROOT_COMMAND_TIMEOUT,
-    ROOT_COMMAND_FAILED,
-    STATE_UNAVAILABLE,
-    LIFECYCLE_BUSY,
-    UPDATE_BLOCKED,
-    RECOVERY_BLOCKED,
-    UNINSTALL_BLOCKED,
-    MODULE_DISABLED,
-    MODULE_REMOVAL_PENDING,
-    CONFIG_INVALID,
-    PREFLIGHT_FAILED,
-    FIREWALL_PROBE_FAILED,
-    FIREWALL_BUILD_FAILED,
-    FIREWALL_CLEANUP_FAILED,
-    FIREWALL_COMMIT_FAILED,
-    PROCESS_LAUNCH_FAILED,
-    PROCESS_STOP_FAILED,
-    POSTCONDITION_FAILED,
-    STATUS_DEGRADED,
-    LIFECYCLE_FAILED,
-}
-
+/**
+ * Opaque module diagnostic envelope.
+ *
+ * The app validates only the transport shape and bounds. Domain, stage and code
+ * deliberately remain strings so a newer module can report a new failure to an
+ * older APK without teaching the APK new enums.
+ */
 data class LifecycleError(
-    val domain: LifecycleErrorDomain,
-    val code: LifecycleErrorCode,
+    val status: String,
+    val domain: String,
     val stage: String,
-    val retryable: Boolean,
+    val code: String,
+    val detail: String,
 ) {
     init {
-        require(stage.matches(Regex("[A-Z0-9_]+")))
-        require(code.acceptsDomain(domain))
+        require(status == LifecycleErrorContract.STATUS_OK ||
+            status == LifecycleErrorContract.STATUS_ERROR)
+        require(LifecycleErrorContract.isToken(domain))
+        require(LifecycleErrorContract.isToken(stage))
+        require(LifecycleErrorContract.isToken(code))
+        require(LifecycleErrorContract.isBoundedSingleLineDetail(detail))
         require(
-            if (code == LifecycleErrorCode.NONE) {
-                domain == LifecycleErrorDomain.NONE && stage == "NONE" && !retryable
+            if (status == LifecycleErrorContract.STATUS_OK) {
+                domain == LifecycleErrorContract.NONE &&
+                    stage == LifecycleErrorContract.NONE &&
+                    code == LifecycleErrorContract.NONE &&
+                    detail.isEmpty()
             } else {
-                domain != LifecycleErrorDomain.NONE && stage != "NONE"
+                domain != LifecycleErrorContract.NONE &&
+                    stage != LifecycleErrorContract.NONE &&
+                    code != LifecycleErrorContract.NONE &&
+                    detail.isNotEmpty()
             },
         )
     }
 
-    val isNone: Boolean get() = code == LifecycleErrorCode.NONE
+    val isNone: Boolean get() = status == LifecycleErrorContract.STATUS_OK
 
-    fun diagnosticText(): String =
-        "${code.name} [${domain.name}/${stage}]${if (retryable) " (retryable)" else ""}"
-
-    private fun LifecycleErrorCode.acceptsDomain(domain: LifecycleErrorDomain): Boolean = when (this) {
-        LifecycleErrorCode.NONE -> domain == LifecycleErrorDomain.NONE
-        LifecycleErrorCode.ROOT_DENIED,
-        LifecycleErrorCode.ROOT_MANAGER_UNAVAILABLE,
-        LifecycleErrorCode.ROOT_SHELL_FAILED,
-        LifecycleErrorCode.ROOT_COMMAND_QUEUE_BUSY,
-        LifecycleErrorCode.ROOT_COMMAND_TIMEOUT,
-        LifecycleErrorCode.ROOT_COMMAND_FAILED,
-        -> domain == LifecycleErrorDomain.ROOT
-        LifecycleErrorCode.STATE_UNAVAILABLE -> domain == LifecycleErrorDomain.STATE
-        LifecycleErrorCode.LIFECYCLE_BUSY,
-        LifecycleErrorCode.RECOVERY_BLOCKED,
-        LifecycleErrorCode.UNINSTALL_BLOCKED,
-        LifecycleErrorCode.MODULE_DISABLED,
-        LifecycleErrorCode.MODULE_REMOVAL_PENDING,
-        LifecycleErrorCode.LIFECYCLE_FAILED,
-        -> domain == LifecycleErrorDomain.LIFECYCLE
-        LifecycleErrorCode.CONFIG_INVALID -> domain == LifecycleErrorDomain.CONFIG
-        LifecycleErrorCode.PREFLIGHT_FAILED ->
-            domain == LifecycleErrorDomain.CONFIG || domain == LifecycleErrorDomain.FIREWALL
-        LifecycleErrorCode.FIREWALL_PROBE_FAILED,
-        LifecycleErrorCode.FIREWALL_BUILD_FAILED,
-        LifecycleErrorCode.FIREWALL_CLEANUP_FAILED,
-        LifecycleErrorCode.FIREWALL_COMMIT_FAILED,
-        -> domain == LifecycleErrorDomain.FIREWALL
-        LifecycleErrorCode.PROCESS_LAUNCH_FAILED,
-        LifecycleErrorCode.PROCESS_STOP_FAILED,
-        -> domain == LifecycleErrorDomain.PROCESS
-        LifecycleErrorCode.POSTCONDITION_FAILED ->
-            domain == LifecycleErrorDomain.LIFECYCLE ||
-                domain == LifecycleErrorDomain.FIREWALL ||
-                domain == LifecycleErrorDomain.PROCESS
-        LifecycleErrorCode.STATUS_DEGRADED -> domain == LifecycleErrorDomain.STATUS
-        LifecycleErrorCode.UPDATE_BLOCKED -> domain == LifecycleErrorDomain.UPDATE
+    fun diagnosticText(): String = buildString {
+        append("schema=").append(LifecycleErrorContract.SCHEMA_VERSION).append('\n')
+        append("status=").append(status).append('\n')
+        append("domain=").append(domain).append('\n')
+        append("stage=").append(stage).append('\n')
+        append("code=").append(code).append('\n')
+        append("detail=").append(detail)
     }
 }
 
 internal object LifecycleErrorContract {
     const val SCHEMA_VERSION = "1"
-    const val STATUS_PROTOCOL_VERSION = "2"
+    const val STATUS_PROTOCOL_VERSION = "3"
+    const val STATUS_OK = "OK"
+    const val STATUS_ERROR = "ERROR"
+    const val NONE = "NONE"
+    const val MAX_TOKEN_LENGTH = 64
+    const val MAX_DETAIL_BYTES = 512
+
+    const val ROOT = "ROOT"
+    const val ROOT_DENIED = "ROOT_DENIED"
+    const val ROOT_MANAGER_UNAVAILABLE = "ROOT_MANAGER_UNAVAILABLE"
+    const val ROOT_SHELL_FAILED = "ROOT_SHELL_FAILED"
+    const val ROOT_COMMAND_QUEUE_BUSY = "ROOT_COMMAND_QUEUE_BUSY"
+    const val ROOT_COMMAND_TIMEOUT = "ROOT_COMMAND_TIMEOUT"
+    const val ROOT_COMMAND_FAILED = "ROOT_COMMAND_FAILED"
 
     private const val SCHEMA = "Z2_ERROR_SCHEMA"
+    private const val STATUS = "Z2_ERROR_STATUS"
     private const val DOMAIN = "Z2_ERROR_DOMAIN"
-    private const val CODE = "Z2_ERROR_CODE"
     private const val STAGE = "Z2_ERROR_STAGE"
-    private const val RETRYABLE = "Z2_ERROR_RETRYABLE"
+    private const val CODE = "Z2_ERROR_CODE"
+    private const val DETAIL = "Z2_ERROR_DETAIL"
 
-    val wireFields: Set<String> = setOf(SCHEMA, DOMAIN, CODE, STAGE, RETRYABLE)
+    val wireFields: Set<String> = setOf(SCHEMA, STATUS, DOMAIN, STAGE, CODE, DETAIL)
 
     val none = LifecycleError(
-        domain = LifecycleErrorDomain.NONE,
-        code = LifecycleErrorCode.NONE,
-        stage = "NONE",
-        retryable = false,
+        status = STATUS_OK,
+        domain = NONE,
+        stage = NONE,
+        code = NONE,
+        detail = "",
     )
 
-    val rootQueueBusy = LifecycleError(
-        domain = LifecycleErrorDomain.ROOT,
-        code = LifecycleErrorCode.ROOT_COMMAND_QUEUE_BUSY,
+    val rootQueueBusy = error(
+        domain = ROOT,
+        code = ROOT_COMMAND_QUEUE_BUSY,
         stage = "ROOT_QUEUE",
-        retryable = true,
+        detail = "Another root command is still running",
     )
 
-    fun rootCommandFailed(stage: String) = LifecycleError(
-        domain = LifecycleErrorDomain.ROOT,
-        code = LifecycleErrorCode.ROOT_COMMAND_FAILED,
+    fun rootCommandFailed(stage: String) = error(
+        domain = ROOT,
+        code = ROOT_COMMAND_FAILED,
         stage = stage,
-        retryable = true,
+        detail = "Root command exited unsuccessfully",
     )
 
-    fun rootAccess(code: LifecycleErrorCode, retryable: Boolean) = LifecycleError(
-        domain = LifecycleErrorDomain.ROOT,
+    fun rootAccess(code: String, detail: String) = error(
+        domain = ROOT,
         code = code,
         stage = "ROOT_ACQUIRE",
-        retryable = retryable,
+        detail = detail,
     )
+
+    fun error(domain: String, code: String, stage: String, detail: String): LifecycleError =
+        LifecycleError(
+            status = STATUS_ERROR,
+            domain = domain,
+            stage = stage,
+            code = code,
+            detail = boundedSingleLineDetail(detail),
+        )
 
     fun parseLines(lines: List<String>): LifecycleError? {
         val pairs = lines.mapNotNull { line ->
@@ -153,16 +125,42 @@ internal object LifecycleErrorContract {
 
     fun parseValues(values: Map<String, String>): LifecycleError? {
         if (values[SCHEMA] != SCHEMA_VERSION) return null
-        val domain = values[DOMAIN]?.let { runCatching { LifecycleErrorDomain.valueOf(it) }.getOrNull() }
-            ?: return null
-        val code = values[CODE]?.let { runCatching { LifecycleErrorCode.valueOf(it) }.getOrNull() }
-            ?: return null
-        val stage = values[STAGE]?.takeIf { it.matches(Regex("[A-Z0-9_]+")) } ?: return null
-        val retryable = when (values[RETRYABLE]) {
-            "0" -> false
-            "1" -> true
-            else -> return null
-        }
-        return runCatching { LifecycleError(domain, code, stage, retryable) }.getOrNull()
+        val status = values[STATUS] ?: return null
+        val domain = values[DOMAIN] ?: return null
+        val stage = values[STAGE] ?: return null
+        val code = values[CODE] ?: return null
+        val detail = values[DETAIL] ?: return null
+        return runCatching { LifecycleError(status, domain, stage, code, detail) }.getOrNull()
     }
+
+    fun boundedSingleLineDetail(value: String): String {
+        val normalized = value
+            .replace("\r\n", " ")
+            .replace('\r', ' ')
+            .replace('\n', ' ')
+            .replace('\t', ' ')
+            .filterNot { it == '\u0000' || (it.isISOControl() && it != ' ') }
+            .trim()
+        if (normalized.toByteArray(Charsets.UTF_8).size <= MAX_DETAIL_BYTES) return normalized
+        val result = StringBuilder()
+        var bytes = 0
+        var index = 0
+        while (index < normalized.length) {
+            val codePoint = normalized.codePointAt(index)
+            val text = String(Character.toChars(codePoint))
+            val width = text.toByteArray(Charsets.UTF_8).size
+            if (bytes + width > MAX_DETAIL_BYTES) break
+            result.append(text)
+            bytes += width
+            index += Character.charCount(codePoint)
+        }
+        return result.toString().trimEnd()
+    }
+
+    internal fun isToken(value: String): Boolean =
+        value.length in 1..MAX_TOKEN_LENGTH && value.matches(Regex("[A-Z0-9_]+"))
+
+    internal fun isBoundedSingleLineDetail(value: String): Boolean =
+        value.toByteArray(Charsets.UTF_8).size <= MAX_DETAIL_BYTES &&
+            value.none { it == '\u0000' || it == '\r' || it == '\n' || it == '\t' || it.isISOControl() }
 }

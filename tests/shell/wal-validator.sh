@@ -20,7 +20,7 @@ OWNER_STATE_IPV4_ACTIVE=1; OWNER_STATE_IPV6_ACTIVE=0
 OWNER_STATE_IPV4_CONNBYTES=1; OWNER_STATE_IPV4_MULTIPORT=1; OWNER_STATE_IPV4_MARK=1
 OWNER_STATE_IPV4_RULES=4; OWNER_STATE_IPV6_RULES=0
 OWNER_STATE_IPV6_CONNBYTES=0; OWNER_STATE_IPV6_MULTIPORT=0; OWNER_STATE_IPV6_MARK=0
-OWNER_STATE_PORTS_TCP=80,443; OWNER_STATE_PORTS_UDP=443,3478,5349,19302; OWNER_STATE_STUN_PORTS=0
+OWNER_STATE_PORTS_TCP=80:65535; OWNER_STATE_PORTS_UDP=443:65535; OWNER_STATE_STUN_PORTS=0
 OWNER_STATE_PKT_OUT=20; OWNER_STATE_PKT_IN=10; OWNER_STATE_QNUM=200; OWNER_STATE_DESYNC_MARK=0x40000000
 TEARDOWN_JOURNAL="$CASE/wal"
 
@@ -39,10 +39,10 @@ iptables() {
 -A Z2O_AbCdEf1234 -j Z2R_AbCdEf1234_O2
 -A Z2I_AbCdEf1234 -j Z2R_AbCdEf1234_I1
 -A Z2I_AbCdEf1234 -j Z2R_AbCdEf1234_I2
--A Z2R_AbCdEf1234_O1 -p tcp -m multiport --dports 80,443 -j NFQUEUE
--A Z2R_AbCdEf1234_O2 -p udp -m multiport --dports 443,3478,5349,19302 -j NFQUEUE
--A Z2R_AbCdEf1234_I1 -p tcp -m multiport --sports 80,443 -j NFQUEUE
--A Z2R_AbCdEf1234_I2 -p udp -m multiport --sports 443,3478,5349,19302 -j NFQUEUE
+-A Z2R_AbCdEf1234_O1 -p tcp -m multiport --dports 80:65535 -j NFQUEUE
+-A Z2R_AbCdEf1234_O2 -p udp -m multiport --dports 443:65535 -j NFQUEUE
+-A Z2R_AbCdEf1234_I1 -p tcp -m multiport --sports 80:65535 -j NFQUEUE
+-A Z2R_AbCdEf1234_I2 -p udp -m multiport --sports 443:65535 -j NFQUEUE
 EOF
     [ "${SNAP_EXTRA:-0}" != 1 ] || echo '-A Z2O_AbCdEf1234 -j FOREIGN'
 }
@@ -67,5 +67,7 @@ if validate_teardown_operation_journal; then fail "extra WAL record accepted"; f
 if validate_teardown_operation_journal; then fail "duplicate WAL record accepted"; fi
 sed '8s/Z2M4_1_/Z2M4_9_/' "$CASE/good" > "$TEARDOWN_JOURNAL"
 if validate_teardown_operation_journal; then fail "foreign marker identity accepted"; fi
+sed 's/|80:65535|/|80:65534|/' "$CASE/good" > "$TEARDOWN_JOURNAL"
+if validate_teardown_operation_journal; then fail "port set differing from owner metadata accepted"; fi
 
 echo "WAL validator shell tests passed"

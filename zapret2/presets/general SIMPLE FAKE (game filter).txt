@@ -81,7 +81,7 @@
 --blob=zero64:0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 
 --name=Исключения (RU сайты)
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --ipset=lists/ipset-ru.txt
 --ipset=lists/ipset-dns.txt
 --ipset=lists/ipset-exclude.txt
@@ -92,7 +92,7 @@
 --new
 
 --name=Все сайты (айпи)
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --ipset-exclude=lists/ipset-ru.txt
 --ipset-exclude=lists/ipset-dns.txt
 --ipset-exclude=lists/ipset-exclude.txt
@@ -158,7 +158,7 @@
 --new
 
 --name=Мои сайты
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --ipset=lists/ipset-all.txt
 --out-range=-d10
 --lua-desync=fake:blob=tls_google:repeats=6:tcp_ts=-600000
@@ -190,7 +190,7 @@
 --new
 
 --name=Roblox TCP
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --hostlist=lists/roblox.txt
 --out-range=-d10
 --lua-desync=fake:blob=tls_google:repeats=6:tcp_ts=-600000
@@ -238,7 +238,7 @@
 --new
 
 --name=discord.com
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --ipset=lists/ipset-discord.txt
 --out-range=-d10
 --lua-desync=fake:blob=tls_google:repeats=6:tcp_ts=-600000
@@ -246,7 +246,7 @@
 --new
 
 --name=Cloudflare TCP
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --hostlist=lists/cloudflare.txt
 --out-range=-d10
 --lua-desync=fake:blob=tls_google:repeats=6:tcp_ts=-600000
@@ -254,7 +254,7 @@
 --new
 
 --name=cloudfront.net
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --hostlist=lists/cloudfront.txt
 --out-range=-d10
 --lua-desync=fake:blob=tls_google:repeats=6:tcp_ts=-600000
@@ -262,7 +262,7 @@
 --new
 
 --name=Amazon TCP
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --hostlist=lists/amazon.txt
 --out-range=-d10
 --lua-desync=fake:blob=tls_google:repeats=6:tcp_ts=-600000
@@ -270,7 +270,7 @@
 --new
 
 --name=EpicGames & Fortnite
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --hostlist=lists/epicgames-fortnite.txt
 --out-range=-d10
 --lua-desync=fake:blob=tls_google:repeats=6:tcp_ts=-600000
@@ -278,7 +278,7 @@
 --new
 
 --name=League of Legends RU TCP
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --ipset=lists/ipset-lol-ru.txt
 --out-range=-d10
 --lua-desync=fake:blob=tls_google:repeats=6:tcp_ts=-600000
@@ -286,7 +286,7 @@
 --new
 
 --name=League of Legends EUW TCP
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --ipset=lists/ipset-lol-euw.txt
 --out-range=-d10
 --lua-desync=fake:blob=tls_google:repeats=6:tcp_ts=-600000
@@ -294,7 +294,7 @@
 --new
 
 --name=OVH TCP
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --ipset=lists/ipset-ovh.txt
 --out-range=-d10
 --lua-desync=fake:blob=tls_google:repeats=6:tcp_ts=-600000
@@ -302,7 +302,7 @@
 --new
 
 --name=WhatsApp
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --ipset=lists/ipset-whatsapp.txt
 --out-range=-d10
 --lua-desync=fake:blob=tls_google:repeats=6:tcp_ts=-600000
@@ -310,7 +310,7 @@
 --new
 
 --name=WARP TCP
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --ipset=lists/ipset-warp.txt
 --out-range=-d10
 --lua-desync=fake:blob=tls_google:repeats=6:tcp_ts=-600000
@@ -318,7 +318,7 @@
 --new
 
 --name=ZapretKVN TCP
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --ipset=lists/ipset-zapretkvn.txt
 --out-range=-d10
 --lua-desync=fake:blob=tls_google:repeats=6:tcp_ts=-600000
@@ -326,7 +326,7 @@
 --new
 
 --name=Timeweb TCP
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --ipset=lists/ipset-timeweb.txt
 --out-range=-d10
 --lua-desync=fake:blob=tls_google:repeats=6:tcp_ts=-600000

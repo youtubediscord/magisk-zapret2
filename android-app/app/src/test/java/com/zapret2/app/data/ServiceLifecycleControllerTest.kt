@@ -107,9 +107,9 @@ class ServiceLifecycleControllerTest {
             missingManager.state,
         )
         assertEquals(ServiceLifecycleController.RootAccessState.TIMEOUT, timedOut.state)
-        assertEquals(LifecycleErrorCode.ROOT_COMMAND_TIMEOUT, timedOut.lifecycleError?.code)
+        assertEquals(LifecycleErrorContract.ROOT_COMMAND_TIMEOUT, timedOut.lifecycleError?.code)
         assertEquals(ServiceLifecycleController.RootAccessState.SHELL_FAILURE, shellFailure.state)
-        assertEquals(LifecycleErrorCode.ROOT_SHELL_FAILED, shellFailure.lifecycleError?.code)
+        assertEquals(LifecycleErrorContract.ROOT_SHELL_FAILED, shellFailure.lifecycleError?.code)
         assertEquals(
             ServiceLifecycleController.RootAccessState.DENIED,
             deniedWithoutShellDiagnostic.state,
@@ -118,14 +118,14 @@ class ServiceLifecycleControllerTest {
             "Root access was not granted by the root manager",
             deniedWithoutShellDiagnostic.error,
         )
-        assertEquals(LifecycleErrorCode.ROOT_DENIED, deniedWithoutShellDiagnostic.lifecycleError?.code)
+        assertEquals(LifecycleErrorContract.ROOT_DENIED, deniedWithoutShellDiagnostic.lifecycleError?.code)
         assertEquals(
             ServiceLifecycleController.RootAccessState.SHELL_FAILURE,
             failedGrantedShell.state,
         )
         assertEquals(ServiceLifecycleController.RootAccessState.SHELL_FAILURE, malformedUid.state)
         assertEquals(ServiceLifecycleController.RootAccessState.BUSY, busy.state)
-        assertEquals(LifecycleErrorCode.ROOT_COMMAND_QUEUE_BUSY, busy.lifecycleError?.code)
+        assertEquals(LifecycleErrorContract.ROOT_COMMAND_QUEUE_BUSY, busy.lifecycleError?.code)
     }
 
     @Test
@@ -194,43 +194,56 @@ class ServiceLifecycleControllerTest {
     }
 
     @Test
-    fun parseStatusOutput_acceptsVersionTwoAndCarriesTypedModuleError() {
+    fun parseStatusOutput_acceptsVersionThreeAndCarriesOpaqueModuleError() {
         val lines = stoppedStatusLines().toMutableList().apply {
-            add(0, "Z2_PROTOCOL=2")
+            add(0, "Z2_PROTOCOL=3")
             add(lastIndex, "Z2_ERROR_SCHEMA=1")
+            add(lastIndex, "Z2_ERROR_STATUS=ERROR")
             add(lastIndex, "Z2_ERROR_DOMAIN=FIREWALL")
-            add(lastIndex, "Z2_ERROR_CODE=FIREWALL_BUILD_FAILED")
             add(lastIndex, "Z2_ERROR_STAGE=START_IPV4_BUILD_RULE")
-            add(lastIndex, "Z2_ERROR_RETRYABLE=1")
+            add(lastIndex, "Z2_ERROR_CODE=FUTURE_FIREWALL_FAILURE")
+            add(lastIndex, "Z2_ERROR_DETAIL=iptables rejected the future rule")
         }
 
         val status = ServiceLifecycleController.parseStatusOutput(lines)
 
         assertTrue(status.metadataComplete)
         assertTrue(status.fullyStopped)
-        assertEquals(LifecycleErrorDomain.FIREWALL, status.lifecycleError?.domain)
-        assertEquals(LifecycleErrorCode.FIREWALL_BUILD_FAILED, status.lifecycleError?.code)
+        assertEquals("FIREWALL", status.lifecycleError?.domain)
+        assertEquals("FUTURE_FIREWALL_FAILURE", status.lifecycleError?.code)
         assertEquals("START_IPV4_BUILD_RULE", status.lifecycleError?.stage)
-        assertTrue(status.lifecycleError?.retryable == true)
+        assertEquals("iptables rejected the future rule", status.lifecycleError?.detail)
     }
 
     @Test
-    fun parseStatusOutput_rejectsPartialOrUnknownVersionTwoErrorContract() {
+    fun parseStatusOutput_rejectsPartialButAcceptsUnknownVersionThreeIdentity() {
         val valid = stoppedStatusLines().toMutableList().apply {
-            add(0, "Z2_PROTOCOL=2")
+            add(0, "Z2_PROTOCOL=3")
             add(lastIndex, "Z2_ERROR_SCHEMA=1")
+            add(lastIndex, "Z2_ERROR_STATUS=OK")
             add(lastIndex, "Z2_ERROR_DOMAIN=NONE")
-            add(lastIndex, "Z2_ERROR_CODE=NONE")
             add(lastIndex, "Z2_ERROR_STAGE=NONE")
-            add(lastIndex, "Z2_ERROR_RETRYABLE=0")
+            add(lastIndex, "Z2_ERROR_CODE=NONE")
+            add(lastIndex, "Z2_ERROR_DETAIL=")
         }
         val partial = valid.filterNot { it.startsWith("Z2_ERROR_STAGE=") }
         val unknown = valid.map {
-            if (it.startsWith("Z2_ERROR_CODE=")) "Z2_ERROR_CODE=FUTURE_FAILURE" else it
+            when {
+                it == "Z2_ERROR_STATUS=OK" -> "Z2_ERROR_STATUS=ERROR"
+                it == "Z2_ERROR_DOMAIN=NONE" -> "Z2_ERROR_DOMAIN=FUTURE"
+                it == "Z2_ERROR_STAGE=NONE" -> "Z2_ERROR_STAGE=FUTURE_STAGE"
+                it == "Z2_ERROR_CODE=NONE" -> "Z2_ERROR_CODE=FUTURE_FAILURE"
+                it == "Z2_ERROR_DETAIL=" -> "Z2_ERROR_DETAIL=future detail"
+                else -> it
+            }
         }
 
         assertFalse(ServiceLifecycleController.parseStatusOutput(partial).metadataComplete)
-        assertFalse(ServiceLifecycleController.parseStatusOutput(unknown).metadataComplete)
+        assertTrue(ServiceLifecycleController.parseStatusOutput(unknown).metadataComplete)
+        assertEquals(
+            "FUTURE_FAILURE",
+            ServiceLifecycleController.parseStatusOutput(unknown).lifecycleError?.code,
+        )
     }
 
     @Test
@@ -538,15 +551,17 @@ class ServiceLifecycleControllerTest {
                 "ERROR: cannot build detached IPv4 chains; iptables BUILD_RULE failed: xtables lock",
             ),
             lifecycleError = LifecycleError(
-                domain = LifecycleErrorDomain.FIREWALL,
-                code = LifecycleErrorCode.FIREWALL_BUILD_FAILED,
+                status = "ERROR",
+                domain = "FIREWALL",
                 stage = "START_IPV4_BUILD_RULE",
-                retryable = true,
+                code = "FIREWALL_BUILD_FAILED",
+                detail = "iptables BUILD_RULE failed: xtables lock",
             ),
         )
 
         assertEquals(
-            "FIREWALL_BUILD_FAILED [FIREWALL/START_IPV4_BUILD_RULE] (retryable)\n" +
+            "schema=1\nstatus=ERROR\ndomain=FIREWALL\nstage=START_IPV4_BUILD_RULE\n" +
+                "code=FIREWALL_BUILD_FAILED\ndetail=iptables BUILD_RULE failed: xtables lock\n" +
                 "cannot build detached IPv4 chains; iptables BUILD_RULE failed: xtables lock",
             result.diagnosticText(),
         )

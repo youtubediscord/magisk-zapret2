@@ -84,7 +84,7 @@
 --blob=zero64:0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 
 --name=Исключения (RU сайты)
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --ipset=lists/ipset-ru.txt
 --ipset=lists/ipset-dns.txt
 --ipset=lists/ipset-exclude.txt
@@ -153,7 +153,7 @@
 --new
 
 --name=Amazon TCP
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --hostlist=lists/amazon.txt
 --out-range=-n8
 --lua-desync=send:repeats=2
@@ -163,7 +163,7 @@
 --new
 
 --name=EpicGames & Fortnite
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --hostlist=lists/epicgames-fortnite.txt
 --out-range=-n8
 --lua-desync=send:repeats=2
@@ -182,7 +182,7 @@
 --new
 
 --name=Roblox TCP
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --hostlist=lists/roblox.txt
 --out-range=-n8
 --lua-desync=send:repeats=2
@@ -201,7 +201,7 @@
 --new
 
 --name=WARP TCP
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --ipset=lists/ipset-warp.txt
 --out-range=-n8
 --lua-desync=send:repeats=2
@@ -211,7 +211,7 @@
 --new
 
 --name=Мои сайты
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --hostlist=lists/other.txt
 --out-range=-d10
 --lua-desync=hostfakesplit_multi:hosts=google.com,vimeo.com:tcp_ts=-1000:tcp_md5:repeats=2
@@ -237,7 +237,7 @@
 --new
 
 --name=youtube.com (RTMPS Россия)
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --ipset=lists/ipset-russia-youtube-rtmps.txt
 --out-range=-n8
 --lua-desync=send:repeats=2
@@ -247,7 +247,7 @@
 --new
 
 --name=Мои сайты
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --ipset=lists/ipset-all.txt
 --out-range=-n8
 --lua-desync=send:repeats=2
@@ -257,7 +257,7 @@
 --new
 
 --name=discord.com
---filter-tcp=80,443-65535
+--filter-tcp=80,443
 --ipset=lists/ipset-discord.txt
 --out-range=-n8
 --lua-desync=send:repeats=2

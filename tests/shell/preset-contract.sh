@@ -25,6 +25,9 @@ if grep -R -q -- '^--wf-' "$ROOT/zapret2/presets"; then fail "WinDivert filter o
 if grep -R -q -- '^--in-range=' "$ROOT/zapret2/presets"; then fail "inbound range remains"; fi
 if grep -R -q -- '^--lua-desync=circular:' "$ROOT/zapret2/presets"; then fail "circular strategy remains"; fi
 if grep -R -q -- '--ipcache' "$ROOT/zapret2/presets"; then fail "forbidden ipcache option remains"; fi
+if grep -R -q -- '^--filter-tcp=.*-' "$ROOT/zapret2/presets"; then
+    fail "packaged preset contains a broad TCP port range"
+fi
 if grep -R -q -- 'russia-youtube-ipset.txt' "$ROOT/zapret2/presets"; then fail "stale russia-youtube ipset name remains"; fi
 for preset in "$ROOT"/zapret2/presets/*.txt; do
     case "${preset##*/}" in

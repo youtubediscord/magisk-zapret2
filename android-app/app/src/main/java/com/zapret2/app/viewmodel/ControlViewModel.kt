@@ -9,6 +9,7 @@ import androidx.lifecycle.viewModelScope
 import com.zapret2.app.R
 import com.zapret2.app.data.ArtifactValidationReason
 import com.zapret2.app.data.DownloadFailureReason
+import com.zapret2.app.data.LifecycleErrorContract
 import com.zapret2.app.data.MAX_PACKET_COUNT
 import com.zapret2.app.data.ModuleInstallState
 import com.zapret2.app.data.ModuleMutationState
@@ -19,8 +20,11 @@ import com.zapret2.app.data.ModuleServiceAccess
 import com.zapret2.app.data.NetworkStatsManager
 import com.zapret2.app.data.PendingModuleState
 import com.zapret2.app.data.ProtectedTextRead
+import com.zapret2.app.data.RuntimeConfigReadResult
+import com.zapret2.app.data.RuntimeConfigMutationResult
 import com.zapret2.app.data.RuntimeConfigStore
-import com.zapret2.app.data.RuntimeConfigRollbackException
+import com.zapret2.app.data.diagnosticText
+import com.zapret2.app.data.diagnosticTextOrNull
 import com.zapret2.app.data.RuntimeLogRepository
 import com.zapret2.app.data.ServiceEventBus
 import com.zapret2.app.data.ServiceLifecycleController
@@ -349,6 +353,7 @@ data class ControlUiState(
     val isUpdating: Boolean = false,
     val isSavingSettings: Boolean = false,
     val hasAuthoritativeRuntimeSettings: Boolean = false,
+    val moduleDiagnostic: String? = null,
     val updateProgress: Float = 0f,
     val updateStatus: UiText? = null,
     val pendingDialog: ControlDialogKind? = null,
@@ -1307,7 +1312,18 @@ class ControlViewModel @Inject constructor(
                             ModuleInstallState.READY,
                             ModuleInstallState.DISABLED,
                         )
-                val coreValues = if (stableModuleConfig) RuntimeConfigStore.readCore() else emptyMap()
+                val runtimeConfig = if (stableModuleConfig) {
+                    RuntimeConfigStore.readCore()
+                } else {
+                    null
+                }
+                if (runtimeConfig != null && runtimeConfig !is RuntimeConfigReadResult.Valid) {
+                    _uiState.update {
+                        it.copy(moduleDiagnostic = runtimeConfig.diagnosticText())
+                    }
+                    throw EnvironmentProbeException()
+                }
+                val coreValues = runtimeConfig?.values.orEmpty()
                 if (stableModuleConfig && coreValues.isEmpty()) throw EnvironmentProbeException()
                 val pktOut = if (stableModuleConfig) {
                     RuntimeConfigStore.positiveCountOrNull(coreValues["pkt_out"])
@@ -1322,12 +1338,16 @@ class ControlViewModel @Inject constructor(
                     10
                 }
                 val unsupportedWifiOnlyWasEnabled = coreValues["wifi_only"] == "1"
+                var runtimeMutationDiagnostic: String? = null
                 val wifiOnlyNormalized = if (!unsupportedWifiOnlyWasEnabled) {
                     true
                 } else {
                     try {
                         ModuleMutationCoordinator.withNonCancellableMutation {
-                            RuntimeConfigStore.upsertCoreValue("wifi_only", "0")
+                            RuntimeConfigStore.upsertCoreValue("wifi_only", "0").let { result ->
+                                runtimeMutationDiagnostic = result.diagnosticTextOrNull()
+                                result.isSuccess
+                            }
                         }
                     } catch (_: ModuleMutationCoordinator.MutationBlockedException) {
                         false
@@ -1351,6 +1371,7 @@ class ControlViewModel @Inject constructor(
                         pktOut = pktOut,
                         pktIn = pktIn,
                         hasAuthoritativeRuntimeSettings = stableModuleConfig,
+                        moduleDiagnostic = runtimeMutationDiagnostic,
                         showQuicBanner = showQuicBanner,
                     )
                 }
@@ -1380,9 +1401,9 @@ class ControlViewModel @Inject constructor(
                 showErrorDialog(
                     kind = ControlErrorKind.INITIALIZATION,
                     details = if (error is EnvironmentProbeException) {
-                        UiText.Resource(R.string.control_environment_probe_failed)
-                    } else if (error is RuntimeConfigRollbackException) {
-                        UiText.Resource(R.string.control_runtime_rollback_failed)
+                        _uiState.value.moduleDiagnostic
+                            ?.let { UiText.Dynamic(it) }
+                            ?: UiText.Resource(R.string.control_environment_probe_failed)
                     } else UiText.Resource(R.string.control_unknown_error),
                 )
             } finally {
@@ -1439,13 +1460,34 @@ class ControlViewModel @Inject constructor(
     }
 
     private suspend fun revalidateRuntimeSettings(): Boolean {
-        val coreValues = try {
+        val runtime = try {
             withContext(Dispatchers.IO) { RuntimeConfigStore.readCore() }
         } catch (cancelled: CancellationException) {
             throw cancelled
-        } catch (_: Exception) {
-            emptyMap()
+        } catch (error: Exception) {
+            _uiState.update {
+                it.copy(
+                    hasAuthoritativeRuntimeSettings = false,
+                    moduleDiagnostic = LifecycleErrorContract.error(
+                        domain = "CONFIG",
+                        code = "RUNTIME_INSPECT_FAILED",
+                        stage = "RUNTIME_INSPECT",
+                        detail = "${error.javaClass.simpleName}: ${error.message}",
+                    ).diagnosticText(),
+                )
+            }
+            return false
         }
+        if (runtime !is RuntimeConfigReadResult.Valid) {
+            _uiState.update {
+                it.copy(
+                    hasAuthoritativeRuntimeSettings = false,
+                    moduleDiagnostic = runtime.diagnosticText(),
+                )
+            }
+            return false
+        }
+        val coreValues = runtime.values
         val autostart = when (coreValues["autostart"]) {
             "0" -> false
             "1" -> true
@@ -1464,6 +1506,7 @@ class ControlViewModel @Inject constructor(
                     pktOut = pktOut,
                     pktIn = pktIn,
                     hasAuthoritativeRuntimeSettings = true,
+                    moduleDiagnostic = null,
                 )
             }
         }
@@ -1505,6 +1548,9 @@ class ControlViewModel @Inject constructor(
                         hasRootAccess = false,
                         rootAccessState = rootAccess.state,
                         hasAuthoritativeRuntimeSettings = false,
+                        moduleDiagnostic = rootAccess.lifecycleError
+                            ?.takeUnless { error -> error.isNone }
+                            ?.diagnosticText(),
                         iptablesActive = false,
                         nfqueueRulesCount = 0,
                         iptablesDetail = NetworkStatsManager.IptablesDetail(),
@@ -1610,8 +1656,8 @@ class ControlViewModel @Inject constructor(
         )
 
         if (refreshId == statusRefreshSequence.get()) {
-            _uiState.update {
-                it.copy(
+            _uiState.update { current ->
+                current.copy(
                     isRunning = isRunning,
                     canStopService = canStopService,
                     status = status,
@@ -1628,9 +1674,16 @@ class ControlViewModel @Inject constructor(
                     moduleMutationState = environment.mutationState,
                     moduleVersion = environment.displayedVersion,
                     nfqueueSupported = environment.nfqueueSupported,
-                    hasAuthoritativeRuntimeSettings = it.hasAuthoritativeRuntimeSettings &&
+                    hasAuthoritativeRuntimeSettings = current.hasAuthoritativeRuntimeSettings &&
                         environment.activeState == ModuleInstallState.READY &&
                         environment.mutationState == ModuleMutationState.IDLE,
+                    moduleDiagnostic = serviceStatus.lifecycleError
+                        ?.takeUnless { error -> error.isNone }
+                        ?.diagnosticText()
+                        ?: current.moduleDiagnostic.takeUnless {
+                            serviceStatus.metadataComplete &&
+                                current.hasAuthoritativeRuntimeSettings
+                        },
                 )
             }
         }
@@ -1751,9 +1804,11 @@ class ControlViewModel @Inject constructor(
         if (rejectUnavailableSettingMutation()) return
         if (_uiState.value.autostart == enabled) return
         launchSettingMutation(R.string.control_autostart_save_failed) {
-            RuntimeConfigStore.upsertCoreValue(
-                "autostart",
-                if (enabled) "1" else "0",
+            handleRuntimeMutation(
+                RuntimeConfigStore.upsertCoreValue(
+                    "autostart",
+                    if (enabled) "1" else "0",
+                ),
             ).also { success ->
                 if (success) _uiState.update { it.copy(autostart = enabled) }
             }
@@ -1766,7 +1821,9 @@ class ControlViewModel @Inject constructor(
         if (value !in 1..MAX_PACKET_COUNT) return
         if (_uiState.value.pktOut == value) return
         launchSettingMutation(R.string.control_packet_out_save_failed) {
-            RuntimeConfigStore.upsertCoreValue("pkt_out", value.toString()).also { success ->
+            handleRuntimeMutation(
+                RuntimeConfigStore.upsertCoreValue("pkt_out", value.toString()),
+            ).also { success ->
                 if (success) {
                     _uiState.update { it.copy(pktOut = value) }
                     restartService()
@@ -1781,13 +1838,22 @@ class ControlViewModel @Inject constructor(
         if (value !in 1..MAX_PACKET_COUNT) return
         if (_uiState.value.pktIn == value) return
         launchSettingMutation(R.string.control_packet_in_save_failed) {
-            RuntimeConfigStore.upsertCoreValue("pkt_in", value.toString()).also { success ->
+            handleRuntimeMutation(
+                RuntimeConfigStore.upsertCoreValue("pkt_in", value.toString()),
+            ).also { success ->
                 if (success) {
                     _uiState.update { it.copy(pktIn = value) }
                     restartService()
                 }
             }
         }
+    }
+
+    private fun handleRuntimeMutation(result: RuntimeConfigMutationResult): Boolean {
+        result.diagnosticTextOrNull()?.let { diagnostic ->
+            _uiState.update { it.copy(moduleDiagnostic = diagnostic) }
+        }
+        return result.isSuccess
     }
 
     private fun launchSettingMutation(
@@ -1801,7 +1867,6 @@ class ControlViewModel @Inject constructor(
         settingMutationInProgress.set(true)
         _uiState.update { it.copy(isSavingSettings = true) }
         viewModelScope.launch {
-            var runtimeStateUncertain = false
             try {
                 val succeeded = ModuleMutationCoordinator.withNonCancellableMutation(block)
                 if (!succeeded) {
@@ -1809,10 +1874,6 @@ class ControlViewModel @Inject constructor(
                 }
             } catch (_: ModuleMutationCoordinator.MutationBlockedException) {
                 publishMessage(UiText.Resource(R.string.control_module_update_in_progress))
-            } catch (_: RuntimeConfigRollbackException) {
-                runtimeStateUncertain = true
-                _uiState.update { it.copy(hasAuthoritativeRuntimeSettings = false) }
-                publishMessage(UiText.Resource(R.string.control_runtime_rollback_failed))
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
@@ -1821,9 +1882,6 @@ class ControlViewModel @Inject constructor(
                 settingMutationInProgress.set(false)
                 _uiState.update { it.copy(isSavingSettings = false) }
                 exclusiveActionInProgress.set(false)
-            }
-            if (runtimeStateUncertain && _uiState.value.isModuleOperational) {
-                revalidateRuntimeSettings()
             }
         }
     }

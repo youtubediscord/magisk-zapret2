@@ -11,6 +11,7 @@ BOOT_A=11111111-1111-1111-1111-111111111111
 BOOT_B=22222222-2222-2222-2222-222222222222
 
 fail() { echo "FAIL: owner-state-v7: $*" >&2; exit 1; }
+REAL_CHMOD=$(command -v chmod)
 chmod() { :; }
 sync() { :; }
 sha256sum() { cat >/dev/null; echo aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; }
@@ -29,7 +30,7 @@ cat > "$MOCK/iptables" <<'EOF'
 #!/bin/sh
 exit 0
 EOF
-chmod 0755 "$MOCK/iptables"
+"$REAL_CHMOD" 0755 "$MOCK/iptables"
 
 export STATE_DIR="$STATE" SCRIPT_DIR="$MOD/zapret2/scripts" ZAPRET_DIR="$MOD/zapret2" MODDIR="$MOD" PATH="$MOCK:$PATH"
 . "$SCRIPT_DIR/common.sh"

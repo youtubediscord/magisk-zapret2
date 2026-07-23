@@ -244,15 +244,15 @@ internal class RootPresetRunner @Inject constructor() : PresetRunner {
     }
 
     override suspend fun snapshotActiveConfig(): ActivePresetConfig? {
-        val values = RuntimeConfigStore.readCoreResult()
-        if (!values.usesRuntimeConfig) return null
+        val values = RuntimeConfigStore.readCore()
+        if (values !is RuntimeConfigReadResult.Valid) return null
         val presetFile = values.values["active_preset"] ?: return null
         return ActivePresetConfig(presetFile)
     }
 
     override suspend fun loadSelection(): PresetSelection? {
-        val result = RuntimeConfigStore.readCoreResult()
-        if (!result.usesRuntimeConfig) return null
+        val result = RuntimeConfigStore.readCore()
+        if (result !is RuntimeConfigReadResult.Valid) return null
         val values = result.values
         val activePresetFile = values["active_preset"] ?: return null
         return PresetSelection(activePresetFile = activePresetFile)
@@ -261,7 +261,7 @@ internal class RootPresetRunner @Inject constructor() : PresetRunner {
     override suspend fun writeActiveConfig(config: ActivePresetConfig): Boolean {
         return RuntimeConfigStore.updateCoreSettings(
             RuntimeConfigStore.CoreSettingsUpdate(activePreset = config.presetFile),
-        )
+        ).isSuccess
     }
 
     override suspend fun snapshotFile(fileName: String): PresetFileSnapshot {
@@ -615,8 +615,6 @@ internal class TransactionalPresetRepository @Inject constructor(
         throw cancelled
     } catch (_: ModuleMutationCoordinator.MutationBlockedException) {
         PresetMutationOutcome.Blocked
-    } catch (_: RuntimeConfigRollbackException) {
-        PresetMutationOutcome.RollbackFailed
     } catch (_: Exception) {
         PresetMutationOutcome.IoFailed
     }

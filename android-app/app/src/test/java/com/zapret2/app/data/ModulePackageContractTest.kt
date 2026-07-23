@@ -125,6 +125,7 @@ class ModulePackageContractTest {
             "immutable-exec|0755|zapret2/scripts/common.sh",
             "immutable-exec|0755|zapret2/scripts/command-builder.sh",
             "immutable-exec|0755|zapret2/scripts/package-contract.sh",
+            "immutable-exec|0755|zapret2/scripts/runtime-config.sh",
             "immutable-exec|0755|zapret2/scripts/runtime-init.sh",
             "immutable-exec|0755|zapret2/scripts/zapret-start.sh",
             "immutable-exec|0755|zapret2/scripts/zapret-stop.sh",
@@ -216,6 +217,7 @@ class ModulePackageContractTest {
         val requiredRuntimeFiles = setOf(
             "zapret2/scripts/command-builder.sh",
             "zapret2/scripts/package-contract.sh",
+            "zapret2/scripts/runtime-config.sh",
             "zapret2/scripts/runtime-init.sh",
             "zapret2/lua/zapret-lib.lua",
             "zapret2/lua/zapret-antidpi.lua",

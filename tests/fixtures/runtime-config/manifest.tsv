@@ -1,0 +1,12 @@
+# file	expected
+valid-default.ini	VALID
+valid-quoted-preset.ini	VALID
+valid-leading-zero-qnum.ini	VALID
+invalid-duplicate-core.ini	MALFORMED
+invalid-duplicate-key.ini	MALFORMED
+invalid-missing-key.ini	MALFORMED
+invalid-unknown-key.ini	MALFORMED
+invalid-qnum.ini	MALFORMED
+invalid-quote.ini	MALFORMED
+unsupported-schema.ini	UNSUPPORTED_SCHEMA
+unsupported-format.ini	UNSUPPORTED_SCHEMA
