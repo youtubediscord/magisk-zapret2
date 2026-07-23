@@ -1,6 +1,7 @@
 package com.zapret2.app.data
 
 import java.io.File
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -15,8 +16,30 @@ class RuntimeCostBoundaryTest {
 
         assertFalse(source.contains("package_contract_validate_all"))
         assertFalse(source.contains("package_contract_compare_release"))
-        assertTrue(source.contains("hotSwapBootstrapFiles"))
         assertTrue(source.contains("magisk --install-module"))
+    }
+
+    @Test
+    fun moduleUpdate_neverReplacesTheActiveMagiskTree() {
+        val source = repositoryFile(
+            "android-app/app/src/main/java/com/zapret2/app/data/UpdateManager.kt",
+        ).readText()
+        val stagingBoundary = source
+            .substringAfter("private suspend fun installValidatedModule(")
+            .substringBefore("private suspend fun installModuleLocked(")
+        val install = source
+            .substringAfter("private suspend fun installModuleLocked(")
+            .substringBefore("private suspend fun verifyStandardModuleInstall(")
+
+        assertFalse(stagingBoundary.contains("runExclusiveLifecycleTask"))
+        assertTrue(install.contains("magisk --install-module"))
+        assertTrue(install.contains("needsReboot = true"))
+        assertFalse(install.contains("validateModuleArchive"))
+        assertFalse(install.contains("rollbackHotUpdate"))
+        assertFalse(install.contains(".zapret2-update-"))
+        assertFalse(install.contains(".zapret2-backup-"))
+        assertFalse(install.contains("mv -f"))
+        assertFalse(install.contains("cp -R"))
     }
 
     @Test
@@ -58,30 +81,32 @@ class RuntimeCostBoundaryTest {
     }
 
     @Test
-    fun liveUpdateCompatibility_coversEveryMagiskFacingBootstrapFile() {
-        assertTrue(ModulePackageContract.hotSwapBootstrapFiles.containsAll(
-            ModulePackageContract.hotUpdateRootExecutables,
+    fun packageContract_hasNoActiveTreeHotSwapSurface() {
+        val source = repositoryFile(
+            "android-app/app/src/main/java/com/zapret2/app/data/ModulePackageContract.kt",
+        ).readText()
+
+        assertTrue(ModulePackageContract.moduleRootExecutables.containsAll(
+            listOf("service.sh", "uninstall.sh", "action.sh"),
         ))
-        assertTrue(ModulePackageContract.hotSwapBootstrapFiles.containsAll(
-            ModulePackageContract.wrappers.map { it.relativePath },
-        ))
-        assertTrue(
-            ModulePackageContract.LIFECYCLE_CONTRACT_PATH in
-                ModulePackageContract.hotSwapBootstrapFiles,
-        )
-        assertFalse("module.prop" in ModulePackageContract.hotSwapBootstrapFiles)
-        assertFalse(ModulePackageContract.COMMAND_BUILDER_SCRIPT_PATH in
-            ModulePackageContract.hotSwapBootstrapFiles)
+        assertFalse(source.contains("hotSwapBootstrapFiles"))
+        assertFalse(source.contains("hotUpdateRootExecutables"))
     }
 
     @Test
-    fun recurringObservers_doNotRunMutationRecovery() {
+    fun canonicalStagingRelease_forcesLegacyApkIntoItsMagiskFallback() {
+        assertEquals("2", ModulePackageContract.LIFECYCLE_CONTRACT_VERSION)
+        assertTrue(
+            repositoryFile("service.sh").readText()
+                .contains("Module package generations are activated only by Magisk at boot."),
+        )
+    }
+
+    @Test
+    fun recurringObservers_haveNoLegacyMutationRecovery() {
         val repository = repositoryFile(
             "android-app/app/src/main/java/com/zapret2/app/data/Zapret2ModuleRepository.kt",
         ).readText()
-        val reconcile = repository
-            .substringAfter("internal suspend fun reconcileEnvironment(")
-            .substringBefore("internal fun buildProbeCommand")
         val controller = repositoryFile(
             "android-app/app/src/main/java/com/zapret2/app/data/ServiceLifecycleController.kt",
         ).readText()
@@ -89,8 +114,9 @@ class RuntimeCostBoundaryTest {
             .substringAfter("suspend fun getStatus(): ServiceStatus")
             .substringBefore("suspend fun start()")
 
-        assertTrue(reconcile.contains("if (recoverInterruptedUpdate)"))
+        assertFalse(repository.contains("ModuleUpdateRecovery"))
         assertFalse(status.contains("recoverIfNeeded"))
+        assertFalse(controller.contains("ModuleUpdateRecovery"))
     }
 
     private fun repositoryFile(relativePath: String): File {

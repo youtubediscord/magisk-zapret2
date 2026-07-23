@@ -373,7 +373,7 @@ mock_reboot_clean_firewall() {
 assert_different_boot_retires() {
     local journal="$1"
     mock_reboot_clean_firewall
-    for scope in lifecycle update full-rollback install uninstall; do
+    for scope in lifecycle full-rollback install uninstall; do
         audit_recovery_artifacts "$scope" || fail "different-boot clean $scope preflight failed: $RECOVERY_ARTIFACT_DIAGNOSTIC"
         [ "$RECOVERY_ARTIFACT_CLASS" = clean ] || fail "different-boot $scope preflight was not clean"
     done
@@ -443,9 +443,6 @@ export FIREWALL_TAG ZAPRET2_OUT ZAPRET2_IN
 # when zapret-start has disabled globbing. Enumeration must restore that caller
 # option on success, and every scope must observe the artifact.
 for artifact in \
-    "$UPDATE_LOCK.tmp.case" "$STATE/.update.lock.case" \
-    "$UPDATE_TRANSACTION.tmp.case" "$STATE/.update.transaction.case" \
-    "$UPDATE_LOCK_REAPER.case" "$UPDATE_LOCK_QUARANTINE.case" \
     "$UNINSTALL_TOMBSTONE.tmp.case" "$STATE/.uninstall.tombstone.case" \
     "$LIFECYCLE_LOCK_REAPER.case" "$LIFECYCLE_LOCK_REAPER_RECOVERY.case" \
     "$LIFECYCLE_LOCK_QUARANTINE.case" "$STATE/lifecycle.lock.candidate.case" "$STATE/.lifecycle.lock.case" \
@@ -458,7 +455,7 @@ for artifact in \
     enumerate_recovery_artifacts > "$CASE/enumerated.out" || fail "enumeration failed for $artifact"
     case "$-" in *f*) ;; *) fail "enumeration leaked a noglob option change for $artifact";; esac
     grep -Fxq "$artifact" "$CASE/enumerated.out" || fail "wildcard recovery artifact was not enumerated: $artifact"
-    for scope in lifecycle update full-rollback install uninstall; do
+    for scope in lifecycle full-rollback install uninstall; do
         audit_recovery_artifacts "$scope" && fail "$scope ignored wildcard recovery artifact: $artifact"
         case "$-" in *f*) ;; *) fail "$scope audit leaked a noglob option change";; esac
     done
@@ -514,7 +511,7 @@ rm -f "$device_journal"
 
 # Terminal build journals do not need a family baseline: zero records or only
 # consumed records prove that no unfinished mutation remains. This is the
-# update regression for both build-track.ipv4 and build-track.ipv6 on devices
+# recovery regression for both build-track.ipv4 and build-track.ipv6 on devices
 # where a frontend exists but its kernel family query fails.
 for terminal_tool in iptables ip6tables; do
     reset_all
@@ -542,7 +539,7 @@ done
 
 # Once exact owner/process/topology verification has made owner.meta
 # authoritative, an unfinished journal from its dead start process is obsolete.
-# The active nfqws process must no longer make update recovery self-blocking.
+# The active nfqws process must no longer make stale-track recovery self-blocking.
 (
     reset_all
     begin_tracked_family iptables || fail "published-owner track fixture begin failed"
@@ -617,7 +614,7 @@ for baseline_tool in iptables ip6tables; do
     Z2_TEST_BOOT_ID=22222222-2222-2222-2222-222222222222
     Z2_FAIL_BASELINE_TOOL="$baseline_tool"; export Z2_FAIL_BASELINE_TOOL
     arm_lifecycle_lock
-    for scope in lifecycle update full-rollback install uninstall; do
+    for scope in lifecycle full-rollback install uninstall; do
         audit_recovery_artifacts "$scope" && fail "$baseline_tool failed baseline was accepted in $scope"
         [ "$RECOVERY_ARTIFACT_CLASS" = unsafe ] || fail "$baseline_tool failed baseline class changed in $scope"
         [ -e "$journal" ] || fail "$baseline_tool failed baseline retired journal in $scope"

@@ -56,7 +56,6 @@ object ModulePurgeController {
         ERROR,
         INVALID_PROTOCOL,
         COMMAND_FAILED,
-        RECOVERY_FAILED,
     }
 
     data class Result(
@@ -92,22 +91,17 @@ object ModulePurgeController {
         }
 
         return try {
-            when (val recovery = ModuleUpdateRecovery.recoverIfNeeded()) {
-                is ModuleUpdateRecovery.Result.Blocked -> Result(Outcome.RECOVERY_FAILED, error = recovery.message)
-                is ModuleUpdateRecovery.Result.Failed -> Result(Outcome.RECOVERY_FAILED, error = recovery.message)
-                ModuleUpdateRecovery.Result.NotNeeded,
-                ModuleUpdateRecovery.Result.Recovered -> ModuleMutationCoordinator.withLifecycleScript {
-                    ServiceLifecycleController.runExclusiveLifecycleTask {
-                        withContext(NonCancellable) {
-                            val moduleResult = purgeInsideExclusiveTask()
-                            if (moduleResult.success && !appDataCleaner.clear()) {
-                                moduleResult.copy(
-                                    outcome = Outcome.PARTIAL,
-                                    error = "Module data was removed, but APK-private state could not be cleared",
-                                )
-                            } else {
-                                moduleResult
-                            }
+            ModuleMutationCoordinator.withLifecycleScript {
+                ServiceLifecycleController.runExclusiveLifecycleTask {
+                    withContext(NonCancellable) {
+                        val moduleResult = purgeInsideExclusiveTask()
+                        if (moduleResult.success && !appDataCleaner.clear()) {
+                            moduleResult.copy(
+                                outcome = Outcome.PARTIAL,
+                                error = "Module data was removed, but APK-private state could not be cleared",
+                            )
+                        } else {
+                            moduleResult
                         }
                     }
                 }

@@ -465,7 +465,6 @@ emit_remote_path_state() {
 
 case "${FAKE_IPV6_AVAILABLE:-1}" in 0|1) ;; *) exit 92;; esac
 case "${FAKE_QUERY_MODE:-ok}" in ok|truncated|rc) ;; *) exit 92;; esac
-case "${FAKE_UPDATE_RECOVERY_STATE:-none}" in none|lock|transaction|cleanup) ;; *) exit 92;; esac
 case "${FAKE_STATUS_SCHEMA:-ok}" in ok|missing|duplicate|reordered|unknown) ;; *) exit 92;; esac
 case "${FAKE_ROLLBACK_SCHEMA:-ok}" in ok|missing|duplicate|reordered|unknown) ;; *) exit 92;; esac
 case "${FAKE_STAGE_SCHEMA:-ok}" in ok|root_missing|root_duplicate|root_reordered|root_unknown|copy_missing|copy_duplicate|copy_reordered|copy_unknown) ;; *) exit 92;; esac
@@ -579,17 +578,6 @@ handle_query() {
     esac
     [ -z "${FAKE_QUERY_STDOUT:-}" ] || printf '%s\n' "$FAKE_QUERY_STDOUT"
     case "$hq_cmd" in
-        *'Z2_UPDATE_RECOVERY_COMPLETE=1'*)
-            hq_lock=absent hq_transaction=absent hq_cleanup=absent
-            case "${FAKE_UPDATE_RECOVERY_STATE:-none}" in
-                lock) hq_lock=present ;;
-                transaction) hq_transaction=present ;;
-                cleanup) hq_cleanup=present ;;
-            esac
-            printf 'Z2_UPDATE_LOCK=%s\nZ2_UPDATE_TRANSACTION=%s\nZ2_UPDATE_CLEANUP=%s\nZ2_UPDATE_RECOVERY_COMPLETE=1\n' \
-                "$hq_lock" "$hq_transaction" "$hq_cleanup"
-            query_footer 0; return 0
-            ;;
         *'for proc in /proc/[0-9]*'*)
             if [ "${FAKE_UNINSTALL_AUDIT_BAD:-0}" = 1 ]; then
                 printf 'Z2_PROC_OWNER_META=absent\nZ2_PROC_PIDFILE=absent\nZ2_PROC_MATCHES=1\nZ2_PROC_AUDIT_COMPLETE=1\n'
@@ -833,9 +821,6 @@ wait_case_batch() {
 sh -n "$HARNESS"
 sh -n "$0"
 
-if grep -Fq 'zapret-update-guard.sh' "$HARNESS"; then
-    fail "device harness invokes or names the internal update guard"
-fi
 if grep -Eq 'magisk --remove-modules|touch .*/data/adb/modules/zapret2/remove|> .*/data/adb/modules/zapret2/remove' "$HARNESS"; then
     fail "device harness automates an unsafe root-manager uninstall mechanism"
 fi
@@ -917,26 +902,6 @@ done
 cp -R "$FLOW_EVIDENCE" "$TMP/restart-template-evidence"
 
 if [ "$MUTATION_ONLY" = 0 ]; then
-# The device-side update preflight refuses each unresolved owner/update
-# recovery artifact before staging or either installer is reached.
-for UPDATE_RECOVERY_STATE in lock transaction cleanup; do
-    UPDATE_RECOVERY_STATE_DIR=$TMP/update-recovery-$UPDATE_RECOVERY_STATE-state
-    UPDATE_RECOVERY_LOG=$TMP/update-recovery-$UPDATE_RECOVERY_STATE.log
-    UPDATE_RECOVERY_EVIDENCE=$TMP/update-recovery-$UPDATE_RECOVERY_STATE-evidence
-    new_case_state "$UPDATE_RECOVERY_STATE_DIR" stopped
-    cp -R "$TMP/restart-template-evidence" "$UPDATE_RECOVERY_EVIDENCE"
-    : > "$UPDATE_RECOVERY_LOG"
-    if run_update_case "$UPDATE_RECOVERY_STATE_DIR" "$UPDATE_RECOVERY_LOG" "$UPDATE_RECOVERY_EVIDENCE" \
-        "FAKE_UPDATE_RECOVERY_STATE=$UPDATE_RECOVERY_STATE" >/dev/null 2>&1; then
-        fail "device update accepted pending $UPDATE_RECOVERY_STATE recovery state"
-    fi
-    if grep -E 'magisk --install-module|pm install -r|Z2_ROOT_STAGE_PATH=' "$UPDATE_RECOVERY_LOG" >/dev/null 2>&1; then
-        fail "pending $UPDATE_RECOVERY_STATE recovery state reached update staging"
-    fi
-    [ "$(sed -n 's/^stage=//p' "$UPDATE_RECOVERY_EVIDENCE/sequence.state")" = restart ] ||
-        fail "pending $UPDATE_RECOVERY_STATE recovery state advanced the device sequence"
-done
-
 # The update-specific gate must fail before any ADB call.
 GATE_LOG=$TMP/update-gate.log
 : > "$GATE_LOG"
@@ -1241,7 +1206,7 @@ MODE_LOG=$TMP/mode.log
 new_case_state "$MODE_STATE" stopped
 : > "$MODE_LOG"
 MODE_COUNT=0
-for MODE_VAR in FAKE_QUERY_MODE FAKE_UPDATE_RECOVERY_STATE FAKE_STATUS_SCHEMA FAKE_ROLLBACK_SCHEMA FAKE_STAGE_SCHEMA FAKE_STAGE_FAULT FAKE_INSTALL_HASH_SWAP FAKE_CLEANUP_FAULT FAKE_FIREWALL_DIRTY FAKE_DUMP_FAILURE FAKE_RAW_CASE FAKE_IPV6_AVAILABLE FAKE_REBOOTED FAKE_BOOT_SCHEMA FAKE_TOMBSTONE_CASE; do
+for MODE_VAR in FAKE_QUERY_MODE FAKE_STATUS_SCHEMA FAKE_ROLLBACK_SCHEMA FAKE_STAGE_SCHEMA FAKE_STAGE_FAULT FAKE_INSTALL_HASH_SWAP FAKE_CLEANUP_FAULT FAKE_FIREWALL_DIRTY FAKE_DUMP_FAILURE FAKE_RAW_CASE FAKE_IPV6_AVAILABLE FAKE_REBOOTED FAKE_BOOT_SCHEMA FAKE_TOMBSTONE_CASE; do
     assert_fails env FAKE_STATE_DIR="$MODE_STATE" FAKE_ADB_LOG="$MODE_LOG" "$MODE_VAR=bogus" "$FAKE_ADB" devices
     MODE_COUNT=$((MODE_COUNT + 1))
 done

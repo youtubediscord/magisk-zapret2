@@ -54,7 +54,6 @@ case "$1" in
     mismatch)
         ensure_state_dir() { return 0; }
         acquire_lifecycle_lock() { return 0; }
-        update_lock_allows_start() { return 0; }
         audit_recovery_artifacts() { return 0; }
         uninstall_tombstone_allows_start() { return 0; }
         read_install_generation_meta() { echo metadata-rejected >> "$LOG"; return 1; }

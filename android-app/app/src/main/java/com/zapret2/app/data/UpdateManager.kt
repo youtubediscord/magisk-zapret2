@@ -12,8 +12,6 @@ import com.zapret2.app.BuildConfig
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
@@ -156,7 +154,12 @@ internal fun standardInstallPublicationMatches(
 data class ModuleInstallResult(
     val success: Boolean,
     val needsReboot: Boolean,
-    val restartService: Boolean = false,
+)
+
+private data class ValidatedModuleArtifact(
+    val file: File,
+    val binaryDirectory: String,
+    val archiveSha256: String,
 )
 
 internal fun isUpdatePartialFileName(expectedFileName: String, candidateName: String): Boolean {
@@ -243,23 +246,10 @@ class UpdateManager(private val context: Context) {
         private const val UPDATE_MODULE_FILE = "zapret2-module.zip"
         private const val PRIVATE_FILE_MODE = 0b110_000_000 // 0600
         private const val PRIVATE_DIRECTORY_MODE = 0b111_000_000 // 0700
-        private const val PRIVATE_EXECUTABLE_MODE = 0b111_000_000 // 0700
         private const val MODULE_DIR = "/data/adb/modules/zapret2"
         private const val MODULE_UPDATE_DIR = "/data/adb/modules_update/zapret2"
-        private const val STATE_DIR = ModuleMutationCoordinator.STATE_DIR
-        private const val UPDATE_LOCK = ModuleMutationCoordinator.UPDATE_LOCK
-        private const val UPDATE_TRANSACTION = ModuleMutationCoordinator.UPDATE_TRANSACTION
     }
 
-    private data class UpdateMarker(
-        val pid: Int,
-        val starttime: String,
-        val createdEpoch: String,
-        val bootId: String,
-        val token: String
-    )
-
-    private class FatalUpdateRecoveryException(message: String) : IllegalStateException(message)
     private class ModuleInstallRejectedException : IllegalStateException()
     private class DownloadTooLargeException : IllegalStateException()
 
@@ -748,755 +738,106 @@ class UpdateManager(private val context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) longVersionCode else versionCode.toLong()
 
     /**
-     * Installs a Magisk module.
-     * Uses hot update only when the Magisk-facing bootstrap is byte-compatible.
-     * New installs and bootstrap changes use the standard pending installer and require reboot.
+     * Stages a validated Magisk module through Magisk's installer.
      *
-     * @param moduleFile The module ZIP file to install
-     * @return the committed installation result and any separate lifecycle follow-up
+     * Magisk explicitly treats mounted module files as unsafe to modify. Every module
+     * installation therefore publishes to modules_update and becomes active after reboot.
+     * Live reload is reserved for user-owned runtime data and never replaces package code.
      */
-    suspend fun installModule(
-        moduleFile: File,
+    private suspend fun installValidatedModule(
+        artifact: ValidatedModuleArtifact,
         expectedReleaseVersion: String,
         allowSameVersionRepair: Boolean,
     ): ModuleInstallResult {
         var completedResult: ModuleInstallResult? = null
         return try {
             withContext(Dispatchers.IO) {
-                ModuleMutationCoordinator.withModuleUpdate {
-                    ServiceLifecycleController.runExclusiveLifecycleTask {
-                        when (ModuleUpdateRecovery.recoverLocked()) {
-                            ModuleUpdateRecovery.Result.NotNeeded,
-                            ModuleUpdateRecovery.Result.Recovered ->
-                                installModuleLocked(
-                                    moduleFile,
-                                    expectedReleaseVersion,
-                                    allowSameVersionRepair,
-                                    recordCommitted = { completedResult = it },
-                                )
-                            is ModuleUpdateRecovery.Result.Blocked,
-                            is ModuleUpdateRecovery.Result.Failed ->
-                                ModuleInstallResult(false, false)
-                        }
-                    }
+                ModuleMutationCoordinator.withModuleStaging {
+                    installModuleLocked(
+                        artifact,
+                        expectedReleaseVersion,
+                        allowSameVersionRepair,
+                        recordCommitted = { completedResult = it },
+                    )
                 }.also { completedResult = it }
             }
         } catch (cancelled: CancellationException) {
-            // A successful terminal commit must not be hidden by prompt cancellation while
-            // returning from the IO context; the caller still has to finish the APK handoff.
+            // Magisk may have committed the pending generation before coroutine cancellation.
+            // Preserve that terminal result so the UI always reports the required reboot.
             completedResult?.takeIf { it.success } ?: throw cancelled
         }
     }
 
     private suspend fun installModuleLocked(
-        moduleFile: File,
+        artifact: ValidatedModuleArtifact,
         expectedReleaseVersion: String,
         allowSameVersionRepair: Boolean,
         recordCommitted: (ModuleInstallResult) -> Unit,
     ): ModuleInstallResult {
-        val binaryDirectory = ModulePackageContract.selectBinaryDirectory(Build.SUPPORTED_ABIS.toList())
-            ?: return ModuleInstallResult(false, false)
-        if (!moduleFile.isFile ||
-            validateModuleArchive(moduleFile, binaryDirectory, expectedReleaseVersion) != null
-        ) {
+        val moduleFile = artifact.file
+        val binaryDirectory = artifact.binaryDirectory
+        if (!moduleFile.isFile || calculateSha256(moduleFile) != artifact.archiveSha256) {
             return ModuleInstallResult(false, false)
         }
+        val archiveSha256 = artifact.archiveSha256
 
-        val archiveSha256 = calculateSha256(moduleFile) ?: return ModuleInstallResult(false, false)
-
-        val moduleCheck = ServiceLifecycleController.executeRoot(
+        val layout = ServiceLifecycleController.executeRoot(
             """
                 z2_live=${RootFileIo.shellQuote(MODULE_DIR)}
                 z2_pending=${RootFileIo.shellQuote(MODULE_UPDATE_DIR)}
                 [ ! -e "${'$'}z2_pending" ] && [ ! -L "${'$'}z2_pending" ] || exit 1
                 if [ ! -e "${'$'}z2_live" ] && [ ! -L "${'$'}z2_live" ]; then
-                    echo Z2_MODULE_LAYOUT=MISSING
+                    printf 'Z2_MODULE_LAYOUT=MISSING\n'
                 else
                     [ -d "${'$'}z2_live" ] && [ ! -L "${'$'}z2_live" ] &&
                         [ "${'$'}(stat -c %u "${'$'}z2_live" 2>/dev/null)" = 0 ] || exit 1
                     z2_live_mode=${'$'}(stat -c %a "${'$'}z2_live" 2>/dev/null) || exit 1
                     case "${'$'}z2_live_mode" in 700|711|750|751|755) ;; *) exit 1 ;; esac
-                    echo Z2_MODULE_LAYOUT=PRESENT
+                    printf 'Z2_MODULE_LAYOUT=PRESENT\n'
                 fi
-            """.trimIndent()
+            """.trimIndent(),
         )
-        val moduleExists = when (moduleCheck.stdout.singleOrNull().takeIf { moduleCheck.success }) {
+        val moduleExists = when (layout.stdout.singleOrNull().takeIf { layout.success }) {
             "Z2_MODULE_LAYOUT=MISSING" -> false
             "Z2_MODULE_LAYOUT=PRESENT" -> true
             else -> return ModuleInstallResult(false, false)
         }
-
-        if (!moduleExists) {
-            val magiskCheck = ServiceLifecycleController.executeRoot("magisk -v")
-            if (!magiskCheck.success) return ModuleInstallResult(false, false)
-            val result = ModuleInstallResult(true, true)
-            return when (CancellationSafeTerminalCommit.run(
-                command = {
-                    ServiceLifecycleController.executeRoot(
-                        "magisk --install-module ${RootFileIo.shellQuote(moduleFile.absolutePath)}"
-                    )
-                    verifyStandardModuleInstall(expectedReleaseVersion, archiveSha256, binaryDirectory)
-                },
-                commandSucceeded = { it },
-                onCommitted = { recordCommitted(result) },
-            )) {
-                is CancellationSafeTerminalCommit.Outcome.Committed -> result
-                is CancellationSafeTerminalCommit.Outcome.Failed -> ModuleInstallResult(false, false)
-            }
-        }
-
-        val installedVersion = RootFileIo.readSecureRegularText(
-            "$MODULE_DIR/module.prop",
-            ModulePackageContract.MAX_MODULE_PROP_BYTES,
-        )?.let(ModulePackageContract::validatedInstalledVersion)
-        if (
-            !moduleVersionAllowsInstall(
-                installedVersion,
-                expectedReleaseVersion,
-                allowSameVersionRepair,
-            )
-        ) {
-            throw ModuleInstallRejectedException()
-        }
-
-        val installGeneration = InstallGenerationMetadata.create(archiveSha256)
-            ?: return ModuleInstallResult(false, false)
-
-        val stagingResult = extractModuleArchive(moduleFile, binaryDirectory, expectedReleaseVersion)
-        val stagingDir = stagingResult.getOrNull() ?: return ModuleInstallResult(false, false)
-        val hotSwapCompatibilityCommand = buildString {
-            ModulePackageContract.hotSwapBootstrapFiles.forEach { relative ->
-                append("cmp -s ")
-                    .append(RootFileIo.shellQuote("$MODULE_DIR/$relative"))
-                    .append(' ')
-                    .append(RootFileIo.shellQuote("${stagingDir.absolutePath}/$relative"))
-                    .append(" || exit 1\n")
-            }
-        }
-        val hotSwapCompatible =
-            ServiceLifecycleController.executeRoot(hotSwapCompatibilityCommand).success
-        if (!hotSwapCompatible) {
-            val magiskCheck = ServiceLifecycleController.executeRoot("magisk -v")
-            if (!magiskCheck.success) {
-                deleteTreeBestEffort(stagingDir)
-                return ModuleInstallResult(false, false)
-            }
-            val result = ModuleInstallResult(true, true)
-            return try {
-                when (CancellationSafeTerminalCommit.run(
-                    command = {
-                        ServiceLifecycleController.executeRoot(
-                            "magisk --install-module ${RootFileIo.shellQuote(moduleFile.absolutePath)}"
-                        )
-                        verifyStandardModuleInstall(
-                            expectedReleaseVersion,
-                            archiveSha256,
-                            binaryDirectory,
-                        )
-                    },
-                    commandSucceeded = { it },
-                    onCommitted = { recordCommitted(result) },
-                )) {
-                    is CancellationSafeTerminalCommit.Outcome.Committed -> result
-                    is CancellationSafeTerminalCommit.Outcome.Failed ->
-                        ModuleInstallResult(false, false)
-                }
-            } finally {
-                deleteTreeBestEffort(stagingDir)
-            }
-        }
-        val transactionId = "${android.os.Process.myPid()}-${System.nanoTime()}"
-        val updateDir = "/data/adb/modules/.zapret2-update-$transactionId"
-        val backupDir = "/data/adb/modules/.zapret2-backup-$transactionId"
-        val failedDir = "/data/adb/modules/.zapret2-failed-$transactionId"
-        val recoveryDir = "/data/adb/modules/.zapret2-recovery-$transactionId"
-        var transactionCreated = false
-        var activeCandidate = false
-        var serviceStopped = false
-        var retainRecoveryArtifacts = false
-        var markerAcquired = false
-        var transactionDigest: String? = null
-        lateinit var preUpdateState: ModuleUpdateStatePolicy.VerifiedState
-        lateinit var disableMarkerExpectation: ModuleUpdatePreservation.DisableMarkerExpectation
-        lateinit var marker: UpdateMarker
-
-        try {
-            // The try/finally boundary is established before publication. If cancellation wins
-            // the handoff race after the guard commits, finally still owns and releases the lock.
-            marker = CancellationSafeLockHandoff.acquire(
-                publish = { acquireUpdateMarker().getOrThrow() },
-                releaseIfCancelled = { published ->
-                    releaseUpdateMarker(published).also { release ->
-                        check(release.success) {
-                            release.diagnosticText().ifBlank {
-                                "Unable to release a cancelled update-lock acquisition"
-                            }
-                        }
-                    }
-                },
-            )
-            markerAcquired = true
-            currentCoroutineContext().ensureActive()
-            val compatibilityOwnerGuard = requireNotNull(
-                UpdateTransactionProtocol.buildOwnerGuard(
-                    owner = marker.transactionOwner(),
-                    expectedTransactionDigest = null,
+        if (moduleExists) {
+            val installedVersion = RootFileIo.readSecureRegularText(
+                "$MODULE_DIR/module.prop",
+                ModulePackageContract.MAX_MODULE_PROP_BYTES,
+            )?.let(ModulePackageContract::validatedInstalledVersion)
+            if (!moduleVersionAllowsInstall(
+                    installedVersion,
+                    expectedReleaseVersion,
+                    allowSameVersionRepair,
                 )
-            )
-            if (!ServiceLifecycleController.executeRoot(
-                    "$compatibilityOwnerGuard\n$hotSwapCompatibilityCommand"
-                ).success
             ) {
-                throw IllegalStateException(
-                    "The active Magisk bootstrap changed before the hot update transaction"
-                )
+                throw ModuleInstallRejectedException()
             }
-            disableMarkerExpectation = snapshotDisableMarkerExpectation()
-                ?: throw IllegalStateException("The installed disable marker is unsafe or could not be inspected")
-            preUpdateState = snapshotAuthorizedServiceState(marker, disableMarkerExpectation)
-                ?: throw IllegalStateException(
-                    "Module update requires a verified Running or Stopped service state; current state is degraded"
-                )
-            if (disableMarkerExpectation == ModuleUpdatePreservation.DisableMarkerExpectation.PRESENT &&
-                preUpdateState == ModuleUpdateStatePolicy.VerifiedState.RUNNING
-            ) {
-                throw IllegalStateException(
-                    "A disabled module cannot have a verified running pre-update state"
-                )
-            }
-            val transactionPaths = listOf(updateDir, backupDir, failedDir, recoveryDir)
-            val freshWorkspacePredicate = transactionPaths.joinToString(" && ") { path ->
-                val quoted = RootFileIo.shellQuote(path)
-                "{ [ ! -e $quoted ] && [ ! -L $quoted ]; }"
-            }
-            val siblingWorkspacePredicate = listOf(backupDir, failedDir, recoveryDir)
-                .joinToString(" && ") { path ->
-                    val quoted = RootFileIo.shellQuote(path)
-                    "{ [ ! -e $quoted ] && [ ! -L $quoted ]; }"
-                }
-            val initialOwnerGuard = requireNotNull(
-                UpdateTransactionProtocol.buildOwnerGuard(
-                    owner = marker.transactionOwner(),
-                    expectedTransactionDigest = null,
-                )
-            )
-            val workspacePreflight = ServiceLifecycleController.executeRoot(
-                "$initialOwnerGuard\n$freshWorkspacePredicate || exit 1\n" +
-                    "$initialOwnerGuard\n$freshWorkspacePredicate || exit 1"
-            )
-            if (!workspacePreflight.success) {
-                throw IllegalStateException("The update workspace is not fresh or safely owned")
-            }
-            // Capture the verified pre-update state durably before stopping the service or
-            // preparing a candidate directory. Recovery can therefore always restore intent.
-            transactionDigest = writeUpdateTransaction(
-                    marker = marker,
-                    transactionId = transactionId,
-                    phase = "prepared",
-                    updateDir = updateDir,
-                    backupDir = backupDir,
-                    failedDir = failedDir,
-                    preUpdateState = preUpdateState,
-                    disableMarkerExpectation = disableMarkerExpectation,
-                    expectedPriorDigest = null,
-                )
-            if (transactionDigest == null) {
-                return ModuleInstallResult(false, false)
-            }
-            transactionCreated = true
+        }
 
-            if (preUpdateState == ModuleUpdateStatePolicy.VerifiedState.RUNNING) {
-                val stopScript = "$MODULE_DIR/zapret2/scripts/zapret-stop.sh"
-                val stopResult = ServiceLifecycleController.executeRoot(
-                    verifiedUpdateLifecycle(
-                        marker = marker,
-                        script = stopScript,
-                        disableMarkerExpectation = disableMarkerExpectation,
-                        requireInstallGeneration = false,
-                    )
-                )
-                if (!stopResult.success ||
-                    !verifyServiceState(
-                        state = ModuleUpdateStatePolicy.VerifiedState.STOPPED,
-                        marker = marker,
-                        disableMarkerExpectation = disableMarkerExpectation,
-                        requireInstallGeneration = false,
-                    )
-                ) {
-                    throw IllegalStateException("Unable to stop the service for module update")
-                }
-                serviceStopped = true
-            }
-
-            transactionDigest = writeUpdateTransaction(
-                    marker = marker,
-                    transactionId = transactionId,
-                    phase = "stopped",
-                    updateDir = updateDir,
-                    backupDir = backupDir,
-                    failedDir = failedDir,
-                    preUpdateState = preUpdateState,
-                    disableMarkerExpectation = disableMarkerExpectation,
-                    expectedPriorDigest = requireNotNull(transactionDigest),
-                ) ?: throw IllegalStateException("Unable to persist the stopped update phase")
-
-            val prepareGuard = requireNotNull(
-                UpdateTransactionProtocol.buildOwnerTransactionGuard(
-                    owner = marker.transactionOwner(),
-                    expectedDigest = requireNotNull(transactionDigest),
-                )
-            )
-            val prepareCommand = buildString {
-                append(prepareGuard).append('\n')
-                append(freshWorkspacePredicate).append(" || exit 1\n")
-                // The package is the sole source of immutable files. Only the explicit mutable
-                // allowlist below may cross the release boundary from the installed module.
-                append("umask 077\nmkdir ").append(RootFileIo.shellQuote(updateDir)).append(" || exit 1\n")
-                append("chmod 0700 ").append(RootFileIo.shellQuote(updateDir)).append(" || exit 1\n")
-                append("{ ").append(ModuleUpdateRecovery.safeRootDirectoryPredicate(updateDir))
-                    .append("; } || exit 1\n")
-                append(prepareGuard).append('\n')
-                append(siblingWorkspacePredicate).append(" || exit 1\n")
-                append("cp -R ").append(RootFileIo.shellQuote("${stagingDir.absolutePath}/.")).append(' ')
-                    .append(RootFileIo.shellQuote(updateDir)).append("\n")
-                append("status=${'$'}?\n")
-                val installerOnlyCandidate = "$updateDir/customize.sh"
-                append("if [ \"${'$'}status\" -eq 0 ]; then\n")
-                append("  [ -f ").append(RootFileIo.shellQuote(installerOnlyCandidate))
-                    .append(" ] && [ ! -L ").append(RootFileIo.shellQuote(installerOnlyCandidate))
-                    .append(" ] || status=1\n")
-                append("  if [ \"${'$'}status\" -eq 0 ]; then rm -f ")
-                    .append(RootFileIo.shellQuote(installerOnlyCandidate))
-                    .append(" || status=${'$'}?; fi\n")
-                append("fi\n")
-                append("if [ \"${'$'}status\" -eq 0 ]; then\n")
-                append("  find ").append(RootFileIo.shellQuote(updateDir))
-                    .append(" -type d -exec chmod 755 {} + || status=${'$'}?\n")
-                append("  find ").append(RootFileIo.shellQuote(updateDir))
-                    .append(" -type f -exec chmod 644 {} + || status=${'$'}?\n")
-                append("fi\n")
-                append(ModuleUpdatePreservation.buildShell(MODULE_DIR, updateDir))
-                append(InstallGenerationMetadata.buildPublicationShell(updateDir, installGeneration))
-                append("if [ \"${'$'}status\" -eq 0 ]; then\n")
-                (ModulePackageContract.requiredRegularFiles +
-                    ModulePackageContract.wrappers.map { it.relativePath }).forEach { relative ->
-                    val target = "$updateDir/$relative"
-                    append("  [ -f ").append(RootFileIo.shellQuote(target)).append(" ] && [ ! -L ")
-                        .append(RootFileIo.shellQuote(target)).append(" ] || status=1\n")
-                }
-                val candidateModuleProp = "$updateDir/module.prop"
-                append("  [ \"${'$'}(grep -c '^id=' ")
-                    .append(RootFileIo.shellQuote(candidateModuleProp)).append(" 2>/dev/null)\" -eq 1 ] && grep -qx 'id=zapret2' ")
-                    .append(RootFileIo.shellQuote(candidateModuleProp)).append(" || status=1\n")
-                append("fi\n")
-                append("if [ \"${'$'}status\" -eq 0 ]; then\n")
-                val binarySource = "${stagingDir.absolutePath}/${ModulePackageContract.binaryRelativePath(binaryDirectory)}"
-                val binaryTemp = "$updateDir/zapret2/.nfqws2.$transactionId"
-                val binaryTarget = "$updateDir/zapret2/nfqws2"
-                append("  [ -f ").append(RootFileIo.shellQuote(binarySource)).append(" ] && [ ! -L ")
-                    .append(RootFileIo.shellQuote(binarySource)).append(" ] || status=1\n")
-                append("  if [ \"${'$'}status\" -eq 0 ]; then cp ")
-                    .append(RootFileIo.shellQuote(binarySource)).append(' ')
-                    .append(RootFileIo.shellQuote(binaryTemp)).append(" || status=${'$'}?; fi\n")
-                append("  if [ \"${'$'}status\" -eq 0 ]; then chmod 755 ")
-                    .append(RootFileIo.shellQuote(binaryTemp)).append(" || status=${'$'}?; fi\n")
-                append("  if [ \"${'$'}status\" -eq 0 ]; then mv -f ")
-                    .append(RootFileIo.shellQuote(binaryTemp)).append(' ')
-                    .append(RootFileIo.shellQuote(binaryTarget)).append(" || status=${'$'}?; fi\n")
-                ModulePackageContract.hotUpdateRootExecutables.forEach { relative ->
-                    val source = "${stagingDir.absolutePath}/$relative"
-                    val target = "$updateDir/$relative"
-                    append("  if [ \"${'$'}status\" -eq 0 ]; then chmod 755 ")
-                        .append(RootFileIo.shellQuote(target)).append(" || status=${'$'}?; fi\n")
-                    append("  if [ \"${'$'}status\" -eq 0 ]; then [ -f ")
-                        .append(RootFileIo.shellQuote(target)).append(" ] && [ ! -L ")
-                        .append(RootFileIo.shellQuote(target)).append(" ] && [ \"${'$'}(stat -c %a ")
-                        .append(RootFileIo.shellQuote(target)).append(" 2>/dev/null)\" = 755 ] && cmp -s ")
-                        .append(RootFileIo.shellQuote(source)).append(' ')
-                        .append(RootFileIo.shellQuote(target)).append(" || status=1; fi\n")
-                }
-                append("  for script in ").append(RootFileIo.shellQuote("$updateDir/zapret2/scripts")).append("/*.sh; do\n")
-                append("    [ -f \"${'$'}script\" ] || continue\n")
-                append("    chmod 755 \"${'$'}script\" || status=${'$'}?\n")
-                append("  done\n")
-                append("  for script in ").append(RootFileIo.shellQuote("$updateDir/zapret2/scripts/lifecycle")).append("/*.sh; do\n")
-                append("    [ -f \"${'$'}script\" ] || continue\n")
-                append("    chmod 755 \"${'$'}script\" || status=${'$'}?\n")
-                append("  done\n")
-                append("  for binary in ").append(RootFileIo.shellQuote("$updateDir/zapret2/bin")).append("/*/nfqws2; do\n")
-                append("    [ -f \"${'$'}binary\" ] || continue\n")
-                append("    chmod 755 \"${'$'}binary\" || status=${'$'}?\n")
-                append("  done\n")
-                ModulePackageContract.wrappers.forEach { wrapper ->
-                    val source = "${stagingDir.absolutePath}/${wrapper.relativePath}"
-                    val target = "$updateDir/${wrapper.relativePath}"
-                    append("  if [ \"${'$'}status\" -eq 0 ]; then chmod 755 ")
-                        .append(RootFileIo.shellQuote(target)).append(" || status=${'$'}?; fi\n")
-                    append("  if [ \"${'$'}status\" -eq 0 ]; then [ -f ")
-                        .append(RootFileIo.shellQuote(target)).append(" ] && [ ! -L ")
-                        .append(RootFileIo.shellQuote(target)).append(" ] && [ \"${'$'}(stat -c %a ")
-                        .append(RootFileIo.shellQuote(target)).append(" 2>/dev/null)\" = 755 ] && cmp -s ")
-                        .append(RootFileIo.shellQuote(source)).append(' ')
-                        .append(RootFileIo.shellQuote(target)).append(" || status=1; fi\n")
-                }
-                append("  if [ \"${'$'}status\" -eq 0 ]; then [ -f ")
-                    .append(RootFileIo.shellQuote(binaryTarget)).append(" ] && [ ! -L ")
-                    .append(RootFileIo.shellQuote(binaryTarget)).append(" ] && [ \"${'$'}(stat -c %a ")
-                    .append(RootFileIo.shellQuote(binaryTarget)).append(" 2>/dev/null)\" = 755 ] && cmp -s ")
-                    .append(RootFileIo.shellQuote(binarySource)).append(' ')
-                    .append(RootFileIo.shellQuote(binaryTarget)).append(" || status=1; fi\n")
-                val packageContract = "$updateDir/zapret2/scripts/package-contract.sh"
-                val commandBuilder = "$updateDir/${ModulePackageContract.COMMAND_BUILDER_SCRIPT_PATH}"
-                append("  if [ \"${'$'}status\" -eq 0 ]; then\n")
-                append("    [ -f ").append(RootFileIo.shellQuote(packageContract)).append(" ] && [ ! -L ")
-                    .append(RootFileIo.shellQuote(packageContract)).append(" ] || status=1\n")
-                append("    if [ \"${'$'}status\" -eq 0 ]; then . ")
-                    .append(RootFileIo.shellQuote(packageContract))
-                    .append(" || status=${'$'}?; fi\n")
-                append("    if [ \"${'$'}status\" -eq 0 ]; then active_preset=${'$'}(package_contract_runtime_core_value ")
-                    .append(RootFileIo.shellQuote(updateDir)).append(" active_preset) || status=${'$'}?; fi\n")
-                append("    if [ \"${'$'}status\" -eq 0 ]; then /system/bin/sh ")
-                    .append(RootFileIo.shellQuote(commandBuilder)).append(" --preflight-preset-machine ")
-                    .append(RootFileIo.shellQuote("$updateDir/zapret2")).append(" ")
-                    .append(RootFileIo.shellQuote("$updateDir/zapret2/presets")).append("/\"${'$'}active_preset\" ")
-                    .append("\"${'$'}active_preset\" >/dev/null 2>&1 || status=${'$'}?; fi\n")
-                append("  fi\n")
-                append("fi\n")
-                append("if [ \"${'$'}status\" -eq 0 ]; then\n")
-                append("  { ").append(ModuleUpdateRecovery.moduleIntegrityPredicate(updateDir, requireInstallGeneration = true))
-                    .append("; } && { ")
-                    .append(ModuleUpdatePreservation.expectedDisableMarkerPredicate(updateDir, disableMarkerExpectation))
-                    .append("; } && ").append(siblingWorkspacePredicate).append(" || status=1\n")
-                append("fi\n")
-                append("if [ \"${'$'}status\" -ne 0 ]; then\n")
-                append(prepareGuard).append('\n')
-                append("  { ").append(ModuleUpdateRecovery.safeRootDirectoryOrAbsentPredicate(updateDir))
-                    .append("; } || exit 1\n")
-                append("  ").append(siblingWorkspacePredicate).append(" || exit 1\n")
-                append("  rm -rf ").append(RootFileIo.shellQuote(updateDir)).append(" || exit 1\n")
-                append("  sync || exit 1\n")
-                append("fi\n")
-                append("exit \"${'$'}status\"")
-            }
-            if (!ServiceLifecycleController.executeRoot(prepareCommand).success) {
-                throw IllegalStateException("Unable to prepare the module update candidate")
-            }
-
-            transactionDigest = writeUpdateTransaction(
-                    marker = marker,
-                    transactionId = transactionId,
-                    phase = "candidate_ready",
-                    updateDir = updateDir,
-                    backupDir = backupDir,
-                    failedDir = failedDir,
-                    preUpdateState = preUpdateState,
-                    disableMarkerExpectation = disableMarkerExpectation,
-                    expectedPriorDigest = requireNotNull(transactionDigest),
-                )
-            if (transactionDigest == null) {
-                throw IllegalStateException("Unable to persist the prepared candidate phase")
-            }
-
-            transactionDigest = writeUpdateTransaction(
-                    marker = marker,
-                    transactionId = transactionId,
-                    phase = "active_move_intent",
-                    updateDir = updateDir,
-                    backupDir = backupDir,
-                    failedDir = failedDir,
-                    preUpdateState = preUpdateState,
-                    disableMarkerExpectation = disableMarkerExpectation,
-                    expectedPriorDigest = requireNotNull(transactionDigest),
-                )
-            val activeMoveIntentDigest = transactionDigest
-            val activeMovedContent = buildUpdateTransactionContent(
-                marker, transactionId, "active_moved", updateDir, backupDir, failedDir,
-                preUpdateState, disableMarkerExpectation,
-            )
-            val activeMove = activeMoveIntentDigest?.let { digest ->
-                UpdateTransactionProtocol.buildActiveMove(
-                    owner = marker.transactionOwner(),
-                    intentDigest = digest,
-                    resultContent = activeMovedContent,
-                    moduleDir = MODULE_DIR,
-                    backupDir = backupDir,
-                    sourcePrerequisite =
-                        "{ ${ModuleUpdateRecovery.activeModuleIntegrityPredicate(requireInstallGeneration = false)}; } && " +
-                            "{ ${ModuleUpdatePreservation.expectedDisableMarkerPredicate(MODULE_DIR, disableMarkerExpectation)}; }",
-                    movedPrerequisite =
-                        "{ ${ModuleUpdateRecovery.moduleIntegrityPredicate(backupDir, requireInstallGeneration = false)}; } && " +
-                            "{ ${ModuleUpdatePreservation.expectedDisableMarkerPredicate(backupDir, disableMarkerExpectation)}; }",
-                    tempPath = "$STATE_DIR/.update.transaction.move.${marker.pid}.${marker.token}",
-                )
-            }
-            val moveActiveResult = activeMove?.let {
-                ServiceLifecycleController.executeRoot(it.command).also { result ->
-                    if (result.success) transactionDigest = it.digest
-                }
-            }
-            if (moveActiveResult?.success != true) {
-                val rollback = rollbackHotUpdate(transactionId, updateDir, backupDir, failedDir, marker, preUpdateState, disableMarkerExpectation, requireNotNull(transactionDigest))
-                if (rollback is ModuleUpdateStatePolicy.RollbackResult.Incomplete) {
-                    retainRecoveryArtifacts = true
-                    throw FatalUpdateRecoveryException(rollback.fatalRecoveryMessage())
-                }
-                serviceStopped = false
-                return ModuleInstallResult(false, false)
-            }
-
-            val promotionCommand = UpdateTransactionProtocol.buildCandidatePromotion(
-                owner = marker.transactionOwner(),
-                expectedDigest = requireNotNull(transactionDigest),
-                updateDir = updateDir,
-                moduleDir = MODULE_DIR,
-                candidatePrerequisite =
-                    "{ ${ModuleUpdateRecovery.moduleIntegrityPredicate(updateDir, requireInstallGeneration = true)}; } && " +
-                        "{ ${ModuleUpdatePreservation.expectedDisableMarkerPredicate(updateDir, disableMarkerExpectation)}; }",
-                promotedPrerequisite =
-                    "{ ${ModuleUpdateRecovery.activeModuleIntegrityPredicate(requireInstallGeneration = true)}; } && " +
-                        "{ ${ModuleUpdatePreservation.expectedDisableMarkerPredicate(MODULE_DIR, disableMarkerExpectation)}; }",
-            ) ?: throw IllegalStateException("Unable to build the owner-bound candidate promotion")
-            val promoteResult = ServiceLifecycleController.executeRoot(promotionCommand)
-            val candidateDigest = if (promoteResult.success) writeUpdateTransaction(
-                    marker = marker,
-                    transactionId = transactionId,
-                    phase = "candidate_active",
-                    updateDir = updateDir,
-                    backupDir = backupDir,
-                    failedDir = failedDir,
-                    preUpdateState = preUpdateState,
-                    disableMarkerExpectation = disableMarkerExpectation,
-                    expectedPriorDigest = requireNotNull(transactionDigest),
-                ) else null
-            if (candidateDigest == null) {
-                val rollback = rollbackHotUpdate(transactionId, updateDir, backupDir, failedDir, marker, preUpdateState, disableMarkerExpectation, requireNotNull(transactionDigest))
-                if (rollback is ModuleUpdateStatePolicy.RollbackResult.Incomplete) {
-                    retainRecoveryArtifacts = true
-                    throw FatalUpdateRecoveryException(rollback.fatalRecoveryMessage())
-                }
-                serviceStopped = false
-                return ModuleInstallResult(false, false)
-            }
-            transactionDigest = candidateDigest
-            activeCandidate = true
-
-            val binarySource =
-                "${stagingDir.absolutePath}/${ModulePackageContract.binaryRelativePath(binaryDirectory)}"
-            val publicationComparisons = buildString {
-                (
-                    ModulePackageContract.hotSwapBootstrapFiles +
-                        listOf(
-                            "module.prop",
-                            ModulePackageContract.RUNTIME_MANIFEST_PATH,
-                            ModulePackageContract.PACKAGE_CONTRACT_SCRIPT_PATH,
-                            ModulePackageContract.COMMAND_BUILDER_SCRIPT_PATH,
-                            "zapret2/scripts/common.sh",
-                            "zapret2/scripts/zapret-start.sh",
-                            "zapret2/scripts/zapret-stop.sh",
-                            "zapret2/scripts/zapret-status.sh",
-                        )
-                    ).distinct().forEach { relative ->
-                    append("cmp -s ")
-                        .append(RootFileIo.shellQuote("${stagingDir.absolutePath}/$relative"))
-                        .append(' ')
-                        .append(RootFileIo.shellQuote("$MODULE_DIR/$relative"))
-                        .append(" || exit 1\n")
-                }
-            }
-            val publishedGeneration = ServiceLifecycleController.executeRoot(
-                """
-                    ${requireNotNull(
-                        UpdateTransactionProtocol.buildOwnerTransactionGuard(
-                            owner = marker.transactionOwner(),
-                            expectedDigest = requireNotNull(transactionDigest),
-                        )
-                    )}
-                    { ${ModuleUpdateRecovery.activeModuleIntegrityPredicate(requireInstallGeneration = true)}; } || exit 1
-                    { ${ModuleUpdatePreservation.expectedDisableMarkerPredicate(MODULE_DIR, disableMarkerExpectation)}; } || exit 1
-                    $publicationComparisons
-                    cmp -s ${RootFileIo.shellQuote(binarySource)} ${RootFileIo.shellQuote("$MODULE_DIR/zapret2/nfqws2")} || exit 1
-                """.trimIndent()
-            )
-            if (!publishedGeneration.success) {
-                val rollback = rollbackHotUpdate(transactionId, updateDir, backupDir, failedDir, marker, preUpdateState, disableMarkerExpectation, requireNotNull(transactionDigest))
-                if (rollback is ModuleUpdateStatePolicy.RollbackResult.Incomplete) {
-                    retainRecoveryArtifacts = true
-                    throw FatalUpdateRecoveryException(rollback.fatalRecoveryMessage())
-                }
-                activeCandidate = false
-                serviceStopped = false
-                return ModuleInstallResult(false, false)
-            }
-
-            val verifiedDigest = writeUpdateTransaction(
-                    marker = marker,
-                    transactionId = transactionId,
-                    phase = "verified",
-                    updateDir = updateDir,
-                    backupDir = backupDir,
-                    failedDir = failedDir,
-                    preUpdateState = preUpdateState,
-                    disableMarkerExpectation = disableMarkerExpectation,
-                    expectedPriorDigest = requireNotNull(transactionDigest),
-                )
-            if (verifiedDigest == null) {
-                val rollback = rollbackHotUpdate(transactionId, updateDir, backupDir, failedDir, marker, preUpdateState, disableMarkerExpectation, requireNotNull(transactionDigest))
-                if (rollback is ModuleUpdateStatePolicy.RollbackResult.Incomplete) {
-                    retainRecoveryArtifacts = true
-                    throw FatalUpdateRecoveryException(rollback.fatalRecoveryMessage())
-                }
-                activeCandidate = false
-                serviceStopped = false
-                return ModuleInstallResult(false, false)
-            }
-            transactionDigest = verifiedDigest
-
-            // The software generation is now independently verified. Commit it and remove the
-            // quarantined previous generation before attempting configuration or service start:
-            // lifecycle health must never roll package bytes back to an obsolete release.
-            if (!verifyExpectedDisableMarker(disableMarkerExpectation)) {
-                val rollback = rollbackHotUpdate(transactionId, updateDir, backupDir, failedDir, marker, preUpdateState, disableMarkerExpectation, requireNotNull(transactionDigest))
-                if (rollback is ModuleUpdateStatePolicy.RollbackResult.Incomplete) {
-                    retainRecoveryArtifacts = true
-                    throw FatalUpdateRecoveryException(rollback.fatalRecoveryMessage())
-                }
-                activeCandidate = false
-                serviceStopped = false
-                return ModuleInstallResult(false, false)
-            }
-
-            val terminalOutcome = CancellationSafeTerminalCommit.run(
-                command = {
-                    val plan = requireNotNull(UpdateTransactionProtocol.buildTerminalDeletePlan(
-                        owner = marker.transactionOwner(),
-                        expectedDigest = requireNotNull(transactionDigest),
-                        prerequisite = terminalPrerequisite(
-                            disableMarkerExpectation,
-                            requireInstallGeneration = true,
-                        ),
-                        cleanupPaths = listOf(updateDir, backupDir, failedDir),
-                    ))
-                    executeTerminalPlan(marker, plan)
-                },
-                commandSucceeded = { it == UpdateTransactionProtocol.TerminalResolution.COMMITTED },
-                onCommitted = {
-                    transactionCreated = false
-                    activeCandidate = false
-                    serviceStopped = false
-                    recordCommitted(
-                        ModuleInstallResult(
-                            success = true,
-                            needsReboot = false,
-                            restartService =
-                                preUpdateState == ModuleUpdateStatePolicy.VerifiedState.RUNNING,
-                        )
-                    )
-                },
-            )
-            when (terminalOutcome) {
-                is CancellationSafeTerminalCommit.Outcome.Committed -> {
-                    return ModuleInstallResult(
-                        success = true,
-                        needsReboot = false,
-                        restartService =
-                            preUpdateState == ModuleUpdateStatePolicy.VerifiedState.RUNNING,
-                    )
-                }
-                is CancellationSafeTerminalCommit.Outcome.Failed -> {
-                    if (terminalOutcome.commandResult ==
-                        UpdateTransactionProtocol.TerminalResolution.AMBIGUOUS_COMMITTED
-                    ) {
-                        retainRecoveryArtifacts = true
-                        throw FatalUpdateRecoveryException(
-                            "FATAL: terminal commit response was ambiguous; exact recovery artifacts were retained"
-                        )
-                    }
-                    throw IllegalStateException(
-                        "The terminal update transaction was not committed; rollback is required"
-                    )
-                }
-            }
-        } catch (cancelled: CancellationException) {
-            if (transactionCreated) {
-                val rollback = withContext(NonCancellable) {
-                    rollbackHotUpdate(transactionId, updateDir, backupDir, failedDir, marker, preUpdateState, disableMarkerExpectation, requireNotNull(transactionDigest))
-                }
-                if (rollback is ModuleUpdateStatePolicy.RollbackResult.Incomplete) retainRecoveryArtifacts = true
-                activeCandidate = false
-                serviceStopped = false
-            } else if (serviceStopped) {
-                withContext(NonCancellable) {
-                    if (!restoreServiceState(
-                            preUpdateState,
-                            marker,
-                            disableMarkerExpectation,
-                            requireInstallGeneration = false,
-                        )
-                    ) retainRecoveryArtifacts = true
-                }
-                serviceStopped = false
-            }
-            throw cancelled
-        } catch (fatal: FatalUpdateRecoveryException) {
-            throw fatal
-        } catch (error: Exception) {
-            if (!markerAcquired) throw error
-            if (transactionCreated) {
-                val rollback = withContext(NonCancellable) {
-                    rollbackHotUpdate(
-                        transactionId,
-                        updateDir,
-                        backupDir,
-                        failedDir,
-                        marker,
-                        preUpdateState,
-                        disableMarkerExpectation,
-                        requireNotNull(transactionDigest),
-                    )
-                }
-                if (rollback is ModuleUpdateStatePolicy.RollbackResult.Incomplete) {
-                    retainRecoveryArtifacts = true
-                    currentCoroutineContext().ensureActive()
-                    throw FatalUpdateRecoveryException(rollback.fatalRecoveryMessage())
-                }
-                activeCandidate = false
-                serviceStopped = false
-            } else if (serviceStopped) {
-                val restored = withContext(NonCancellable) {
-                    restoreServiceState(
-                        preUpdateState,
-                        marker,
-                        disableMarkerExpectation,
-                        requireInstallGeneration = false,
-                    )
-                }
-                if (!restored) {
-                    retainRecoveryArtifacts = true
-                    currentCoroutineContext().ensureActive()
-                    throw FatalUpdateRecoveryException(
-                        "FATAL: update failed before swap and the original service state could not be restored; " +
-                            "the live update owner lock will be released for a fresh recovery attempt"
-                    )
-                }
-                serviceStopped = false
-            }
-            currentCoroutineContext().ensureActive()
+        if (!ServiceLifecycleController.executeRoot("magisk -v").success) {
             return ModuleInstallResult(false, false)
-        } finally {
-            try {
-                withContext(NonCancellable) {
-                    if (UpdateTransactionProtocol.shouldReleaseOwnerLock(markerAcquired, retainRecoveryArtifacts)) {
-                        val release = releaseUpdateMarker(marker)
-                        if (!release.success) {
-                            throw IllegalStateException(
-                                release.diagnosticText().ifBlank { "Unable to release the Zapret2 update marker safely" }
-                            )
-                        }
-                    }
-                }
-            } finally {
-                deleteTreeBestEffort(stagingDir)
-            }
+        }
+        val result = ModuleInstallResult(success = true, needsReboot = true)
+        return when (CancellationSafeTerminalCommit.run(
+            command = {
+                val install = ServiceLifecycleController.executeRoot(
+                    "magisk --install-module ${RootFileIo.shellQuote(moduleFile.absolutePath)}",
+                )
+                install.success && verifyStandardModuleInstall(
+                    expectedReleaseVersion,
+                    archiveSha256,
+                    binaryDirectory,
+                )
+            },
+            commandSucceeded = { it },
+            onCommitted = { recordCommitted(result) },
+        )) {
+            is CancellationSafeTerminalCommit.Outcome.Committed -> result
+            is CancellationSafeTerminalCommit.Outcome.Failed ->
+                ModuleInstallResult(false, false)
         }
     }
 
@@ -1508,7 +849,7 @@ class UpdateManager(private val context: Context) {
         val regularFiles = ModulePackageContract.mandatoryRuntimeRegularFiles
             .joinToString(" ", transform = RootFileIo::shellQuote)
         val executableFiles = buildList {
-            addAll(ModulePackageContract.hotUpdateRootExecutables)
+            addAll(ModulePackageContract.moduleRootExecutables)
             addAll(ModulePackageContract.mandatoryRuntimeExecutables)
             add("zapret2/nfqws2")
             add(ModulePackageContract.binaryRelativePath(binaryDirectory))
@@ -1562,490 +903,6 @@ class UpdateManager(private val context: Context) {
             expectedArchiveSha256,
         )
     }
-
-    private suspend fun acquireUpdateMarker(): Result<UpdateMarker> {
-        val pid = android.os.Process.myPid()
-        val token = UUID.randomUUID().toString()
-        return UpdateLockProtocol.acquireForUpdate(pid, token).map { record ->
-            UpdateMarker(pid, record.starttime, record.createdEpoch, record.bootId, record.token)
-        }
-    }
-
-    private suspend fun releaseUpdateMarker(marker: UpdateMarker): ServiceLifecycleController.CommandResult {
-        return UpdateLockProtocol.release(
-            UpdateLockProtocol.Record(
-                pid = marker.pid.toString(),
-                starttime = marker.starttime,
-                createdEpoch = marker.createdEpoch,
-                bootId = marker.bootId,
-                token = marker.token,
-            )
-        )
-    }
-
-    private fun authorizedUpdateLifecycle(
-        marker: UpdateMarker,
-        script: String,
-        arguments: List<String> = emptyList(),
-    ): String {
-        val suffix = arguments.joinToString(separator = "") { argument ->
-            " ${RootFileIo.shellQuote(argument)}"
-        }
-        return "ZAPRET2_UPDATE_TOKEN=${RootFileIo.shellQuote(marker.token)} " +
-            "ZAPRET2_UPDATE_OWNER_PID=${marker.pid} " +
-            "ZAPRET2_UPDATE_OWNER_START=${RootFileIo.shellQuote(marker.starttime)} " +
-            "ZAPRET2_UPDATE_OWNER_CREATED=${RootFileIo.shellQuote(marker.createdEpoch)} " +
-            "ZAPRET2_UPDATE_OWNER_BOOT=${RootFileIo.shellQuote(marker.bootId)} " +
-            "sh ${RootFileIo.shellQuote(script)}$suffix"
-    }
-
-    private fun verifiedUpdateLifecycle(
-        marker: UpdateMarker,
-        script: String,
-        disableMarkerExpectation: ModuleUpdatePreservation.DisableMarkerExpectation,
-        arguments: List<String> = emptyList(),
-        requireInstallGeneration: Boolean,
-    ): String = "{ ${ModuleUpdateRecovery.activeModuleIntegrityPredicate(requireInstallGeneration)}; } && " +
-        "{ ${ModuleUpdatePreservation.expectedDisableMarkerPredicate(MODULE_DIR, disableMarkerExpectation)}; } && " +
-        authorizedUpdateLifecycle(marker, script, arguments)
-
-    private suspend fun snapshotAuthorizedServiceState(
-        marker: UpdateMarker,
-        disableMarkerExpectation: ModuleUpdatePreservation.DisableMarkerExpectation,
-    ): ModuleUpdateStatePolicy.VerifiedState? {
-        val statusScript = "$MODULE_DIR/zapret2/scripts/zapret-status.sh"
-        val result = ServiceLifecycleController.executeRoot(
-            verifiedUpdateLifecycle(
-                marker = marker,
-                script = statusScript,
-                disableMarkerExpectation = disableMarkerExpectation,
-                arguments = listOf("--machine"),
-                requireInstallGeneration = false,
-            )
-        )
-        val status = ServiceLifecycleController.parseStatusCommandResult(result)
-        return ModuleUpdateStatePolicy.snapshot(status.healthy, status.fullyStopped)
-    }
-
-    private suspend fun snapshotDisableMarkerExpectation(): ModuleUpdatePreservation.DisableMarkerExpectation? {
-        val marker = RootFileIo.shellQuote("$MODULE_DIR/${ModulePackageContract.DISABLE_MARKER}")
-        val result = ServiceLifecycleController.executeRoot(
-            "if [ -e $marker ] || [ -L $marker ]; then " +
-                "{ ${ModuleUpdatePreservation.expectedDisableMarkerPredicate(MODULE_DIR, ModuleUpdatePreservation.DisableMarkerExpectation.PRESENT)}; } || exit 1; " +
-                "echo present; else echo absent; fi"
-        )
-        if (!result.success || result.stdout.size != 1) return null
-        return when (result.stdout.single()) {
-            "present" -> ModuleUpdatePreservation.DisableMarkerExpectation.PRESENT
-            "absent" -> ModuleUpdatePreservation.DisableMarkerExpectation.ABSENT
-            else -> null
-        }
-    }
-
-    private suspend fun verifyExpectedDisableMarker(
-        expectation: ModuleUpdatePreservation.DisableMarkerExpectation,
-    ): Boolean = ServiceLifecycleController.executeRoot(
-        ModuleUpdatePreservation.expectedDisableMarkerPredicate(MODULE_DIR, expectation)
-    ).success
-
-    private fun terminalPrerequisite(
-        disableMarkerExpectation: ModuleUpdatePreservation.DisableMarkerExpectation,
-        requireInstallGeneration: Boolean,
-    ): String {
-        return "{ ${ModuleUpdateRecovery.activeModuleIntegrityPredicate(requireInstallGeneration)}; } && " +
-            "{ ${ModuleUpdatePreservation.expectedDisableMarkerPredicate(MODULE_DIR, disableMarkerExpectation)}; }"
-    }
-
-    private suspend fun executeTerminalPlan(
-        marker: UpdateMarker,
-        plan: UpdateTransactionProtocol.TerminalPlan,
-    ): UpdateTransactionProtocol.TerminalResolution {
-        var primarySucceeded = false
-        try {
-            primarySucceeded = ServiceLifecycleController.executeRoot(plan.command).success
-        } catch (_: Exception) {
-            // The root shell can disappear after the delete commit point. The exact probe below
-            // distinguishes that committed state from every pre-delete failure.
-        }
-        if (primarySucceeded) return UpdateTransactionProtocol.TerminalResolution.COMMITTED
-        val probe = UpdateTransactionProtocol.buildTerminalCommitProbe(marker.transactionOwner(), plan)
-            ?: return UpdateTransactionProtocol.TerminalResolution.AMBIGUOUS_COMMITTED
-        return try {
-            val result = ServiceLifecycleController.executeRoot(probe)
-            UpdateTransactionProtocol.resolveTerminalAttempt(
-                primarySucceeded = false,
-                probeSucceeded = result.success,
-                probeLines = result.stdout,
-            )
-        } catch (_: Exception) {
-            UpdateTransactionProtocol.TerminalResolution.AMBIGUOUS_COMMITTED
-        }
-    }
-
-    private suspend fun writeUpdateTransaction(
-        marker: UpdateMarker,
-        transactionId: String,
-        phase: String,
-        updateDir: String,
-        backupDir: String,
-        failedDir: String,
-        preUpdateState: ModuleUpdateStatePolicy.VerifiedState,
-        disableMarkerExpectation: ModuleUpdatePreservation.DisableMarkerExpectation,
-        expectedPriorDigest: String?,
-    ): String? {
-        if (!transactionId.matches(Regex("[A-Za-z0-9._-]+")) ||
-            phase !in setOf(
-                "prepared",
-                "stopped",
-                "candidate_ready",
-                "active_move_intent",
-                "active_moved",
-                "candidate_active",
-                "verified",
-                "restored",
-                "restore_copying",
-                "restore_candidate_ready",
-                "restore_active_moved",
-                "restore_candidate_active",
-            )
-        ) return null
-        if (disableMarkerExpectation == ModuleUpdatePreservation.DisableMarkerExpectation.PRESENT &&
-            preUpdateState == ModuleUpdateStatePolicy.VerifiedState.RUNNING
-        ) return null
-        val tempPath = "$STATE_DIR/.update.transaction.${marker.pid}.${marker.token}"
-        val content = buildUpdateTransactionContent(
-            marker, transactionId, phase, updateDir, backupDir, failedDir,
-            preUpdateState, disableMarkerExpectation,
-        )
-        val publication = UpdateTransactionProtocol.buildPublication(
-            owner = marker.transactionOwner(),
-            content = content,
-            expectedPriorDigest = expectedPriorDigest,
-            tempPath = tempPath,
-        ) ?: return null
-        return publication.digest.takeIf {
-            ServiceLifecycleController.executeRoot(publication.command).success
-        }
-    }
-
-    private fun buildUpdateTransactionContent(
-        marker: UpdateMarker,
-        transactionId: String,
-        phase: String,
-        updateDir: String,
-        backupDir: String,
-        failedDir: String,
-        preUpdateState: ModuleUpdateStatePolicy.VerifiedState,
-        disableMarkerExpectation: ModuleUpdatePreservation.DisableMarkerExpectation,
-    ): String = buildString {
-            append("version=").append(UpdateTransactionProtocol.TRANSACTION_VERSION).append('\n')
-        append("transaction_id=").append(transactionId).append('\n')
-        append("phase=").append(phase).append('\n')
-        append("created_epoch=").append(marker.createdEpoch).append('\n')
-        append("pre_update_state=").append(preUpdateState.wireValue).append('\n')
-        append("disable_marker_expectation=").append(disableMarkerExpectation.wireValue).append('\n')
-        append("owner_pid=").append(marker.pid).append('\n')
-        append("owner_starttime=").append(marker.starttime).append('\n')
-        append("owner_created_epoch=").append(marker.createdEpoch).append('\n')
-        append("owner_boot_id=").append(marker.bootId).append('\n')
-        append("module_dir=").append(MODULE_DIR).append('\n')
-        append("update_dir=").append(updateDir).append('\n')
-        append("backup_dir=").append(backupDir).append('\n')
-        append("failed_dir=").append(failedDir).append('\n')
-    }
-
-    private fun UpdateMarker.transactionOwner() = UpdateTransactionProtocol.Owner(
-        pid = pid.toString(),
-        starttime = starttime,
-        createdEpoch = createdEpoch,
-        bootId = bootId,
-        token = token,
-    )
-
-    private suspend fun restoreServiceState(
-        state: ModuleUpdateStatePolicy.VerifiedState,
-        marker: UpdateMarker,
-        disableMarkerExpectation: ModuleUpdatePreservation.DisableMarkerExpectation,
-        requireInstallGeneration: Boolean,
-    ): Boolean {
-        val script = when (state) {
-            ModuleUpdateStatePolicy.VerifiedState.RUNNING -> "$MODULE_DIR/zapret2/scripts/zapret-start.sh"
-            ModuleUpdateStatePolicy.VerifiedState.STOPPED -> "$MODULE_DIR/zapret2/scripts/zapret-stop.sh"
-        }
-        val command = ServiceLifecycleController.executeRoot(
-            verifiedUpdateLifecycle(
-                marker = marker,
-                script = script,
-                disableMarkerExpectation = disableMarkerExpectation,
-                requireInstallGeneration = requireInstallGeneration,
-            )
-        )
-        return command.success && verifyServiceState(
-            state,
-            marker,
-            disableMarkerExpectation,
-            requireInstallGeneration,
-        )
-    }
-
-    private suspend fun verifyServiceState(
-        state: ModuleUpdateStatePolicy.VerifiedState,
-        marker: UpdateMarker,
-        disableMarkerExpectation: ModuleUpdatePreservation.DisableMarkerExpectation,
-        requireInstallGeneration: Boolean,
-    ): Boolean {
-        val statusScript = "$MODULE_DIR/zapret2/scripts/zapret-status.sh"
-        repeat(5) {
-            val result = ServiceLifecycleController.executeRoot(
-                verifiedUpdateLifecycle(
-                    marker = marker,
-                    script = statusScript,
-                    disableMarkerExpectation = disableMarkerExpectation,
-                    arguments = listOf("--machine"),
-                    requireInstallGeneration = requireInstallGeneration,
-                )
-            )
-            val status = ServiceLifecycleController.parseStatusCommandResult(result)
-            if (ModuleUpdateStatePolicy.matches(state, status.healthy, status.fullyStopped)) return true
-            kotlinx.coroutines.delay(250)
-        }
-        return false
-    }
-
-    private suspend fun rollbackHotUpdate(
-        transactionId: String,
-        updateDir: String,
-        backupDir: String,
-        failedDir: String,
-        marker: UpdateMarker,
-        preUpdateState: ModuleUpdateStatePolicy.VerifiedState,
-        disableMarkerExpectation: ModuleUpdatePreservation.DisableMarkerExpectation,
-        expectedTransactionDigest: String,
-    ): ModuleUpdateStatePolicy.RollbackResult {
-        var retainedTransactionDigest = expectedTransactionDigest
-        suspend fun incomplete(message: String) = incompleteRollback(
-            message = message,
-            backupDir = backupDir,
-            disableMarkerExpectation = disableMarkerExpectation,
-            expectedTransactionDigest = retainedTransactionDigest,
-        )
-        val stopScript = "$MODULE_DIR/zapret2/scripts/zapret-stop.sh"
-        val rollbackGuard = UpdateTransactionProtocol.buildOwnerTransactionGuard(
-            marker.transactionOwner(),
-            expectedTransactionDigest,
-        ) ?: return incomplete("The rollback owner/journal identity is invalid")
-        val moduleProbe = ServiceLifecycleController.executeRoot(
-            """
-                $rollbackGuard
-                if [ ! -e ${RootFileIo.shellQuote(MODULE_DIR)} ] && [ ! -L ${RootFileIo.shellQuote(MODULE_DIR)} ]; then
-                    echo absent
-                elif { ${ModuleUpdateRecovery.activeModuleIntegrityPredicate(requireInstallGeneration = false)}; } &&
-                    { ${ModuleUpdatePreservation.expectedDisableMarkerPredicate(MODULE_DIR, disableMarkerExpectation)}; }; then
-                    echo present
-                else
-                    exit 1
-                fi
-            """.trimIndent()
-        )
-        val modulePresent = when {
-            moduleProbe.success && moduleProbe.stdout == listOf("present") -> true
-            moduleProbe.success && moduleProbe.stdout == listOf("absent") -> false
-            else -> return incomplete("The active module tree became unsafe before rollback")
-        }
-        if (modulePresent) {
-            val stopped = ServiceLifecycleController.executeRoot(
-                rollbackGuard + "\n" + verifiedUpdateLifecycle(
-                        marker = marker,
-                        script = stopScript,
-                        disableMarkerExpectation = disableMarkerExpectation,
-                        requireInstallGeneration = false,
-                    )
-            )
-            if (!stopped.success ||
-                !verifyServiceState(
-                    state = ModuleUpdateStatePolicy.VerifiedState.STOPPED,
-                    marker = marker,
-                    disableMarkerExpectation = disableMarkerExpectation,
-                    requireInstallGeneration = false,
-                )
-            ) {
-                return incomplete("Unable to stop the update candidate")
-            }
-        }
-
-        val rollback = ServiceLifecycleController.executeRoot(
-            """
-                $rollbackGuard
-                if [ -e ${RootFileIo.shellQuote(backupDir)} ] || [ -L ${RootFileIo.shellQuote(backupDir)} ]; then
-                    { ${ModuleUpdateRecovery.moduleIntegrityPredicate(backupDir, requireInstallGeneration = false)}; } || exit 1
-                    { ${ModuleUpdatePreservation.expectedDisableMarkerPredicate(backupDir, disableMarkerExpectation)}; } || exit 1
-                    if [ -e ${RootFileIo.shellQuote(MODULE_DIR)} ] || [ -L ${RootFileIo.shellQuote(MODULE_DIR)} ]; then
-                        { ${ModuleUpdateRecovery.activeModuleIntegrityPredicate(requireInstallGeneration = false)}; } || exit 1
-                        { ${ModuleUpdatePreservation.expectedDisableMarkerPredicate(MODULE_DIR, disableMarkerExpectation)}; } || exit 1
-                        [ ! -e ${RootFileIo.shellQuote(failedDir)} ] && [ ! -L ${RootFileIo.shellQuote(failedDir)} ] || exit 1
-                        $rollbackGuard
-                        mv ${RootFileIo.shellQuote(MODULE_DIR)} ${RootFileIo.shellQuote(failedDir)} || exit 1
-                    fi
-                    $rollbackGuard
-                    { ${ModuleUpdateRecovery.moduleIntegrityPredicate(backupDir, requireInstallGeneration = false)}; } || exit 1
-                    [ ! -e ${RootFileIo.shellQuote(MODULE_DIR)} ] && [ ! -L ${RootFileIo.shellQuote(MODULE_DIR)} ] || exit 1
-                    if ! cp -a ${RootFileIo.shellQuote(backupDir)} ${RootFileIo.shellQuote(MODULE_DIR)}; then
-                        if [ ! -e ${RootFileIo.shellQuote(MODULE_DIR)} ] && [ ! -L ${RootFileIo.shellQuote(MODULE_DIR)} ] &&
-                            { ${ModuleUpdateRecovery.moduleIntegrityPredicate(failedDir, requireInstallGeneration = false)}; } &&
-                            { ${ModuleUpdatePreservation.expectedDisableMarkerPredicate(failedDir, disableMarkerExpectation)}; }; then
-                            $rollbackGuard
-                            [ ! -e ${RootFileIo.shellQuote(MODULE_DIR)} ] && [ ! -L ${RootFileIo.shellQuote(MODULE_DIR)} ] || exit 1
-                            { ${ModuleUpdateRecovery.moduleIntegrityPredicate(failedDir, requireInstallGeneration = false)}; } || exit 1
-                            { ${ModuleUpdatePreservation.expectedDisableMarkerPredicate(failedDir, disableMarkerExpectation)}; } || exit 1
-                            mv ${RootFileIo.shellQuote(failedDir)} ${RootFileIo.shellQuote(MODULE_DIR)} || exit 1
-                            { ${ModuleUpdateRecovery.activeModuleIntegrityPredicate(requireInstallGeneration = false)}; } || exit 1
-                            { ${ModuleUpdatePreservation.expectedDisableMarkerPredicate(MODULE_DIR, disableMarkerExpectation)}; } || exit 1
-                        fi
-                        sync || exit 1
-                        exit 1
-                    fi
-                    { ${ModuleUpdateRecovery.activeModuleIntegrityPredicate(requireInstallGeneration = false)}; } || exit 1
-                    { ${ModuleUpdatePreservation.expectedDisableMarkerPredicate(MODULE_DIR, disableMarkerExpectation)}; } || exit 1
-                else
-                    [ ! -L ${RootFileIo.shellQuote(backupDir)} ] || exit 1
-                    { ${ModuleUpdateRecovery.activeModuleIntegrityPredicate(requireInstallGeneration = false)}; } || exit 1
-                    { ${ModuleUpdatePreservation.expectedDisableMarkerPredicate(MODULE_DIR, disableMarkerExpectation)}; } || exit 1
-                fi
-                sync || exit 1
-            """.trimIndent()
-        )
-        if (!rollback.success) return incomplete("Unable to restore the previous module directory")
-
-        val retainedBackup = ServiceLifecycleController.executeRoot(
-            """
-                $rollbackGuard
-                { ${ModuleUpdateRecovery.activeModuleIntegrityPredicate(requireInstallGeneration = false)}; } || exit 1
-                { ${ModuleUpdatePreservation.expectedDisableMarkerPredicate(MODULE_DIR, disableMarkerExpectation)}; } || exit 1
-                if [ ! -e ${RootFileIo.shellQuote(backupDir)} ] && [ ! -L ${RootFileIo.shellQuote(backupDir)} ]; then
-                    $rollbackGuard
-                    { ${ModuleUpdateRecovery.activeModuleIntegrityPredicate(requireInstallGeneration = false)}; } || exit 1
-                    cp -a ${RootFileIo.shellQuote(MODULE_DIR)} ${RootFileIo.shellQuote(backupDir)} || exit 1
-                else
-                    { ${ModuleUpdateRecovery.moduleIntegrityPredicate(backupDir, requireInstallGeneration = false)}; } || exit 1
-                    { ${ModuleUpdatePreservation.expectedDisableMarkerPredicate(backupDir, disableMarkerExpectation)}; } || exit 1
-                fi
-                { ${ModuleUpdateRecovery.moduleIntegrityPredicate(backupDir, requireInstallGeneration = false)}; } || exit 1
-                { ${ModuleUpdatePreservation.expectedDisableMarkerPredicate(backupDir, disableMarkerExpectation)}; } || exit 1
-                sync || exit 1
-            """.trimIndent()
-        )
-        if (!retainedBackup.success) {
-            return incomplete("Previous module was restored, but its recovery backup could not be retained")
-        }
-
-        if (!restoreServiceState(
-                preUpdateState,
-                marker,
-                disableMarkerExpectation,
-                requireInstallGeneration = false,
-            )
-        ) {
-            return incomplete(
-                "Previous module files were restored, but service state ${preUpdateState.wireValue} could not be verified"
-            )
-        }
-
-        if (!verifyExpectedDisableMarker(disableMarkerExpectation)) {
-            return incomplete(
-                "Previous module files were restored, but its disable marker no longer matches the pre-update state"
-            )
-        }
-
-        val cleanupConsumed = try {
-            val command = requireNotNull(UpdateTransactionProtocol.buildConsumeUncommittedCleanup(
-                owner = marker.transactionOwner(),
-                expectedTransactionDigest = expectedTransactionDigest,
-                cleanupPaths = listOf(updateDir, backupDir, failedDir),
-            ))
-            ServiceLifecycleController.executeRoot(command).success
-        } catch (_: Exception) {
-            false
-        }
-        if (!cleanupConsumed) {
-            return incomplete(
-                "Rollback was verified, but pre-commit cleanup evidence could not be consumed safely"
-            )
-        }
-
-        val restoredDigest = writeUpdateTransaction(
-                marker = marker,
-                transactionId = transactionId,
-                phase = "restored",
-                updateDir = updateDir,
-                backupDir = backupDir,
-                failedDir = failedDir,
-                preUpdateState = preUpdateState,
-                disableMarkerExpectation = disableMarkerExpectation,
-                expectedPriorDigest = expectedTransactionDigest,
-            )
-        if (restoredDigest == null) {
-            return incomplete("Rollback was verified, but its restored phase was not durable")
-        }
-        retainedTransactionDigest = restoredDigest
-
-        val terminalOutcome = CancellationSafeTerminalCommit.run(
-            command = {
-                val plan = requireNotNull(UpdateTransactionProtocol.buildTerminalDeletePlan(
-                    owner = marker.transactionOwner(),
-                    expectedDigest = restoredDigest,
-                    prerequisite = terminalPrerequisite(
-                        disableMarkerExpectation,
-                        requireInstallGeneration = false,
-                    ),
-                    cleanupPaths = listOf(updateDir, backupDir, failedDir),
-                ))
-                executeTerminalPlan(marker, plan)
-            },
-            commandSucceeded = { it == UpdateTransactionProtocol.TerminalResolution.COMMITTED },
-            onCommitted = {},
-        )
-        return when (terminalOutcome) {
-            is CancellationSafeTerminalCommit.Outcome.Committed ->
-                ModuleUpdateStatePolicy.RollbackResult.Restored(preUpdateState)
-            is CancellationSafeTerminalCommit.Outcome.Failed -> incomplete(
-                "Rollback was verified, but its terminal transaction could not be removed"
-            )
-        }
-    }
-
-    private suspend fun incompleteRollback(
-        message: String,
-        backupDir: String,
-        disableMarkerExpectation: ModuleUpdatePreservation.DisableMarkerExpectation,
-        expectedTransactionDigest: String,
-    ): ModuleUpdateStatePolicy.RollbackResult.Incomplete {
-        val backupRetained = ServiceLifecycleController.executeRoot(
-            "{ ${ModuleUpdateRecovery.moduleIntegrityPredicate(backupDir, requireInstallGeneration = false)}; } && " +
-                "{ ${ModuleUpdatePreservation.expectedDisableMarkerPredicate(backupDir, disableMarkerExpectation)}; }"
-        ).success
-        val stateDir = RootFileIo.shellQuote(ModuleMutationCoordinator.STATE_DIR)
-        val transaction = RootFileIo.shellQuote(ModuleMutationCoordinator.UPDATE_TRANSACTION)
-        val transactionRetained = ServiceLifecycleController.executeRoot(
-            "[ -d $stateDir ] && [ ! -L $stateDir ] && " +
-                "[ \"${'$'}(stat -c %u $stateDir 2>/dev/null)\" = 0 ] && " +
-                "[ \"${'$'}(stat -c %a $stateDir 2>/dev/null)\" = 700 ] && " +
-                "[ -f $transaction ] && [ ! -L $transaction ] && " +
-                "[ \"${'$'}(stat -c %u $transaction 2>/dev/null)\" = 0 ] && " +
-                "[ \"${'$'}(stat -c %a $transaction 2>/dev/null)\" = 600 ] && " +
-                "[ \"${'$'}(stat -c %h $transaction 2>/dev/null)\" = 1 ] && " +
-                "[ \"${'$'}(sha256sum $transaction 2>/dev/null | awk 'NR == 1 { print ${'$'}1 }')\" = " +
-                RootFileIo.shellQuote(expectedTransactionDigest) + " ]"
-        ).success
-        return ModuleUpdateStatePolicy.RollbackResult.Incomplete(
-            message = "$message; backup_retained=${if (backupRetained) 1 else 0}; " +
-                "transaction_retained=${if (transactionRetained) 1 else 0}",
-            backupRetained = backupRetained,
-            transactionRetained = transactionRetained,
-        )
-    }
-
-    private fun ModuleUpdateStatePolicy.RollbackResult.Incomplete.fatalRecoveryMessage(): String =
-        "FATAL: $message; the live update owner lock will be released for a fresh recovery attempt"
 
     private fun validateModuleArchive(
         moduleFile: File,
@@ -2114,96 +971,6 @@ class UpdateManager(private val context: Context) {
         digest.digest().joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
     }.getOrNull()
 
-    private fun extractModuleArchive(
-        moduleFile: File,
-        binaryDirectory: String,
-        expectedReleaseVersion: String,
-    ): Result<File> {
-        validateModuleArchive(moduleFile, binaryDirectory, expectedReleaseVersion)?.let {
-            return Result.failure(IllegalArgumentException(it.name))
-        }
-        val stagingDir = File(context.cacheDir, "zapret2-module-stage-${System.nanoTime()}")
-        return try {
-            if (!stagingDir.mkdir()) return Result.failure(IllegalStateException("Unable to create update staging directory"))
-            if (!setExactMode(stagingDir, PRIVATE_DIRECTORY_MODE)) {
-                throw IllegalStateException("Unable to secure update staging directory")
-            }
-            val canonicalRoot = stagingDir.canonicalFile
-            var totalWritten = 0L
-            ZipFile(moduleFile).use { zip ->
-                val iterator = zip.entries()
-                while (iterator.hasMoreElements()) {
-                    val entry = iterator.nextElement()
-                    val name = entry.name
-                    if (name == "META-INF" || name.startsWith("META-INF/")) continue
-                    val target = File(stagingDir, name).canonicalFile
-                    if (target != canonicalRoot && !target.path.startsWith(canonicalRoot.path + File.separator)) {
-                        throw IllegalArgumentException("Archive entry escapes staging directory")
-                    }
-                    if (entry.isDirectory) {
-                        if (!target.isDirectory && !target.mkdirs()) {
-                            throw IllegalStateException("Unable to create staging directory")
-                        }
-                        if (!setExactMode(target, PRIVATE_DIRECTORY_MODE)) {
-                            throw IllegalStateException("Unable to secure staging directory")
-                        }
-                        continue
-                    }
-                    val parent = target.parentFile
-                    if (parent != null && !parent.isDirectory && !parent.mkdirs()) {
-                        throw IllegalStateException("Unable to create staging directory")
-                    }
-                    if (parent != null && !setExactMode(parent, PRIVATE_DIRECTORY_MODE)) {
-                        throw IllegalStateException("Unable to secure staging directory")
-                    }
-                    zip.getInputStream(entry).use { input ->
-                        target.outputStream().use { output ->
-                            val buffer = ByteArray(BUFFER_SIZE)
-                            var entryWritten = 0L
-                            while (true) {
-                                val count = input.readWithProgress(buffer)
-                                if (count < 0) break
-                                entryWritten += count
-                                totalWritten += count
-                                if (entryWritten > MAX_ARCHIVE_ENTRY_BYTES || totalWritten > MAX_ARCHIVE_TOTAL_BYTES) {
-                                    throw IllegalStateException("Archive expands beyond the size limit")
-                                }
-                                output.write(buffer, 0, count)
-                            }
-                        }
-                    }
-                    val targetMode = if (name == ModulePackageContract.UPDATE_GUARD_PATH) {
-                        PRIVATE_EXECUTABLE_MODE
-                    } else {
-                        PRIVATE_FILE_MODE
-                    }
-                    if (!setExactMode(target, targetMode)) {
-                        throw IllegalStateException("Unable to restrict staging file permissions")
-                    }
-                }
-            }
-            stagingDir.walkTopDown().filter { it.isDirectory }.forEach {
-                if (!setExactMode(it, PRIVATE_DIRECTORY_MODE)) {
-                    throw IllegalStateException("Unable to restrict staging directory permissions")
-                }
-            }
-            ModulePackageContract.validateStaging(
-                stagingDir,
-                binaryDirectory,
-                expectedReleaseVersion,
-            )?.let {
-                throw IllegalArgumentException(it)
-            }
-            Result.success(stagingDir)
-        } catch (cancelled: CancellationException) {
-            deleteTreeBestEffort(stagingDir)
-            throw cancelled
-        } catch (error: Exception) {
-            deleteTreeBestEffort(stagingDir)
-            Result.failure(error)
-        }
-    }
-
     private fun isSafeArchiveEntryName(name: String): Boolean {
         val path = if (name.endsWith('/')) name.dropLast(1) else name
         if (path.isBlank() || path.trim() != path || path.any(Char::isISOControl) || path.contains('\\')) return false
@@ -2236,7 +1003,8 @@ class UpdateManager(private val context: Context) {
         var downloadOffset = 0f
         var moduleOutcome: ModuleArtifactOutcome = ModuleArtifactOutcome.NotRequested
         var apkOutcome: ApkArtifactOutcome = ApkArtifactOutcome.NotRequested
-        var preparedModule: File? = null
+        var downloadedModule: File? = null
+        var validatedModule: ValidatedModuleArtifact? = null
         var preparedApk: File? = null
         var retainApkForInstaller = false
 
@@ -2251,7 +1019,7 @@ class UpdateManager(private val context: Context) {
                     val fraction = downloadOffset + (percent / 100f) * downloadSlice
                     onProgress(UpdateProgress(fraction, UpdateStage.DOWNLOADING_MODULE, percent))
                 }) {
-                    is DownloadResult.Success -> preparedModule = result.file
+                    is DownloadResult.Success -> downloadedModule = result.file
                     is DownloadResult.Error -> {
                         moduleOutcome = ModuleArtifactOutcome.Failed(
                             UpdateFailure.Download(result.reason),
@@ -2294,7 +1062,7 @@ class UpdateManager(private val context: Context) {
             }
 
             onProgress(UpdateProgress(downloadBudget, UpdateStage.VALIDATING_ARTIFACTS))
-            preparedModule?.let { moduleFile ->
+            downloadedModule?.let { moduleFile ->
                 val binaryDirectory = ModulePackageContract.selectBinaryDirectory(
                     Build.SUPPORTED_ABIS.toList()
                 )
@@ -2313,6 +1081,11 @@ class UpdateManager(private val context: Context) {
                     }
                     return@withContext UpdateExecutionReport(moduleOutcome, apkOutcome)
                 }
+                validatedModule = ValidatedModuleArtifact(
+                    file = moduleFile,
+                    binaryDirectory = requireNotNull(binaryDirectory),
+                    archiveSha256 = requireNotNull(moduleArtifact).sha256,
+                )
             }
             preparedApk?.let { apkFile ->
                 val validationFailure = validateApkArtifact(
@@ -2385,20 +1158,17 @@ class UpdateManager(private val context: Context) {
                 }
             }
 
-            preparedModule?.let { moduleFile ->
+            validatedModule?.let { module ->
                 onProgress(UpdateProgress(0.86f, UpdateStage.INSTALLING_MODULE))
                 var installFailure: UpdateFailure? = null
                 val install = try {
-                    installModule(
-                        moduleFile,
+                    installValidatedModule(
+                        module,
                         expectedReleaseVersion,
                         release.allowSameVersionModuleRepair,
                     )
                 } catch (cancelled: CancellationException) {
                     throw cancelled
-                } catch (fatal: FatalUpdateRecoveryException) {
-                    installFailure = UpdateFailure.ModuleRecoveryRequired(fatal.message.orEmpty())
-                    ModuleInstallResult(false, false)
                 } catch (_: ModuleInstallRejectedException) {
                     installFailure = UpdateFailure.ModuleRejected
                     ModuleInstallResult(false, false)
@@ -2409,7 +1179,6 @@ class UpdateManager(private val context: Context) {
                 moduleOutcome = if (install.success) {
                     ModuleArtifactOutcome.Installed(
                         requiresReboot = install.needsReboot,
-                        restartService = install.restartService,
                     )
                 } else {
                     ModuleArtifactOutcome.Failed(
@@ -2447,7 +1216,7 @@ class UpdateManager(private val context: Context) {
             }
             UpdateExecutionReport(moduleOutcome, apkOutcome)
         } finally {
-            deleteFileBestEffort(preparedModule)
+            deleteFileBestEffort(downloadedModule)
             if (!retainApkForInstaller) deleteFileBestEffort(preparedApk)
         }
     }
@@ -2493,15 +1262,6 @@ class UpdateManager(private val context: Context) {
             file?.delete()
         } catch (_: Exception) {
             // App-private stale artifacts are pruned again before the next download.
-        }
-    }
-
-    /** Extracted module trees are app-private and can be retried by normal cache eviction. */
-    private fun deleteTreeBestEffort(directory: File) {
-        try {
-            directory.deleteRecursively()
-        } catch (_: Exception) {
-            // The privileged owner lock must not depend on non-privileged cache cleanup.
         }
     }
 

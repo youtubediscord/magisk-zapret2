@@ -1,4 +1,5 @@
 #!/system/bin/sh
+# Module package generations are activated only by Magisk at boot.
 ##########################################################################################
 # Zapret2 Magisk Module - Service Script (runs at boot)
 ##########################################################################################
@@ -148,9 +149,8 @@ log "Category state source: $CATEGORIES_FILE"
 
 if [ "$AUTOSTART" = "1" ]; then
     log "Autostart enabled, launching zapret2..."
-    # zapret-start.sh is the authoritative gate for update.transaction,
-    # update.lock, Magisk's remove marker, and uninstall.tombstone.  Always
-    # preserve its exact refusal/success code for the root manager and logcat.
+    # Package updates are activated by Magisk only at boot. zapret-start.sh
+    # gates runtime lifecycle state, Magisk removal, and uninstall tombstones.
     /system/bin/sh "$START_SCRIPT"
     START_RC=$?
     if [ "$START_RC" -eq 0 ]; then

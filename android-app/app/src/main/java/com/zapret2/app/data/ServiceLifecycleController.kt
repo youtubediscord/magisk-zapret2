@@ -349,10 +349,7 @@ object ServiceLifecycleController {
 
     fun isFullRollbackInProgress(): Boolean = fullRollbackInProgress.get()
 
-    /**
-     * Serializes a larger operation which invokes lifecycle scripts internally (for example,
-     * a module update) with start/stop/restart/status calls made through this controller.
-     */
+    /** Serializes a larger operation that invokes lifecycle scripts internally. */
     suspend fun <T> runExclusiveLifecycleTask(task: suspend () -> T): T {
         lifecycleMutex.lock()
         return try {
@@ -387,22 +384,10 @@ object ServiceLifecycleController {
         }
 
         return try {
-            val recovery = ModuleUpdateRecovery.recoverIfNeeded()
-            val result = when (recovery) {
-                is ModuleUpdateRecovery.Result.Blocked -> FullRollbackResult(
-                    outcome = FullRollbackOutcome.BLOCKED,
-                    error = recovery.message,
-                )
-                is ModuleUpdateRecovery.Result.Failed -> FullRollbackResult(
-                    outcome = FullRollbackOutcome.ERROR,
-                    error = recovery.message,
-                )
-                ModuleUpdateRecovery.Result.NotNeeded,
-                ModuleUpdateRecovery.Result.Recovered -> ModuleMutationCoordinator.withLifecycleScript {
-                    runExclusiveLifecycleTask {
-                        withContext(NonCancellable) {
-                            fullRollbackInsideExclusiveTask()
-                        }
+            val result = ModuleMutationCoordinator.withLifecycleScript {
+                runExclusiveLifecycleTask {
+                    withContext(NonCancellable) {
+                        fullRollbackInsideExclusiveTask()
                     }
                 }
             }
@@ -506,7 +491,6 @@ object ServiceLifecycleController {
     }
 
     private suspend fun perform(action: Action): LifecycleResult {
-        val recovery = ModuleUpdateRecovery.recoverIfNeeded()
         lifecycleMutex.lock()
         return try {
             if (appUpdateInProgress.get() || fullRollbackInProgress.get() ||
@@ -520,7 +504,7 @@ object ServiceLifecycleController {
                     error = "Service lifecycle is disabled while an update or full rollback is in progress"
                 )
             }
-            val before = getStatusLocked().withRecovery(recovery)
+            val before = getStatusLocked()
             if (!before.rootGranted) {
                 return LifecycleResult(false, action, before, error = before.error ?: "Root access is required")
             }
@@ -884,25 +868,6 @@ object ServiceLifecycleController {
                 diagnostic = values.getValue("Z2_RB_DIAGNOSTIC"),
             ),
         )
-    }
-
-    private fun ServiceStatus.withRecovery(recovery: ModuleUpdateRecovery.Result): ServiceStatus {
-        return when (recovery) {
-            ModuleUpdateRecovery.Result.NotNeeded,
-            ModuleUpdateRecovery.Result.Recovered -> this
-            is ModuleUpdateRecovery.Result.Blocked -> copy(
-                hasOwnedState = true,
-                declaredStatus = "degraded",
-                metadataComplete = false,
-                error = recovery.message
-            )
-            is ModuleUpdateRecovery.Result.Failed -> copy(
-                hasOwnedState = true,
-                declaredStatus = "unknown",
-                metadataComplete = false,
-                error = recovery.message
-            )
-        }
     }
 
     private suspend fun executeRaw(command: String, requireRoot: Boolean): CommandResult = withContext(Dispatchers.IO) {

@@ -189,9 +189,10 @@ log_mode=none
 strategy state. `qnum` accepts 1 through 65535. The selected TXT is the only traffic
 and strategy source. No legacy configuration migration exists.
 
-Compatible installer and in-app updates preserve a valid new-contract runtime,
-hostlists, and custom-name presets. Packaged presets, catalogs, binaries, and all Lua
-files are replaced by the new release.
+Installer and in-app package updates create a fresh release generation. They do not
+copy runtime configuration, hostlists, custom presets, Lua files, disable markers, or
+other state from the active tree. Runtime edits are live-data operations within one
+generation; package generations are never merged.
 
 ---
 
@@ -232,9 +233,11 @@ of the package and the device process table: they may verify bounded owner/PID,
 boot, and snapshot metadata, but must not rescan every package file, preset,
 iptables rule through repeated subprocesses, or every `/proc` entry.
 
-Hot replacement is permitted only when the Magisk-facing bootstrap and
-lifecycle compatibility marker are unchanged. Otherwise install through
-Magisk's pending `modules_update` path and require a reboot.
+Never replace files in the active Magisk module tree. Every module package
+install or update must go through Magisk's pending `modules_update` path and
+require a reboot, because mounted module files are not safe to modify. Live
+reload is limited to explicitly user-owned runtime configuration, presets, and
+lists; it must never replace packaged scripts, binaries, manifests, or wrappers.
 
 Before changing code:
 

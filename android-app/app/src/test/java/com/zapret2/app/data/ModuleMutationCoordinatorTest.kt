@@ -13,10 +13,7 @@ class ModuleMutationCoordinatorTest {
         val valid = validLines()
         val parsed = ModuleMutationCoordinator.parseSafetyProbe(valid)
         assertNotNull(parsed)
-        assertFalse(parsed!!.updateLock)
-        assertFalse(parsed.updateTransaction)
-        assertFalse(parsed.updateCleanup)
-        assertFalse(parsed.fullRollbackTransaction)
+        assertFalse(parsed!!.fullRollbackTransaction)
         assertFalse(parsed.moduleDisabled)
 
         assertNull(ModuleMutationCoordinator.parseSafetyProbe(valid.dropLast(1)))
@@ -25,7 +22,7 @@ class ModuleMutationCoordinatorTest {
             valid.toMutableList().apply { add(size - 1, "Z2_UNKNOWN=0") },
         ))
         assertNull(ModuleMutationCoordinator.parseSafetyProbe(valid.map {
-            if (it.startsWith("Z2_UPDATE_LOCK=")) "Z2_UPDATE_LOCK=true" else it
+            if (it.startsWith("Z2_MODULE_DISABLED=")) "Z2_MODULE_DISABLED=true" else it
         }))
         assertNull(ModuleMutationCoordinator.parseSafetyProbe(valid.dropLast(1) + "Z2_MUTATION_PROBE_COMPLETE=01"))
         assertNull(ModuleMutationCoordinator.parseSafetyProbe(valid.map { " $it" }))
@@ -43,8 +40,11 @@ class ModuleMutationCoordinatorTest {
         assertTrue(parsedFences.moduleDisabled)
 
         assertTrue(ModuleMutationCoordinator.requiresCrossProcessLease(ModuleMutationCoordinator.Operation.MUTATION))
-        assertFalse(ModuleMutationCoordinator.requiresCrossProcessLease(ModuleMutationCoordinator.Operation.UPDATE))
-        assertFalse(ModuleMutationCoordinator.requiresCrossProcessLease(ModuleMutationCoordinator.Operation.RECOVERY))
+        assertFalse(
+            ModuleMutationCoordinator.requiresCrossProcessLease(
+                ModuleMutationCoordinator.Operation.PACKAGE_STAGING,
+            ),
+        )
         assertFalse(ModuleMutationCoordinator.requiresCrossProcessLease(ModuleMutationCoordinator.Operation.LIFECYCLE_SCRIPT))
 
         val inheritedCommand = ModuleMutationCoordinator.buildInheritedLifecycleCommand(
@@ -64,9 +64,6 @@ class ModuleMutationCoordinatorTest {
     }
 
     private fun validLines(): List<String> = listOf(
-        "Z2_UPDATE_LOCK=0",
-        "Z2_UPDATE_TRANSACTION=0",
-        "Z2_UPDATE_CLEANUP=0",
         "Z2_FULL_ROLLBACK_TRANSACTION=0",
         "Z2_UNINSTALL_TOMBSTONE=0",
         "Z2_MAGISK_REMOVE=0",

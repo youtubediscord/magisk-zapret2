@@ -164,18 +164,6 @@ class UpdateExecutionPresentationTest {
             UiText.Resource(R.string.control_update_module_rejected),
             UpdateFailure.ModuleRejected.toUiText(),
         )
-
-        assertEquals(
-            UiText.resource(
-                R.string.control_update_module_recovery_required_details,
-                "cleanup incomplete",
-            ),
-            UpdateFailure.ModuleRecoveryRequired("cleanup incomplete").toUiText(),
-        )
-        assertEquals(
-            UiText.Resource(R.string.control_update_module_recovery_required),
-            UpdateFailure.ModuleRecoveryRequired("").toUiText(),
-        )
     }
 
     @Test

@@ -72,10 +72,7 @@ prepare_purge() {
     [ "$(id -u 2>/dev/null)" = 0 ] || { purge_prepare_report blocked "" "root access is required"; return 1; }
     z2_purge_module_identity_is_exact "$MODDIR" || { purge_prepare_report blocked "" "installed module identity is unsafe"; return 1; }
     ensure_state_dir && z2_purge_state_dir_is_secure || { purge_prepare_report error "" "secure purge state is unavailable"; return 1; }
-    if [ -e "$UPDATE_LOCK" ] || [ -L "$UPDATE_LOCK" ] ||
-       [ -e "$UPDATE_TRANSACTION" ] || [ -L "$UPDATE_TRANSACTION" ] ||
-       [ -e "$UPDATE_CLEANUP" ] || [ -L "$UPDATE_CLEANUP" ] ||
-       [ -e "$FULL_ROLLBACK_TRANSACTION" ] || [ -L "$FULL_ROLLBACK_TRANSACTION" ]; then
+    if [ -e "$FULL_ROLLBACK_TRANSACTION" ] || [ -L "$FULL_ROLLBACK_TRANSACTION" ]; then
         purge_prepare_report blocked "" "another update or rollback transaction is active"
         return 1
     fi

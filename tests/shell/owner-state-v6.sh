@@ -163,14 +163,6 @@ assert_preserved_failure "legacy firewall presence"
 reset_case "$CASE/owner.v4"; Z2_TEST_FIREWALL=query-failed
 assert_preserved_failure "legacy firewall query failure"
 
-reset_case "$CASE/owner.v4"; Z2_TEST_SCAN=live; Z2_TEST_LOCKED=1
-INSTALL_DEFER_LEGACY_OWNER_RECOVERY=1
-audit_recovery_artifacts install || fail "direct install could not defer an exact live legacy owner"
-[ -f "$OWNER_STATE" ] || fail "direct-install deferral mutated legacy owner evidence"
-INSTALL_DEFER_LEGACY_OWNER_RECOVERY=0
-if audit_recovery_artifacts install; then fail "legacy deferral remained active after one-shot flag cleared"; fi
-[ -f "$OWNER_STATE" ] || fail "post-deferral failure mutated legacy owner evidence"
-
 reset_case "$CASE/owner.v7"; Z2_TEST_PROCESS=live
 recover_stale_owner_publication || fail "same-boot live v7 was not recognized"
 [ -f "$OWNER_STATE" ] || fail "same-boot live owner was retired"

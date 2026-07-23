@@ -47,53 +47,6 @@ class ControlDialogStateModelTest {
     }
 
     @Test
-    fun localizedDiagnosticWrapper_isSanitizedAndRestoredWithItsAllowlistedResource() {
-        val savedState = SavedStateHandle(
-            mapOf(
-                "control_dialog_kind" to ControlDialogKind.ERROR.name,
-                "control_error_kind" to ControlErrorKind.UPDATE.name,
-                "control_error_detail_resource" to
-                    R.string.control_update_module_recovery_required_details,
-                "control_error_detail_dynamic" to "token=old-secret cleanup incomplete",
-            ),
-        )
-
-        val restored = restoreControlUiState(savedState)
-
-        val details = restored.errorDialog?.details as UiText.Resource
-        val diagnostic = details.arguments.single() as String
-        assertEquals(R.string.control_update_module_recovery_required_details, details.id)
-        assertFalse(diagnostic.contains("old-secret"))
-        assertTrue(diagnostic.contains("[REDACTED_SECRET]"))
-        assertEquals(diagnostic, savedState.get<String>("control_error_detail_dynamic"))
-        assertEquals(details.id, savedState.get<Int>("control_error_detail_resource"))
-    }
-
-    @Test
-    fun incompleteLocalizedDiagnosticWrapper_fallsBackToGenericRecoveryCopy() {
-        val savedState = SavedStateHandle(
-            mapOf(
-                "control_dialog_kind" to ControlDialogKind.ERROR.name,
-                "control_error_kind" to ControlErrorKind.UPDATE.name,
-                "control_error_detail_resource" to
-                    R.string.control_update_module_recovery_required_details,
-            ),
-        )
-
-        val restored = restoreControlUiState(savedState)
-
-        assertEquals(
-            UiText.Resource(R.string.control_update_module_recovery_required),
-            restored.errorDialog?.details,
-        )
-        assertEquals(
-            R.string.control_update_module_recovery_required,
-            savedState.get<Int>("control_error_detail_resource"),
-        )
-        assertFalse(savedState.contains("control_error_detail_dynamic"))
-    }
-
-    @Test
     fun packetDialog_reconstructionKeepsTargetAndBoundedDraft() {
         val restored = restoreControlUiState(
             SavedStateHandle(
