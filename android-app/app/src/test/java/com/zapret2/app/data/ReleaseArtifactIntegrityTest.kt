@@ -209,25 +209,25 @@ class ReleaseArtifactIntegrityTest {
         assertFalse(isNewerReleaseVersion("vv2.0.0", "1.0.0"))
         assertFalse(isNewerReleaseVersion("999999999999999999999999.0", "1.0.0"))
         assertTrue(isNewerReleaseVersion("2.0.0", "unknown"))
-        assertEquals(100_201L, requireNotNull(projectReleaseVersionCode("v2.0.100201")))
-        assertEquals(100_201L, requireNotNull(projectReleaseVersionCode("2.0.100201")))
-        assertNull(projectReleaseVersionCode("2.0.0"))
-        assertNull(projectReleaseVersionCode("2.100201"))
-        assertNull(projectReleaseVersionCode("2.0.0.100201"))
-        assertNull(projectReleaseVersionCode("02.0.100201"))
-        assertNull(projectReleaseVersionCode("2.0.0100201"))
-        assertNull(projectReleaseVersionCode("999999999999999999999999.0.100201"))
-        assertNull(projectReleaseVersionCode("2.0.100201-beta.1"))
-        assertNull(projectReleaseVersionCode("2.0.2100000001"))
-        assertTrue(isProjectReleaseTag("v2.0.100201"))
-        assertFalse(isProjectReleaseTag("2.0.100201"))
-        assertFalse(isProjectReleaseTag("v2.0.0"))
-        assertFalse(moduleVersionAllowsInstall(null, "2.0.100201", allowSameVersionRepair = false))
-        assertTrue(moduleVersionAllowsInstall(null, "2.0.100201", allowSameVersionRepair = true))
-        assertTrue(moduleVersionAllowsInstall("v1.9.100100", "1.9.100201", allowSameVersionRepair = false))
-        assertFalse(moduleVersionAllowsInstall("v1.9.100201", "1.9.100201", allowSameVersionRepair = false))
-        assertTrue(moduleVersionAllowsInstall("v1.9.100201", "1.9.100201", allowSameVersionRepair = true))
-        assertFalse(moduleVersionAllowsInstall("v2.0.100300", "1.9.100201", allowSameVersionRepair = true))
+        assertEquals(2_000_000L, requireNotNull(projectReleaseVersionCode("v2.0.0")))
+        assertEquals(2_010_017L, requireNotNull(projectReleaseVersionCode("2.1.17")))
+        assertEquals(3_000_000L, requireNotNull(projectReleaseVersionCode("3.0.0")))
+        assertNull(projectReleaseVersionCode("2.100.0"))
+        assertNull(projectReleaseVersionCode("2.0.10000"))
+        assertNull(projectReleaseVersionCode("2.0.0.1"))
+        assertNull(projectReleaseVersionCode("02.0.0"))
+        assertNull(projectReleaseVersionCode("2.00.0"))
+        assertNull(projectReleaseVersionCode("2.0.00"))
+        assertNull(projectReleaseVersionCode("2101.0.0"))
+        assertNull(projectReleaseVersionCode("2.0.0-beta.1"))
+        assertTrue(isProjectReleaseTag("v2.0.0"))
+        assertFalse(isProjectReleaseTag("2.0.0"))
+        assertFalse(moduleVersionAllowsInstall(null, "2.0.0", allowSameVersionRepair = false))
+        assertTrue(moduleVersionAllowsInstall(null, "2.0.0", allowSameVersionRepair = true))
+        assertTrue(moduleVersionAllowsInstall("v1.9.122601", "2.0.0", allowSameVersionRepair = false))
+        assertFalse(moduleVersionAllowsInstall("v2.0.0", "2.0.0", allowSameVersionRepair = false))
+        assertTrue(moduleVersionAllowsInstall("v2.0.0", "2.0.0", allowSameVersionRepair = true))
+        assertFalse(moduleVersionAllowsInstall("v3.0.0", "2.0.0", allowSameVersionRepair = true))
     }
 
     @Test
@@ -237,35 +237,35 @@ class ReleaseArtifactIntegrityTest {
 
         assertTrue(
             standardInstallPublicationMatches(
-                installedVersion = "v2.0.100201",
+                installedVersion = "v2.0.0",
                 installGeneration = generation,
-                expectedReleaseVersion = "2.0.100201",
+                expectedReleaseVersion = "2.0.0",
                 expectedArchiveSha256 = digest,
             ),
         )
         assertFalse(
             standardInstallPublicationMatches(
-                "v2.0.100200",
+                "v1.9.122601",
                 generation,
-                "2.0.100201",
+                "2.0.0",
                 digest,
             ),
         )
         assertFalse(
             standardInstallPublicationMatches(
-                "v2.0.100201",
+                "v2.0.0",
                 generation.copy(archiveSha256 = "cd".repeat(32)),
-                "2.0.100201",
+                "2.0.0",
                 digest,
             ),
         )
-        assertFalse(standardInstallPublicationMatches(null, generation, "2.0.100201", digest))
-        assertFalse(standardInstallPublicationMatches("v2.0.100201", null, "2.0.100201", digest))
+        assertFalse(standardInstallPublicationMatches(null, generation, "2.0.0", digest))
+        assertFalse(standardInstallPublicationMatches("v2.0.0", null, "2.0.0", digest))
         assertFalse(
             standardInstallPublicationMatches(
-                "v2.0.100201",
+                "v2.0.0",
                 generation,
-                "2.0.100201",
+                "2.0.0",
                 digest.uppercase(),
             ),
         )

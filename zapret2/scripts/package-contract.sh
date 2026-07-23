@@ -434,8 +434,13 @@ package_contract_validate_module_prop() {
             if (substr(version, 1, 1) != "v") exit 1
             version = substr(version, 2)
             if (split(version, parts, ".") != 3 || !canonical_long(parts[1]) ||
-                !canonical_long(parts[2]) || !canonical_version_code(parts[3]) ||
-                properties["versionCode"] != parts[3]) exit 1
+                !canonical_long(parts[2]) || !canonical_long(parts[3]) ||
+                parts[1] + 0 < 1 || parts[1] + 0 > 2100 ||
+                parts[2] + 0 > 99 || parts[3] + 0 > 9999 ||
+                !canonical_version_code(properties["versionCode"])) exit 1
+            expected_code = sprintf("%.0f",
+                (parts[1] + 0) * 1000000 + (parts[2] + 0) * 10000 + (parts[3] + 0))
+            if (properties["versionCode"] != expected_code) exit 1
         }
     ' "$file" || {
         package_contract_fail "MODULE_PROP_INVALID" "module.prop"
