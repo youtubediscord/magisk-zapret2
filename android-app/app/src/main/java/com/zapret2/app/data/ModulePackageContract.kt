@@ -111,6 +111,28 @@ internal object ModulePackageContract {
     val mandatoryRuntimeRegularFiles =
         mandatoryImmutableFiles + mandatoryMutableSeeds + mandatoryRuntimeDependencies
 
+    /**
+     * Constant-size bootstrap surface used only to decide whether the published generation can
+     * answer lifecycle requests. The complete manifest is validated before publication; polling
+     * must never turn that release audit into a recurring device workload.
+     */
+    val runtimeReadinessRegularFiles = listOf(
+        "module.prop",
+        LIFECYCLE_CONTRACT_PATH,
+    )
+
+    val runtimeReadinessExecutables = listOf(
+        "zapret2/nfqws2",
+        "zapret2/scripts/zapret-status.sh",
+    )
+
+    /**
+     * Files that Magisk may execute directly or expose through its mounted module surface.
+     * A live update is allowed only while every one of these remains byte-identical.
+     */
+    val hotSwapBootstrapFiles =
+        hotUpdateRootExecutables + wrappers.map { it.relativePath } + LIFECYCLE_CONTRACT_PATH
+
     internal val mandatoryRuntimeManifestLines = buildList {
         mandatoryImmutableFiles.forEach { add("immutable-file|0644|$it") }
         mandatoryMutableSeeds.forEach { add("mutable-seed|0644|$it") }

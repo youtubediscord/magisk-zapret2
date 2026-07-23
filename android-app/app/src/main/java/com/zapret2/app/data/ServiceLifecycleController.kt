@@ -317,10 +317,9 @@ object ServiceLifecycleController {
     }
 
     suspend fun getStatus(): ServiceStatus {
-        val recovery = ModuleUpdateRecovery.recoverIfNeeded()
         lifecycleMutex.lock()
         return try {
-            getStatusLocked().withRecovery(recovery)
+            getStatusLocked()
         } finally {
             lifecycleMutex.unlock()
         }

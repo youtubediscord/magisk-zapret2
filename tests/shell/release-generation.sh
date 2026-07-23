@@ -41,6 +41,8 @@ cp -R "$SOURCE/." "$TARGET"
 
 package_contract_compare_release "$SOURCE" "$TARGET" ||
     fail "identical release generations were rejected"
+package_contract_compare_release_all "$SOURCE" "$TARGET" ||
+    fail "identical exhaustive release generations were rejected"
 
 printf '%s\n' changed > "$TARGET/zapret2/runtime.ini"
 package_contract_compare_release "$SOURCE" "$TARGET" ||
@@ -55,6 +57,14 @@ cp "$SOURCE/zapret2/scripts/zapret-status.sh" "$TARGET/zapret2/scripts/zapret-st
 printf '%s\n' 1 > "$TARGET/zapret2/lifecycle-contract.version"
 if package_contract_compare_release "$SOURCE" "$TARGET" >/dev/null 2>&1; then
     fail "wrong lifecycle contract generation was accepted"
+fi
+
+cp "$SOURCE/zapret2/lifecycle-contract.version" "$TARGET/zapret2/lifecycle-contract.version"
+printf '%s\n' mixed-generation > "$TARGET/zapret2/lua/zapret-lib.lua"
+package_contract_compare_release "$SOURCE" "$TARGET" ||
+    fail "runtime publication proof unexpectedly expanded to every release file"
+if package_contract_compare_release_all "$SOURCE" "$TARGET" >/dev/null 2>&1; then
+    fail "exhaustive release comparison accepted mixed immutable bytes"
 fi
 
 echo "Release-generation tests passed"

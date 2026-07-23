@@ -1308,7 +1308,7 @@ class ControlViewModel @Inject constructor(
                 val rootAccess = ServiceLifecycleController.checkRootAccess()
                 detectedRootState = rootAccess.state
                 val environment = if (rootAccess.granted) {
-                    moduleRepository.reconcileEnvironment()
+                    moduleRepository.reconcileEnvironment(recoverInterruptedUpdate = true)
                         ?: throw EnvironmentProbeException()
                 } else {
                     null

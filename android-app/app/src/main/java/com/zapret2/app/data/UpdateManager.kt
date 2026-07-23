@@ -749,8 +749,8 @@ class UpdateManager(private val context: Context) {
 
     /**
      * Installs a Magisk module.
-     * Uses hot update (no reboot) if module is already installed,
-     * otherwise uses standard Magisk installer (requires reboot).
+     * Uses hot update only when the Magisk-facing bootstrap is byte-compatible.
+     * New installs and bootstrap changes use the standard pending installer and require reboot.
      *
      * @param moduleFile The module ZIP file to install
      * @return the committed installation result and any separate lifecycle follow-up
@@ -864,19 +864,46 @@ class UpdateManager(private val context: Context) {
 
         val stagingResult = extractModuleArchive(moduleFile, binaryDirectory, expectedReleaseVersion)
         val stagingDir = stagingResult.getOrNull() ?: return ModuleInstallResult(false, false)
-        val stagingViolation = try {
-            ModulePackageContract.validateStaging(
-                stagingDir,
-                binaryDirectory,
-                expectedReleaseVersion,
-            )
-        } catch (error: Exception) {
-            deleteTreeBestEffort(stagingDir)
-            throw error
+        val hotSwapCompatibilityCommand = buildString {
+            ModulePackageContract.hotSwapBootstrapFiles.forEach { relative ->
+                append("cmp -s ")
+                    .append(RootFileIo.shellQuote("$MODULE_DIR/$relative"))
+                    .append(' ')
+                    .append(RootFileIo.shellQuote("${stagingDir.absolutePath}/$relative"))
+                    .append(" || exit 1\n")
+            }
         }
-        if (stagingViolation != null) {
-            deleteTreeBestEffort(stagingDir)
-            return ModuleInstallResult(false, false)
+        val hotSwapCompatible =
+            ServiceLifecycleController.executeRoot(hotSwapCompatibilityCommand).success
+        if (!hotSwapCompatible) {
+            val magiskCheck = ServiceLifecycleController.executeRoot("magisk -v")
+            if (!magiskCheck.success) {
+                deleteTreeBestEffort(stagingDir)
+                return ModuleInstallResult(false, false)
+            }
+            val result = ModuleInstallResult(true, true)
+            return try {
+                when (CancellationSafeTerminalCommit.run(
+                    command = {
+                        ServiceLifecycleController.executeRoot(
+                            "magisk --install-module ${RootFileIo.shellQuote(moduleFile.absolutePath)}"
+                        )
+                        verifyStandardModuleInstall(
+                            expectedReleaseVersion,
+                            archiveSha256,
+                            binaryDirectory,
+                        )
+                    },
+                    commandSucceeded = { it },
+                    onCommitted = { recordCommitted(result) },
+                )) {
+                    is CancellationSafeTerminalCommit.Outcome.Committed -> result
+                    is CancellationSafeTerminalCommit.Outcome.Failed ->
+                        ModuleInstallResult(false, false)
+                }
+            } finally {
+                deleteTreeBestEffort(stagingDir)
+            }
         }
         val transactionId = "${android.os.Process.myPid()}-${System.nanoTime()}"
         val updateDir = "/data/adb/modules/.zapret2-update-$transactionId"
@@ -910,6 +937,20 @@ class UpdateManager(private val context: Context) {
             )
             markerAcquired = true
             currentCoroutineContext().ensureActive()
+            val compatibilityOwnerGuard = requireNotNull(
+                UpdateTransactionProtocol.buildOwnerGuard(
+                    owner = marker.transactionOwner(),
+                    expectedTransactionDigest = null,
+                )
+            )
+            if (!ServiceLifecycleController.executeRoot(
+                    "$compatibilityOwnerGuard\n$hotSwapCompatibilityCommand"
+                ).success
+            ) {
+                throw IllegalStateException(
+                    "The active Magisk bootstrap changed before the hot update transaction"
+                )
+            }
             disableMarkerExpectation = snapshotDisableMarkerExpectation()
                 ?: throw IllegalStateException("The installed disable marker is unsafe or could not be inspected")
             preUpdateState = snapshotAuthorizedServiceState(marker, disableMarkerExpectation)
@@ -1028,6 +1069,12 @@ class UpdateManager(private val context: Context) {
                     .append(RootFileIo.shellQuote(installerOnlyCandidate))
                     .append(" || status=${'$'}?; fi\n")
                 append("fi\n")
+                append("if [ \"${'$'}status\" -eq 0 ]; then\n")
+                append("  find ").append(RootFileIo.shellQuote(updateDir))
+                    .append(" -type d -exec chmod 755 {} + || status=${'$'}?\n")
+                append("  find ").append(RootFileIo.shellQuote(updateDir))
+                    .append(" -type f -exec chmod 644 {} + || status=${'$'}?\n")
+                append("fi\n")
                 append(ModuleUpdatePreservation.buildShell(MODULE_DIR, updateDir))
                 append(InstallGenerationMetadata.buildPublicationShell(updateDir, installGeneration))
                 append("if [ \"${'$'}status\" -eq 0 ]; then\n")
@@ -1072,6 +1119,14 @@ class UpdateManager(private val context: Context) {
                 append("    [ -f \"${'$'}script\" ] || continue\n")
                 append("    chmod 755 \"${'$'}script\" || status=${'$'}?\n")
                 append("  done\n")
+                append("  for script in ").append(RootFileIo.shellQuote("$updateDir/zapret2/scripts/lifecycle")).append("/*.sh; do\n")
+                append("    [ -f \"${'$'}script\" ] || continue\n")
+                append("    chmod 755 \"${'$'}script\" || status=${'$'}?\n")
+                append("  done\n")
+                append("  for binary in ").append(RootFileIo.shellQuote("$updateDir/zapret2/bin")).append("/*/nfqws2; do\n")
+                append("    [ -f \"${'$'}binary\" ] || continue\n")
+                append("    chmod 755 \"${'$'}binary\" || status=${'$'}?\n")
+                append("  done\n")
                 ModulePackageContract.wrappers.forEach { wrapper ->
                     val source = "${stagingDir.absolutePath}/${wrapper.relativePath}"
                     val target = "$updateDir/${wrapper.relativePath}"
@@ -1091,19 +1146,13 @@ class UpdateManager(private val context: Context) {
                     .append(RootFileIo.shellQuote(binarySource)).append(' ')
                     .append(RootFileIo.shellQuote(binaryTarget)).append(" || status=1; fi\n")
                 val packageContract = "$updateDir/zapret2/scripts/package-contract.sh"
-                val sourcePackageContract =
-                    "${stagingDir.absolutePath}/${ModulePackageContract.PACKAGE_CONTRACT_SCRIPT_PATH}"
                 val commandBuilder = "$updateDir/${ModulePackageContract.COMMAND_BUILDER_SCRIPT_PATH}"
                 append("  if [ \"${'$'}status\" -eq 0 ]; then\n")
                 append("    [ -f ").append(RootFileIo.shellQuote(packageContract)).append(" ] && [ ! -L ")
                     .append(RootFileIo.shellQuote(packageContract)).append(" ] || status=1\n")
                 append("    if [ \"${'$'}status\" -eq 0 ]; then . ")
-                    .append(RootFileIo.shellQuote(sourcePackageContract)).append(" && package_contract_apply_modes ")
-                    .append(RootFileIo.shellQuote(updateDir)).append(" installed && package_contract_validate_modes ")
-                    .append(RootFileIo.shellQuote(updateDir)).append(" installed && package_contract_validate_all ")
-                    .append(RootFileIo.shellQuote(updateDir)).append(" installed && package_contract_compare_release ")
-                    .append(RootFileIo.shellQuote(stagingDir.absolutePath)).append(' ')
-                    .append(RootFileIo.shellQuote(updateDir)).append(" || status=${'$'}?; fi\n")
+                    .append(RootFileIo.shellQuote(packageContract))
+                    .append(" || status=${'$'}?; fi\n")
                 append("    if [ \"${'$'}status\" -eq 0 ]; then active_preset=${'$'}(package_contract_runtime_core_value ")
                     .append(RootFileIo.shellQuote(updateDir)).append(" active_preset) || status=${'$'}?; fi\n")
                 append("    if [ \"${'$'}status\" -eq 0 ]; then /system/bin/sh ")
@@ -1231,10 +1280,29 @@ class UpdateManager(private val context: Context) {
             transactionDigest = candidateDigest
             activeCandidate = true
 
-            val sourcePackageContract =
-                "${stagingDir.absolutePath}/${ModulePackageContract.PACKAGE_CONTRACT_SCRIPT_PATH}"
             val binarySource =
                 "${stagingDir.absolutePath}/${ModulePackageContract.binaryRelativePath(binaryDirectory)}"
+            val publicationComparisons = buildString {
+                (
+                    ModulePackageContract.hotSwapBootstrapFiles +
+                        listOf(
+                            "module.prop",
+                            ModulePackageContract.RUNTIME_MANIFEST_PATH,
+                            ModulePackageContract.PACKAGE_CONTRACT_SCRIPT_PATH,
+                            ModulePackageContract.COMMAND_BUILDER_SCRIPT_PATH,
+                            "zapret2/scripts/common.sh",
+                            "zapret2/scripts/zapret-start.sh",
+                            "zapret2/scripts/zapret-stop.sh",
+                            "zapret2/scripts/zapret-status.sh",
+                        )
+                    ).distinct().forEach { relative ->
+                    append("cmp -s ")
+                        .append(RootFileIo.shellQuote("${stagingDir.absolutePath}/$relative"))
+                        .append(' ')
+                        .append(RootFileIo.shellQuote("$MODULE_DIR/$relative"))
+                        .append(" || exit 1\n")
+                }
+            }
             val publishedGeneration = ServiceLifecycleController.executeRoot(
                 """
                     ${requireNotNull(
@@ -1245,9 +1313,7 @@ class UpdateManager(private val context: Context) {
                     )}
                     { ${ModuleUpdateRecovery.activeModuleIntegrityPredicate(requireInstallGeneration = true)}; } || exit 1
                     { ${ModuleUpdatePreservation.expectedDisableMarkerPredicate(MODULE_DIR, disableMarkerExpectation)}; } || exit 1
-                    . ${RootFileIo.shellQuote(sourcePackageContract)} || exit 1
-                    package_contract_validate_all ${RootFileIo.shellQuote(MODULE_DIR)} installed || exit 1
-                    package_contract_compare_release ${RootFileIo.shellQuote(stagingDir.absolutePath)} ${RootFileIo.shellQuote(MODULE_DIR)} || exit 1
+                    $publicationComparisons
                     cmp -s ${RootFileIo.shellQuote(binarySource)} ${RootFileIo.shellQuote("$MODULE_DIR/zapret2/nfqws2")} || exit 1
                 """.trimIndent()
             )

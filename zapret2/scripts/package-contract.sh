@@ -678,11 +678,12 @@ package_contract_compare_release_callback() {
     }
 }
 
-# Proves that every package-owned immutable byte in an installed candidate came
-# from one source release. Mutable seeds, hostlists, custom presets, the selected
-# installed ABI binary, and installer metadata have their own explicit contracts.
+# Constant-size publication proof used by legacy and current APK hot-update
+# transactions. The source archive/staging tree was already fully qualified;
+# this boundary only proves that the executable bootstrap and lifecycle adapter
+# were copied from that same release.
 package_contract_compare_release() {
-    local source_root="${1%/}" target_root="${2%/}" result=0
+    local source_root="${1%/}" target_root="${2%/}" path
     [ -n "$source_root" ] && [ -d "$source_root" ] && [ ! -L "$source_root" ] || {
         package_contract_fail "PACKAGE_ROOT_INVALID" "$source_root"; return 1;
     }
@@ -696,6 +697,31 @@ package_contract_compare_release() {
         package_contract_fail "PACKAGE_GENERATION_MISMATCH" "$PACKAGE_CONTRACT_MANIFEST_REL"
         return 1
     }
+    for path in \
+        module.prop service.sh uninstall.sh action.sh \
+        system/bin/zapret2-start system/bin/zapret2-stop \
+        system/bin/zapret2-status system/bin/zapret2-restart \
+        system/bin/zapret2-full-rollback \
+        zapret2/lifecycle-contract.version \
+        zapret2/scripts/common.sh zapret2/scripts/command-builder.sh \
+        zapret2/scripts/package-contract.sh zapret2/scripts/zapret-start.sh \
+        zapret2/scripts/zapret-stop.sh zapret2/scripts/zapret-status.sh
+    do
+        package_contract_check_regular "$source_root/$path" "$path" || return 1
+        package_contract_check_regular "$target_root/$path" "$path" || return 1
+        cmp -s "$source_root/$path" "$target_root/$path" || {
+            package_contract_fail "PACKAGE_GENERATION_MISMATCH" "$path"
+            return 1
+        }
+    done
+    return 0
+}
+
+# Exhaustive immutable-byte comparison belongs to release qualification and
+# offline diagnostics, never to the device publication/status hot path.
+package_contract_compare_release_all() {
+    local source_root="${1%/}" target_root="${2%/}" result=0
+    package_contract_compare_release "$source_root" "$target_root" || return 1
     PACKAGE_CONTRACT_COMPARE_TARGET="$target_root"
     package_contract_for_each_path "$source_root" installed package_contract_compare_release_callback
     result=$?
@@ -959,7 +985,17 @@ package_contract_validate_zip_names() {
 package_contract_apply_modes() {
     local root="$1" profile="${2:-package}"
     package_contract_validate_tree "$root" "$profile" || return 1
-    package_contract_for_each_path "$root" "$profile" package_contract_chmod_callback || return 1
+    # One batched filesystem walk replaces hundreds of per-manifest chmod
+    # subprocesses. Installer-owned state is outside the release manifest and
+    # retains its stricter private mode.
+    find "$root" -type f \
+        ! -path "$root/zapret2/install-generation.meta" \
+        ! -path "$root/disable" \
+        -exec chmod 0644 {} + || {
+        package_contract_fail "PACKAGE_CHMOD" "$root"
+        return 1
+    }
+    package_contract_apply_executable_modes "$root" "$profile" || return 1
 }
 
 package_contract_validate_modes() {
@@ -1114,6 +1150,14 @@ package_contract_validate_all() {
     package_contract_validate_module_prop "$root" || return 1
     package_contract_validate_lifecycle_contract "$root" || return 1
     package_contract_for_each_path "$root" "$profile" package_contract_shell_exec_callback || return 1
+    return 0
+}
+
+# Catalog parsing executes nfqws2 dry-runs and scans every shipped preset. It is
+# a release qualification boundary, not a device publication or status check.
+package_contract_validate_release_all() {
+    local root="$1" profile="${2:-package}"
+    package_contract_validate_all "$root" "$profile" || return 1
     package_contract_validate_catalog "$root" || return 1
     return 0
 }

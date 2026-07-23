@@ -220,7 +220,7 @@ mkdir -p "$source_root/zapret2/bin/arm64-v8a" "$source_root/zapret2/bin/armeabi-
 cp /bin/true "$source_root/zapret2/bin/arm64-v8a/nfqws2"
 cp /bin/true "$source_root/zapret2/bin/armeabi-v7a/nfqws2"
 package_contract_assemble_package "$source_root" "$package_root" || fail "fixture assembly: $PACKAGE_CONTRACT_CODE $PACKAGE_CONTRACT_DETAIL"
-package_contract_validate_all "$package_root" package || fail "fixture package: $PACKAGE_CONTRACT_CODE $PACKAGE_CONTRACT_DETAIL"
+package_contract_validate_release_all "$package_root" package || fail "fixture package: $PACKAGE_CONTRACT_CODE $PACKAGE_CONTRACT_DETAIL"
 package_contract_validate_exact_tree "$package_root" package || fail "fixture exact tree: $PACKAGE_CONTRACT_CODE $PACKAGE_CONTRACT_DETAIL"
 package_contract_validate_modes "$package_root" package || fail "fixture modes: $PACKAGE_CONTRACT_CODE $PACKAGE_CONTRACT_DETAIL"
 cp "$package_root/zapret2/runtime-manifest.tsv" "$TMP_ROOT/runtime-manifest.good"
@@ -252,7 +252,7 @@ if package_contract_validate_tree "$installed_root" installed; then fail "missin
 [ "$PACKAGE_CONTRACT_CODE" = RUNTIME_PRESET_UNSAFE ] || fail "wrong active preset failure: $PACKAGE_CONTRACT_CODE"
 cp "$package_root/zapret2/scripts/command-builder.sh" "$TMP_ROOT/command-builder.good"
 printf '\r\n' >> "$package_root/zapret2/scripts/command-builder.sh"
-if package_contract_validate_all "$package_root" package; then fail "CRLF shell executable accepted"; fi
+if package_contract_validate_release_all "$package_root" package; then fail "CRLF shell executable accepted"; fi
 [ "$PACKAGE_CONTRACT_CODE" = SHELL_EXEC_CR ] || fail "wrong shell executable failure: $PACKAGE_CONTRACT_CODE"
 cp "$TMP_ROOT/command-builder.good" "$package_root/zapret2/scripts/command-builder.sh"
 
@@ -284,7 +284,7 @@ if command -v zip >/dev/null 2>&1 && command -v zipinfo >/dev/null 2>&1 && comma
     extracted="$TMP_ROOT/manifest-package-extracted"
     mkdir -p "$extracted"
     unzip -q "$archive" -d "$extracted"
-    package_contract_validate_all "$extracted" package || fail "fixture ZIP content: $PACKAGE_CONTRACT_CODE $PACKAGE_CONTRACT_DETAIL"
+    package_contract_validate_release_all "$extracted" package || fail "fixture ZIP content: $PACKAGE_CONTRACT_CODE $PACKAGE_CONTRACT_DETAIL"
     package_contract_validate_exact_tree "$extracted" package || fail "fixture ZIP exact tree: $PACKAGE_CONTRACT_CODE $PACKAGE_CONTRACT_DETAIL"
     printf '%s\n' rogue > "$extracted/zapret2/undeclared.txt"
     if package_contract_validate_exact_tree "$extracted" package; then fail "undeclared extracted entry accepted"; fi

@@ -106,8 +106,10 @@ class Zapret2ModuleRepository @Inject constructor() {
      * Reconciles an interrupted app-managed swap before observing Magisk's active and pending
      * slots. Callers therefore never need a second recovery policy of their own.
      */
-    internal suspend fun reconcileEnvironment(): ModuleEnvironmentSnapshot? {
-        ModuleUpdateRecovery.recoverIfNeeded()
+    internal suspend fun reconcileEnvironment(
+        recoverInterruptedUpdate: Boolean = false,
+    ): ModuleEnvironmentSnapshot? {
+        if (recoverInterruptedUpdate) ModuleUpdateRecovery.recoverIfNeeded()
         val binaryDirectory = ModulePackageContract.selectBinaryDirectory(
             Build.SUPPORTED_ABIS.toList(),
         )
@@ -161,14 +163,9 @@ class Zapret2ModuleRepository @Inject constructor() {
     internal fun buildProbeCommand(binaryDirectory: String?): String {
         val activeDir = RootFileIo.shellQuote(ACTIVE_MODULE_DIR)
         val pendingDir = RootFileIo.shellQuote(PENDING_MODULE_DIR)
-        val regularPaths = ModulePackageContract.mandatoryRuntimeRegularFiles
-            .distinct()
-            .joinToString(" ")
+        val regularPaths = ModulePackageContract.runtimeReadinessRegularFiles.joinToString(" ")
         val executablePaths = buildList {
-            addAll(ModulePackageContract.hotUpdateRootExecutables)
-            addAll(ModulePackageContract.mandatoryRuntimeExecutables)
-            addAll(ModulePackageContract.wrappers.map { it.relativePath })
-            add("zapret2/nfqws2")
+            addAll(ModulePackageContract.runtimeReadinessExecutables)
             binaryDirectory?.let { add(ModulePackageContract.binaryRelativePath(it)) }
         }.distinct().joinToString(" ")
         val disableMarker = ModulePackageContract.DISABLE_MARKER
@@ -228,6 +225,12 @@ class Zapret2ModuleRepository @Inject constructor() {
                             break
                         fi
                     done
+                fi
+                if [ "${'$'}z2_state" = ready ]; then
+                    ${InstallGenerationMetadata.shellValidator(
+                        "\"${'$'}z2_slot/${InstallGenerationMetadata.RELATIVE_PATH}\"",
+                        required = true,
+                    )} || z2_state=partial
                 fi
                 if [ "${'$'}z2_kind" = active ]; then
                     z2_remove="${'$'}z2_slot/remove"
