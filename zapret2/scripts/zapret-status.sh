@@ -1,5 +1,7 @@
 #!/system/bin/sh
-# Read-only status derived from exact module ownership metadata and owned chains.
+# Serialized status derived from exact lifecycle, process, and ruleset ownership.
+# Machine v4 may retire only a proven-stale lifecycle owner through common.sh's
+# shared acquisition/recovery protocol before observing runtime state.
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 . "$SCRIPT_DIR/common.sh"
@@ -10,8 +12,112 @@ case "${1:-}" in
     "") ;;
     --machine) MACHINE=1; MACHINE_VERSION=1 ;;
     --machine-v3) MACHINE=1; MACHINE_VERSION=3 ;;
-    *) echo "ERROR: usage: $0 [--machine|--machine-v3]" >&2; exit 2 ;;
+    --machine-v4) MACHINE=1; MACHINE_VERSION=4 ;;
+    *) echo "ERROR: usage: $0 [--machine|--machine-v3|--machine-v4]" >&2; exit 2 ;;
 esac
+
+STATUS_LOCK_HELD=0
+Z2_LIFECYCLE_STATE=unknown
+Z2_LIFECYCLE_OWNER_KIND=unknown
+
+cleanup_status_lock() {
+    if [ "$STATUS_LOCK_HELD" = 1 ]; then
+        release_lifecycle_lock >/dev/null 2>&1 || true
+        STATUS_LOCK_HELD=0
+    fi
+}
+
+emit_v4_lifecycle_barrier() {
+    local state="$1" kind="$2" code detail
+    case "$state" in
+        active)
+            code=LIFECYCLE_ACTIVE
+            detail="Another verified lifecycle owner is active"
+            ;;
+        ambiguous)
+            code=LIFECYCLE_AMBIGUOUS
+            detail="Lifecycle ownership metadata is unsafe or cannot be authenticated"
+            ;;
+        *)
+            state=recovery_failed
+            code=LIFECYCLE_RECOVERY_FAILED
+            detail="A proven stale lifecycle owner could not be recovered safely"
+            ;;
+    esac
+    z2_error_set LIFECYCLE "$code" LIFECYCLE_OBSERVE "$detail" || exit 2
+    echo "Z2_PROTOCOL=4"
+    echo "Z2_STATUS=degraded"
+    echo "Z2_OWNED=1"
+    echo "Z2_PROCESS=0"
+    echo "Z2_ACTIVE=0"
+    echo "Z2_PID="
+    echo "Z2_PID_VERIFIED=0"
+    echo "Z2_PID_STARTTIME="
+    echo "Z2_OWNER_GENERATION="
+    echo "Z2_OWNER_METADATA_VERIFIED=0"
+    echo "Z2_QNUM="
+    echo "Z2_IPV4=0"
+    echo "Z2_IPV6=0"
+    echo "Z2_RULES=0"
+    echo "Z2_EXPECTED_RULES=0"
+    echo "Z2_IPV4_RULES=0"
+    echo "Z2_IPV6_RULES=0"
+    echo "Z2_RULESET_VERIFIED=0"
+    echo "Z2_NFQUEUE=0"
+    echo "Z2_QUEUE_BYPASS=0"
+    echo "Z2_UPDATE_BLOCKED=1"
+    echo "Z2_UNINSTALL_TOMBSTONE=0"
+    echo "Z2_LIFECYCLE_STATE=$state"
+    echo "Z2_LIFECYCLE_OWNER_KIND=$kind"
+    z2_error_emit_machine
+    echo "Z2_COMPLETE=1"
+}
+
+prepare_v4_status_lock() {
+    local observed
+    classify_lifecycle_lock
+    observed="$LIFECYCLE_OBSERVED_STATE"
+    Z2_LIFECYCLE_OWNER_KIND="$LIFECYCLE_OBSERVED_KIND"
+    case "$observed" in
+        active|ambiguous)
+            Z2_LIFECYCLE_STATE="$observed"
+            return 1
+            ;;
+        idle|stale) ;;
+        *)
+            Z2_LIFECYCLE_STATE=ambiguous
+            Z2_LIFECYCLE_OWNER_KIND=unknown
+            return 1
+            ;;
+    esac
+
+    LIFECYCLE_LOCK_WAIT_SECONDS=3
+    if acquire_lifecycle_lock; then
+        STATUS_LOCK_HELD=1
+        Z2_LIFECYCLE_STATE=idle
+        [ "$observed" != stale ] || Z2_LIFECYCLE_STATE=recovered
+        Z2_LIFECYCLE_OWNER_KIND=none
+        return 0
+    fi
+    abort_lifecycle_lock_acquire >/dev/null 2>&1 || true
+    classify_lifecycle_lock
+    Z2_LIFECYCLE_OWNER_KIND="$LIFECYCLE_OBSERVED_KIND"
+    case "$LIFECYCLE_OBSERVED_STATE" in
+        active) Z2_LIFECYCLE_STATE=active ;;
+        ambiguous) Z2_LIFECYCLE_STATE=ambiguous ;;
+        *) Z2_LIFECYCLE_STATE=recovery_failed ;;
+    esac
+    return 1
+}
+
+if [ "$MACHINE_VERSION" = 4 ]; then
+    trap cleanup_status_lock EXIT
+    trap 'cleanup_status_lock; exit 2' HUP INT TERM
+    if ! prepare_v4_status_lock; then
+        emit_v4_lifecycle_barrier "$Z2_LIFECYCLE_STATE" "$Z2_LIFECYCLE_OWNER_KIND"
+        exit 2
+    fi
+fi
 
 CONFIG_VALID=1
 STATE_DIR_SECURE=0
@@ -200,7 +306,7 @@ else
 fi
 
 emit_machine() {
-    [ "$MACHINE_VERSION" != 3 ] || echo "Z2_PROTOCOL=3"
+    case "$MACHINE_VERSION" in 3|4) echo "Z2_PROTOCOL=$MACHINE_VERSION" ;; esac
     echo "Z2_STATUS=$Z2_STATUS"
     echo "Z2_OWNED=$Z2_OWNED"
     echo "Z2_PROCESS=$Z2_PROCESS"
@@ -222,10 +328,23 @@ emit_machine() {
     echo "Z2_QUEUE_BYPASS=$Z2_QUEUE_BYPASS"
     echo "Z2_UPDATE_BLOCKED=$Z2_UPDATE_BLOCKED"
     echo "Z2_UNINSTALL_TOMBSTONE=$Z2_UNINSTALL_TOMBSTONE"
-    [ "$MACHINE_VERSION" != 3 ] || z2_error_emit_machine
+    if [ "$MACHINE_VERSION" = 4 ]; then
+        echo "Z2_LIFECYCLE_STATE=$Z2_LIFECYCLE_STATE"
+        echo "Z2_LIFECYCLE_OWNER_KIND=$Z2_LIFECYCLE_OWNER_KIND"
+    fi
+    case "$MACHINE_VERSION" in 3|4) z2_error_emit_machine ;; esac
     # Terminal sentinel lets strict callers reject truncated shell output.
     echo "Z2_COMPLETE=1"
 }
+
+if [ "$MACHINE_VERSION" = 4 ] && [ "$STATUS_LOCK_HELD" = 1 ]; then
+    if release_lifecycle_lock; then
+        STATUS_LOCK_HELD=0
+    else
+        emit_v4_lifecycle_barrier recovery_failed "$Z2_LIFECYCLE_OWNER_KIND"
+        exit 2
+    fi
+fi
 
 if [ "$MACHINE" = 1 ]; then
     emit_machine

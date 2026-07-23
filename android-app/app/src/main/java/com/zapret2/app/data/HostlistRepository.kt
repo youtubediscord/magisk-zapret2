@@ -1,6 +1,5 @@
 package com.zapret2.app.data
 
-import com.topjohnwu.superuser.Shell
 import kotlinx.coroutines.CancellationException
 import javax.inject.Inject
 
@@ -59,7 +58,7 @@ class HostlistRepository @Inject constructor() {
     internal fun inspectTarget(path: String): HostlistTargetState {
         if (!isAllowedPath(path)) return HostlistTargetState.UNSAFE
         val quoted = RootFileIo.shellQuote(path)
-        val result = Shell.cmd(
+        val result = RootCommandExecutor.execute(
             """
                 if [ ! -e $quoted ] && [ ! -L $quoted ]; then echo MISSING; exit 0; fi
                 [ -f $quoted ] && [ ! -L $quoted ] && [ "${'$'}(stat -c %u $quoted 2>/dev/null)" = 0 ] &&
@@ -71,7 +70,7 @@ class HostlistRepository @Inject constructor() {
                 [ "${'$'}z2_size" -le $MAX_HOSTLIST_BYTES ] || { echo UNSAFE; exit 0; }
                 echo PRESENT
             """.trimIndent(),
-        ).exec()
+        )
         return result.out.singleOrNull()?.takeIf { result.isSuccess }?.let {
             runCatching { HostlistTargetState.valueOf(it) }.getOrNull()
         } ?: HostlistTargetState.UNSAFE
@@ -79,7 +78,7 @@ class HostlistRepository @Inject constructor() {
 
     internal fun listFiles(): Result<List<HostlistFileRecord>> = try {
         val directory = RootFileIo.shellQuote(LISTS_DIR)
-        val result = Shell.cmd(
+        val result = RootCommandExecutor.execute(
             """
                 [ -d $directory ] && [ ! -L $directory ] || exit 1
                 for z2_file in $directory/*.txt; do
@@ -106,7 +105,7 @@ class HostlistRepository @Inject constructor() {
                     printf '%s|%s|%s|%s\n' "${'$'}z2_name" "${'$'}z2_file" "${'$'}z2_lines" "${'$'}z2_size"
                 done
             """.trimIndent(),
-        ).exec()
+        )
         check(result.isSuccess) { "Unable to enumerate protected hostlists" }
         Result.success(
             result.out.map { line -> requireNotNull(parseHostlistRecord(line)) }
@@ -121,7 +120,7 @@ class HostlistRepository @Inject constructor() {
     internal fun countEntries(path: String): Int? {
         if (!isAllowedPath(path)) return null
         val quoted = RootFileIo.shellQuote(path)
-        val result = Shell.cmd(
+        val result = RootCommandExecutor.execute(
             secureFilePrelude(quoted) + "\n" + """
                 awk '
                     {
@@ -131,7 +130,7 @@ class HostlistRepository @Inject constructor() {
                     END { print z2_count + 0 }
                 ' $quoted 2>/dev/null
             """.trimIndent(),
-        ).exec()
+        )
         return result.out.singleOrNull()?.trim()?.toIntOrNull()?.takeIf { result.isSuccess && it >= 0 }
     }
 
@@ -140,7 +139,7 @@ class HostlistRepository @Inject constructor() {
         val quoted = RootFileIo.shellQuote(path)
         val start = offset + 1
         val end = offset + limit
-        val result = Shell.cmd(
+        val result = RootCommandExecutor.execute(
             secureFilePrelude(quoted) + "\n" + """
                 awk -v z2_start=$start -v z2_end=$end '
                     {
@@ -151,7 +150,7 @@ class HostlistRepository @Inject constructor() {
                     }
                 ' $quoted 2>/dev/null
             """.trimIndent(),
-        ).exec()
+        )
         return result.out.takeIf { result.isSuccess }?.normalizeDataLines()
     }
 
@@ -164,7 +163,7 @@ class HostlistRepository @Inject constructor() {
         val quotedQuery = RootFileIo.shellQuote(normalizedQuery)
         val start = offset + 1
         val end = offset + limit
-        val result = Shell.cmd(
+        val result = RootCommandExecutor.execute(
             """
                 ${secureFilePrelude(quotedPath)}
                 Z2_HOSTLIST_NEEDLE=$quotedQuery awk -v z2_start=$start -v z2_end=$end '
@@ -186,7 +185,7 @@ class HostlistRepository @Inject constructor() {
                     }
                 ' $quotedPath 2>/dev/null
             """.trimIndent(),
-        ).exec()
+        )
         if (!result.isSuccess || result.out.isEmpty()) return null
         val countLine = result.out.first()
         val count = countLine.removePrefix(COUNT_PREFIX).takeIf { countLine.startsWith(COUNT_PREFIX) }

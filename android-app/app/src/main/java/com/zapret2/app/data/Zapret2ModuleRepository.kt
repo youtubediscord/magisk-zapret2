@@ -37,6 +37,7 @@ enum class PendingModuleState {
 enum class ModuleMutationState {
     IDLE,
     IN_PROGRESS,
+    BLOCKED,
 }
 
 enum class ModuleServiceAccess {
@@ -44,14 +45,12 @@ enum class ModuleServiceAccess {
     NOT_INSTALLED,
     REBOOT_REQUIRED,
     NOT_READY,
-    MUTATING,
     UNKNOWN,
 }
 
 internal data class ModuleEnvironmentSnapshot(
     val activeState: ModuleInstallState,
     val pendingState: PendingModuleState,
-    val mutationState: ModuleMutationState,
     val nfqueueSupported: Boolean,
     val activeVersion: String = "",
     val pendingVersion: String = "",
@@ -69,15 +68,19 @@ internal data class ModuleEnvironmentSnapshot(
      */
     val serviceAccess: ModuleServiceAccess
         get() = when {
-            mutationState == ModuleMutationState.IN_PROGRESS -> ModuleServiceAccess.MUTATING
             activeState in setOf(ModuleInstallState.READY, ModuleInstallState.DISABLED) ->
                 ModuleServiceAccess.QUERY_ACTIVE
-            activeState == ModuleInstallState.MISSING &&
-                pendingState == PendingModuleState.READY ->
+            pendingState == PendingModuleState.READY ->
                 ModuleServiceAccess.REBOOT_REQUIRED
-            activeState == ModuleInstallState.MISSING -> ModuleServiceAccess.NOT_INSTALLED
+            activeState == ModuleInstallState.MISSING &&
+                pendingState == PendingModuleState.NONE -> ModuleServiceAccess.NOT_INSTALLED
             activeState == ModuleInstallState.REMOVAL_PENDING ->
                 ModuleServiceAccess.REBOOT_REQUIRED
+            pendingState in setOf(
+                PendingModuleState.PARTIAL,
+                PendingModuleState.UNSUPPORTED_ABI,
+                PendingModuleState.UNREADABLE,
+            ) -> ModuleServiceAccess.NOT_READY
             activeState in setOf(
                 ModuleInstallState.PARTIAL,
                 ModuleInstallState.UNSUPPORTED_ABI,
@@ -96,9 +99,10 @@ internal data class RuntimeProcessMetrics(
 /**
  * Single privileged source of truth for the Magisk module installation.
  *
- * Package integrity, Magisk staging and mutation state are detected here. Runtime configuration
- * and strategy preflight deliberately do not participate in installation detection: they belong
- * to the service start/configuration boundary.
+ * Package integrity and Magisk staging are detected here. Lifecycle ownership deliberately does
+ * not participate in installation detection: it belongs to ServiceLifecycleController's typed,
+ * serialized status boundary. Runtime configuration and strategy preflight likewise belong to
+ * the service start/configuration boundary.
  */
 class Zapret2ModuleRepository @Inject constructor() {
 
@@ -121,8 +125,6 @@ class Zapret2ModuleRepository @Inject constructor() {
         if (binaryDirectory == null && environment.pendingState == PendingModuleState.READY) {
             environment = environment.copy(pendingState = PendingModuleState.UNSUPPORTED_ABI)
         }
-
-        if (environment.mutationState == ModuleMutationState.IN_PROGRESS) return environment
 
         val activeVersion = if (
             environment.activeState in setOf(ModuleInstallState.READY, ModuleInstallState.DISABLED)
@@ -162,10 +164,6 @@ class Zapret2ModuleRepository @Inject constructor() {
             binaryDirectory?.let { add(ModulePackageContract.binaryRelativePath(it)) }
         }.distinct().joinToString(" ")
         val disableMarker = ModulePackageContract.DISABLE_MARKER
-        val lifecycleLock = RootFileIo.shellQuote(
-            "${OwnerStateSchema.STATE_DIR}/lifecycle.lock",
-        )
-
         return """
             z2_probe_slot() {
                 z2_slot=${'$'}1
@@ -244,15 +242,10 @@ class Zapret2ModuleRepository @Inject constructor() {
                 printf '%s\n' "${'$'}z2_state"
             }
 
-            z2_mutation=idle
-            if [ -e $lifecycleLock ] || [ -L $lifecycleLock ]; then
-                z2_mutation=in_progress
-            fi
             z2_active_state=${'$'}(z2_probe_slot $activeDir active) || exit 1
             z2_pending_state=${'$'}(z2_probe_slot $pendingDir pending) || exit 1
             printf 'Z2_ACTIVE_STATE=%s\n' "${'$'}z2_active_state"
             printf 'Z2_PENDING_STATE=%s\n' "${'$'}z2_pending_state"
-            printf 'Z2_MUTATION_STATE=%s\n' "${'$'}z2_mutation"
             if [ -f /proc/net/netfilter/nf_queue ] ||
                 grep -qs NFQUEUE /proc/net/ip_tables_targets /proc/net/ip6_tables_targets; then
                 echo Z2_NFQUEUE=1
@@ -265,7 +258,7 @@ class Zapret2ModuleRepository @Inject constructor() {
     internal fun parseEnvironmentOutput(lines: List<String>): ModuleEnvironmentSnapshot? {
         val values = parseExactKeyValues(
             lines,
-            setOf("Z2_ACTIVE_STATE", "Z2_PENDING_STATE", "Z2_MUTATION_STATE", "Z2_NFQUEUE"),
+            setOf("Z2_ACTIVE_STATE", "Z2_PENDING_STATE", "Z2_NFQUEUE"),
         ) ?: return null
         val activeState = when (values["Z2_ACTIVE_STATE"]) {
             "missing" -> ModuleInstallState.MISSING
@@ -283,15 +276,9 @@ class Zapret2ModuleRepository @Inject constructor() {
             "unreadable" -> PendingModuleState.UNREADABLE
             else -> return null
         }
-        val mutationState = when (values["Z2_MUTATION_STATE"]) {
-            "idle" -> ModuleMutationState.IDLE
-            "in_progress" -> ModuleMutationState.IN_PROGRESS
-            else -> return null
-        }
         return ModuleEnvironmentSnapshot(
             activeState = activeState,
             pendingState = pendingState,
-            mutationState = mutationState,
             nfqueueSupported = values["Z2_NFQUEUE"] == "1",
         ).takeIf {
             values["Z2_NFQUEUE"] in setOf("0", "1")

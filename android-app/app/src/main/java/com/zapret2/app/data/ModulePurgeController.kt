@@ -120,6 +120,7 @@ object ModulePurgeController {
     private suspend fun purgeInsideExclusiveTask(): Result {
         val prepareCommand = ServiceLifecycleController.executeRoot(
             "/system/bin/sh ${RootFileIo.shellQuote(PURGE_SCRIPT)} --prepare app --machine",
+            RootCommandPolicy.LIFECYCLE,
         )
         val prepared = parsePrepareOutput(prepareCommand.stdout)
         if (prepared is ParseResult.Invalid) {
@@ -133,6 +134,7 @@ object ModulePurgeController {
         val commitCommand = ServiceLifecycleController.executeRoot(
             "/system/bin/sh ${RootFileIo.shellQuote(PURGE_SCRIPT)} --commit app " +
                 "${RootFileIo.shellQuote(token)} --machine",
+            RootCommandPolicy.LIFECYCLE,
         )
         val parsed = parseReportOutput(commitCommand.stdout)
         if (parsed is ParseResult.Invalid) {

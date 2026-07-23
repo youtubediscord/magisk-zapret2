@@ -11,7 +11,7 @@ class Zapret2ModuleRepositoryTest {
     private val repository = Zapret2ModuleRepository()
 
     @Test
-    fun environmentParser_mapsActivePendingAndMutationIndependently() {
+    fun environmentParser_mapsPackageSlotsIndependently() {
         val activeStates = mapOf(
             "missing" to ModuleInstallState.MISSING,
             "ready" to ModuleInstallState.READY,
@@ -39,10 +39,6 @@ class Zapret2ModuleRepositoryTest {
             )
             assertEquals(expected, parsed?.pendingState)
         }
-        assertEquals(
-            ModuleMutationState.IN_PROGRESS,
-            repository.parseEnvironmentOutput(payload(mutation = "in_progress"))?.mutationState,
-        )
     }
 
     @Test
@@ -59,7 +55,7 @@ class Zapret2ModuleRepositoryTest {
         )
         assertNull(repository.parseEnvironmentOutput(payload(active = "broken")))
         assertNull(repository.parseEnvironmentOutput(payload(pending = "disabled")))
-        assertNull(repository.parseEnvironmentOutput(payload(mutation = "stale")))
+        assertNull(repository.parseEnvironmentOutput(valid + "Z2_MUTATION_STATE=in_progress"))
     }
 
     @Test
@@ -78,6 +74,7 @@ class Zapret2ModuleRepositoryTest {
         assertFalse(command.contains("strategy-catalogs"))
         assertFalse(command.contains("zapret2/lua/"))
         assertTrue(command.contains(InstallGenerationMetadata.RELATIVE_PATH))
+        assertFalse(command.contains("lifecycle.lock"))
     }
 
     @Test
@@ -134,11 +131,9 @@ class Zapret2ModuleRepositoryTest {
     private fun payload(
         active: String = "ready",
         pending: String = "missing",
-        mutation: String = "idle",
     ) = listOf(
         "Z2_ACTIVE_STATE=$active",
         "Z2_PENDING_STATE=$pending",
-        "Z2_MUTATION_STATE=$mutation",
         "Z2_NFQUEUE=1",
     )
 }

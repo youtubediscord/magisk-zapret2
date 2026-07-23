@@ -1482,6 +1482,51 @@ lock_owner_alive() {
     [ "$actual" = "$LOCK_FILE_START" ]
 }
 
+# Read-only, constant-cost lifecycle classification. Unlike lock_owner_alive,
+# this preserves the distinction between a live owner, a proven stale owner,
+# and ownership that cannot be authenticated safely.
+classify_lifecycle_lock() {
+    local actual
+    LIFECYCLE_OBSERVED_STATE=idle
+    LIFECYCLE_OBSERVED_KIND=none
+
+    if [ ! -e "$LIFECYCLE_LOCK" ] && [ ! -L "$LIFECYCLE_LOCK" ]; then
+        if [ -e "$STATE_DIR" ] || [ -L "$STATE_DIR" ]; then
+            state_dir_is_secure || {
+                LIFECYCLE_OBSERVED_STATE=ambiguous
+                LIFECYCLE_OBSERVED_KIND=unknown
+            }
+        fi
+        return 0
+    fi
+    read_lock_owner || {
+        LIFECYCLE_OBSERVED_STATE=ambiguous
+        LIFECYCLE_OBSERVED_KIND=unknown
+        return 0
+    }
+    LIFECYCLE_OBSERVED_KIND="$LOCK_FILE_KIND"
+    if [ "$LOCK_FILE_KIND" = android-mutation ]; then
+        read_current_boot_id || {
+            LIFECYCLE_OBSERVED_STATE=ambiguous
+            return 0
+        }
+        if [ "$LOCK_FILE_BOOT" != "$CURRENT_BOOT_ID" ]; then
+            LIFECYCLE_OBSERVED_STATE=stale
+            return 0
+        fi
+    fi
+    actual="$(proc_starttime "$LOCK_FILE_PID" 2>/dev/null)" || {
+        LIFECYCLE_OBSERVED_STATE=stale
+        return 0
+    }
+    if [ "$actual" = "$LOCK_FILE_START" ]; then
+        LIFECYCLE_OBSERVED_STATE=active
+    else
+        LIFECYCLE_OBSERVED_STATE=stale
+    fi
+    return 0
+}
+
 read_lifecycle_gate() {
     local key value
     GATE_FILE_PID=""; GATE_FILE_START=""; GATE_FILE_TOKEN=""
@@ -1748,7 +1793,9 @@ release_lifecycle_lock() {
         fi
     fi
     release_lifecycle_gate "$token" >/dev/null 2>&1 || true
-    LOCK_HELD=0
+    # Preserve ownership state on failure so the caller's EXIT trap can retry
+    # exact cleanup. Forgetting a still-published owner turns a recoverable
+    # release error into a persistent lifecycle barrier.
     return 1
 }
 

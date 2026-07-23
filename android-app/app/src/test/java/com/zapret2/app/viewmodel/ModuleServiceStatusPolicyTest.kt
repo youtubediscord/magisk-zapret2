@@ -4,7 +4,9 @@ import com.zapret2.app.R
 import com.zapret2.app.data.ModuleInstallState
 import com.zapret2.app.data.ModuleMutationState
 import com.zapret2.app.data.ModuleEnvironmentSnapshot
+import com.zapret2.app.data.NetworkStatsManager
 import com.zapret2.app.data.PendingModuleState
+import com.zapret2.app.data.ServiceLifecycleController
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -20,7 +22,6 @@ class ModuleServiceStatusPolicyTest {
                 statusWithoutQuery(
                     active,
                     PendingModuleState.NONE,
-                    ModuleMutationState.IDLE,
                 ),
             )
         }
@@ -33,7 +34,6 @@ class ModuleServiceStatusPolicyTest {
             statusWithoutQuery(
                 ModuleInstallState.MISSING,
                 PendingModuleState.READY,
-                ModuleMutationState.IDLE,
             ),
         )
     }
@@ -45,7 +45,6 @@ class ModuleServiceStatusPolicyTest {
             statusWithoutQuery(
                 ModuleInstallState.MISSING,
                 PendingModuleState.NONE,
-                ModuleMutationState.IDLE,
             ),
         )
         listOf(
@@ -58,7 +57,6 @@ class ModuleServiceStatusPolicyTest {
                 statusWithoutQuery(
                     active,
                     PendingModuleState.NONE,
-                    ModuleMutationState.IDLE,
                 ),
             )
         }
@@ -70,7 +68,6 @@ class ModuleServiceStatusPolicyTest {
             statusWithoutQuery(
                 ModuleInstallState.READY,
                 PendingModuleState.READY,
-                ModuleMutationState.IDLE,
             ),
         )
         val state = ControlUiState(
@@ -82,7 +79,21 @@ class ModuleServiceStatusPolicyTest {
     }
 
     @Test
-    fun mutation_isAnIndependentOperationalFence() {
+    fun invalidPendingGeneration_isNotReadyWhenNoActiveGenerationExists() {
+        listOf(
+            PendingModuleState.PARTIAL,
+            PendingModuleState.UNSUPPORTED_ABI,
+            PendingModuleState.UNREADABLE,
+        ).forEach { pending ->
+            assertEquals(
+                ControlStatus.MODULE_NOT_READY,
+                statusWithoutQuery(ModuleInstallState.MISSING, pending),
+            )
+        }
+    }
+
+    @Test
+    fun lifecycleState_isAnIndependentOperationalFence() {
         val state = ControlUiState(
             moduleInstallState = ModuleInstallState.READY,
             moduleMutationState = ModuleMutationState.IN_PROGRESS,
@@ -90,12 +101,25 @@ class ModuleServiceStatusPolicyTest {
 
         assertFalse(state.isModuleOperational)
         assertEquals(R.string.control_module_state_updating, state.moduleStateLabelRes)
+        assertNull(statusWithoutQuery(state.moduleInstallState, state.pendingModuleState))
         assertEquals(
-            ControlStatus.CHECKING,
-            statusWithoutQuery(
-                state.moduleInstallState,
-                state.pendingModuleState,
-                state.moduleMutationState,
+            ModuleMutationState.IN_PROGRESS,
+            ServiceLifecycleController.LifecycleState.ACTIVE.toModuleMutationState(),
+        )
+        assertEquals(
+            ModuleMutationState.BLOCKED,
+            ServiceLifecycleController.LifecycleState.AMBIGUOUS.toModuleMutationState(),
+        )
+        assertEquals(
+            ControlStatus.LIFECYCLE_BUSY,
+            projectedControlStatus(
+                serviceStatus = ServiceLifecycleController.ServiceStatus(
+                    rootGranted = true,
+                    processRunning = false,
+                    lifecycleState = ServiceLifecycleController.LifecycleState.ACTIVE,
+                ),
+                watchdogVerdict = NetworkStatsManager.FirewallWatchdogVerdict.NOT_REQUIRED,
+                canStopService = false,
             ),
         )
     }
@@ -103,11 +127,9 @@ class ModuleServiceStatusPolicyTest {
     private fun statusWithoutQuery(
         activeState: ModuleInstallState,
         pendingState: PendingModuleState,
-        mutationState: ModuleMutationState,
     ): ControlStatus? = ModuleEnvironmentSnapshot(
         activeState = activeState,
         pendingState = pendingState,
-        mutationState = mutationState,
         nfqueueSupported = true,
     ).serviceAccess.statusWithoutQuery()
 }

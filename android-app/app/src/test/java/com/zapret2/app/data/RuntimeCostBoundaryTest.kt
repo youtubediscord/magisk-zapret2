@@ -95,7 +95,7 @@ class RuntimeCostBoundaryTest {
 
     @Test
     fun canonicalStagingRelease_forcesLegacyApkIntoItsMagiskFallback() {
-        assertEquals("3", ModulePackageContract.LIFECYCLE_CONTRACT_VERSION)
+        assertEquals("4", ModulePackageContract.LIFECYCLE_CONTRACT_VERSION)
         assertTrue(
             repositoryFile("service.sh").readText()
                 .contains("Module package generations are activated only by Magisk at boot."),
@@ -117,6 +117,21 @@ class RuntimeCostBoundaryTest {
         assertFalse(repository.contains("ModuleUpdateRecovery"))
         assertFalse(status.contains("recoverIfNeeded"))
         assertFalse(controller.contains("ModuleUpdateRecovery"))
+    }
+
+    @Test
+    fun lifecycleObservation_hasOneTypedSerializedAuthority() {
+        val repository = repositoryFile(
+            "android-app/app/src/main/java/com/zapret2/app/data/Zapret2ModuleRepository.kt",
+        ).readText()
+        val status = repositoryFile("zapret2/scripts/zapret-status.sh").readText()
+
+        assertFalse(repository.contains("lifecycle.lock"))
+        assertFalse(repository.contains("Z2_MUTATION_STATE"))
+        assertTrue(status.contains("--machine-v4"))
+        assertTrue(status.contains("classify_lifecycle_lock"))
+        assertTrue(status.contains("acquire_lifecycle_lock"))
+        assertTrue(status.contains("Z2_LIFECYCLE_STATE"))
     }
 
     private fun repositoryFile(relativePath: String): File {

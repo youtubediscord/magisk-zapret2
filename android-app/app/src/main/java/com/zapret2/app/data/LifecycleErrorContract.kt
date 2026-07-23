@@ -50,7 +50,8 @@ data class LifecycleError(
 
 internal object LifecycleErrorContract {
     const val SCHEMA_VERSION = "1"
-    const val STATUS_PROTOCOL_VERSION = "3"
+    const val STATUS_PROTOCOL_VERSION = "4"
+    const val LEGACY_STATUS_PROTOCOL_VERSION = "3"
     const val STATUS_OK = "OK"
     const val STATUS_ERROR = "ERROR"
     const val NONE = "NONE"
@@ -94,6 +95,13 @@ internal object LifecycleErrorContract {
         code = ROOT_COMMAND_FAILED,
         stage = stage,
         detail = "Root command exited unsuccessfully",
+    )
+
+    fun rootCommandTimeout(stage: String, detail: String) = error(
+        domain = ROOT,
+        code = ROOT_COMMAND_TIMEOUT,
+        stage = stage,
+        detail = detail,
     )
 
     fun rootAccess(code: String, detail: String) = error(

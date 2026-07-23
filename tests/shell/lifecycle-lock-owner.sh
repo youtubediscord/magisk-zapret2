@@ -80,6 +80,22 @@ write_shell_owner
 read_lock_owner || fail "exact shell owner was rejected"
 [ "$LOCK_FILE_KIND:$LOCK_FILE_PID:$LOCK_FILE_START:$LOCK_FILE_TOKEN" = "shell:$$:1000:shell-token" ] || fail "shell owner fields changed"
 lock_owner_alive || fail "live exact shell owner was classified stale"
+classify_lifecycle_lock
+[ "$LIFECYCLE_OBSERVED_STATE:$LIFECYCLE_OBSERVED_KIND" = active:shell ] ||
+    fail "live shell owner observation is not exact"
+
+rm -rf "$LIFECYCLE_LOCK"
+classify_lifecycle_lock
+[ "$LIFECYCLE_OBSERVED_STATE:$LIFECYCLE_OBSERVED_KIND" = idle:none ] ||
+    fail "absent lifecycle lock was not classified idle"
+
+mkdir "$LIFECYCLE_LOCK"
+printf 'pid=4242\nstarttime=424242\ntoken=stale-shell\n' > "$LIFECYCLE_LOCK_OWNER"
+chmod 0600 "$LIFECYCLE_LOCK_OWNER"
+Z2_ANDROID_PROCESS=dead
+classify_lifecycle_lock
+[ "$LIFECYCLE_OBSERVED_STATE:$LIFECYCLE_OBSERVED_KIND" = stale:shell ] ||
+    fail "dead exact shell owner was not classified stale"
 
 cp "$LIFECYCLE_LOCK_OWNER" "$CASE/shell.valid"
 { printf 'future=bad\n'; cat "$CASE/shell.valid"; } > "$LIFECYCLE_LOCK_OWNER"
@@ -100,6 +116,9 @@ Z2_ANDROID_PROCESS=live; Z2_LOCK_BOOT="$BOOT_B"
 if lock_owner_alive; then fail "cross-boot Android owner was classified live by reused PID"; fi
 Z2_LOCK_BOOT="$BOOT_A"; Z2_LOCK_BOOT_QUERY=failed
 lock_owner_alive || fail "unavailable boot identity did not fail closed"
+classify_lifecycle_lock
+[ "$LIFECYCLE_OBSERVED_STATE:$LIFECYCLE_OBSERVED_KIND" = ambiguous:android-mutation ] ||
+    fail "unavailable boot identity was not preserved as ambiguous"
 Z2_LOCK_BOOT_QUERY=ok
 
 for corruption in version kind module unknown duplicate reorder; do
@@ -116,6 +135,20 @@ for corruption in version kind module unknown duplicate reorder; do
     chmod 0600 "$LIFECYCLE_LOCK_OWNER"
     if read_lock_owner; then fail "$corruption Android owner was accepted"; fi
 done
+
+write_shell_owner
+LOCK_HELD=1
+LOCK_OWNER_PID="$$"
+LOCK_OWNER_START=1000
+LOCK_OWNER_TOKEN=shell-token
+release_quarantine="$LIFECYCLE_LOCK_QUARANTINE.release.$$.$LOCK_OWNER_TOKEN"
+mkdir "$release_quarantine"
+if release_lifecycle_lock; then fail "occupied release quarantine unexpectedly succeeded"; fi
+[ "$LOCK_HELD" = 1 ] || fail "failed exact release forgot the still-published owner"
+rmdir "$release_quarantine"
+release_lifecycle_lock || fail "retry of exact retained release ownership failed"
+[ "$LOCK_HELD" = 0 ] || fail "successful release did not clear local ownership"
+[ ! -e "$LIFECYCLE_LOCK" ] || fail "successful release retained lifecycle lock"
 
 # Acquisition preserves unknown/foreign evidence rather than treating parser
 # failure as staleness.

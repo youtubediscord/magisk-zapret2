@@ -138,4 +138,26 @@ class UpdateExecutionTest {
         assertEquals(module, repair.moduleArtifact)
         assertTrue(repair.allowSameVersionModuleRepair)
     }
+
+    @Test
+    fun moduleInstall_reconcilesIndeterminateSubmissionWithoutRetryingIt() {
+        assertTrue(
+            shouldVerifyStandardInstallPublication(
+                ServiceLifecycleController.CommandResult(success = true),
+            ),
+        )
+        assertTrue(
+            shouldVerifyStandardInstallPublication(
+                ServiceLifecycleController.CommandResult(
+                    success = false,
+                    indeterminate = true,
+                ),
+            ),
+        )
+        assertFalse(
+            shouldVerifyStandardInstallPublication(
+                ServiceLifecycleController.CommandResult(success = false),
+            ),
+        )
+    }
 }

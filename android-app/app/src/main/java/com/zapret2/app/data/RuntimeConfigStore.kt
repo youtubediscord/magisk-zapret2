@@ -1,6 +1,5 @@
 package com.zapret2.app.data
 
-import com.topjohnwu.superuser.Shell
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.security.MessageDigest
@@ -224,7 +223,7 @@ object RuntimeConfigStore {
             val repairFlag = if (before is RuntimeConfigReadResult.Missing) "" else " --repair"
             val command = "sh ${RootFileIo.shellQuote(runtimeConfigToolPath)}$repairFlag " +
                 RootFileIo.shellQuote(runtimeConfigPath)
-            val result = Shell.cmd(command).exec()
+            val result = RootCommandExecutor.execute(command, RootCommandPolicy.MUTATION)
             if (!result.isSuccess) {
                 return@synchronized RuntimeConfigRepairResult.Failed(inspectRuntimeConfig())
             }
@@ -245,7 +244,7 @@ object RuntimeConfigStore {
         val command = "sh ${RootFileIo.shellQuote(runtimeConfigToolPath)} --inspect-machine " +
             RootFileIo.shellQuote(runtimeConfigPath)
         val result = try {
-            Shell.cmd(command).exec()
+            RootCommandExecutor.execute(command)
         } catch (error: Exception) {
             return unavailable("Runtime inspection failed: ${error.message ?: error.javaClass.simpleName}")
         }
@@ -349,7 +348,7 @@ object RuntimeConfigStore {
             "${RootFileIo.shellQuote(expectedCurrentDigest)} " +
             RootFileIo.shellQuote(runtimeConfigPath)
         val result = try {
-            Shell.cmd(command).exec()
+            RootCommandExecutor.execute(command, RootCommandPolicy.MUTATION)
         } catch (_: Exception) {
             RootFileIo.removeFile(candidatePath)
             return mutationWriteFailed("runtime candidate commit command failed")

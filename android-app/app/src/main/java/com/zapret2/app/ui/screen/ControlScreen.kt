@@ -440,7 +440,10 @@ fun ControlScreen(
                             !state.isCheckingForUpdates &&
                             !state.isToggling &&
                             !state.isSavingSettings &&
-                            state.status != ControlStatus.CHECKING &&
+                            state.status !in setOf(
+                                ControlStatus.CHECKING,
+                                ControlStatus.LIFECYCLE_BUSY,
+                            ) &&
                             !state.isFullRollbackInProgress &&
                             !state.isModulePurgeInProgress,
                         shape = MaterialTheme.shapes.extraLarge,
@@ -477,6 +480,7 @@ private fun ServiceStatusCard(
 ) {
     val reduceMotion = LocalReducedMotionEnabled.current
     val checking = state.status == ControlStatus.CHECKING
+    val lifecycleBusy = state.status == ControlStatus.LIFECYCLE_BUSY
     val success = MaterialTheme.extendedColors.success
     val error = MaterialTheme.colorScheme.run {
         SemanticColorFamily(error, onError, errorContainer, onErrorContainer)
@@ -490,6 +494,7 @@ private fun ServiceStatusCard(
             ControlStatus.DEGRADED,
             ControlStatus.UNCONFIRMED,
             ControlStatus.ROOT_OPERATION_BUSY,
+            ControlStatus.LIFECYCLE_BUSY,
             -> warning.color
             ControlStatus.ROOT_DENIED,
             ControlStatus.ROOT_MANAGER_UNAVAILABLE,
@@ -563,7 +568,8 @@ private fun ServiceStatusCard(
                     !state.isSavingSettings &&
                     !state.isFullRollbackInProgress &&
                     !state.isModulePurgeInProgress &&
-                    !checking,
+                    !checking &&
+                    !lifecycleBusy,
             ) {
                 Icon(
                     imageVector = Icons.Default.Refresh,
@@ -581,6 +587,7 @@ private fun ServiceStatusCard(
                 !state.isSavingSettings &&
                 !state.isFullRollbackInProgress &&
                 !checking &&
+                !lifecycleBusy &&
                 (state.canStopService || (
                     state.hasRootAccess && state.isModuleOperational && state.nfqueueSupported
                 )),

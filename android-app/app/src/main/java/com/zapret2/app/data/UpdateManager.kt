@@ -151,6 +151,15 @@ internal fun standardInstallPublicationMatches(
         installedVersion == "v$expectedReleaseVersion" &&
         installGeneration?.archiveSha256 == expectedArchiveSha256
 
+/**
+ * A submitted install is never retried from its transport result alone. Loss of the response or
+ * a command deadline can happen after Magisk has published the pending generation, so callers
+ * reconcile the authenticated modules_update receipt instead.
+ */
+internal fun shouldVerifyStandardInstallPublication(
+    install: ServiceLifecycleController.CommandResult,
+): Boolean = install.success || install.indeterminate
+
 data class ModuleInstallResult(
     val success: Boolean,
     val needsReboot: Boolean,
@@ -825,8 +834,9 @@ class UpdateManager(private val context: Context) {
             command = {
                 val install = ServiceLifecycleController.executeRoot(
                     "magisk --install-module ${RootFileIo.shellQuote(moduleFile.absolutePath)}",
+                    RootCommandPolicy.PACKAGE_INSTALL,
                 )
-                install.success && verifyStandardModuleInstall(
+                shouldVerifyStandardInstallPublication(install) && verifyStandardModuleInstall(
                     expectedReleaseVersion,
                     archiveSha256,
                     binaryDirectory,

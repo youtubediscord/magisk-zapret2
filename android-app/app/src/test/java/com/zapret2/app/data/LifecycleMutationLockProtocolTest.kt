@@ -80,8 +80,19 @@ class LifecycleMutationLockProtocolTest {
         assertTrue(command.contains("[ \"\$current_boot\" = \"\$boot\" ]"))
         assertTrue(command.contains("actual=\$(proc_starttime \"\$expected_pid\")"))
         assertTrue(command.contains("[ \"\$after\" = \"\$before\" ]"))
+        assertTrue(command.contains("Z2_MUTATION_LOCK_ABSENT=1"))
         assertFalse(command.contains("rm -"))
         assertFalse(command.contains("mv "))
+        assertTrue(
+            LifecycleMutationLockProtocol.isOwnedLeaseAbsentOutput(
+                listOf("Z2_MUTATION_LOCK_ABSENT=1"),
+            ),
+        )
+        assertFalse(
+            LifecycleMutationLockProtocol.isOwnedLeaseAbsentOutput(
+                listOf("noise", "Z2_MUTATION_LOCK_ABSENT=1"),
+            ),
+        )
     }
 
     @Test
