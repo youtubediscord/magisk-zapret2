@@ -1,6 +1,5 @@
 package com.zapret2.app.data
 
-import com.topjohnwu.superuser.Shell
 import kotlinx.coroutines.CancellationException
 import javax.inject.Inject
 
@@ -30,9 +29,9 @@ class HostsOverlayRepository @Inject constructor() {
 
     internal fun snapshotOverlay(): HostsOverlaySnapshot {
         val quoted = RootFileIo.shellQuote(OVERLAY_HOSTS)
-        val probe = Shell.cmd(
+        val probe = RootCommandExecutor.execute(
             "if [ ! -e $quoted ] && [ ! -L $quoted ]; then echo MISSING; else echo PRESENT; fi",
-        ).exec()
+        )
         return when (probe.out.singleOrNull().takeIf { probe.isSuccess }) {
             "MISSING" -> HostsOverlaySnapshot.Missing
             "PRESENT" -> RootFileIo.readSecureRegularText(OVERLAY_HOSTS, MAX_HOSTS_BYTES)

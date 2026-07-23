@@ -1,9 +1,5 @@
 package com.zapret2.app.data
 
-import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -11,27 +7,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ServiceLifecycleControllerTest {
-
-    @Test
-    fun boundedCommandGate_timesOutQueuedCallerAndRecoversAfterOwnerFinishes() = runBlocking {
-        val gate = BoundedCommandGate(queueTimeoutMillis = 100)
-        val entered = CompletableDeferred<Unit>()
-        val release = CompletableDeferred<Unit>()
-        val holder = launch(Dispatchers.Default) {
-            gate.run(onTimeout = { error("holder unexpectedly timed out") }) {
-                entered.complete(Unit)
-                release.await()
-            }
-        }
-        entered.await()
-
-        val queued = gate.run(onTimeout = { "timeout" }) { "acquired" }
-        assertEquals("timeout", queued)
-
-        release.complete(Unit)
-        holder.join()
-        assertEquals("acquired", gate.run(onTimeout = { "timeout" }) { "acquired" })
-    }
 
     @Test
     fun rootAccessClassifier_distinguishesGrantedDeniedMissingTimeoutAndShellFailure() {
@@ -151,9 +126,25 @@ class ServiceLifecycleControllerTest {
                 exitCode = 0,
             )
         )
+        val lifecycleBarrier = ServiceLifecycleController.parseStatusCommandResult(
+            ServiceLifecycleController.CommandResult(
+                success = false,
+                stdout = lifecycleBarrierStatusLines(
+                    lifecycleState = "active",
+                    ownerKind = "shell",
+                    errorCode = "LIFECYCLE_ACTIVE",
+                ),
+                exitCode = 2,
+            ),
+        )
 
         assertTrue(healthy.healthy)
         assertTrue(stopped.fullyStopped)
+        assertTrue(lifecycleBarrier.metadataComplete)
+        assertEquals(
+            ServiceLifecycleController.LifecycleState.ACTIVE,
+            lifecycleBarrier.lifecycleState,
+        )
         assertFalse(mismatched.metadataComplete)
         assertEquals("unknown", mismatched.declaredStatus)
         assertEquals(0, ServiceLifecycleController.statusExitCode("ok"))
@@ -213,6 +204,52 @@ class ServiceLifecycleControllerTest {
         assertEquals("FUTURE_FIREWALL_FAILURE", status.lifecycleError?.code)
         assertEquals("START_IPV4_BUILD_RULE", status.lifecycleError?.stage)
         assertEquals("iptables rejected the future rule", status.lifecycleError?.detail)
+    }
+
+    @Test
+    fun parseStatusOutput_acceptsVersionFourIdleAndRecoveredSnapshots() {
+        val idle = ServiceLifecycleController.parseStatusOutput(
+            versionFourStatusLines(healthyStatusLines(), lifecycleState = "idle"),
+        )
+        val recovered = ServiceLifecycleController.parseStatusOutput(
+            versionFourStatusLines(stoppedStatusLines(), lifecycleState = "recovered"),
+        )
+
+        assertTrue(idle.metadataComplete)
+        assertTrue(idle.healthy)
+        assertEquals(ServiceLifecycleController.LifecycleState.IDLE, idle.lifecycleState)
+        assertTrue(recovered.metadataComplete)
+        assertTrue(recovered.fullyStopped)
+        assertEquals(ServiceLifecycleController.LifecycleState.RECOVERED, recovered.lifecycleState)
+    }
+
+    @Test
+    fun parseStatusOutput_distinguishesLiveAndAmbiguousLifecycleBarriers() {
+        val active = ServiceLifecycleController.parseStatusOutput(
+            lifecycleBarrierStatusLines("active", "shell", "LIFECYCLE_ACTIVE"),
+        )
+        val ambiguous = ServiceLifecycleController.parseStatusOutput(
+            lifecycleBarrierStatusLines("ambiguous", "unknown", "LIFECYCLE_AMBIGUOUS"),
+        )
+
+        assertTrue(active.metadataComplete)
+        assertEquals(ServiceLifecycleController.LifecycleState.ACTIVE, active.lifecycleState)
+        assertTrue(active.updateBlocked)
+        assertEquals("LIFECYCLE_ACTIVE", active.lifecycleError?.code)
+        assertTrue(ambiguous.metadataComplete)
+        assertEquals(ServiceLifecycleController.LifecycleState.AMBIGUOUS, ambiguous.lifecycleState)
+        assertEquals("LIFECYCLE_AMBIGUOUS", ambiguous.lifecycleError?.code)
+    }
+
+    @Test
+    fun parseStatusOutput_rejectsContradictoryVersionFourLifecycleIdentity() {
+        val invalid = versionFourStatusLines(
+            healthyStatusLines(),
+            lifecycleState = "active",
+            ownerKind = "none",
+        )
+
+        assertFalse(ServiceLifecycleController.parseStatusOutput(invalid).metadataComplete)
     }
 
     @Test
@@ -743,6 +780,60 @@ class ServiceLifecycleControllerTest {
         "Z2_QUEUE_BYPASS=0",
         "Z2_UPDATE_BLOCKED=0",
         "Z2_UNINSTALL_TOMBSTONE=0",
+        "Z2_COMPLETE=1",
+    )
+
+    private fun versionFourStatusLines(
+        base: List<String>,
+        lifecycleState: String,
+        ownerKind: String = "none",
+    ): List<String> = base.toMutableList().apply {
+        add(0, "Z2_PROTOCOL=4")
+        add(lastIndex, "Z2_LIFECYCLE_STATE=$lifecycleState")
+        add(lastIndex, "Z2_LIFECYCLE_OWNER_KIND=$ownerKind")
+        add(lastIndex, "Z2_ERROR_SCHEMA=1")
+        add(lastIndex, "Z2_ERROR_STATUS=OK")
+        add(lastIndex, "Z2_ERROR_DOMAIN=NONE")
+        add(lastIndex, "Z2_ERROR_STAGE=NONE")
+        add(lastIndex, "Z2_ERROR_CODE=NONE")
+        add(lastIndex, "Z2_ERROR_DETAIL=")
+    }
+
+    private fun lifecycleBarrierStatusLines(
+        lifecycleState: String,
+        ownerKind: String,
+        errorCode: String,
+    ) = listOf(
+        "Z2_PROTOCOL=4",
+        "Z2_STATUS=degraded",
+        "Z2_OWNED=1",
+        "Z2_PROCESS=0",
+        "Z2_ACTIVE=0",
+        "Z2_PID=",
+        "Z2_PID_VERIFIED=0",
+        "Z2_PID_STARTTIME=",
+        "Z2_OWNER_GENERATION=",
+        "Z2_OWNER_METADATA_VERIFIED=0",
+        "Z2_QNUM=",
+        "Z2_IPV4=0",
+        "Z2_IPV6=0",
+        "Z2_RULES=0",
+        "Z2_EXPECTED_RULES=0",
+        "Z2_IPV4_RULES=0",
+        "Z2_IPV6_RULES=0",
+        "Z2_RULESET_VERIFIED=0",
+        "Z2_NFQUEUE=0",
+        "Z2_QUEUE_BYPASS=0",
+        "Z2_UPDATE_BLOCKED=1",
+        "Z2_UNINSTALL_TOMBSTONE=0",
+        "Z2_LIFECYCLE_STATE=$lifecycleState",
+        "Z2_LIFECYCLE_OWNER_KIND=$ownerKind",
+        "Z2_ERROR_SCHEMA=1",
+        "Z2_ERROR_STATUS=ERROR",
+        "Z2_ERROR_DOMAIN=LIFECYCLE",
+        "Z2_ERROR_STAGE=LIFECYCLE_OBSERVE",
+        "Z2_ERROR_CODE=$errorCode",
+        "Z2_ERROR_DETAIL=Lifecycle observation is blocked",
         "Z2_COMPLETE=1",
     )
 }

@@ -32,6 +32,25 @@ class ArchitectureBoundaryPolicyTest {
     }
 
     @Test
+    fun rootCommandTransportHasExactlyOneProductionOwner() {
+        val files = productionFile("").walkTopDown()
+            .filter { it.isFile && it.extension == "kt" }
+            .filterNot { it.name == "RootCommandExecutor.kt" }
+            .toList()
+        val forbidden = listOf(
+            "Shell.cmd(",
+            ".newJob()",
+            "Shell.getShell()",
+        )
+        files.forEach { file ->
+            val source = file.readText()
+            forbidden.forEach { token ->
+                assertFalse("${file.name} owns root command transport with $token", token in source)
+            }
+        }
+    }
+
+    @Test
     fun russianAndDefaultStringCatalogsHaveTheSameKeys() {
         val defaultKeys = resourceKeys(resourceFile("values/strings.xml"))
         val russianKeys = resourceKeys(resourceFile("values-ru/strings.xml"))

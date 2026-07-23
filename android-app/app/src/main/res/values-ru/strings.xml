@@ -131,6 +131,7 @@
     <string name="control_purge_reboot_required">Перезагрузите устройство перед повторной установкой модуля.</string>
     <string name="control_purge_failure_unknown">Сценарий полного удаления не вернул диагностические данные.</string>
     <string name="control_service_checking">Проверка состояния службы</string>
+    <string name="control_service_lifecycle_busy">Выполняется операция с модулем</string>
     <string name="control_service_running">Служба запущена</string>
     <string name="control_service_stopped">Служба остановлена</string>
     <string name="control_uptime">Время работы: %1$s</string>
@@ -162,6 +163,7 @@
     <string name="control_module_state_disabled">Отключён в root-менеджере</string>
     <string name="control_module_state_removal_pending">Ожидает удаления</string>
     <string name="control_module_state_updating">Выполняется обновление или восстановление</string>
+    <string name="control_module_state_lifecycle_blocked">Требуется восстановление состояния lifecycle</string>
     <string name="control_module_state_installed_reboot">Установлен; требуется перезагрузка</string>
     <string name="control_module_state_update_reboot">Обновление установлено; требуется перезагрузка</string>
     <string name="control_module_state_pending_partial">Ожидающая установка неполная</string>

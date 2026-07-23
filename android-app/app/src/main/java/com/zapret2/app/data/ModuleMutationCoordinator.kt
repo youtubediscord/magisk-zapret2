@@ -33,6 +33,12 @@ object ModuleMutationCoordinator {
         LIFECYCLE_SCRIPT,
     }
 
+    private sealed interface OwnedLeaseInspection {
+        data class Owned(val lease: LifecycleMutationLockProtocol.Lease) : OwnedLeaseInspection
+        data object Absent : OwnedLeaseInspection
+        data object Unknown : OwnedLeaseInspection
+    }
+
     private class Ownership(
         val operation: Operation,
         val lease: LifecycleMutationLockProtocol.Lease?,
@@ -145,15 +151,18 @@ object ModuleMutationCoordinator {
         val token = "app.${UUID.randomUUID().toString().replace("-", "")}"
         val command = LifecycleMutationLockProtocol.buildAcquireCommand(pid, token)
             ?: throw MutationBlockedException("Unable to create valid lifecycle ownership metadata")
-        val result = ServiceLifecycleController.executeRoot(command)
+        val result = ServiceLifecycleController.executeRoot(command, RootCommandPolicy.MUTATION)
         val lease = result.takeIf { it.success }
             ?.let { LifecycleMutationLockProtocol.parseAcquireOutput(it.stdout, pid, token) }
         if (lease != null) return lease
 
         // The publication is the commit point, not stdout delivery. If the command result is
         // truncated or fails after publication, retire only our exact live record before failing.
-        probePublishedLease(pid, token)?.let { published ->
-            releaseCrossProcessLease(published)
+        when (val inspection = inspectPublishedLease(pid, token)) {
+            is OwnedLeaseInspection.Owned -> releaseCrossProcessLease(inspection.lease)
+            OwnedLeaseInspection.Absent,
+            OwnedLeaseInspection.Unknown,
+            -> Unit
         }
         throw MutationBlockedException(
             result.diagnosticText().ifBlank {
@@ -166,26 +175,58 @@ object ModuleMutationCoordinator {
         )
     }
 
-    private suspend fun probePublishedLease(
+    private suspend fun inspectPublishedLease(
         pid: Int,
         token: String,
-    ): LifecycleMutationLockProtocol.Lease? {
-        val command = LifecycleMutationLockProtocol.buildOwnedLeaseProbeCommand(pid, token) ?: return null
-        val result = ServiceLifecycleController.executeRoot(command)
-        return result.takeIf { it.success }
-            ?.let { LifecycleMutationLockProtocol.parseAcquireOutput(it.stdout, pid, token) }
+    ): OwnedLeaseInspection {
+        val command = LifecycleMutationLockProtocol.buildOwnedLeaseProbeCommand(pid, token)
+            ?: return OwnedLeaseInspection.Unknown
+        val result = ServiceLifecycleController.executeRoot(command, RootCommandPolicy.OBSERVATION)
+        if (!result.success) return OwnedLeaseInspection.Unknown
+        if (LifecycleMutationLockProtocol.isOwnedLeaseAbsentOutput(result.stdout)) {
+            return OwnedLeaseInspection.Absent
+        }
+        val lease = LifecycleMutationLockProtocol.parseAcquireOutput(result.stdout, pid, token)
+            ?: return OwnedLeaseInspection.Unknown
+        return OwnedLeaseInspection.Owned(lease)
     }
 
     private suspend fun releaseCrossProcessLease(lease: LifecycleMutationLockProtocol.Lease) {
+        var result = executeLeaseRelease(lease)
+        if (result.success && LifecycleMutationLockProtocol.parseReleaseOutput(result.stdout)) return
+
+        when (inspectPublishedLease(lease.pid.toInt(), lease.token)) {
+            OwnedLeaseInspection.Absent -> return
+            is OwnedLeaseInspection.Owned -> {
+                // Releasing an exact PID/starttime/boot/token lease is an idempotent cleanup
+                // postcondition, not a retry of the protected user mutation. Retry once whenever
+                // our exact record is still published, including a deterministic gate collision.
+                result = executeLeaseRelease(lease)
+                if (result.success &&
+                    LifecycleMutationLockProtocol.parseReleaseOutput(result.stdout)
+                ) {
+                    return
+                }
+                if (inspectPublishedLease(lease.pid.toInt(), lease.token) ==
+                    OwnedLeaseInspection.Absent
+                ) {
+                    return
+                }
+            }
+            OwnedLeaseInspection.Unknown -> Unit
+        }
+        throw MutationBlockedException(
+            result.diagnosticText().ifBlank { "Lifecycle ownership release could not be verified" }
+        )
+    }
+
+    private suspend fun executeLeaseRelease(
+        lease: LifecycleMutationLockProtocol.Lease,
+    ): ServiceLifecycleController.CommandResult {
         val releaseToken = UUID.randomUUID().toString().replace("-", "")
         val command = LifecycleMutationLockProtocol.buildReleaseCommand(lease, releaseToken)
             ?: throw MutationBlockedException("Unable to create lifecycle release metadata")
-        val result = ServiceLifecycleController.executeRoot(command)
-        if (!result.success || !LifecycleMutationLockProtocol.parseReleaseOutput(result.stdout)) {
-            throw MutationBlockedException(
-                result.diagnosticText().ifBlank { "Lifecycle ownership release could not be verified" }
-            )
-        }
+        return ServiceLifecycleController.executeRoot(command, RootCommandPolicy.MUTATION)
     }
 
     private suspend fun ensureMutationAllowed(checkUpdateState: Boolean, checkRemovalState: Boolean) {

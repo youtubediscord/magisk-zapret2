@@ -334,7 +334,10 @@ internal class RootPresetRunner @Inject constructor() : PresetRunner {
                 [ "${'$'}(stat -c %h $quotedTarget 2>/dev/null)" = 1 ] || exit 1
             sync
         """.trimIndent()
-        return ServiceLifecycleController.executeRoot(command).success
+        return ServiceLifecycleController.executeRoot(
+            command,
+            RootCommandPolicy.MUTATION,
+        ).success
     }
 
     override suspend fun restoreFile(fileName: String, snapshot: PresetFileSnapshot): Boolean {

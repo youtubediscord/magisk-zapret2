@@ -52,6 +52,7 @@ import javax.inject.Inject
 
 enum class ControlStatus(@param:StringRes val labelRes: Int) {
     CHECKING(R.string.control_service_checking),
+    LIFECYCLE_BUSY(R.string.control_service_lifecycle_busy),
     RUNNING(R.string.control_service_running),
     STOPPED(R.string.control_service_stopped),
     DEGRADED(R.string.control_status_degraded),
@@ -80,6 +81,12 @@ internal fun projectedControlStatus(
     canStopService: Boolean,
 ): ControlStatus = when {
     !serviceStatus.rootGranted -> serviceStatus.rootAccessState.toControlStatus()
+    serviceStatus.lifecycleState == ServiceLifecycleController.LifecycleState.ACTIVE ->
+        ControlStatus.LIFECYCLE_BUSY
+    serviceStatus.lifecycleState in setOf(
+        ServiceLifecycleController.LifecycleState.AMBIGUOUS,
+        ServiceLifecycleController.LifecycleState.RECOVERY_FAILED,
+    ) -> ControlStatus.UNAVAILABLE
     serviceStatus.error != null -> ControlStatus.UNAVAILABLE
     watchdogVerdict == NetworkStatsManager.FirewallWatchdogVerdict.MISMATCH ->
         ControlStatus.UNCONFIRMED
@@ -115,6 +122,8 @@ internal val ControlUiState.moduleStateLabelRes: Int
     get() = when {
         moduleMutationState == ModuleMutationState.IN_PROGRESS ->
             R.string.control_module_state_updating
+        moduleMutationState == ModuleMutationState.BLOCKED ->
+            R.string.control_module_state_lifecycle_blocked
         pendingModuleState == PendingModuleState.READY &&
             moduleInstallState == ModuleInstallState.MISSING ->
             R.string.control_module_state_installed_reboot
@@ -134,9 +143,20 @@ internal fun ModuleServiceAccess.statusWithoutQuery(): ControlStatus? = when (th
     ModuleServiceAccess.NOT_INSTALLED -> ControlStatus.NOT_INSTALLED
     ModuleServiceAccess.REBOOT_REQUIRED -> ControlStatus.REBOOT_REQUIRED
     ModuleServiceAccess.NOT_READY -> ControlStatus.MODULE_NOT_READY
-    ModuleServiceAccess.MUTATING -> ControlStatus.CHECKING
     ModuleServiceAccess.UNKNOWN -> ControlStatus.UNAVAILABLE
 }
+
+internal fun ServiceLifecycleController.LifecycleState.toModuleMutationState(): ModuleMutationState =
+    when (this) {
+        ServiceLifecycleController.LifecycleState.ACTIVE -> ModuleMutationState.IN_PROGRESS
+        ServiceLifecycleController.LifecycleState.AMBIGUOUS,
+        ServiceLifecycleController.LifecycleState.RECOVERY_FAILED,
+        -> ModuleMutationState.BLOCKED
+        ServiceLifecycleController.LifecycleState.IDLE,
+        ServiceLifecycleController.LifecycleState.RECOVERED,
+        ServiceLifecycleController.LifecycleState.UNKNOWN,
+        -> ModuleMutationState.IDLE
+    }
 
 enum class ControlDialogKind {
     UPDATE,
@@ -1307,8 +1327,7 @@ class ControlViewModel @Inject constructor(
                     null
                 }
                 val stableModuleConfig =
-                    environment?.mutationState == ModuleMutationState.IDLE &&
-                        environment.activeState in setOf(
+                    environment?.activeState in setOf(
                             ModuleInstallState.READY,
                             ModuleInstallState.DISABLED,
                         )
@@ -1363,8 +1382,7 @@ class ControlViewModel @Inject constructor(
                         rootAccessState = rootAccess.state,
                         moduleInstallState = environment?.activeState ?: ModuleInstallState.UNKNOWN,
                         pendingModuleState = environment?.pendingState ?: PendingModuleState.NONE,
-                        moduleMutationState =
-                            environment?.mutationState ?: ModuleMutationState.IDLE,
+                        moduleMutationState = ModuleMutationState.IDLE,
                         nfqueueSupported = environment?.nfqueueSupported == true,
                         moduleVersion = environment?.displayedVersion.orEmpty(),
                         autostart = coreValues["autostart"] != "0",
@@ -1605,7 +1623,7 @@ class ControlViewModel @Inject constructor(
                         rootAccessState = ServiceLifecycleController.RootAccessState.GRANTED,
                         moduleInstallState = environment.activeState,
                         pendingModuleState = environment.pendingState,
-                        moduleMutationState = environment.mutationState,
+                        moduleMutationState = ModuleMutationState.IDLE,
                         moduleVersion = environment.displayedVersion,
                         nfqueueSupported = environment.nfqueueSupported,
                         hasAuthoritativeRuntimeSettings = false,
@@ -1616,6 +1634,36 @@ class ControlViewModel @Inject constructor(
         }
 
         val serviceStatus = ServiceLifecycleController.getStatus()
+        val lifecycleMutationState = serviceStatus.lifecycleState.toModuleMutationState()
+        if (lifecycleMutationState != ModuleMutationState.IDLE) {
+            val current = _uiState.value
+            if (refreshId == statusRefreshSequence.get()) {
+                _uiState.update {
+                    it.copy(
+                        status = projectedControlStatus(
+                            serviceStatus = serviceStatus,
+                            watchdogVerdict = NetworkStatsManager.FirewallWatchdogVerdict.NOT_REQUIRED,
+                            canStopService = current.canStopService,
+                        ),
+                        hasRootAccess = serviceStatus.rootGranted,
+                        rootAccessState = serviceStatus.rootAccessState,
+                        moduleInstallState = environment.activeState,
+                        pendingModuleState = environment.pendingState,
+                        moduleMutationState = lifecycleMutationState,
+                        moduleVersion = environment.displayedVersion,
+                        nfqueueSupported = environment.nfqueueSupported,
+                        hasAuthoritativeRuntimeSettings = false,
+                        moduleDiagnostic = serviceStatus.lifecycleError
+                            ?.takeUnless { error -> error.isNone }
+                            ?.diagnosticText(),
+                    )
+                }
+            }
+            return ServiceSnapshot(
+                isRunning = current.isRunning,
+                canStopService = current.canStopService,
+            )
+        }
         val netStats = networkStatsManager.getNetworkStats(
             status = serviceStatus,
             forceFirewallWatchdog = forceFirewallWatchdog,
@@ -1654,7 +1702,6 @@ class ControlViewModel @Inject constructor(
             watchdogVerdict = netStats.firewallWatchdogVerdict,
             canStopService = canStopService,
         )
-
         if (refreshId == statusRefreshSequence.get()) {
             _uiState.update { current ->
                 current.copy(
@@ -1671,12 +1718,12 @@ class ControlViewModel @Inject constructor(
                     rootAccessState = serviceStatus.rootAccessState,
                     moduleInstallState = environment.activeState,
                     pendingModuleState = environment.pendingState,
-                    moduleMutationState = environment.mutationState,
+                    moduleMutationState = lifecycleMutationState,
                     moduleVersion = environment.displayedVersion,
                     nfqueueSupported = environment.nfqueueSupported,
                     hasAuthoritativeRuntimeSettings = current.hasAuthoritativeRuntimeSettings &&
                         environment.activeState == ModuleInstallState.READY &&
-                        environment.mutationState == ModuleMutationState.IDLE,
+                        lifecycleMutationState == ModuleMutationState.IDLE,
                     moduleDiagnostic = serviceStatus.lifecycleError
                         ?.takeUnless { error -> error.isNone }
                         ?.diagnosticText()
@@ -1894,7 +1941,10 @@ class ControlViewModel @Inject constructor(
     fun checkForUpdates() {
         if (_uiState.value.pendingDialog != null) return
         if (
-            _uiState.value.status == ControlStatus.CHECKING ||
+            _uiState.value.status in setOf(
+                ControlStatus.CHECKING,
+                ControlStatus.LIFECYCLE_BUSY,
+            ) ||
             _uiState.value.isToggling ||
             _uiState.value.isUpdating ||
             _uiState.value.isSavingSettings || settingMutationInProgress.get() ||

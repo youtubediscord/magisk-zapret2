@@ -1,6 +1,5 @@
 package com.zapret2.app.data
 
-import com.topjohnwu.superuser.Shell
 import kotlinx.coroutines.CancellationException
 import javax.inject.Inject
 
@@ -44,7 +43,7 @@ class RuntimeLogRepository @Inject constructor() {
             append("[ \"${'$'}z2_any\" = 1 ] || echo ").append(ABSENT_MARKER).append('\n')
         }
         return try {
-            val result = Shell.cmd(command).exec()
+            val result = RootCommandExecutor.execute(command)
             when {
                 !result.isSuccess -> ProtectedTextRead.Failed
                 result.out == listOf(ABSENT_MARKER) -> ProtectedTextRead.Absent
@@ -77,7 +76,7 @@ class RuntimeLogRepository @Inject constructor() {
             }
         }
         return try {
-            Shell.cmd(command).exec().isSuccess
+            RootCommandExecutor.execute(command, RootCommandPolicy.MUTATION).isSuccess
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {
@@ -97,7 +96,7 @@ class RuntimeLogRepository @Inject constructor() {
             $reader
         """.trimIndent()
         return try {
-            val result = Shell.cmd(command).exec()
+            val result = RootCommandExecutor.execute(command)
             when {
                 !result.isSuccess -> ProtectedTextRead.Failed
                 result.out == listOf(ABSENT_MARKER) -> ProtectedTextRead.Absent

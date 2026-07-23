@@ -1,7 +1,5 @@
 package com.zapret2.app.data
 
-import com.topjohnwu.superuser.Shell
-
 internal fun canonicalProtectedText(value: String): String = value
     .replace("\r\n", "\n")
     .replace('\r', '\n')
@@ -60,7 +58,7 @@ internal object RootFileIo {
             [ "${'$'}z2_after" = "${'$'}z2_meta" ] &&
                 [ "${'$'}z2_digest_after" = "${'$'}z2_digest_before" ]
         """.trimIndent()
-        val result = Shell.cmd(command).exec()
+        val result = RootCommandExecutor.execute(command)
         if (!result.isSuccess) return null
         return result.out.joinToString("\n").takeIf { '\u0000' !in it }
     }
@@ -76,7 +74,7 @@ internal object RootFileIo {
             fi
             [ -d $quoted ] && [ ! -L $quoted ] && [ "${'$'}(stat -c %u $quoted 2>/dev/null)" = 0 ]
         """.trimIndent()
-        return Shell.cmd(command).exec().isSuccess
+        return RootCommandExecutor.execute(command, RootCommandPolicy.MUTATION).isSuccess
     }
 
     fun removeFile(path: String): Boolean {
@@ -90,7 +88,7 @@ internal object RootFileIo {
             rm -f $quoted || exit 1
             [ ! -e $quoted ] && [ ! -L $quoted ]
         """.trimIndent()
-        return Shell.cmd(command).exec().isSuccess
+        return RootCommandExecutor.execute(command, RootCommandPolicy.MUTATION).isSuccess
     }
 
     /**
@@ -144,7 +142,7 @@ internal object RootFileIo {
             append("if [ \"${'$'}status\" -ne 0 ]; then rm -f ").append(quotedTemp).append("; fi\n")
             append("exit \"${'$'}status\"")
         }
-        if (!Shell.cmd(command).exec().isSuccess) return false
+        if (!RootCommandExecutor.execute(command, RootCommandPolicy.MUTATION).isSuccess) return false
 
         val maxBytes = normalized.toByteArray(Charsets.UTF_8).size.coerceAtLeast(1)
         val persisted = readSecureRegularText(path, maxBytes) ?: return false

@@ -9,25 +9,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.atomic.AtomicBoolean
-
-internal class BoundedCommandGate(private val queueTimeoutMillis: Long) {
-    private val mutex = Mutex()
-
-    suspend fun <T> run(onTimeout: () -> T, block: suspend () -> T): T {
-        val acquired = withTimeoutOrNull(queueTimeoutMillis) {
-            mutex.lock()
-            true
-        } == true
-        if (!acquired) return onTimeout()
-        return try {
-            block()
-        } finally {
-            mutex.unlock()
-        }
-    }
-}
 
 /**
  * Single entry point for root-backed Zapret2 lifecycle operations in the app process.
@@ -43,13 +25,20 @@ object ServiceLifecycleController {
     private const val RESTART_SCRIPT = "$MODULE_DIR/zapret2/scripts/zapret-restart.sh"
     private const val STATUS_SCRIPT = "$MODULE_DIR/zapret2/scripts/zapret-status.sh"
     private const val FULL_ROLLBACK_SCRIPT = "$MODULE_DIR/zapret2/scripts/zapret-full-rollback.sh"
-    private const val ROOT_COMMAND_QUEUE_TIMEOUT_MILLIS = 5_000L
-    private val rootCommandGate = BoundedCommandGate(ROOT_COMMAND_QUEUE_TIMEOUT_MILLIS)
     private val lifecycleMutex = Mutex()
     private val appUpdateInProgress = AtomicBoolean(false)
     private val fullRollbackInProgress = AtomicBoolean(false)
 
     enum class RootAccessState { GRANTED, DENIED, MANAGER_UNAVAILABLE, SHELL_FAILURE, TIMEOUT, BUSY }
+
+    enum class LifecycleState {
+        IDLE,
+        RECOVERED,
+        ACTIVE,
+        AMBIGUOUS,
+        RECOVERY_FAILED,
+        UNKNOWN,
+    }
 
     data class RootAccess(
         val state: RootAccessState,
@@ -68,6 +57,7 @@ object ServiceLifecycleController {
         val exitCode: Int? = null,
         val rootAccessState: RootAccessState? = null,
         val lifecycleError: LifecycleError? = null,
+        val indeterminate: Boolean = false,
     ) {
         fun diagnosticText(): String {
             return buildList {
@@ -108,6 +98,8 @@ object ServiceLifecycleController {
         val ownerMetadataVerified: Boolean = false,
         val updateBlocked: Boolean = false,
         val uninstallTombstone: Boolean = false,
+        val lifecycleState: LifecycleState = LifecycleState.UNKNOWN,
+        val lifecycleOwnerKind: String = "unknown",
         val metadataComplete: Boolean = false,
         val error: String? = null,
         val lifecycleError: LifecycleError? = null,
@@ -128,6 +120,11 @@ object ServiceLifecycleController {
                     ipv4Active &&
                     nfqueueSupported &&
                     queueBypassSupported &&
+                    lifecycleState in setOf(
+                        LifecycleState.IDLE,
+                        LifecycleState.RECOVERED,
+                        LifecycleState.UNKNOWN,
+                    ) &&
                     rulesetVerified &&
                     expectedRulesCount > 0 &&
                     nfqueueRulesCount == expectedRulesCount &&
@@ -141,6 +138,11 @@ object ServiceLifecycleController {
                     metadataComplete &&
                     declaredStatus == "stopped" &&
                     !processRunning &&
+                    lifecycleState in setOf(
+                        LifecycleState.IDLE,
+                        LifecycleState.RECOVERED,
+                        LifecycleState.UNKNOWN,
+                    ) &&
                     !hasOwnedState &&
                     !iptablesActive &&
                     nfqueueRulesCount == 0 &&
@@ -315,8 +317,11 @@ object ServiceLifecycleController {
     }
 
     /** Executes a command only after proving that libsu returned a uid-0 shell. */
-    suspend fun executeRoot(command: String): CommandResult {
-        return executeRaw(command, requireRoot = true)
+    internal suspend fun executeRoot(
+        command: String,
+        policy: RootCommandPolicy = RootCommandPolicy.OBSERVATION,
+    ): CommandResult {
+        return executeRaw(command, requireRoot = true, policy = policy)
     }
 
     suspend fun getStatus(): ServiceStatus {
@@ -431,7 +436,10 @@ object ServiceLifecycleController {
             )
         }
 
-        val command = executeRoot("/system/bin/sh '$FULL_ROLLBACK_SCRIPT' --machine")
+        val command = executeRoot(
+            "/system/bin/sh '$FULL_ROLLBACK_SCRIPT' --machine",
+            RootCommandPolicy.LIFECYCLE,
+        )
         val parsed = parseFullRollbackOutput(command.stdout)
         val after = getStatusInsideExclusiveTask()
         if (parsed is FullRollbackParseResult.Invalid) {
@@ -526,7 +534,8 @@ object ServiceLifecycleController {
             }
             val result = withContext(NonCancellable) {
                 val commandResult = executeRoot(
-                    ModuleMutationCoordinator.inheritLifecycleLock("sh \"$script\"")
+                    ModuleMutationCoordinator.inheritLifecycleLock("sh \"$script\""),
+                    RootCommandPolicy.LIFECYCLE,
                 )
                 if (!commandResult.success) {
                     val status = getStatusLocked()
@@ -575,18 +584,22 @@ object ServiceLifecycleController {
     }
 
     private suspend fun getStatusLocked(): ServiceStatus {
-        val versioned = executeRoot(buildStatusCommand(version = 3))
-        val result = if (
-            versioned.rootGranted &&
-            versioned.exitCode == 2 &&
-            versioned.stdout.none { it.startsWith("Z2_") }
-        ) {
+        val current = executeRoot(buildStatusCommand(version = 4))
+        val compatible = if (current.isUnsupportedMachineProtocol()) {
+            executeRoot(buildStatusCommand(version = 3))
+        } else {
+            current
+        }
+        val result = if (compatible.isUnsupportedMachineProtocol()) {
             executeRoot(buildStatusCommand(version = 1))
         } else {
-            versioned
+            compatible
         }
         return parseStatusCommandResult(result)
     }
+
+    private fun CommandResult.isUnsupportedMachineProtocol(): Boolean =
+        rootGranted && exitCode == 2 && stdout.none { it.startsWith("Z2_") }
 
     /**
      * Consumes the complete machine payload and the status script's 0/1/2 exit contract together.
@@ -666,11 +679,19 @@ object ServiceLifecycleController {
             "Z2_UPDATE_BLOCKED",
             "Z2_UNINSTALL_TOMBSTONE"
         )
-        val versionedProtocol = values["Z2_PROTOCOL"] == LifecycleErrorContract.STATUS_PROTOCOL_VERSION
-        val requiredFields = if (versionedProtocol) {
-            legacyRequiredFields + "Z2_PROTOCOL" + LifecycleErrorContract.wireFields
-        } else {
-            legacyRequiredFields
+        val protocolVersion = values["Z2_PROTOCOL"]
+        val versionedProtocol = protocolVersion in setOf(
+            LifecycleErrorContract.LEGACY_STATUS_PROTOCOL_VERSION,
+            LifecycleErrorContract.STATUS_PROTOCOL_VERSION,
+        )
+        val lifecycleProtocol =
+            protocolVersion == LifecycleErrorContract.STATUS_PROTOCOL_VERSION
+        val requiredFields = when {
+            lifecycleProtocol -> legacyRequiredFields +
+                setOf("Z2_PROTOCOL", "Z2_LIFECYCLE_STATE", "Z2_LIFECYCLE_OWNER_KIND") +
+                LifecycleErrorContract.wireFields
+            versionedProtocol -> legacyRequiredFields + "Z2_PROTOCOL" + LifecycleErrorContract.wireFields
+            else -> legacyRequiredFields
         }
         val completionField = "Z2_COMPLETE"
         val protocolFields = requiredFields + completionField
@@ -701,9 +722,28 @@ object ServiceLifecycleController {
         val optionalQnumValid = values["Z2_QNUM"].orEmpty().isEmpty() || qnum != null
         val generation = values["Z2_OWNER_GENERATION"].orEmpty()
         val generationValid = generation.isEmpty() || generation.matches(Regex("[A-Za-z0-9._-]+"))
+        val lifecycleState = when (values["Z2_LIFECYCLE_STATE"]) {
+            "idle" -> LifecycleState.IDLE
+            "recovered" -> LifecycleState.RECOVERED
+            "active" -> LifecycleState.ACTIVE
+            "ambiguous" -> LifecycleState.AMBIGUOUS
+            "recovery_failed" -> LifecycleState.RECOVERY_FAILED
+            else -> LifecycleState.UNKNOWN
+        }
+        val lifecycleOwnerKind = values["Z2_LIFECYCLE_OWNER_KIND"].orEmpty()
+        val lifecycleValid = !lifecycleProtocol || (
+            lifecycleState != LifecycleState.UNKNOWN &&
+                lifecycleOwnerKind in setOf("none", "shell", "android-mutation", "unknown") &&
+                lifecyclePayloadSemanticsAreValid(
+                    lifecycleState,
+                    lifecycleOwnerKind,
+                    values["Z2_UPDATE_BLOCKED"] == "1",
+                )
+            )
         val reportedStatus = values["Z2_STATUS"] ?: "unknown"
         val semanticValuesValid = structurallyComplete && booleansValid && integersValid &&
             optionalNumbersValid && optionalStartValid && optionalQnumValid && generationValid &&
+            lifecycleValid &&
             statusPayloadSemanticsAreValid(values, integers, pid, pidStarttime, qnum, reportedStatus)
         val lifecycleError = if (versionedProtocol) {
             LifecycleErrorContract.parseValues(values)
@@ -743,6 +783,8 @@ object ServiceLifecycleController {
             ownerMetadataVerified = values["Z2_OWNER_METADATA_VERIFIED"] == "1",
             updateBlocked = values["Z2_UPDATE_BLOCKED"] == "1",
             uninstallTombstone = values["Z2_UNINSTALL_TOMBSTONE"] == "1",
+            lifecycleState = if (lifecycleProtocol) lifecycleState else LifecycleState.UNKNOWN,
+            lifecycleOwnerKind = if (lifecycleProtocol) lifecycleOwnerKind else "unknown",
             metadataComplete = machineOutputComplete,
             error = if (machineOutputComplete) null else "Invalid or incomplete Zapret2 machine status output",
             lifecycleError = lifecycleError?.takeUnless { it.isNone },
@@ -759,6 +801,22 @@ object ServiceLifecycleController {
 
     private fun String?.parseOptionalStartTicks(): String? = this
         ?.takeIf(ProtocolDecimal::isCanonicalNonNegativeLong)
+
+    private fun lifecyclePayloadSemanticsAreValid(
+        state: LifecycleState,
+        ownerKind: String,
+        updateBlocked: Boolean,
+    ): Boolean = when (state) {
+        LifecycleState.IDLE,
+        LifecycleState.RECOVERED,
+        -> ownerKind == "none" && !updateBlocked
+        LifecycleState.ACTIVE ->
+            ownerKind in setOf("shell", "android-mutation") && updateBlocked
+        LifecycleState.AMBIGUOUS -> ownerKind == "unknown" && updateBlocked
+        LifecycleState.RECOVERY_FAILED ->
+            ownerKind in setOf("none", "shell", "android-mutation", "unknown") && updateBlocked
+        LifecycleState.UNKNOWN -> false
+    }
 
     private fun statusPayloadSemanticsAreValid(
         values: Map<String, String>,
@@ -873,54 +931,83 @@ object ServiceLifecycleController {
         )
     }
 
-    private suspend fun executeRaw(command: String, requireRoot: Boolean): CommandResult = withContext(Dispatchers.IO) {
-        rootCommandGate.run(
-            onTimeout = {
-                CommandResult(
+    private suspend fun executeRaw(
+        command: String,
+        requireRoot: Boolean,
+        policy: RootCommandPolicy = RootCommandPolicy.OBSERVATION,
+    ): CommandResult = withContext(Dispatchers.IO) {
+        currentCoroutineContext().ensureActive()
+        if (requireRoot) {
+            val probe = executeShell("id -u", RootCommandPolicy.OBSERVATION)
+            val uid = probe.stdout.firstOrNull()?.trim()
+            if (!probe.success || uid != "0") {
+                val access = classifyRootAccess(probe, uid, Shell.isAppGrantedRoot())
+                return@withContext CommandResult(
                     success = false,
+                    stdout = probe.stdout,
+                    stderr = probe.stderr,
                     rootGranted = false,
-                    rootAccessState = RootAccessState.BUSY,
-                    error = "Another root command is still running",
-                    lifecycleError = LifecycleErrorContract.rootQueueBusy,
+                    rootAccessState = access.state,
+                    error = access.error,
+                    lifecycleError = access.lifecycleError,
+                    indeterminate = probe.indeterminate,
                 )
-            },
-        ) command@{
-            currentCoroutineContext().ensureActive()
-            if (requireRoot) {
-                val probe = executeShell("id -u")
-                val uid = probe.stdout.firstOrNull()?.trim()
-                if (!probe.success || uid != "0") {
-                    val access = classifyRootAccess(probe, uid, Shell.isAppGrantedRoot())
-                    return@command CommandResult(
-                        success = false,
-                        stdout = probe.stdout,
-                        stderr = probe.stderr,
-                        rootGranted = false,
-                        rootAccessState = access.state,
-                        error = access.error,
-                        lifecycleError = access.lifecycleError,
-                    )
-                }
             }
-            executeShell(command).copy(rootGranted = true)
         }
+        executeShell(command, policy).copy(rootGranted = true)
     }
 
-    private fun executeShell(command: String): CommandResult {
+    private fun executeShell(
+        command: String,
+        policy: RootCommandPolicy,
+    ): CommandResult {
         return try {
-            val result = Shell.cmd(command).exec()
+            val result = RootCommandExecutor.execute(command, policy)
             val lifecycleError = LifecycleErrorContract.parseLines(result.out + result.err)
             CommandResult(
                 success = result.isSuccess,
-                stdout = result.out.toList(),
-                stderr = result.err.toList(),
-                error = if (result.isSuccess) null else "Root command exited unsuccessfully",
-                exitCode = result.code,
-                lifecycleError = lifecycleError ?: if (result.isSuccess) {
-                    null
-                } else {
-                    LifecycleErrorContract.rootCommandFailed("ROOT_COMMAND")
+                stdout = result.out,
+                stderr = result.err,
+                error = when (result.failure) {
+                    RootCommandFailure.QUEUE_BUSY -> "Another root command is still running"
+                    RootCommandFailure.COMMAND_TIMEOUT -> "Root command timed out"
+                    RootCommandFailure.TRANSPORT_TIMEOUT -> "Root transport timed out"
+                    RootCommandFailure.SHELL_UNAVAILABLE -> "Root shell is unavailable"
+                    RootCommandFailure.SHELL_DIED -> "Root shell disconnected"
+                    null -> if (result.isSuccess) null else "Root command exited unsuccessfully"
                 },
+                exitCode = result.code,
+                rootAccessState = when (result.failure) {
+                    RootCommandFailure.QUEUE_BUSY -> RootAccessState.BUSY
+                    RootCommandFailure.COMMAND_TIMEOUT,
+                    RootCommandFailure.TRANSPORT_TIMEOUT,
+                    -> RootAccessState.TIMEOUT
+                    RootCommandFailure.SHELL_UNAVAILABLE,
+                    RootCommandFailure.SHELL_DIED,
+                    -> RootAccessState.SHELL_FAILURE
+                    null -> null
+                },
+                lifecycleError = lifecycleError ?: when (result.failure) {
+                    RootCommandFailure.QUEUE_BUSY -> LifecycleErrorContract.rootQueueBusy
+                    RootCommandFailure.COMMAND_TIMEOUT,
+                    RootCommandFailure.TRANSPORT_TIMEOUT,
+                    -> LifecycleErrorContract.rootCommandTimeout(
+                        stage = "ROOT_COMMAND",
+                        detail = result.detail ?: "Root command timed out",
+                    )
+                    RootCommandFailure.SHELL_UNAVAILABLE,
+                    RootCommandFailure.SHELL_DIED,
+                    -> LifecycleErrorContract.rootAccess(
+                        LifecycleErrorContract.ROOT_SHELL_FAILED,
+                        result.detail ?: "Root shell disconnected",
+                    )
+                    null -> if (result.isSuccess) {
+                        null
+                    } else {
+                        LifecycleErrorContract.rootCommandFailed("ROOT_COMMAND")
+                    }
+                },
+                indeterminate = result.isIndeterminate,
             )
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -935,7 +1022,11 @@ object ServiceLifecycleController {
     }
 
     private fun buildStatusCommand(version: Int): String {
-        val argument = if (version == 3) "--machine-v3" else "--machine"
+        val argument = when (version) {
+            4 -> "--machine-v4"
+            3 -> "--machine-v3"
+            else -> "--machine"
+        }
         return "sh \"$STATUS_SCRIPT\" $argument"
     }
 }

@@ -8,6 +8,7 @@ package com.zapret2.app.data
  * owners. Unknown or malformed lifecycle locks are never removed by this protocol.
  */
 internal object LifecycleMutationLockProtocol {
+    private const val ABSENT_OUTPUT = "Z2_MUTATION_LOCK_ABSENT=1"
 
     private const val VERSION = "1"
     private const val KIND = "android-mutation"
@@ -242,6 +243,10 @@ internal object LifecycleMutationLockProtocol {
             . "${'$'}common" || exit 1
             [ "${'$'}STATE_DIR" = ${RootFileIo.shellQuote(ModuleMutationCoordinator.STATE_DIR)} ] || exit 1
             state_dir_is_secure || exit 1
+            if [ ! -e "${'$'}LIFECYCLE_LOCK" ] && [ ! -L "${'$'}LIFECYCLE_LOCK" ]; then
+                echo $ABSENT_OUTPUT
+                exit 0
+            fi
             [ -d "${'$'}LIFECYCLE_LOCK" ] && [ ! -L "${'$'}LIFECYCLE_LOCK" ] || exit 1
             path_uid_is_root "${'$'}LIFECYCLE_LOCK" || exit 1
             [ "${'$'}(stat -c %a "${'$'}LIFECYCLE_LOCK" 2>/dev/null)" = 700 ] || exit 1
@@ -281,6 +286,9 @@ internal object LifecycleMutationLockProtocol {
             echo Z2_MUTATION_LOCK_COMPLETE=1
         """.trimIndent()
     }
+
+    fun isOwnedLeaseAbsentOutput(lines: List<String>): Boolean =
+        lines.map(String::trim) == listOf(ABSENT_OUTPUT)
 
     fun buildReleaseCommand(lease: Lease, releaseToken: String): String? {
         if (!isValid(lease) || !releaseToken.matches(safeToken) || releaseToken.length > 128) return null
