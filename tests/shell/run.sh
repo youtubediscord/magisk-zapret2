@@ -114,6 +114,7 @@ ZAPRET_DIR="$FIXTURE"
 MODDIR="$TMP"
 STATE_DIR="$TMP/state"
 mkdir -p "$STATE_DIR"
+chmod 0700 "$STATE_DIR"
 . "$FIXTURE/scripts/common.sh"
 . "$FIXTURE/scripts/command-builder.sh"
 QNUM=200 DESYNC_MARK=0x40000000 NFQWS_UID=0:0 LOG_MODE=none
