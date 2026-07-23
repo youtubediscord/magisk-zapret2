@@ -86,10 +86,9 @@ FIXTURE="$TMP/compiler"
 cp -R "$ROOT/zapret2" "$FIXTURE"
 cat > "$FIXTURE/nfqws2" <<'EOF'
 #!/bin/sh
-if [ "${1:-}" = --help ]; then
-    printf '%s\n' '--daemon' '--pidfile'
-fi
-exit 0
+# Preview is a pure compiler operation. Binary capability checks and dry-runs
+# belong to the separate preflight/start boundary.
+exit 97
 EOF
 chmod 0755 "$FIXTURE/nfqws2"
 cat > "$FIXTURE/presets/TCP only.txt" <<'EOF'
