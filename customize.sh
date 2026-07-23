@@ -1,4 +1,5 @@
 #!/system/bin/sh
+SKIPUNZIP=1
 
 ##########################################################################################
 # Zapret2 Magisk Module - boot-mode customization
@@ -72,8 +73,42 @@ trap 'ui_print "! Installation interrupted"; exit 1' HUP INT TERM
 [ "${BOOTMODE:-false}" = true ] || abort "! Zapret2 supports installation from Magisk or its APK only; recovery flashing is unsupported"
 [ "$MODPATH" = "$EXPECTED_MODPATH" ] || abort "! Unexpected Magisk staging path: $MODPATH"
 [ -d "$MODPATH" ] && [ ! -L "$MODPATH" ] || abort "! Magisk staging directory is missing or unsafe"
-[ -f "$MODPATH/module.prop" ] && [ ! -L "$MODPATH/module.prop" ] || abort "! module.prop was not extracted by Magisk"
+
+# Magisk's default set_perm_recursive expands paths without quoting. Preset
+# names intentionally contain spaces, so letting Magisk own extraction turns
+# path fragments into chown owner/group arguments. Bootstrap only the immutable
+# package contract, validate the complete ZIP namespace before extraction, then
+# apply every packaged mode through the manifest's quoted per-path callback.
+INSTALL_ZIP_LISTING="$MODPATH/.zapret2-install-listing.$$"
+INSTALL_ZIP_NAMES="$MODPATH/.zapret2-install-names.$$"
+unzip -o "$ZIPFILE" module.prop zapret2/runtime-manifest.tsv \
+    zapret2/scripts/package-contract.sh -d "$MODPATH" >&2 ||
+    abort "! Cannot extract the installation contract"
+[ -f "$MODPATH/module.prop" ] && [ ! -L "$MODPATH/module.prop" ] ||
+    abort "! module.prop is missing or unsafe"
+[ -f "$MODPATH/zapret2/runtime-manifest.tsv" ] &&
+    [ ! -L "$MODPATH/zapret2/runtime-manifest.tsv" ] &&
+    [ -f "$MODPATH/zapret2/scripts/package-contract.sh" ] &&
+    [ ! -L "$MODPATH/zapret2/scripts/package-contract.sh" ] ||
+    abort "! Package bootstrap contract is missing or unsafe"
 grep -qx 'id=zapret2' "$MODPATH/module.prop" || abort "! Refusing package with unexpected module id"
+. "$MODPATH/zapret2/scripts/package-contract.sh" || abort "! Cannot load the package bootstrap contract"
+unzip -l "$ZIPFILE" > "$INSTALL_ZIP_LISTING" 2>/dev/null &&
+    package_contract_extract_zip_names "$INSTALL_ZIP_LISTING" "$INSTALL_ZIP_NAMES" &&
+    package_contract_validate_zip_names "$MODPATH" "$INSTALL_ZIP_NAMES" || {
+        rm -f "$INSTALL_ZIP_LISTING" "$INSTALL_ZIP_NAMES"
+        abort "! Module ZIP namespace is invalid: ${PACKAGE_CONTRACT_CODE:-unknown} ${PACKAGE_CONTRACT_DETAIL:-}"
+    }
+rm -f "$INSTALL_ZIP_LISTING" "$INSTALL_ZIP_NAMES" ||
+    abort "! Cannot retire installation namespace evidence"
+ui_print "- Extracting Zapret2 files with the package contract"
+unzip -o "$ZIPFILE" -x 'META-INF/*' -d "$MODPATH" >&2 ||
+    abort "! Cannot extract module files"
+package_contract_validate_exact_tree "$MODPATH" package ||
+    abort "! Extracted package tree is invalid: $PACKAGE_CONTRACT_CODE $PACKAGE_CONTRACT_DETAIL"
+package_contract_apply_modes "$MODPATH" package &&
+    package_contract_validate_modes "$MODPATH" package ||
+    abort "! Extracted package modes are invalid: $PACKAGE_CONTRACT_CODE $PACKAGE_CONTRACT_DETAIL"
 
 case "${ARCH:-}" in
     arm64) ARCH_DIR="arm64-v8a" ;;
@@ -294,8 +329,9 @@ cp "$NFQWS_SOURCE" "$NFQWS_TEMP" && chmod 0755 "$NFQWS_TEMP" && mv "$NFQWS_TEMP"
     abort "! Cannot select the $ARCH_DIR nfqws2 binary"
 }
 
-# Magisk deliberately gives ordinary module files 0644. Apply only the small executable set;
-# there is no full package permission walk or post-extraction manifest validation on-device.
+# Reapply the mutable installed subset after preserving user files and creating
+# the selected runtime binary. Packaged paths were already validated and chmod'd
+# through the manifest immediately after private extraction above.
 chmod 0755 "$MODPATH/service.sh" "$MODPATH/uninstall.sh" "$MODPATH/action.sh" \
     "$ZAPRET_DIR/bin/arm64-v8a/nfqws2" "$ZAPRET_DIR/bin/armeabi-v7a/nfqws2" \
     "$ZAPRET_DIR/nfqws2" "$ZAPRET_DIR/scripts/"*.sh \

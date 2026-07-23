@@ -8,6 +8,8 @@ LIVE=/data/adb/modules/zapret2
 UPDATE=/data/adb/modules_update/zapret2
 STATE=/data/adb/zapret2-state
 ARCHIVE="$CASE/module.zip"
+PACKAGE="$CASE/package"
+SOURCE="$CASE/source"
 OWNED=0
 
 fail() { echo "FAIL: Magisk boot installer: $*" >&2; exit 1; }
@@ -25,20 +27,23 @@ done
 OWNED=1
 trap cleanup EXIT HUP INT TERM
 mkdir -p /data/adb/modules /data/adb/modules_update "$CASE"
-(cd "$ROOT" && zip -q "$ARCHIVE" module.prop)
+mkdir -p "$PACKAGE" "$SOURCE"
+cp "$ROOT/module.prop" "$ROOT/customize.sh" "$ROOT/service.sh" \
+    "$ROOT/uninstall.sh" "$ROOT/action.sh" "$SOURCE/"
+cp -R "$ROOT/system" "$ROOT/zapret2" "$SOURCE/"
+mkdir -p "$SOURCE/zapret2/bin/arm64-v8a" "$SOURCE/zapret2/bin/armeabi-v7a"
+cp /bin/true "$SOURCE/zapret2/bin/arm64-v8a/nfqws2"
+cp /bin/false "$SOURCE/zapret2/bin/armeabi-v7a/nfqws2"
+printf '%s\n' b78b52c4cd7f843da3ff0848a3430afbd401bdf2 > "$SOURCE/zapret2/upstream-zapret2.commit"
+. "$SOURCE/zapret2/scripts/package-contract.sh"
+package_contract_assemble_package "$SOURCE" "$PACKAGE" ||
+    fail "cannot assemble installer fixture: $PACKAGE_CONTRACT_CODE $PACKAGE_CONTRACT_DETAIL"
+(cd "$PACKAGE" && zip -qr "$ARCHIVE" module.prop customize.sh service.sh uninstall.sh action.sh system zapret2)
 
 prepare_magisk_stage() {
     rm -rf "$UPDATE"
     mkdir -p "$UPDATE"
-    cp "$ROOT/module.prop" "$ROOT/customize.sh" "$ROOT/service.sh" \
-        "$ROOT/uninstall.sh" "$ROOT/action.sh" "$UPDATE/"
-    cp -R "$ROOT/system" "$ROOT/zapret2" "$UPDATE/"
-    mkdir -p "$UPDATE/zapret2/bin/arm64-v8a" "$UPDATE/zapret2/bin/armeabi-v7a"
-    cp /bin/true "$UPDATE/zapret2/bin/arm64-v8a/nfqws2"
-    cp /bin/false "$UPDATE/zapret2/bin/armeabi-v7a/nfqws2"
-    find "$UPDATE" -type d -exec chmod 0755 {} +
-    find "$UPDATE" -type f -exec chmod 0644 {} +
-    find "$UPDATE/system/bin" -type f -exec chmod 0755 {} +
+    unzip -oq "$ARCHIVE" customize.sh -d "$UPDATE"
 }
 
 run_installer() {
@@ -51,7 +56,7 @@ run_installer() {
         export MODPATH ZIPFILE BOOTMODE ARCH
         abort() { echo "$*" >&2; rm -rf "$MODPATH"; exit 1; }
         ui_print() { printf '%s\n' "$*"; }
-        . "$ROOT/customize.sh"
+        . "$UPDATE/customize.sh"
     ) > "$log" 2>&1
     # This is the canonical cleanup Magisk performs after customize.sh returns.
     rm -f "$UPDATE/customize.sh"
@@ -63,9 +68,9 @@ run_installer "$CASE/fresh.log" || fail "fresh boot-mode installation failed"
 elapsed=$(( $(date +%s) - started ))
 [ "$elapsed" -le 10 ] || fail "device-dependent customization exceeded 10 seconds: ${elapsed}s"
 grep -Fq 'Zapret2 is ready' "$CASE/fresh.log" || fail "fresh install did not reach the bounded terminal message"
-if grep -Fq 'Extracting staged module files' "$CASE/fresh.log"; then
-    fail "customization reintroduced private archive extraction"
-fi
+grep -Fq 'Extracting Zapret2 files with the package contract' "$CASE/fresh.log" ||
+    fail "customization did not use private contract extraction"
+if grep -Fq 'chown: unknown user/group' "$CASE/fresh.log"; then fail "space-bearing paths reached Magisk chown"; fi
 [ ! -e "$UPDATE/customize.sh" ] || fail "installer-only customize.sh remained installed"
 [ -x "$UPDATE/zapret2/nfqws2" ] || fail "selected runtime binary is not executable"
 cmp -s /bin/true "$UPDATE/zapret2/nfqws2" || fail "Magisk ARCH was not used to select arm64"
@@ -94,9 +99,9 @@ chmod 0644 "$LIVE/zapret2/User Options" "$LIVE/zapret2/categories.ini" \
 chmod 0600 "$LIVE/disable"
 
 prepare_magisk_stage
-packaged_core_sha=$(sha256sum "$UPDATE/zapret2/lua/custom_funcs.lua" | awk 'NR == 1 { print $1 }')
-packaged_custom_lua_sha=$(sha256sum "$UPDATE/zapret2/lua/zapret-custom.lua" | awk 'NR == 1 { print $1 }')
-packaged_default_sha=$(sha256sum "$UPDATE/zapret2/presets/Default v1 (game filter).txt" | awk 'NR == 1 { print $1 }')
+packaged_core_sha=$(sha256sum "$PACKAGE/zapret2/lua/custom_funcs.lua" | awk 'NR == 1 { print $1 }')
+packaged_custom_lua_sha=$(sha256sum "$PACKAGE/zapret2/lua/zapret-custom.lua" | awk 'NR == 1 { print $1 }')
+packaged_default_sha=$(sha256sum "$PACKAGE/zapret2/presets/Default v1 (game filter).txt" | awk 'NR == 1 { print $1 }')
 run_installer "$CASE/update.log" || fail "state-preserving boot-mode update failed"
 grep -Fxq 'active_preset=My custom.txt' "$UPDATE/zapret2/runtime.ini" || fail "active preset selection was not preserved"
 grep -Fxq '# user-owned custom preset' "$UPDATE/zapret2/presets/My custom.txt" || fail "custom preset was not preserved"
