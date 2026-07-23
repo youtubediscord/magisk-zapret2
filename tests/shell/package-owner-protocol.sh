@@ -69,4 +69,17 @@ dd if=/dev/zero bs=1024 count=5 2>/dev/null >> "$CASE/module.prop"
 assert_module_prop_rejected oversized
 [ "$PACKAGE_CONTRACT_CODE" = MODULE_PROP_TOO_LARGE ] || fail "oversized module.prop reported $PACKAGE_CONTRACT_CODE"
 
+mkdir -p "$CASE/entrypoints/system/bin"
+for command_name in start stop status restart full-rollback; do
+    cp "$ROOT/system/bin/zapret2-$command_name" "$CASE/entrypoints/system/bin/zapret2-$command_name"
+done
+package_contract_validate_entrypoints "$CASE/entrypoints" ||
+    fail "valid command entrypoints rejected: $PACKAGE_CONTRACT_CODE"
+printf '\n' >> "$CASE/entrypoints/system/bin/zapret2-status"
+if package_contract_validate_entrypoints "$CASE/entrypoints"; then
+    fail "modified command entrypoint was accepted"
+fi
+[ "$PACKAGE_CONTRACT_CODE" = PACKAGE_ENTRYPOINT_BYTES ] ||
+    fail "modified command entrypoint reported $PACKAGE_CONTRACT_CODE"
+
 echo "Package owner protocol shell tests passed"

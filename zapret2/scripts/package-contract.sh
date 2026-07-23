@@ -456,7 +456,7 @@ package_contract_validate_lifecycle_contract() {
     local file="$root/$relative"
     package_contract_check_regular "$file" "$relative" || return 1
     [ "$(wc -l < "$file" 2>/dev/null)" = 1 ] &&
-        [ "$(cat "$file" 2>/dev/null)" = 2 ] || {
+        [ "$(cat "$file" 2>/dev/null)" = 3 ] || {
         package_contract_fail "LIFECYCLE_CONTRACT_INVALID" "$relative"
         return 1
     }
@@ -748,6 +748,37 @@ package_contract_shell_exec_callback() {
         package_contract_fail "SHELL_EXEC_CR" "$path"
         return 1
     fi
+    return 0
+}
+
+package_contract_validate_entrypoints() {
+    local root="${1%/}" command_name="" wrapper="" target="" expected=""
+    expected="$(mktemp)" || {
+        package_contract_fail "ENTRYPOINT_TEMP_FAILED"
+        return 1
+    }
+    for command_name in start stop status restart full-rollback; do
+        wrapper="system/bin/zapret2-$command_name"
+        target="/data/adb/modules/zapret2/zapret2/scripts/zapret-$command_name.sh"
+        package_contract_check_regular "$root/$wrapper" "$wrapper" || {
+            rm -f "$expected"
+            return 1
+        }
+        {
+            printf '%s\n' '#!/system/bin/sh'
+            printf 'exec %s "$@"\n' "$target"
+        } > "$expected" || {
+            rm -f "$expected"
+            package_contract_fail "ENTRYPOINT_TEMP_FAILED"
+            return 1
+        }
+        cmp -s "$expected" "$root/$wrapper" || {
+            rm -f "$expected"
+            package_contract_fail "PACKAGE_ENTRYPOINT_BYTES" "$wrapper"
+            return 1
+        }
+    done
+    rm -f "$expected"
     return 0
 }
 
@@ -1154,6 +1185,7 @@ package_contract_validate_all() {
     package_contract_validate_module_prop "$root" || return 1
     package_contract_validate_lifecycle_contract "$root" || return 1
     package_contract_for_each_path "$root" "$profile" package_contract_shell_exec_callback || return 1
+    package_contract_validate_entrypoints "$root" || return 1
     return 0
 }
 

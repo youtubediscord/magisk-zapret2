@@ -124,14 +124,14 @@ internal object OwnedIptablesTopologyVerifier {
         }
 
         val expectedRuleCount = contract.expectedRuleCount
-        val perSide = expectedRuleCount / 2
-        val outSubchains = (1..perSide).map { "Z2R_${identity.tag}_O$it" }
-        val inSubchains = (1..perSide).map { "Z2R_${identity.tag}_I$it" }
+        val outSubchains = payloadSpecs.map { it.chain }.filter { it.startsWith("Z2R_${identity.tag}_O") }
+        val inSubchains = payloadSpecs.map { it.chain }.filter { it.startsWith("Z2R_${identity.tag}_I") }
         val expectedSubchains = (outSubchains + inSubchains).toSet()
         val expectedChains = if (expectedRuleCount == 0) {
             emptySet()
         } else {
-            expectedSubchains + identity.outChain + identity.inChain
+            expectedSubchains + identity.outChain +
+                if (contract.connbytes) setOf(identity.inChain) else emptySet()
         }
         val declarations = mutableMapOf<String, Int>()
         val references = mutableMapOf<String, Int>()
@@ -227,7 +227,9 @@ internal object OwnedIptablesTopologyVerifier {
         val referencesValid = if (expectedRuleCount == 0) {
             references.keys.none(::isOwnedName)
         } else {
-            references[identity.outChain] == 1 && references[identity.inChain] == 1 &&
+            references[identity.outChain] == 1 &&
+                (if (contract.connbytes) references[identity.inChain] == 1
+                else references[identity.inChain] == null) &&
                 expectedSubchains.all { references[it] == 1 } &&
                 references.keys.all { it in expectedChains }
         }
@@ -235,9 +237,10 @@ internal object OwnedIptablesTopologyVerifier {
             if (expectedRuleCount == 0) {
                 !hasState
             } else {
-                exactOutAnchors == 1 && exactInAnchors == 1 &&
+                exactOutAnchors == 1 && exactInAnchors == (if (contract.connbytes) 1 else 0) &&
                     mainRules.getValue(identity.outChain) == expectedOutRules &&
-                    mainRules.getValue(identity.inChain) == expectedInRules &&
+                    (!contract.connbytes || mainRules.getValue(identity.inChain) == expectedInRules) &&
+                    (contract.connbytes || mainRules.getValue(identity.inChain).isEmpty()) &&
                     payloadRules.all { (chain, rules) ->
                         rules.size == 1 && expectedPayloadByChain[chain]?.let { expected ->
                             payloadMatches(rules.single(), expected, contract)
@@ -302,7 +305,9 @@ internal object OwnedIptablesTopologyVerifier {
             }
         }
         appendSide("O", "out", contract.pktOut, "original")
-        appendSide("I", "in", contract.pktIn, "reply")
+        if (contract.connbytes) {
+            appendSide("I", "in", contract.pktIn, "reply")
+        }
         return specs
     }
 

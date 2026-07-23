@@ -95,7 +95,7 @@ class RuntimeCostBoundaryTest {
 
     @Test
     fun canonicalStagingRelease_forcesLegacyApkIntoItsMagiskFallback() {
-        assertEquals("2", ModulePackageContract.LIFECYCLE_CONTRACT_VERSION)
+        assertEquals("3", ModulePackageContract.LIFECYCLE_CONTRACT_VERSION)
         assertTrue(
             repositoryFile("service.sh").readText()
                 .contains("Module package generations are activated only by Magisk at boot."),

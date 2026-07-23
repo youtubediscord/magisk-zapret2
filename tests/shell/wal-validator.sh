@@ -26,6 +26,19 @@ TEARDOWN_JOURNAL="$CASE/wal"
 
 iptables() {
     [ "$*" = '-t mangle -S' ] || return 1
+    if [ "$OWNER_STATE_IPV4_CONNBYTES" = 0 ]; then
+        cat <<'EOF'
+-N Z2O_AbCdEf1234
+-N Z2R_AbCdEf1234_O1
+-N Z2R_AbCdEf1234_O2
+-A OUTPUT -j Z2O_AbCdEf1234
+-A Z2O_AbCdEf1234 -j Z2R_AbCdEf1234_O1
+-A Z2O_AbCdEf1234 -j Z2R_AbCdEf1234_O2
+-A Z2R_AbCdEf1234_O1 -p tcp -m multiport --dports 80:65535 -j NFQUEUE
+-A Z2R_AbCdEf1234_O2 -p udp -m multiport --dports 443:65535 -j NFQUEUE
+EOF
+        return
+    fi
     cat <<'EOF'
 -N Z2O_AbCdEf1234
 -N Z2I_AbCdEf1234
@@ -69,5 +82,14 @@ sed '8s/Z2M4_1_/Z2M4_9_/' "$CASE/good" > "$TEARDOWN_JOURNAL"
 if validate_teardown_operation_journal; then fail "foreign marker identity accepted"; fi
 sed 's/|80:65535|/|80:65534|/' "$CASE/good" > "$TEARDOWN_JOURNAL"
 if validate_teardown_operation_journal; then fail "port set differing from owner metadata accepted"; fi
+
+rm -f "$TEARDOWN_JOURNAL"
+OWNER_STATE_IPV4_CONNBYTES=0
+OWNER_STATE_IPV4_RULES=2
+create_teardown_operation_journal || fail "could not create connbytes fallback WAL"
+validate_teardown_operation_journal || fail "connbytes fallback WAL was rejected"
+if grep -Fq '|INPUT|' "$TEARDOWN_JOURNAL" || grep -Fq 'Z2I_AbCdEf1234' "$TEARDOWN_JOURNAL"; then
+    fail "connbytes fallback WAL contains an incoming topology"
+fi
 
 echo "WAL validator shell tests passed"

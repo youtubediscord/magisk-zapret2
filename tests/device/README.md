@@ -40,10 +40,11 @@ behaviour is strictly read-only on the device.
   retained SHA-256 values. Do not use a locally rebuilt substitute.
 
 Preflight validates root, API/ABI, exact module/state paths and modes, packaged
-entry points, `iptables`/`ip6tables`, NFQUEUE and `--queue-bypass`, `connbytes`,
-`multiport`, `mark`, the 21-field status contract, and artifact hashes. IPv4 is
-mandatory. IPv6 is recorded and may be skipped like runtime startup; use
-`--require-ipv6` for an IPv6 matrix device.
+entry points, `iptables`/`ip6tables`, NFQUEUE and `--queue-bypass`, optional
+`connbytes`, mandatory `multiport` and `mark`, the 21-field status contract,
+and artifact hashes. Missing `connbytes` selects pinned upstream's outgoing
+`KEEPALIVE` topology. IPv4 is mandatory. IPv6 is recorded and may be skipped
+like runtime startup; use `--require-ipv6` for an IPv6 matrix device.
 
 The evidence bundle records exactly `schema=1`, `ipv4=ready`, and either
 `ipv6=ready` or `ipv6=not_available`, in that order. Every device mutation
