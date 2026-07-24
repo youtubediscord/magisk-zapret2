@@ -1,14 +1,23 @@
 # Zapret2 для Android
 
-[![Последний релиз](https://img.shields.io/github/v/release/youtubediscord/magisk-zapret2?style=for-the-badge&label=release&color=2ea043)](https://github.com/youtubediscord/magisk-zapret2/releases/latest)
-[![Загрузки](https://img.shields.io/github/downloads/youtubediscord/magisk-zapret2/total?style=for-the-badge&label=downloads&color=1f6feb)](https://github.com/youtubediscord/magisk-zapret2/releases)
-[![Сборка](https://img.shields.io/github/actions/workflow/status/youtubediscord/magisk-zapret2/build.yml?branch=main&style=for-the-badge&label=build)](https://github.com/youtubediscord/magisk-zapret2/actions/workflows/build.yml)
-[![Лицензия](https://img.shields.io/badge/license-AGPL--3.0--only-orange?style=for-the-badge)](LICENSE.md)
+<p align="center">
+  <a href="https://github.com/youtubediscord/magisk-zapret2/releases/latest"><img alt="Последний релиз" src="https://img.shields.io/github/v/release/youtubediscord/magisk-zapret2?style=for-the-badge&logo=github&color=0969DA&label=%D0%A0%D0%B5%D0%BB%D0%B8%D0%B7"></a>
+  <a href="https://github.com/youtubediscord/magisk-zapret2/releases"><img alt="Всего скачиваний" src="https://img.shields.io/github/downloads/youtubediscord/magisk-zapret2/total?style=for-the-badge&logo=github&color=2EA043&label=%D0%A1%D0%BA%D0%B0%D1%87%D0%B8%D0%B2%D0%B0%D0%BD%D0%B8%D0%B9"></a>
+  <a href="https://github.com/youtubediscord/magisk-zapret2/stargazers"><img alt="Звёзды на GitHub" src="https://img.shields.io/github/stars/youtubediscord/magisk-zapret2?style=for-the-badge&logo=github&color=FFD700&label=%D0%97%D0%B2%D1%91%D0%B7%D0%B4%D1%8B"></a>
+  <a href="https://github.com/youtubediscord/magisk-zapret2/commits/main"><img alt="Последний коммит" src="https://img.shields.io/github/last-commit/youtubediscord/magisk-zapret2?style=for-the-badge&logo=github&color=8250DF&label=%D0%9E%D0%B1%D0%BD%D0%BE%D0%B2%D0%BB%D0%B5%D0%BD%D0%BE"></a>
+</p>
 
-![Android 7.0+](https://img.shields.io/badge/Android-7.0%2B%20(API%2024)-3ddc84?style=flat-square&logo=android&logoColor=white)
-![ABI](https://img.shields.io/badge/ABI-arm64--v8a%20%7C%20armeabi--v7a-555?style=flat-square)
-![Root](https://img.shields.io/badge/root-Magisk%20%7C%20KernelSU%20%7C%20APatch-8957e5?style=flat-square)
-[![Upstream](https://img.shields.io/badge/upstream-bol--van%2Fzapret2-24292f?style=flat-square&logo=github&logoColor=white)](https://github.com/bol-van/zapret2)
+<p align="center">
+  <a href="https://github.com/youtubediscord/magisk-zapret2/actions/workflows/build.yml"><img alt="Сборка" src="https://img.shields.io/github/actions/workflow/status/youtubediscord/magisk-zapret2/build.yml?branch=main&style=for-the-badge&logo=githubactions&logoColor=white&label=%D0%A1%D0%B1%D0%BE%D1%80%D0%BA%D0%B0"></a>
+  <a href="LICENSE.md"><img alt="Лицензия" src="https://img.shields.io/badge/Лицензия-AGPL--3.0--only-BC4C00?style=for-the-badge&logo=gnu&logoColor=white"></a>
+  <a href="https://github.com/bol-van/zapret2"><img alt="Upstream" src="https://img.shields.io/badge/Upstream-bol--van%2Fzapret2-24292F?style=for-the-badge&logo=github&logoColor=white"></a>
+</p>
+
+<p align="center">
+  <img alt="Android 7.0+" src="https://img.shields.io/badge/Android-7.0%2B_(API_24)-3DDC84?style=for-the-badge&logo=android&logoColor=white">
+  <img alt="ABI" src="https://img.shields.io/badge/ABI-arm64--v8a_%7C_armeabi--v7a-555555?style=for-the-badge&logo=arm&logoColor=white">
+  <img alt="Root-доступ" src="https://img.shields.io/badge/Root-Magisk_%7C_KernelSU_%7C_APatch-8957E5?style=for-the-badge&logo=magisk&logoColor=white">
+</p>
 
 Root-модуль для Magisk, KernelSU и APatch, предназначенный для обхода некоторых
 видов DPI-блокировок и замедления трафика на Android. Внутри используется

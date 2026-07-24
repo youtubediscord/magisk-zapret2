@@ -12,6 +12,20 @@ fail() { echo "FAIL: firewall-reconciler: $*" >&2; exit 1; }
 
 mkdir -p "$STATE" "$MOCK" "$FW"
 
+# Real backends re-render committed rules in their own save format instead of
+# echoing the authored batch text: libxt_connbytes saves --connbytes-mode
+# before --connbytes-dir, and nft-backed builds translate a single-port
+# multiport match into the plain tcp match. Both mocks re-render through this
+# shared filter so verification is exercised against kernel output, not
+# against the module's own serialization.
+cat > "$CASE/render-saved-rules" <<'EOF'
+#!/bin/sh
+sed \
+    -e 's/--connbytes \([0-9:]*\) --connbytes-dir \([a-z]*\) --connbytes-mode \([a-z]*\)/--connbytes \1 --connbytes-mode \3 --connbytes-dir \2/' \
+    -e 's/-p tcp -m multiport --dports \([0-9]*\) /-p tcp -m tcp --dport \1 /'
+EOF
+chmod 0755 "$CASE/render-saved-rules"
+
 cat > "$MOCK/iptables" <<'EOF'
 #!/bin/sh
 state="$Z2_MOCK_FW"
@@ -35,12 +49,12 @@ case "$args" in
         ;;
     *' -t mangle -C ZAPRET2_OUT '*)
         needle="-A ZAPRET2_OUT ${args#* -C ZAPRET2_OUT }"
-        needle=${needle% }
+        needle=$(printf '%s\n' "${needle% }" | "$Z2_MOCK_RENDER")
         grep -Fqx -- "$needle" "$state/rules.out"
         ;;
     *' -t mangle -C ZAPRET2_IN '*)
         needle="-A ZAPRET2_IN ${args#* -C ZAPRET2_IN }"
-        needle=${needle% }
+        needle=$(printf '%s\n' "${needle% }" | "$Z2_MOCK_RENDER")
         grep -Fqx -- "$needle" "$state/rules.in"
         ;;
     *' -t mangle -F ZAPRET2_OUT '*) : > "$state/rules.out" ;;
@@ -125,11 +139,13 @@ if printf '%s\n' "$payload" | grep -Fx -- '-X ZAPRET2_IN' >/dev/null; then
 fi
 if printf '%s\n' "$payload" | grep -F -- ':ZAPRET2_OUT ' >/dev/null; then
     : > "$state/chain.out"
-    printf '%s\n' "$payload" | grep -F -- '-A ZAPRET2_OUT ' > "$state/rules.out" || :
+    printf '%s\n' "$payload" | grep -F -- '-A ZAPRET2_OUT ' |
+        "$Z2_MOCK_RENDER" > "$state/rules.out" || :
 fi
 if printf '%s\n' "$payload" | grep -F -- ':ZAPRET2_IN ' >/dev/null; then
     : > "$state/chain.in"
-    printf '%s\n' "$payload" | grep -F -- '-A ZAPRET2_IN ' > "$state/rules.in" || :
+    printf '%s\n' "$payload" | grep -F -- '-A ZAPRET2_IN ' |
+        "$Z2_MOCK_RENDER" > "$state/rules.in" || :
 fi
 printf '%s\n' "$payload" | grep -Fx -- '-A OUTPUT -j ZAPRET2_OUT' >/dev/null &&
     : > "$state/anchor.out"
@@ -147,7 +163,8 @@ chmod 0755 "$MOCK/iptables" "$MOCK/iptables-restore"
 PATH="$MOCK:$PATH"
 STATE_DIR="$STATE"
 Z2_MOCK_FW="$FW"
-export PATH STATE_DIR Z2_MOCK_FW
+Z2_MOCK_RENDER="$CASE/render-saved-rules"
+export PATH STATE_DIR Z2_MOCK_FW Z2_MOCK_RENDER
 
 state_path_is_managed_file() {
     case "$1" in "$STATE"/*) return 0;; *) return 1;; esac
@@ -183,6 +200,21 @@ z2_fw_verify_family iptables 1 || fail "published family did not verify"
     fail "final family verification used more than one kernel snapshot"
 grep -Fqx -- '-t mangle -S' "$FW/iptables.args" ||
     fail "final family verification did not use one complete mangle snapshot"
+
+grep -q -- '--connbytes-mode packets --connbytes-dir original' "$FW/rules.out" ||
+    fail "mock backend did not re-render published rules in kernel save order"
+cp "$FW/rules.out" "$FW/rules.out.published"
+printf '%s\n' '-A ZAPRET2_OUT -p tcp -m multiport --dports 80,443 -j RETURN' >> "$FW/rules.out"
+if z2_fw_verify_family iptables 1; then
+    fail "foreign rule inside the owned chain was accepted"
+fi
+case "$Z2_FW_VERIFY_DETAIL" in
+    *'reason=FOREIGN_OR_UNEXPECTED_RULE'*) ;;
+    *) fail "foreign rule lost its typed reason: $Z2_FW_VERIFY_DETAIL" ;;
+esac
+mv "$FW/rules.out.published" "$FW/rules.out"
+z2_fw_verify_family iptables 1 ||
+    fail "restored owned chain did not verify after foreign rule removal"
 
 z2_fw_cleanup_is_unambiguous iptables || fail "published baseline audit failed"
 z2_fw_save_audit iptables || fail "published baseline audit was not retained"

@@ -440,6 +440,12 @@ z2_fw_verify_family() {
         in_tcp="$(z2_fw_emit_batch_rule "$Z2_FW_IN_CHAIN" tcp in "$PORTS_TCP" "$TCP_PKT_IN" reply 1)" || return 1
         in_udp="$(z2_fw_emit_batch_rule "$Z2_FW_IN_CHAIN" udp in "$PORTS_UDP" "$UDP_PKT_IN" reply 1)" || return 1
     fi
+    # The backend re-renders published rules in its own save format: match
+    # option order, --dports vs --dport for a single port, and mark mask
+    # elision all differ between iptables builds. Verification therefore
+    # compares canonical rule signatures built from the closed module
+    # vocabulary, never the authored batch text. Anything outside that
+    # vocabulary inside the owned namespace is a foreign rule.
     verification="$(printf '%s\n' "$listing" | awk \
         -v out="$Z2_FW_OUT_CHAIN" -v inchain="$Z2_FW_IN_CHAIN" \
         -v connbytes="$connbytes" \
@@ -448,18 +454,112 @@ z2_fw_verify_family() {
         function required_seen(expected, seen) {
             return expected == "" ? seen == 0 : seen == 1
         }
+        function canon(line,    n, t, i, tok, val, chain, proto, portskey,
+                       ports, cbrange, cbdir, cbmode, markval, markinv,
+                       target, qnum, bypass, invert, sig) {
+            n = split(line, t, " ")
+            if (n < 4 || t[1] != "-A") return ""
+            chain = t[2]
+            invert = 0
+            for (i = 3; i <= n; i++) {
+                tok = t[i]
+                if (tok == "!") {
+                    if (invert) return ""
+                    invert = 1
+                    continue
+                }
+                if (tok == "-m" || tok == "--match") {
+                    i++
+                    if (invert || i > n) return ""
+                    if (t[i] != "multiport" && t[i] != "connbytes" &&
+                        t[i] != "mark" && t[i] != "tcp" && t[i] != "udp")
+                        return ""
+                    continue
+                }
+                if (tok == "--queue-bypass") {
+                    if (invert) return ""
+                    bypass = 1
+                    continue
+                }
+                i++
+                if (i > n) return ""
+                val = t[i]
+                if (tok == "-p" || tok == "--protocol") {
+                    if (invert || proto != "") return ""
+                    proto = val
+                } else if (tok == "--dports" || tok == "--dport") {
+                    if (invert || ports != "") return ""
+                    portskey = "d"; ports = val
+                } else if (tok == "--sports" || tok == "--sport") {
+                    if (invert || ports != "") return ""
+                    portskey = "s"; ports = val
+                } else if (tok == "--connbytes") {
+                    if (invert || cbrange != "") return ""
+                    cbrange = val
+                } else if (tok == "--connbytes-dir") {
+                    if (invert || cbdir != "") return ""
+                    cbdir = val
+                } else if (tok == "--connbytes-mode") {
+                    if (invert || cbmode != "") return ""
+                    cbmode = val
+                } else if (tok == "--mark") {
+                    if (markval != "") return ""
+                    markinv = invert
+                    invert = 0
+                    if (!index(val, "/")) val = val "/0xffffffff"
+                    markval = val
+                } else if (tok == "-j" || tok == "--jump") {
+                    if (invert || target != "") return ""
+                    target = val
+                } else if (tok == "--queue-num") {
+                    if (invert || qnum != "") return ""
+                    qnum = val
+                } else {
+                    return ""
+                }
+            }
+            if (invert) return ""
+            if ((cbrange != "" || cbdir != "" || cbmode != "") &&
+                (cbrange == "" || cbdir == "" || cbmode == "")) return ""
+            sig = "-A " chain " p=" proto " " portskey "ports=" ports
+            if (cbrange != "") sig = sig " cb=" cbrange "/" cbmode "/" cbdir
+            if (markval != "") sig = sig " mark=" (markinv ? "!" : "") markval
+            sig = sig " j=" target
+            if (qnum != "") sig = sig " qnum=" qnum
+            if (bypass) sig = sig " bypass"
+            return sig
+        }
+        function canon_expected(rule) {
+            if (rule == "") return ""
+            rule = canon(rule)
+            if (rule == "") expected_bad = 1
+            return rule
+        }
+        BEGIN {
+            c_out_tcp = canon_expected(out_tcp)
+            c_out_udp = canon_expected(out_udp)
+            c_in_tcp = canon_expected(in_tcp)
+            c_in_udp = canon_expected(in_udp)
+            if (expected_bad) {
+                print "EXPECTED_RULE_UNPARSEABLE"
+                bail = 1
+                exit 1
+            }
+        }
         $1 == "-N" && $2 == out { out_chain++ }
         $1 == "-N" && $2 == inchain { in_chain++ }
         $1 == "-A" && $2 == out {
             out_rules++
-            if ($0 == out_tcp && out_tcp != "") out_tcp_seen++
-            else if ($0 == out_udp && out_udp != "") out_udp_seen++
+            sig = canon($0)
+            if (sig != "" && sig == c_out_tcp) out_tcp_seen++
+            else if (sig != "" && sig == c_out_udp) out_udp_seen++
             else bad=1
         }
         $1 == "-A" && $2 == inchain {
             in_rules++
-            if ($0 == in_tcp && in_tcp != "") in_tcp_seen++
-            else if ($0 == in_udp && in_udp != "") in_udp_seen++
+            sig = canon($0)
+            if (sig != "" && sig == c_in_tcp) in_tcp_seen++
+            else if (sig != "" && sig == c_in_udp) in_udp_seen++
             else bad=1
         }
         $1 == "-A" {
@@ -477,22 +577,23 @@ z2_fw_verify_family() {
             }
         }
         END {
-            expected_out=(out_tcp != "") + (out_udp != "")
-            expected_in=(in_tcp != "") + (in_udp != "")
+            if (bail) exit 1
+            expected_out=(c_out_tcp != "") + (c_out_udp != "")
+            expected_in=(c_in_tcp != "") + (c_in_udp != "")
             if (bad) reason="FOREIGN_OR_UNEXPECTED_RULE"
             else if (out_chain != 1) reason="OUT_CHAIN_COUNT:" out_chain
             else if (out_anchor != 1) reason="OUT_ANCHOR_COUNT:" out_anchor
             else if (out_rules != expected_out) reason="OUT_RULE_COUNT:" out_rules
-            else if (!required_seen(out_tcp, out_tcp_seen) ||
-                     !required_seen(out_udp, out_udp_seen))
+            else if (!required_seen(c_out_tcp, out_tcp_seen) ||
+                     !required_seen(c_out_udp, out_udp_seen))
                 reason="OUT_RULE_MISMATCH"
             if (connbytes == 1) {
                 if (reason == "" && in_chain != 1) reason="INPUT_CHAIN_COUNT:" in_chain
                 else if (reason == "" && in_anchor != 1) reason="INPUT_ANCHOR_COUNT:" in_anchor
                 else if (reason == "" && in_rules != expected_in) reason="INPUT_RULE_COUNT:" in_rules
                 else if (reason == "" &&
-                         (!required_seen(in_tcp, in_tcp_seen) ||
-                          !required_seen(in_udp, in_udp_seen)))
+                         (!required_seen(c_in_tcp, in_tcp_seen) ||
+                          !required_seen(c_in_udp, in_udp_seen)))
                     reason="INPUT_RULE_MISMATCH"
             } else {
                 if (reason == "" &&
