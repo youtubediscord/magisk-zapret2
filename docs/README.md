@@ -1,5 +1,15 @@
 # Zapret2 для Android
 
+[![Последний релиз](https://img.shields.io/github/v/release/youtubediscord/magisk-zapret2?style=for-the-badge&label=release&color=2ea043)](https://github.com/youtubediscord/magisk-zapret2/releases/latest)
+[![Загрузки](https://img.shields.io/github/downloads/youtubediscord/magisk-zapret2/total?style=for-the-badge&label=downloads&color=1f6feb)](https://github.com/youtubediscord/magisk-zapret2/releases)
+[![Сборка](https://img.shields.io/github/actions/workflow/status/youtubediscord/magisk-zapret2/build.yml?branch=main&style=for-the-badge&label=build)](https://github.com/youtubediscord/magisk-zapret2/actions/workflows/build.yml)
+[![Лицензия](https://img.shields.io/badge/license-AGPL--3.0--only-orange?style=for-the-badge)](LICENSE.md)
+
+![Android 7.0+](https://img.shields.io/badge/Android-7.0%2B%20(API%2024)-3ddc84?style=flat-square&logo=android&logoColor=white)
+![ABI](https://img.shields.io/badge/ABI-arm64--v8a%20%7C%20armeabi--v7a-555?style=flat-square)
+![Root](https://img.shields.io/badge/root-Magisk%20%7C%20KernelSU%20%7C%20APatch-8957e5?style=flat-square)
+[![Upstream](https://img.shields.io/badge/upstream-bol--van%2Fzapret2-24292f?style=flat-square&logo=github&logoColor=white)](https://github.com/bol-van/zapret2)
+
 Root-модуль для Magisk, KernelSU и APatch, предназначенный для обхода некоторых
 видов DPI-блокировок и замедления трафика на Android. Внутри используется
 [`nfqws2`](https://github.com/bol-van/zapret2) с Lua-стратегиями, а приложение
