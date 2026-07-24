@@ -46,6 +46,15 @@ grep -Fq 'publishable: false' "$BUILDER" ||
     fail "local dev metadata is not explicitly non-publishable"
 grep -Fq 'shell_tests=passed' "$BUILDER" ||
     fail "local builder does not qualify shell integration tests"
+for provenance_file in \
+    upstream-zapret2.commit \
+    upstream-zapret2.release \
+    upstream-zapret2.archive.sha256; do
+    grep -Fq "\"\$PAYLOAD_DIR/\$provenance_file\"" "$BUILDER" ||
+        fail "local builder does not hydrate $provenance_file"
+    grep -Fq "upstream-payload/$provenance_file zapret2/$provenance_file" "$WORKFLOW" ||
+        fail "background validation does not hydrate $provenance_file"
+done
 grep -Fq "gh release create \"\$VERSION_TAG\"" "$PUBLISHER" ||
     fail "local stable publisher does not create the canonical SemVer release"
 grep -Fq -- '--latest' "$PUBLISHER" ||

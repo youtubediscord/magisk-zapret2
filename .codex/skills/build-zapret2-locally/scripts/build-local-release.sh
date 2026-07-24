@@ -291,10 +291,15 @@ else
     "$MODULE_SOURCE/upstream/fetch-release.sh" "$PAYLOAD_DIR"
 fi
 readonly PAYLOAD_DIR
-[[ -f "$PAYLOAD_DIR/upstream-zapret2.commit" \
-    && ! -L "$PAYLOAD_DIR/upstream-zapret2.commit" \
-    && -s "$PAYLOAD_DIR/upstream-zapret2.commit" ]] \
-    || fail "verified upstream provenance is missing"
+for provenance_file in \
+    upstream-zapret2.commit \
+    upstream-zapret2.release \
+    upstream-zapret2.archive.sha256; do
+    [[ -f "$PAYLOAD_DIR/$provenance_file" \
+        && ! -L "$PAYLOAD_DIR/$provenance_file" \
+        && -s "$PAYLOAD_DIR/$provenance_file" ]] \
+        || fail "verified upstream provenance is missing: $provenance_file"
+done
 for abi in arm64-v8a armeabi-v7a; do
     [[ -f "$PAYLOAD_DIR/bin/$abi/nfqws2" && ! -L "$PAYLOAD_DIR/bin/$abi/nfqws2" \
         && -s "$PAYLOAD_DIR/bin/$abi/nfqws2" ]] || fail "verified upstream binary is missing: $abi"
@@ -308,8 +313,13 @@ while IFS= read -r lua_file || [[ -n "$lua_file" ]]; do
         && -s "$PAYLOAD_DIR/lua/$lua_file" ]] || fail "verified upstream Lua is missing: $lua_file"
     install -m 0644 "$PAYLOAD_DIR/lua/$lua_file" "$MODULE_SOURCE/zapret2/lua/$lua_file"
 done < "$MODULE_SOURCE/upstream/lua-files.txt"
-install -m 0644 "$PAYLOAD_DIR/upstream-zapret2.commit" \
-    "$MODULE_SOURCE/zapret2/upstream-zapret2.commit"
+for provenance_file in \
+    upstream-zapret2.commit \
+    upstream-zapret2.release \
+    upstream-zapret2.archive.sha256; do
+    install -m 0644 "$PAYLOAD_DIR/$provenance_file" \
+        "$MODULE_SOURCE/zapret2/$provenance_file"
+done
 
 SHELL_TEST_LOG="$WORK_ROOT/shell-tests.log"
 chmod +x "$MODULE_SOURCE/tests/shell/run.sh"

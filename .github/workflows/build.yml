@@ -47,6 +47,8 @@ jobs:
             install -m 0644 "upstream-payload/lua/$upstream_lua" "zapret2/lua/$upstream_lua"
           done < upstream/lua-files.txt
           install -m 0644 upstream-payload/upstream-zapret2.commit zapret2/upstream-zapret2.commit
+          install -m 0644 upstream-payload/upstream-zapret2.release zapret2/upstream-zapret2.release
+          install -m 0644 upstream-payload/upstream-zapret2.archive.sha256 zapret2/upstream-zapret2.archive.sha256
 
       - name: Validate shell syntax and security contracts
         run: |
@@ -270,6 +272,7 @@ jobs:
         env:
           UPSTREAM_ZAPRET2_SHA: ${{ needs.fetch-upstream.outputs.sha }}
           UPSTREAM_ZAPRET2_TAG: ${{ needs.fetch-upstream.outputs.tag }}
+          UPSTREAM_ZAPRET2_ARCHIVE_SHA256: ${{ needs.fetch-upstream.outputs.archive_sha256 }}
         run: |
           set -euo pipefail
           VERSION="${{ needs.prepare-version.outputs.version }}"
@@ -278,6 +281,7 @@ jobs:
           [[ "$UPSTREAM_ZAPRET2_TAG" =~ ^v[0-9] ]]
           grep -Fxq "$UPSTREAM_ZAPRET2_SHA" upstream-payload/upstream-zapret2.commit
           grep -Fxq "$UPSTREAM_ZAPRET2_TAG" upstream-payload/upstream-zapret2.release
+          grep -Fxq "$UPSTREAM_ZAPRET2_ARCHIVE_SHA256" upstream-payload/upstream-zapret2.archive.sha256
 
           # Create bin directories (ARM only, no x86 emulator support)
           mkdir -p zapret2/bin/arm64-v8a
@@ -302,6 +306,8 @@ jobs:
             echo "Synced upstream $upstream_lua"
           done < upstream/lua-files.txt
           install -m 0644 upstream-payload/upstream-zapret2.commit zapret2/upstream-zapret2.commit
+          install -m 0644 upstream-payload/upstream-zapret2.release zapret2/upstream-zapret2.release
+          install -m 0644 upstream-payload/upstream-zapret2.archive.sha256 zapret2/upstream-zapret2.archive.sha256
           grep 'NFQWS2_COMPAT_VER' "zapret2/lua/zapret-lib.lua" | head -2
 
           # Set module version from CI metadata
@@ -413,13 +419,18 @@ jobs:
             echo "Recovery flashing metadata must not be published" >&2
             exit 1
           fi
-          PROVENANCE_ENTRY='zapret2/upstream-zapret2.commit'
-          test "$(grep -Fxc "$PROVENANCE_ENTRY" "$ZIP_LIST")" -eq 1
           WRAPPER_EXPECTED="$(mktemp)"
           WRAPPER_ACTUAL="$(mktemp)"
-          printf '%s\n' "$UPSTREAM_ZAPRET2_SHA" > "$WRAPPER_EXPECTED"
-          unzip -p "$ZIP_NAME" "$PROVENANCE_ENTRY" > "$WRAPPER_ACTUAL"
-          cmp -s "$WRAPPER_EXPECTED" "$WRAPPER_ACTUAL"
+          verify_provenance_entry() {
+            local entry="$1" expected="$2"
+            test "$(grep -Fxc "$entry" "$ZIP_LIST")" -eq 1
+            printf '%s\n' "$expected" > "$WRAPPER_EXPECTED"
+            unzip -p "$ZIP_NAME" "$entry" > "$WRAPPER_ACTUAL"
+            cmp -s "$WRAPPER_EXPECTED" "$WRAPPER_ACTUAL"
+          }
+          verify_provenance_entry 'zapret2/upstream-zapret2.commit' "$UPSTREAM_ZAPRET2_SHA"
+          verify_provenance_entry 'zapret2/upstream-zapret2.release' "$UPSTREAM_ZAPRET2_TAG"
+          verify_provenance_entry 'zapret2/upstream-zapret2.archive.sha256' "$UPSTREAM_ZAPRET2_ARCHIVE_SHA256"
           rm -f "$ZIP_LIST" "$WRAPPER_EXPECTED" "$WRAPPER_ACTUAL"
           rm -rf "$PACKAGE_ASSEMBLY_ROOT"
           sudo rm -rf "$PACKAGE_VALIDATE_ROOT"
