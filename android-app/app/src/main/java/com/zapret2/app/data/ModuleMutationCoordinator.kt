@@ -144,6 +144,9 @@ object ModuleMutationCoordinator {
         return buildInheritedLifecycleCommand(command, lease)
     }
 
+    /** Generation expected from a lifecycle script running under this exact app-owned lease. */
+    internal fun currentLifecycleToken(): String? = threadOwnership.get()?.lease?.token
+
     internal fun buildInheritedLifecycleCommand(
         command: String,
         lease: LifecycleMutationLockProtocol.Lease,

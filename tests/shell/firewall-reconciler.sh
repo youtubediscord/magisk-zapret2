@@ -16,6 +16,7 @@ cat > "$MOCK/iptables" <<'EOF'
 #!/bin/sh
 state="$Z2_MOCK_FW"
 args=" $* "
+printf '%s\n' "$*" >> "$state/iptables.args"
 case "$args" in
     *' -t mangle -L OUTPUT -n '*) exit 0 ;;
     *' -t mangle -C OUTPUT -j ZAPRET2_OUT '*) [ -f "$state/anchor.out" ] ;;
@@ -68,18 +69,47 @@ EOF
 cat > "$MOCK/iptables-restore" <<'EOF'
 #!/bin/sh
 state="$Z2_MOCK_FW"
+case " $* " in
+    *' --help '*)
+        count=0
+        [ ! -f "$state/restore-help.count" ] ||
+            IFS= read -r count < "$state/restore-help.count"
+        printf '%s\n' $((count + 1)) > "$state/restore-help.count"
+        [ "${Z2_RESTORE_WAIT_SUPPORTED:-1}" = 1 ] &&
+            echo 'Usage: iptables-restore [ --wait seconds ] [ --test ] [ --noflush ]' ||
+            echo 'Usage: iptables-restore [ --test ] [ --noflush ]'
+        exit 0
+        ;;
+esac
 payload=$(cat)
 count=0
 [ ! -f "$state/restore.count" ] || IFS= read -r count < "$state/restore.count"
 count=$((count + 1))
 printf '%s\n' "$count" > "$state/restore.count"
+printf '%s\n' "$*" >> "$state/restore.args"
+if [ -f "$state/lock.remaining" ]; then
+    IFS= read -r remaining < "$state/lock.remaining"
+    if [ "$remaining" -gt 0 ]; then
+        printf '%s\n' $((remaining - 1)) > "$state/lock.remaining"
+        echo 'Another app is currently holding the xtables lock.' >&2
+        exit 4
+    fi
+fi
 case "$payload" in *Z2R_*) exit 90;; esac
 if [ "${Z2_RESTORE_REJECT_CONNBYTES:-0}" = 1 ] &&
    printf '%s\n' "$payload" | grep -q -- '-m connbytes'; then
+    echo 'connbytes match is unavailable' >&2
     exit 1
 fi
+[ "${Z2_RESTORE_REJECT_ALL:-0}" != 1 ] || {
+    printf 'vendor parser rejected ruleset\033[31m\n' >&2
+    exit 1
+}
 case " $* " in *' --test '*) exit 0;; esac
-[ "${Z2_RESTORE_FAIL_COMMIT:-0}" != 1 ] || exit 1
+[ "${Z2_RESTORE_FAIL_COMMIT:-0}" != 1 ] || {
+    echo 'vendor backend rejected COMMIT' >&2
+    exit 1
+}
 printf '%s\n' "$payload" | grep -F -- ':ZAPRET2_OUT ' >/dev/null || exit 1
 : > "$state/chain.out"
 printf '%s\n' "$payload" | grep -F -- '-A ZAPRET2_OUT ' > "$state/rules.out" || :
@@ -126,7 +156,18 @@ z2_fw_reconcile_family iptables || fail "atomic restore reconcile failed"
     fail "atomic restore did not publish both anchors"
 [ "$(cat "$FW/restore.count")" = 2 ] ||
     fail "atomic restore did not use exactly one test and one commit"
+[ "$(cat "$FW/restore-help.count")" = 1 ] ||
+    fail "restore wait capability was probed more than once per backend"
+grep -Fqx -- '--wait 5 --test --noflush' "$FW/restore.args" ||
+    fail "native restore lock wait was not used for validation"
+grep -Fqx -- '--wait 5 --noflush' "$FW/restore.args" ||
+    fail "native restore lock wait was not used for commit"
+: > "$FW/iptables.args"
 z2_fw_verify_family iptables 1 || fail "published family did not verify"
+[ "$(wc -l < "$FW/iptables.args")" = 1 ] ||
+    fail "final family verification used more than one kernel snapshot"
+grep -Fqx -- '-t mangle -S' "$FW/iptables.args" ||
+    fail "final family verification did not use one complete mangle snapshot"
 
 z2_fw_cleanup_family iptables || fail "stable namespace cleanup failed"
 z2_fw_cleanup_family iptables || fail "stable namespace cleanup is not idempotent"
@@ -140,8 +181,64 @@ z2_fw_reconcile_family iptables || fail "connbytes fallback reconcile failed"
     fail "outgoing-only fallback metadata changed"
 [ -f "$FW/anchor.out" ] && [ ! -f "$FW/anchor.in" ] ||
     fail "outgoing-only fallback published an input anchor"
+case "$Z2_FW_FALLBACK_DETAIL" in
+    *'connbytes match is unavailable'*) ;;
+    *) fail "connbytes fallback diagnostic was not preserved" ;;
+esac
 unset Z2_RESTORE_REJECT_CONNBYTES
 z2_fw_cleanup_family iptables || fail "fallback cleanup failed"
+
+rm -f "$FW"/*
+Z2_RESTORE_WAIT_SUPPORTED=0
+export Z2_RESTORE_WAIT_SUPPORTED
+z2_fw_reset_restore_wait_capabilities
+z2_fw_reconcile_family iptables || fail "legacy restore without --wait failed"
+if grep -Fq -- '--wait' "$FW/restore.args"; then
+    fail "legacy restore received unsupported --wait option"
+fi
+[ "$(cat "$FW/restore.count")" = 2 ] ||
+    fail "legacy restore did not use one validation and one commit"
+z2_fw_cleanup_family iptables || fail "legacy restore cleanup failed"
+
+rm -f "$FW"/*
+printf '%s\n' 2 > "$FW/lock.remaining"
+z2_fw_lock_retry_pause() { :; }
+z2_fw_reconcile_family iptables || fail "legacy xtables lock wait did not recover"
+[ "$(cat "$FW/restore.count")" = 4 ] ||
+    fail "legacy xtables lock wait did not retry only the two lock failures"
+z2_fw_cleanup_family iptables || fail "legacy lock-wait cleanup failed"
+
+rm -f "$FW"/*
+printf '%s\n' 20 > "$FW/lock.remaining"
+if z2_fw_reconcile_family iptables; then
+    fail "exhausted legacy xtables lock wait was accepted"
+fi
+[ "$Z2_FW_FAILURE_CLASS" = LOCK_TIMEOUT ] ||
+    fail "exhausted legacy xtables lock wait lost its failure class"
+[ "$(cat "$FW/restore.count")" = 6 ] ||
+    fail "legacy xtables lock wait was not bounded to five seconds"
+z2_fw_family_absent iptables || fail "lock timeout left live firewall state"
+unset Z2_RESTORE_WAIT_SUPPORTED
+z2_fw_reset_restore_wait_capabilities
+
+rm -f "$FW"/*
+Z2_RESTORE_REJECT_ALL=1
+export Z2_RESTORE_REJECT_ALL
+if z2_fw_reconcile_family iptables; then
+    fail "unsupported baseline ruleset was accepted"
+fi
+[ "$Z2_FW_FAILURE_CLASS" = RULESET_REJECTED ] ||
+    fail "unsupported baseline ruleset lost its failure class"
+case "$Z2_FW_ERROR_DETAIL" in
+    *'test failed'*'vendor parser rejected ruleset'*)
+        case "$Z2_FW_ERROR_DETAIL" in
+            *"$(printf '\033')"*) fail "backend control character escaped normalization" ;;
+        esac
+        ;;
+    *) fail "unsupported baseline ruleset diagnostic was discarded" ;;
+esac
+z2_fw_family_absent iptables || fail "unsupported baseline ruleset left live firewall state"
+unset Z2_RESTORE_REJECT_ALL
 
 rm -f "$FW"/*
 Z2_RESTORE_FAIL_COMMIT=1
@@ -152,7 +249,17 @@ fi
 [ "$(cat "$FW/restore.count")" = 2 ] ||
     fail "failed COMMIT incorrectly retried with a degraded topology"
 z2_fw_family_absent iptables || fail "failed COMMIT left live firewall state"
+[ "$Z2_FW_FAILURE_CLASS" = PUBLICATION_FAILED ] ||
+    fail "failed COMMIT did not retain its failure class"
+case "$Z2_FW_ERROR_DETAIL" in
+    *'commit failed'*'vendor backend rejected COMMIT'*) ;;
+    *) fail "failed COMMIT diagnostic was discarded" ;;
+esac
 unset Z2_RESTORE_FAIL_COMMIT
+
+if find "$STATE" -maxdepth 1 -type f -name 'firewall-*' | grep -q .; then
+    fail "firewall transaction left private temporary files"
+fi
 
 : > "$FW/chain.out"
 : > "$FW/rules.out"

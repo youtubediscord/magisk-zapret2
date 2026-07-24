@@ -59,6 +59,42 @@ case "$1" in
         prepare_lifecycle_log() { echo MUTATION-log >> "$LOG"; return 0; }
         main
         ;;
+    fast-match|fast-mismatch)
+        REPLACE=1
+        FAST_REPLACE_BASELINE=1
+        FAST_REPLACE_FIREWALL_FINGERPRINT=matching-firewall
+        FAST_REPLACE_IPV6_ACTIVE=1
+        FAST_REPLACE_IPV4_CONNBYTES=1
+        FAST_REPLACE_IPV6_CONNBYTES=1
+        z2_fw_tool_available() { [ "$1" = ip6tables ]; }
+        z2_fw_restore_available() { [ "$1" = ip6tables ]; }
+        prepare_new_firewall_identity() {
+            FIREWALL_TAG=stable0001
+            ZAPRET2_OUT=ZAPRET2_OUT
+            ZAPRET2_IN=ZAPRET2_IN
+            PENDING_OWNER_GENERATION=request-generation
+            return 0
+        }
+        prepare_owner_generation_spec() {
+            OWNER_WRITE_IPV4_RULES=4
+            OWNER_WRITE_IPV6_RULES=4
+            if [ "$1" = 1 ] && [ "$2" = 1 ] && [ "$PORTS_TCP" = 80,443 ]; then
+                OWNER_WRITE_FIREWALL_FINGERPRINT=matching-firewall
+            else
+                OWNER_WRITE_FIREWALL_FINGERPRINT=different-firewall
+            fi
+            return 0
+        }
+        PORTS_TCP=80,443
+        if [ "$1" = fast-mismatch ]; then PORTS_TCP=443; fi
+        if prepare_fast_replace_candidate; then
+            [ "$1" = fast-match ] || exit 3
+            [ "$FAST_REPLACE_READY" = 1 ] &&
+                [ "$IPV4_RULES:$IPV6_RULES:$IPV6_ACTIVE" = 4:4:1 ]
+        else
+            [ "$1" = fast-mismatch ] && [ "$FAST_REPLACE_READY" = 0 ]
+        fi
+        ;;
     *) exit 2 ;;
 esac
 EOF
@@ -92,5 +128,10 @@ grep -Fxq metadata-rejected "$LOG" || fail "install generation mismatch was not 
 run_failure signal
 grep -Fxq rollback-new "$LOG" || fail "signal did not roll back new state"
 ! grep -Fq exact-prior-restored "$LOG" || fail "signal restored an obsolete generation"
+
+Z2_START_TEST_LOG="$LOG" STATE_DIR="$STATE" sh "$SCRIPTS/scenario.sh" fast-match ||
+    fail "matching authenticated firewall topology did not select daemon-only replacement"
+Z2_START_TEST_LOG="$LOG" STATE_DIR="$STATE" sh "$SCRIPTS/scenario.sh" fast-mismatch ||
+    fail "changed firewall topology did not fall back to the full transaction"
 
 echo "Transactional start shell tests passed"

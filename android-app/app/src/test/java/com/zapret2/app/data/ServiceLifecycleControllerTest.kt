@@ -185,6 +185,63 @@ class ServiceLifecycleControllerTest {
     }
 
     @Test
+    fun indeterminateLifecycleResult_commitsOnlyTheExactRequestedRunningGeneration() {
+        val expected = ServiceLifecycleController.parseStatusOutput(
+            versionSixStatusLines(
+                healthyStatusLines().map {
+                    if (it.startsWith("Z2_OWNER_GENERATION=")) {
+                        "Z2_OWNER_GENERATION=app-request-generation"
+                    } else {
+                        it
+                    }
+                },
+                lifecycleState = "idle",
+                chains = 4,
+                anchors = 4,
+            ),
+        )
+        val stale = expected.copy(ownerGeneration = "previous-generation")
+        val deterministicFailure = ServiceLifecycleController.CommandResult(
+            success = false,
+            indeterminate = false,
+        )
+        val indeterminate = deterministicFailure.copy(indeterminate = true)
+
+        assertTrue(
+            ServiceLifecycleController.indeterminateLifecycleCommitMatches(
+                indeterminate,
+                expected,
+                expectedRunning = true,
+                expectedOwnerGeneration = "app-request-generation",
+            ),
+        )
+        assertFalse(
+            ServiceLifecycleController.indeterminateLifecycleCommitMatches(
+                indeterminate,
+                stale,
+                expectedRunning = true,
+                expectedOwnerGeneration = "app-request-generation",
+            ),
+        )
+        assertFalse(
+            ServiceLifecycleController.indeterminateLifecycleCommitMatches(
+                deterministicFailure,
+                expected,
+                expectedRunning = true,
+                expectedOwnerGeneration = "app-request-generation",
+            ),
+        )
+        assertFalse(
+            ServiceLifecycleController.indeterminateLifecycleCommitMatches(
+                indeterminate,
+                expected,
+                expectedRunning = false,
+                expectedOwnerGeneration = "app-request-generation",
+            ),
+        )
+    }
+
+    @Test
     fun lifecycleReceipt_rejectsMissingDuplicateOrMalformedV6Payloads() {
         val valid = versionSixStatusLines(
             healthyStatusLines(),

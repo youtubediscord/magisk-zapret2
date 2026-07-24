@@ -33,6 +33,44 @@ class PresetApplicationPerformanceContractTest {
     }
 
     @Test
+    fun lifecycleFirewall_hasOneCleanupOwnerAndOneFinalSnapshotVerification() {
+        val start = repositoryFile("zapret2/scripts/zapret-start.sh").readText()
+        val reconciler = repositoryFile("zapret2/scripts/firewall-reconciler.sh").readText()
+        val reconcile = reconciler
+            .substringAfter("z2_fw_reconcile_family() {")
+            .substringBeforeLast("}")
+        val verify = reconciler
+            .substringAfter("z2_fw_verify_family() {")
+            .substringBefore("z2_fw_reconcile_family() {")
+
+        assertTrue(start.contains("z2_fw_reconcile_family iptables precleaned"))
+        assertTrue(start.contains("z2_fw_reconcile_family ip6tables precleaned"))
+        assertFalse(reconcile.contains("z2_fw_verify_family"))
+        assertTrue(verify.contains("\"${'$'}tool\" -t mangle -S"))
+        assertFalse(verify.contains(" -C "))
+        assertFalse(verify.contains("z2_fw_chain_rule_count"))
+    }
+
+    @Test
+    fun restart_reusesOnlyAnAuthenticatedUnchangedFirewallGeneration() {
+        val start = repositoryFile("zapret2/scripts/zapret-start.sh").readText()
+        val selector = start
+            .substringAfter("prepare_fast_replace_candidate() {")
+            .substringBefore("fast_replace_health_ok() {")
+        val fastPath = start
+            .substringAfter("if prepare_fast_replace_candidate; then")
+            .substringBefore("log_section \"Firewall transaction\"")
+
+        assertTrue(selector.contains("OWNER_WRITE_FIREWALL_FINGERPRINT"))
+        assertTrue(selector.contains("FAST_REPLACE_FIREWALL_FINGERPRINT"))
+        assertTrue(fastPath.contains("stop_pidfile_process"))
+        assertTrue(fastPath.contains("launch_nfqws2"))
+        assertTrue(fastPath.contains("fast_replace_health_ok"))
+        assertFalse(fastPath.contains("cleanup_owned_firewall"))
+        assertFalse(fastPath.contains("z2_fw_reconcile_family"))
+    }
+
+    @Test
     fun transactionCandidates_deferDurabilityToTheirSingleCommitBoundary() {
         val presets = repositoryFile(
             "android-app/app/src/main/java/com/zapret2/app/data/PresetRepository.kt",

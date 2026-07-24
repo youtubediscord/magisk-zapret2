@@ -545,6 +545,8 @@ object ServiceLifecycleController {
                 Action.STOP -> STOP_SCRIPT
                 Action.RESTART -> RESTART_SCRIPT
             }
+            val expectedRunning = action != Action.STOP
+            val expectedOwnerGeneration = ModuleMutationCoordinator.currentLifecycleToken()
             val result = withContext(NonCancellable) {
                 val commandResult = executeRoot(
                     ModuleMutationCoordinator.inheritLifecycleLock(
@@ -554,6 +556,20 @@ object ServiceLifecycleController {
                 )
                 if (!commandResult.success) {
                     val status = getStatusLocked()
+                    if (indeterminateLifecycleCommitMatches(
+                            commandResult,
+                            status,
+                            expectedRunning,
+                            expectedOwnerGeneration,
+                        )
+                    ) {
+                        return@withContext LifecycleResult(
+                            success = true,
+                            action = action,
+                            status = status,
+                            command = commandResult,
+                        )
+                    }
                     return@withContext LifecycleResult(
                         success = false,
                         action = action,
@@ -563,7 +579,6 @@ object ServiceLifecycleController {
                     )
                 }
 
-                val expectedRunning = action != Action.STOP
                 parseLifecycleReceipt(commandResult)
                     ?.takeIf { it.matchesExpectedState(expectedRunning) }
                     ?.let { committed ->
@@ -601,6 +616,18 @@ object ServiceLifecycleController {
             lifecycleMutex.unlock()
         }
     }
+
+    internal fun indeterminateLifecycleCommitMatches(
+        command: CommandResult,
+        status: ServiceStatus,
+        expectedRunning: Boolean,
+        expectedOwnerGeneration: String?,
+    ): Boolean =
+        command.indeterminate &&
+            expectedRunning &&
+            !expectedOwnerGeneration.isNullOrEmpty() &&
+            status.ownerGeneration == expectedOwnerGeneration &&
+            status.matchesExpectedState(expectedRunning)
 
     private fun Action.displayName(): String = name.lowercase()
 

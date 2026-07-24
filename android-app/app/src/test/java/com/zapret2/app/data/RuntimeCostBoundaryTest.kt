@@ -254,14 +254,19 @@ class RuntimeCostBoundaryTest {
         val launch = start
             .substringAfter("launch_nfqws2() {")
             .substringBefore("stop_failed_fallback_launch() {")
-        val commit = start
-            .substringAfter("launch_nfqws2 ||")
+        val fastCommit = start
+            .substringAfter("if prepare_fast_replace_candidate; then")
+            .substringBefore("log_section \"Firewall transaction\"")
+        val fullCommit = start
+            .substringAfterLast("log_section \"nfqws2 launch\"")
             .substringBefore("TOTAL_RULES=")
 
         assertFalse(launch.contains("verify_nfqws_pid"))
         assertTrue(launch.contains("publish_nfqws_owner"))
-        assertFalse(commit.contains("set_owner_phase active"))
-        assertTrue(commit.contains("normal_health_ok"))
+        assertFalse(fastCommit.contains("set_owner_phase active"))
+        assertTrue(fastCommit.contains("fast_replace_health_ok"))
+        assertFalse(fullCommit.contains("set_owner_phase active"))
+        assertTrue(fullCommit.contains("normal_health_ok"))
     }
 
     @Test

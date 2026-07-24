@@ -21,6 +21,12 @@ IPV6_BUILT=0
 IPV4_RULES=0
 IPV6_RULES=0
 DIAGNOSTICS=""
+FAST_REPLACE_BASELINE=0
+FAST_REPLACE_READY=0
+FAST_REPLACE_FIREWALL_FINGERPRINT=""
+FAST_REPLACE_IPV6_ACTIVE=0
+FAST_REPLACE_IPV4_CONNBYTES=0
+FAST_REPLACE_IPV6_CONNBYTES=0
 
 log_msg() {
     append_lifecycle_log "[INFO] $(date '+%Y-%m-%d %H:%M:%S') $1"
@@ -37,6 +43,18 @@ log_debug() {
 }
 
 log_section() { log_msg "==== $1 ===="; }
+
+firewall_failure_code() {
+    case "${Z2_FW_FAILURE_CLASS:-}" in
+        BACKEND_UNAVAILABLE) printf '%s\n' FIREWALL_BACKEND_UNAVAILABLE ;;
+        CLEANUP_FAILED) printf '%s\n' FIREWALL_CLEANUP_FAILED ;;
+        LOCK_TIMEOUT) printf '%s\n' FIREWALL_LOCK_TIMEOUT ;;
+        RULESET_REJECTED) printf '%s\n' FIREWALL_RULESET_UNSUPPORTED ;;
+        PUBLICATION_FAILED) printf '%s\n' FIREWALL_PUBLISH_FAILED ;;
+        POSTCONDITION_FAILED) printf '%s\n' POSTCONDITION_FAILED ;;
+        *) printf '%s\n' FIREWALL_BUILD_FAILED ;;
+    esac
+}
 
 start_error_exit() {
     local domain="$1" code="$2" stage="$3" message="$5"
@@ -207,15 +225,75 @@ normal_health_ok() {
     HEALTH_GENERATION="$OWNER_STATE_GENERATION"
     HEALTH_RULES="$OWNER_STATE_IPV4_RULES"
     if command -v ip6tables >/dev/null 2>&1; then
-        owned_family_present ip6tables
-        case $? in
-            0) owner_family_generation_healthy ip6tables ipv6 || return 1; HEALTH_IPV6=1; HEALTH_RULES=$((OWNER_STATE_IPV4_RULES + OWNER_STATE_IPV6_RULES)) ;;
-            1) ;;
-            *) return 1 ;;
-        esac
+        if [ "$OWNER_STATE_IPV6_ACTIVE" = 1 ]; then
+            owner_family_generation_healthy ip6tables ipv6 || return 1
+            HEALTH_IPV6=1
+            HEALTH_RULES=$((OWNER_STATE_IPV4_RULES + OWNER_STATE_IPV6_RULES))
+        else
+            owner_family_generation_healthy ip6tables ipv6 || return 1
+        fi
     elif [ "${STATUS_FILE_IPV6_ACTIVE:-0}" = 1 ]; then
         return 1
     fi
+    return 0
+}
+
+capture_fast_replace_baseline() {
+    [ "$REPLACE" = 1 ] && [ "$OWNER_STATE_PHASE" = active ] || return 1
+    FAST_REPLACE_FIREWALL_FINGERPRINT="$OWNER_STATE_FIREWALL_FINGERPRINT"
+    FAST_REPLACE_IPV6_ACTIVE="$OWNER_STATE_IPV6_ACTIVE"
+    FAST_REPLACE_IPV4_CONNBYTES="$OWNER_STATE_IPV4_CONNBYTES"
+    FAST_REPLACE_IPV6_CONNBYTES="$OWNER_STATE_IPV6_CONNBYTES"
+    FAST_REPLACE_BASELINE=1
+}
+
+prepare_fast_replace_candidate() {
+    local desired_ipv6=0
+    [ "$FAST_REPLACE_BASELINE" = 1 ] || return 1
+    if z2_fw_tool_available ip6tables && z2_fw_restore_available ip6tables; then
+        desired_ipv6=1
+    fi
+    [ "$desired_ipv6" = "$FAST_REPLACE_IPV6_ACTIVE" ] || return 1
+
+    IPV4_NFQUEUE=1; IPV4_QUEUE_BYPASS=1; IPV4_MULTIPORT=1; IPV4_MARK=1
+    IPV4_CONNBYTES="$FAST_REPLACE_IPV4_CONNBYTES"
+    IPV6_ACTIVE="$FAST_REPLACE_IPV6_ACTIVE"; IPV6_BUILT="$FAST_REPLACE_IPV6_ACTIVE"
+    IPV6_CONNBYTES="$FAST_REPLACE_IPV6_CONNBYTES"; IPV6_MULTIPORT=1; IPV6_MARK=1
+    OWNER_WRITE_READY=0; OWNER_WRITE_QNUM=""; OWNER_WRITE_SOURCE_GENERATION=""
+    prepare_new_firewall_identity || return 1
+    prepare_owner_generation_spec 1 "$IPV6_ACTIVE" || return 1
+    [ "$OWNER_WRITE_FIREWALL_FINGERPRINT" = "$FAST_REPLACE_FIREWALL_FINGERPRINT" ] ||
+        return 1
+
+    IPV4_RULES="$OWNER_WRITE_IPV4_RULES"; IPV4_BUILT=1; IPV4_ACTIVE=1
+    IPV6_RULES="$OWNER_WRITE_IPV6_RULES"
+    FALLBACK_MODE=0
+    if [ "$IPV4_CONNBYTES" != 1 ] ||
+       { [ "$IPV6_ACTIVE" = 1 ] && [ "$IPV6_CONNBYTES" != 1 ]; }; then
+        FALLBACK_MODE=1
+    fi
+    FAST_REPLACE_READY=1
+    return 0
+}
+
+fast_replace_health_ok() {
+    HEALTH_PID=""; HEALTH_PID_START=""; HEALTH_GENERATION=""
+    HEALTH_IPV6="$IPV6_ACTIVE"; HEALTH_RULES=$((IPV4_RULES + IPV6_RULES))
+    read_verified_pidfile || return 1
+    read_install_generation_meta &&
+        [ "$OWNER_STATE_INSTALL_GENERATION" = "$INSTALL_META_GENERATION" ] &&
+        [ "$OWNER_STATE_INSTALL_ARCHIVE_SHA256" = "$INSTALL_META_ARCHIVE_SHA256" ] ||
+        return 1
+    [ "$OWNER_STATE_PHASE" = active ] &&
+        [ "$OWNER_STATE_QNUM" = "$QNUM" ] &&
+        [ "$OWNER_STATE_GENERATION" = "$PENDING_OWNER_GENERATION" ] &&
+        [ "$OWNER_STATE_FIREWALL_FINGERPRINT" = "$FAST_REPLACE_FIREWALL_FINGERPRINT" ] &&
+        [ "$OWNER_STATE_IPV4_RULES" = "$IPV4_RULES" ] &&
+        [ "$OWNER_STATE_IPV6_RULES" = "$IPV6_RULES" ] ||
+        return 1
+    HEALTH_PID="$VERIFIED_PID"
+    HEALTH_PID_START="$VERIFIED_PID_START"
+    HEALTH_GENERATION="$OWNER_STATE_GENERATION"
     return 0
 }
 
@@ -385,6 +463,7 @@ launch_nfqws2() {
                     continue
                 fi
                 NEW_PID_PUBLISHED=1
+                PROCESS_CLEANUP_PREFLIGHT_PROVEN=0
                 STARTED_PID="$candidate"; STARTED_PID_START="$VERIFIED_STARTTIME"
                 return 0
             fi
@@ -498,23 +577,67 @@ main() {
         fail_start "legacy firewall migration did not reach a verified commit" \
             FIREWALL POSTCONDITION_FAILED START_LEGACY 0
 
-    if [ "$REPLACE" = 0 ] && normal_health_ok; then
-        DIAGNOSTICS="already healthy; no process or firewall churn"
-        write_ok_status "$HEALTH_RULES" "$HEALTH_PID" "$HEALTH_IPV6" || fail_start "cannot write lifecycle status"
-        receipt_lifecycle_state=idle; receipt_owner_kind=none
-        if [ "$LOCK_HELD" = inherited ]; then
-            receipt_lifecycle_state=owned; receipt_owner_kind=android-mutation
+    if normal_health_ok; then
+        if [ "$REPLACE" = 0 ]; then
+            DIAGNOSTICS="already healthy; no process or firewall churn"
+            write_ok_status "$HEALTH_RULES" "$HEALTH_PID" "$HEALTH_IPV6" || fail_start "cannot write lifecycle status"
+            receipt_lifecycle_state=idle; receipt_owner_kind=none
+            if [ "$LOCK_HELD" = inherited ]; then
+                receipt_lifecycle_state=owned; receipt_owner_kind=android-mutation
+            fi
+            release_lifecycle_lock || fail_start "cannot release lifecycle ownership"
+            trap - HUP INT TERM
+            emit_committed_status_v6 ok "$receipt_lifecycle_state" "$receipt_owner_kind" || true
+            echo "Zapret2 is already running (PID: $HEALTH_PID)"
+            exit 0
         fi
-        release_lifecycle_lock || fail_start "cannot release lifecycle ownership"
-        trap - HUP INT TERM
-        emit_committed_status_v6 ok "$receipt_lifecycle_state" "$receipt_owner_kind" || true
-        echo "Zapret2 is already running (PID: $HEALTH_PID)"
-        exit 0
+        capture_fast_replace_baseline || FAST_REPLACE_BASELINE=0
     fi
 
     log_section "Preset preflight"
     prepare_options ||
         fail_start "nfqws2 preflight/dry-run failed" CONFIG PREFLIGHT_FAILED START_NFQWS_PREFLIGHT 0
+
+    if prepare_fast_replace_candidate; then
+        log_section "Daemon-only replacement"
+        preflight_owned_process_cleanup ||
+            fail_start "cannot authenticate the previous nfqws2 process: $PROCESS_CLEANUP_PREFLIGHT_ERROR" \
+                PROCESS PROCESS_STOP_FAILED START_CLEANUP 0
+        CONTROLLED_TEARDOWN_STARTED=1
+        stop_pidfile_process ||
+            fail_start "cannot stop verified previous nfqws2 process" \
+                PROCESS PROCESS_STOP_FAILED START_CLEANUP 0
+        # The verified firewall generation is retained. If the replacement
+        # cannot be committed, rollback owns its removal so the steady state is
+        # unambiguously stopped rather than firewall-only.
+        FIREWALL_MUTATED=1
+        log_section "nfqws2 launch"
+        launch_nfqws2 ||
+            fail_start "nfqws2 did not produce a verified module-owned PID" \
+                PROCESS PROCESS_LAUNCH_FAILED START_LAUNCH 1
+        fast_replace_health_ok ||
+            fail_start "daemon-only replacement ownership verification failed" \
+                LIFECYCLE POSTCONDITION_FAILED START_VERIFY 0
+        [ "$HEALTH_PID" = "$STARTED_PID" ] && [ "$HEALTH_PID_START" = "$STARTED_PID_START" ] ||
+            fail_start "daemon-only replacement PID identity changed"
+
+        TOTAL_RULES=$((IPV4_RULES + IPV6_RULES))
+        DIAGNOSTICS="${DIAGNOSTICS}verified firewall topology unchanged; retained existing ruleset; "
+        write_ok_status "$TOTAL_RULES" "$STARTED_PID" "$IPV6_ACTIVE" ||
+            fail_start "cannot atomically write lifecycle status"
+        LAUNCHED_PID=""
+        receipt_lifecycle_state=idle; receipt_owner_kind=none
+        if [ "$LOCK_HELD" = inherited ]; then
+            receipt_lifecycle_state=owned; receipt_owner_kind=android-mutation
+        fi
+        release_lifecycle_lock || fail_start "cannot release lifecycle ownership"
+        FIREWALL_MUTATED=0
+        trap - HUP INT TERM
+        log_msg "Zapret2 daemon replaced with verified PID $STARTED_PID; firewall retained"
+        emit_committed_status_v6 ok "$receipt_lifecycle_state" "$receipt_owner_kind" || true
+        echo "Zapret2 restarted (PID: $STARTED_PID; firewall unchanged)"
+        exit 0
+    fi
 
     log_section "Firewall transaction"
     command -v z2_fw_reconcile_family >/dev/null 2>&1 ||
@@ -526,6 +649,9 @@ main() {
     audit_owned_firewall_for_cleanup "$QNUM" ||
         fail_start "stable firewall namespace cleanup is unsafe: $FIREWALL_CLEANUP_PREFLIGHT_ERROR" \
             FIREWALL FIREWALL_CLEANUP_FAILED START_CLEANUP 0
+    preflight_owned_process_cleanup ||
+        fail_start "cannot authenticate the previous nfqws2 process: $PROCESS_CLEANUP_PREFLIGHT_ERROR" \
+            PROCESS PROCESS_STOP_FAILED START_CLEANUP 0
 
     # From this point failures converge to the clean stopped state. Kernel
     # firewall state is derived entirely from the validated preset and is
@@ -544,9 +670,10 @@ main() {
             FIREWALL PREFLIGHT_FAILED START_IDENTITY 0
 
     IPV4_NFQUEUE=1; IPV4_QUEUE_BYPASS=1; IPV4_MULTIPORT=1; IPV4_MARK=1
-    z2_fw_reconcile_family iptables ||
-        fail_start "atomic IPv4 firewall publication failed" \
-            FIREWALL FIREWALL_BUILD_FAILED START_FIREWALL_IPV4 1
+    if ! z2_fw_reconcile_family iptables precleaned; then
+        fail_start "atomic IPv4 firewall publication failed: ${Z2_FW_ERROR_DETAIL:-unknown firewall backend failure}" \
+            FIREWALL "$(firewall_failure_code)" START_FIREWALL_IPV4 1
+    fi
     IPV4_CONNBYTES="$Z2_FW_CONNBYTES"
     IPV4_RULES="$Z2_FW_RULES"; IPV4_BUILT=1; IPV4_ACTIVE=1
     FALLBACK_MODE=0
@@ -558,7 +685,7 @@ main() {
     IPV6_ACTIVE=0; IPV6_BUILT=0; IPV6_RULES=0
     IPV6_CONNBYTES=0; IPV6_MULTIPORT=1; IPV6_MARK=1
     if z2_fw_tool_available ip6tables && z2_fw_restore_available ip6tables; then
-        if z2_fw_reconcile_family ip6tables; then
+        if z2_fw_reconcile_family ip6tables precleaned; then
             IPV6_CONNBYTES="$Z2_FW_CONNBYTES"
             IPV6_RULES="$Z2_FW_RULES"; IPV6_BUILT=1; IPV6_ACTIVE=1
             if [ "$IPV6_CONNBYTES" != 1 ]; then
@@ -591,13 +718,13 @@ main() {
 
     TOTAL_RULES=$((IPV4_RULES + IPV6_RULES))
     write_ok_status "$TOTAL_RULES" "$STARTED_PID" "$IPV6_ACTIVE" || fail_start "cannot atomically write lifecycle status"
-    FIREWALL_MUTATED=0
     LAUNCHED_PID=""
     receipt_lifecycle_state=idle; receipt_owner_kind=none
     if [ "$LOCK_HELD" = inherited ]; then
         receipt_lifecycle_state=owned; receipt_owner_kind=android-mutation
     fi
     release_lifecycle_lock || fail_start "cannot release lifecycle ownership"
+    FIREWALL_MUTATED=0
     trap - HUP INT TERM
     log_msg "Zapret2 started with verified PID $STARTED_PID"
     emit_committed_status_v6 ok "$receipt_lifecycle_state" "$receipt_owner_kind" || true

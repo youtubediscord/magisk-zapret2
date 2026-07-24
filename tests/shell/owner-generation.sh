@@ -27,6 +27,23 @@ cat > "$MOCK/iptables" <<'EOF'
 #!/bin/sh
 case " $* " in
     *' -t mangle -L OUTPUT -n '*) exit 0 ;;
+    *' -t mangle -S '*)
+        echo '-N ZAPRET2_OUT'
+        echo '-N ZAPRET2_IN'
+        [ "${Z2_SNAPSHOT_MODE:-ok}" = missing-anchor ] ||
+            echo '-A OUTPUT -j ZAPRET2_OUT'
+        echo '-A INPUT -j ZAPRET2_IN'
+        if [ "${Z2_SNAPSHOT_MODE:-ok}" = wrong-payload ]; then
+            echo '-A ZAPRET2_OUT -p tcp -m multiport --dports 80,443 -m connbytes --connbytes 1:21 --connbytes-dir original --connbytes-mode packets -m mark ! --mark 0x40000000/0x40000000 -j NFQUEUE --queue-num 200 --queue-bypass'
+        else
+            echo '-A ZAPRET2_OUT -p tcp -m multiport --dports 80,443 -m connbytes --connbytes 1:20 --connbytes-dir original --connbytes-mode packets -m mark ! --mark 0x40000000/0x40000000 -j NFQUEUE --queue-num 200 --queue-bypass'
+        fi
+        echo '-A ZAPRET2_OUT -p udp -m multiport --dports 443,3478,5349,19302 -m connbytes --connbytes 1:20 --connbytes-dir original --connbytes-mode packets -m mark ! --mark 0x40000000/0x40000000 -j NFQUEUE --queue-num 200 --queue-bypass'
+        echo '-A ZAPRET2_IN -p tcp -m multiport --sports 80,443 -m connbytes --connbytes 1:10 --connbytes-dir reply --connbytes-mode packets -m mark ! --mark 0x40000000/0x40000000 -j NFQUEUE --queue-num 200 --queue-bypass'
+        echo '-A ZAPRET2_IN -p udp -m multiport --sports 443,3478,5349,19302 -m connbytes --connbytes 1:10 --connbytes-dir reply --connbytes-mode packets -m mark ! --mark 0x40000000/0x40000000 -j NFQUEUE --queue-num 200 --queue-bypass'
+        [ "${Z2_SNAPSHOT_MODE:-ok}" != extra-payload ] ||
+            echo '-A ZAPRET2_OUT -j RETURN'
+        ;;
     *' -t mangle -C OUTPUT -j ZAPRET2_OUT '*)
         [ "${Z2_SNAPSHOT_MODE:-ok}" != missing-anchor ]
         ;;
@@ -66,9 +83,14 @@ new_lifecycle_token() { printf '%s\n' 'AbCdEf1234-generation'; }
 
 QNUM=200; PORTS_TCP=80,443; PORTS_UDP=443,3478,5349,19302; TCP_PKT_OUT=20; TCP_PKT_IN=10; UDP_PKT_OUT=20; UDP_PKT_IN=10; PKT_OUT=20; PKT_IN=10; DESYNC_MARK=0x40000000
 IPV4_CONNBYTES=1; IPV4_MULTIPORT=1; IPV4_MARK=1; IPV6_CONNBYTES=1; IPV6_MULTIPORT=1; IPV6_MARK=1
+ZAPRET2_LIFECYCLE_TOKEN=app-request-generation
+export ZAPRET2_LIFECYCLE_TOKEN
 prepare_new_firewall_identity || fail "schema-v8 firewall identity preparation failed"
 [ "$FIREWALL_TAG:$ZAPRET2_OUT:$ZAPRET2_IN" = stable0001:ZAPRET2_OUT:ZAPRET2_IN ] ||
     fail "stable firewall identity changed"
+[ "$PENDING_OWNER_GENERATION" = "$ZAPRET2_LIFECYCLE_TOKEN" ] ||
+    fail "owner generation is not bound to the exact lifecycle request"
+unset ZAPRET2_LIFECYCLE_TOKEN
 prepare_owner_generation_spec 1 0 || fail "owner generation preparation failed"
 write_owner_state 123 456 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 200 generation-a active || fail "owner publication failed"
 read_owner_state || fail "owner v8 round trip failed"

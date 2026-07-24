@@ -2027,7 +2027,12 @@ is_safe_firewall_identity() {
 
 prepare_new_firewall_identity() {
     local token
-    token="$(new_lifecycle_token)" || return 1
+    token="${ZAPRET2_LIFECYCLE_TOKEN:-}"
+    if [ -n "$token" ]; then
+        is_safe_token "$token" || return 1
+    else
+        token="$(new_lifecycle_token)" || return 1
+    fi
     FIREWALL_TAG=stable0001
     ZAPRET2_OUT=ZAPRET2_OUT
     ZAPRET2_IN=ZAPRET2_IN
