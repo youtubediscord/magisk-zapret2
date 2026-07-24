@@ -1,7 +1,8 @@
 #!/system/bin/sh
 # Serialized status derived from exact lifecycle, process, and ruleset ownership.
-# Machine v4 may retire only a proven-stale lifecycle owner through common.sh's
-# shared acquisition/recovery protocol before observing runtime state.
+# Machine v4/v5 may retire only a proven-stale lifecycle owner through
+# common.sh's shared acquisition/recovery protocol before observing runtime
+# state. Machine v5 is the complete app-facing service-health contract.
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 . "$SCRIPT_DIR/common.sh"
@@ -13,7 +14,8 @@ case "${1:-}" in
     --machine) MACHINE=1; MACHINE_VERSION=1 ;;
     --machine-v3) MACHINE=1; MACHINE_VERSION=3 ;;
     --machine-v4) MACHINE=1; MACHINE_VERSION=4 ;;
-    *) echo "ERROR: usage: $0 [--machine|--machine-v3|--machine-v4]" >&2; exit 2 ;;
+    --machine-v5) MACHINE=1; MACHINE_VERSION=5 ;;
+    *) echo "ERROR: usage: $0 [--machine|--machine-v3|--machine-v4|--machine-v5]" >&2; exit 2 ;;
 esac
 
 STATUS_LOCK_HELD=0
@@ -27,7 +29,7 @@ cleanup_status_lock() {
     fi
 }
 
-emit_v4_lifecycle_barrier() {
+emit_lifecycle_barrier() {
     local state="$1" kind="$2" code detail
     case "$state" in
         active)
@@ -45,7 +47,7 @@ emit_v4_lifecycle_barrier() {
             ;;
     esac
     z2_error_set LIFECYCLE "$code" LIFECYCLE_OBSERVE "$detail" || exit 2
-    echo "Z2_PROTOCOL=4"
+    echo "Z2_PROTOCOL=$MACHINE_VERSION"
     echo "Z2_STATUS=degraded"
     echo "Z2_OWNED=1"
     echo "Z2_PROCESS=0"
@@ -69,6 +71,10 @@ emit_v4_lifecycle_barrier() {
     echo "Z2_UNINSTALL_TOMBSTONE=0"
     echo "Z2_LIFECYCLE_STATE=$state"
     echo "Z2_LIFECYCLE_OWNER_KIND=$kind"
+    if [ "$MACHINE_VERSION" = 5 ]; then
+        echo "Z2_CHAINS=0"
+        echo "Z2_ANCHORS=0"
+    fi
     z2_error_emit_machine
     echo "Z2_COMPLETE=1"
 }
@@ -110,14 +116,15 @@ prepare_v4_status_lock() {
     return 1
 }
 
-if [ "$MACHINE_VERSION" = 4 ]; then
+case "$MACHINE_VERSION" in 4|5)
     trap cleanup_status_lock EXIT
     trap 'cleanup_status_lock; exit 2' HUP INT TERM
     if ! prepare_v4_status_lock; then
-        emit_v4_lifecycle_barrier "$Z2_LIFECYCLE_STATE" "$Z2_LIFECYCLE_OWNER_KIND"
+        emit_lifecycle_barrier "$Z2_LIFECYCLE_STATE" "$Z2_LIFECYCLE_OWNER_KIND"
         exit 2
     fi
-fi
+    ;;
+esac
 
 CONFIG_VALID=1
 STATE_DIR_SECURE=0
@@ -179,9 +186,9 @@ IPV6_VERIFIED=0
 IPV6_UNKNOWN=0
 Z2_FAST_SNAPSHOT=0
 
-# Machine consumers already run an independent, rate-limited firewall watchdog.
-# Bind the durable snapshot to the exact live owner generation and avoid dozens
-# of repeated iptables subprocesses on the normal polling path.
+# The module lifecycle boundary is the single firewall authority. Bind its
+# durable snapshot to the exact live owner generation so app polling never
+# needs a second owner.meta/iptables interpreter.
 if [ "$MACHINE" = 1 ] && [ "$Z2_OWNER_METADATA_VERIFIED" = 1 ] &&
    [ "$STATUS_FILE_STATUS" = ok ] &&
    [ "$STATUS_FILE_OWN_PID" = "$Z2_PID" ] &&
@@ -271,6 +278,8 @@ Z2_OWNED=0
 Z2_ACTIVE=0
 Z2_NFQUEUE=0
 Z2_QUEUE_BYPASS=0
+Z2_CHAINS=0
+Z2_ANCHORS=0
 Z2_STATUS=degraded
 
 if [ "$Z2_OWNER_METADATA_VERIFIED" = 1 ] && [ "$Z2_RULESET_VERIFIED" = 1 ] &&
@@ -279,6 +288,11 @@ if [ "$Z2_OWNER_METADATA_VERIFIED" = 1 ] && [ "$Z2_RULESET_VERIFIED" = 1 ] &&
     Z2_NFQUEUE=1
     Z2_QUEUE_BYPASS=1
     Z2_STATUS=ok
+    Z2_CHAINS=$((1 + OWNER_STATE_IPV4_CONNBYTES))
+    if [ "$OWNER_STATE_IPV6_ACTIVE" = 1 ]; then
+        Z2_CHAINS=$((Z2_CHAINS + 1 + OWNER_STATE_IPV6_CONNBYTES))
+    fi
+    Z2_ANCHORS="$Z2_CHAINS"
 elif [ "$Z2_OWNED" = 0 ]; then
     Z2_STATUS=stopped
     Z2_EXPECTED_RULES=0
@@ -306,7 +320,7 @@ else
 fi
 
 emit_machine() {
-    case "$MACHINE_VERSION" in 3|4) echo "Z2_PROTOCOL=$MACHINE_VERSION" ;; esac
+    case "$MACHINE_VERSION" in 3|4|5) echo "Z2_PROTOCOL=$MACHINE_VERSION" ;; esac
     echo "Z2_STATUS=$Z2_STATUS"
     echo "Z2_OWNED=$Z2_OWNED"
     echo "Z2_PROCESS=$Z2_PROCESS"
@@ -328,23 +342,29 @@ emit_machine() {
     echo "Z2_QUEUE_BYPASS=$Z2_QUEUE_BYPASS"
     echo "Z2_UPDATE_BLOCKED=$Z2_UPDATE_BLOCKED"
     echo "Z2_UNINSTALL_TOMBSTONE=$Z2_UNINSTALL_TOMBSTONE"
-    if [ "$MACHINE_VERSION" = 4 ]; then
+    case "$MACHINE_VERSION" in 4|5)
         echo "Z2_LIFECYCLE_STATE=$Z2_LIFECYCLE_STATE"
         echo "Z2_LIFECYCLE_OWNER_KIND=$Z2_LIFECYCLE_OWNER_KIND"
+        ;;
+    esac
+    if [ "$MACHINE_VERSION" = 5 ]; then
+        echo "Z2_CHAINS=$Z2_CHAINS"
+        echo "Z2_ANCHORS=$Z2_ANCHORS"
     fi
-    case "$MACHINE_VERSION" in 3|4) z2_error_emit_machine ;; esac
+    case "$MACHINE_VERSION" in 3|4|5) z2_error_emit_machine ;; esac
     # Terminal sentinel lets strict callers reject truncated shell output.
     echo "Z2_COMPLETE=1"
 }
 
-if [ "$MACHINE_VERSION" = 4 ] && [ "$STATUS_LOCK_HELD" = 1 ]; then
+case "$MACHINE_VERSION:$STATUS_LOCK_HELD" in 4:1|5:1)
     if release_lifecycle_lock; then
         STATUS_LOCK_HELD=0
     else
-        emit_v4_lifecycle_barrier recovery_failed "$Z2_LIFECYCLE_OWNER_KIND"
+        emit_lifecycle_barrier recovery_failed "$Z2_LIFECYCLE_OWNER_KIND"
         exit 2
     fi
-fi
+    ;;
+esac
 
 if [ "$MACHINE" = 1 ]; then
     emit_machine

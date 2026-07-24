@@ -2,7 +2,6 @@ package com.zapret2.app.viewmodel
 
 import com.zapret2.app.data.ServiceLifecycleController
 import com.zapret2.app.data.ModuleInstallState
-import com.zapret2.app.data.NetworkStatsManager
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -59,7 +58,6 @@ class FullRollbackAvailabilityPolicyTest {
     fun checkingAndUnavailableStatesAreNeverAvailable() {
         listOf(
             ControlStatus.CHECKING,
-            ControlStatus.UNCONFIRMED,
             ControlStatus.ROOT_DENIED,
             ControlStatus.ROOT_MANAGER_UNAVAILABLE,
             ControlStatus.ROOT_SHELL_FAILED,
@@ -82,7 +80,7 @@ class FullRollbackAvailabilityPolicyTest {
     }
 
     @Test
-    fun watchdogMismatchIsUnconfirmedWithoutRevokingOwnedStopState() {
+    fun authoritativeDegradedStateRetainsOwnedStopCapability() {
         val shellStatus = ServiceLifecycleController.ServiceStatus(
             rootGranted = true,
             processRunning = true,
@@ -90,16 +88,15 @@ class FullRollbackAvailabilityPolicyTest {
         )
 
         assertEquals(
-            ControlStatus.UNCONFIRMED,
+            ControlStatus.DEGRADED,
             projectedControlStatus(
                 serviceStatus = shellStatus,
-                watchdogVerdict = NetworkStatsManager.FirewallWatchdogVerdict.MISMATCH,
                 canStopService = true,
             ),
         )
         assertTrue(
             ControlUiState(
-                status = ControlStatus.UNCONFIRMED,
+                status = ControlStatus.DEGRADED,
                 canStopService = true,
             ).canStopService,
         )

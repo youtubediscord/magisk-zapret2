@@ -15,22 +15,23 @@ internal sealed interface ProtectedTextRead {
 class RuntimeLogRepository @Inject constructor() {
 
     internal fun readCommandLine(): ProtectedTextRead = readSingleFile(
-        path = OwnerStateSchema.RUNTIME_CMDLINE_FILE,
+        path = RuntimeStatePaths.RUNTIME_CMDLINE_FILE,
         maxBytes = MAX_CMDLINE_BYTES,
         maxLines = null,
     )
 
     internal fun readFailureTail(): ProtectedTextRead {
-        val error = readSingleFile(OwnerStateSchema.ERROR_LOG_FILE, MAX_LOG_FILE_BYTES, FAILURE_LOG_LINES)
+        val error = readSingleFile(RuntimeStatePaths.ERROR_LOG_FILE, MAX_LOG_FILE_BYTES, FAILURE_LOG_LINES)
         if (error is ProtectedTextRead.Content && error.value.isNotBlank()) return error
         if (error == ProtectedTextRead.Failed) return error
-        return readSingleFile(OwnerStateSchema.LOG_FILE, MAX_LOG_FILE_BYTES, FALLBACK_LOG_LINES)
+        return readSingleFile(RuntimeStatePaths.LOG_FILE, MAX_LOG_FILE_BYTES, FALLBACK_LOG_LINES)
     }
 
     internal fun readLogs(selection: RuntimeLogSelection): ProtectedTextRead {
         val paths = when (selection) {
-            RuntimeLogSelection.MAIN -> listOf(OwnerStateSchema.LOG_FILE)
-            RuntimeLogSelection.WARNINGS -> listOf(OwnerStateSchema.LOG_FILE, OwnerStateSchema.ERROR_LOG_FILE)
+            RuntimeLogSelection.MAIN -> listOf(RuntimeStatePaths.LOG_FILE)
+            RuntimeLogSelection.WARNINGS ->
+                listOf(RuntimeStatePaths.LOG_FILE, RuntimeStatePaths.ERROR_LOG_FILE)
         }
         val command = buildString {
             append("z2_any=0\n")
@@ -62,8 +63,9 @@ class RuntimeLogRepository @Inject constructor() {
     internal fun clear(selection: RuntimeLogSelection): Boolean {
         ModuleMutationCoordinator.requirePrivilegedMutationContext()
         val paths = when (selection) {
-            RuntimeLogSelection.MAIN -> listOf(OwnerStateSchema.LOG_FILE)
-            RuntimeLogSelection.WARNINGS -> listOf(OwnerStateSchema.LOG_FILE, OwnerStateSchema.ERROR_LOG_FILE)
+            RuntimeLogSelection.MAIN -> listOf(RuntimeStatePaths.LOG_FILE)
+            RuntimeLogSelection.WARNINGS ->
+                listOf(RuntimeStatePaths.LOG_FILE, RuntimeStatePaths.ERROR_LOG_FILE)
         }
         val command = buildString {
             paths.forEach { path ->

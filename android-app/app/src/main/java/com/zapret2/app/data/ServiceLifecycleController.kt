@@ -92,6 +92,8 @@ object ServiceLifecycleController {
         val expectedRulesCount: Int = 0,
         val ipv4RulesCount: Int = 0,
         val ipv6RulesCount: Int = 0,
+        val chainsCount: Int = 0,
+        val anchorsCount: Int = 0,
         val nfqueueSupported: Boolean = false,
         val queueBypassSupported: Boolean = false,
         val rulesetVerified: Boolean = false,
@@ -584,16 +586,21 @@ object ServiceLifecycleController {
     }
 
     private suspend fun getStatusLocked(): ServiceStatus {
-        val current = executeRoot(buildStatusCommand(version = 4))
+        val current = executeRoot(buildStatusCommand(version = 5))
         val compatible = if (current.isUnsupportedMachineProtocol()) {
-            executeRoot(buildStatusCommand(version = 3))
+            executeRoot(buildStatusCommand(version = 4))
         } else {
             current
         }
-        val result = if (compatible.isUnsupportedMachineProtocol()) {
-            executeRoot(buildStatusCommand(version = 1))
+        val legacy = if (compatible.isUnsupportedMachineProtocol()) {
+            executeRoot(buildStatusCommand(version = 3))
         } else {
             compatible
+        }
+        val result = if (legacy.isUnsupportedMachineProtocol()) {
+            executeRoot(buildStatusCommand(version = 1))
+        } else {
+            legacy
         }
         return parseStatusCommandResult(result)
     }
@@ -682,11 +689,25 @@ object ServiceLifecycleController {
         val protocolVersion = values["Z2_PROTOCOL"]
         val versionedProtocol = protocolVersion in setOf(
             LifecycleErrorContract.LEGACY_STATUS_PROTOCOL_VERSION,
+            LifecycleErrorContract.LEGACY_LIFECYCLE_STATUS_PROTOCOL_VERSION,
             LifecycleErrorContract.STATUS_PROTOCOL_VERSION,
         )
-        val lifecycleProtocol =
+        val lifecycleProtocol = protocolVersion in setOf(
+            LifecycleErrorContract.LEGACY_LIFECYCLE_STATUS_PROTOCOL_VERSION,
+            LifecycleErrorContract.STATUS_PROTOCOL_VERSION,
+        )
+        val topologyProtocol =
             protocolVersion == LifecycleErrorContract.STATUS_PROTOCOL_VERSION
         val requiredFields = when {
+            topologyProtocol -> legacyRequiredFields +
+                setOf(
+                    "Z2_PROTOCOL",
+                    "Z2_LIFECYCLE_STATE",
+                    "Z2_LIFECYCLE_OWNER_KIND",
+                    "Z2_CHAINS",
+                    "Z2_ANCHORS",
+                ) +
+                LifecycleErrorContract.wireFields
             lifecycleProtocol -> legacyRequiredFields +
                 setOf("Z2_PROTOCOL", "Z2_LIFECYCLE_STATE", "Z2_LIFECYCLE_OWNER_KIND") +
                 LifecycleErrorContract.wireFields
@@ -711,7 +732,10 @@ object ServiceLifecycleController {
             completionField,
         )
         val booleansValid = booleanFields.all { values[it] == "0" || values[it] == "1" }
-        val integerFields = setOf("Z2_RULES", "Z2_EXPECTED_RULES", "Z2_IPV4_RULES", "Z2_IPV6_RULES")
+        val integerFields = buildSet {
+            addAll(setOf("Z2_RULES", "Z2_EXPECTED_RULES", "Z2_IPV4_RULES", "Z2_IPV6_RULES"))
+            if (topologyProtocol) addAll(setOf("Z2_CHAINS", "Z2_ANCHORS"))
+        }
         val integers = integerFields.associateWith { values[it].parseNonNegativeInt() }
         val integersValid = integers.values.all { it != null }
         val pid = values["Z2_PID"].parseOptionalPositiveDecimal()
@@ -777,6 +801,8 @@ object ServiceLifecycleController {
             expectedRulesCount = integers["Z2_EXPECTED_RULES"] ?: 0,
             ipv4RulesCount = integers["Z2_IPV4_RULES"] ?: 0,
             ipv6RulesCount = integers["Z2_IPV6_RULES"] ?: 0,
+            chainsCount = integers["Z2_CHAINS"] ?: 0,
+            anchorsCount = integers["Z2_ANCHORS"] ?: 0,
             nfqueueSupported = values["Z2_NFQUEUE"] == "1",
             queueBypassSupported = values["Z2_QUEUE_BYPASS"] == "1",
             rulesetVerified = values["Z2_RULESET_VERIFIED"] == "1",
@@ -841,8 +867,16 @@ object ServiceLifecycleController {
         val expected = integers["Z2_EXPECTED_RULES"] ?: return false
         val ipv4Rules = integers["Z2_IPV4_RULES"] ?: return false
         val ipv6Rules = integers["Z2_IPV6_RULES"] ?: return false
+        val chains = integers["Z2_CHAINS"]
+        val anchors = integers["Z2_ANCHORS"]
         val ruleSum = ipv4Rules.toLong() + ipv6Rules.toLong()
         if (ruleSum != rules.toLong()) return false
+        if ((chains == null) != (anchors == null)) return false
+        if (chains != null && anchors != null) {
+            if (anchors > chains) return false
+            if (status == "ok" && (chains == 0 || anchors == 0)) return false
+            if (status == "stopped" && (chains != 0 || anchors != 0)) return false
+        }
         if (process && !owned) return false
         if (!process && (pid != null || pidStarttime != null)) return false
         if (pid == null && pidStarttime != null) return false
@@ -1023,6 +1057,7 @@ object ServiceLifecycleController {
 
     private fun buildStatusCommand(version: Int): String {
         val argument = when (version) {
+            5 -> "--machine-v5"
             4 -> "--machine-v4"
             3 -> "--machine-v3"
             else -> "--machine"
