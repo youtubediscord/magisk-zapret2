@@ -321,7 +321,11 @@ object ServiceLifecycleController {
         return RootAccess(state, message, lifecycleError)
     }
 
-    /** Executes a command only after proving that libsu returned a uid-0 shell. */
+    /**
+     * Executes on the bounded transport whose session factory already admits only a live
+     * libsu root shell. A second `id -u` job before every command would duplicate transport work
+     * and serialize an unrelated probe in front of every read.
+     */
     internal suspend fun executeRoot(
         command: String,
         policy: RootCommandPolicy = RootCommandPolicy.OBSERVATION,
@@ -989,24 +993,14 @@ object ServiceLifecycleController {
         policy: RootCommandPolicy = RootCommandPolicy.OBSERVATION,
     ): CommandResult = withContext(Dispatchers.IO) {
         currentCoroutineContext().ensureActive()
-        if (requireRoot) {
-            val probe = executeShell("id -u", RootCommandPolicy.OBSERVATION)
-            val uid = probe.stdout.firstOrNull()?.trim()
-            if (!probe.success || uid != "0") {
-                val access = classifyRootAccess(probe, uid, Shell.isAppGrantedRoot())
-                return@withContext CommandResult(
-                    success = false,
-                    stdout = probe.stdout,
-                    stderr = probe.stderr,
-                    rootGranted = false,
-                    rootAccessState = access.state,
-                    error = access.error,
-                    lifecycleError = access.lifecycleError,
-                    indeterminate = probe.indeterminate,
-                )
-            }
-        }
-        executeShell(command, policy).copy(rootGranted = true)
+        val result = executeShell(command, policy)
+        if (!requireRoot) return@withContext result
+        result.copy(
+            rootGranted = result.rootAccessState !in setOf(
+                RootAccessState.BUSY,
+                RootAccessState.SHELL_FAILURE,
+            ),
+        )
     }
 
     private fun executeShell(

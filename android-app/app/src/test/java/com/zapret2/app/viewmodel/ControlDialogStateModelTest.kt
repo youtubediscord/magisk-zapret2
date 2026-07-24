@@ -47,56 +47,6 @@ class ControlDialogStateModelTest {
     }
 
     @Test
-    fun packetDialog_reconstructionKeepsTargetAndBoundedDraft() {
-        val restored = restoreControlUiState(
-            SavedStateHandle(
-                mapOf(
-                    "control_dialog_kind" to ControlDialogKind.PACKET.name,
-                    "control_packet_target" to PacketTarget.OUT.name,
-                    "control_packet_draft" to "32",
-                ),
-            ),
-        )
-
-        assertEquals(ControlDialogKind.PACKET, restored.pendingDialog)
-        assertEquals(PacketTarget.OUT, restored.packetTarget)
-        assertEquals("32", restored.packetDraft)
-        assertNull(restored.errorDialog)
-    }
-
-    @Test
-    fun packetDialog_reconstructionNormalizesCorruptDraft() {
-        val restored = restoreControlUiState(
-            SavedStateHandle(
-                mapOf(
-                    "control_dialog_kind" to ControlDialogKind.PACKET.name,
-                    "control_packet_target" to PacketTarget.IN.name,
-                    "control_packet_draft" to "9x8y7654321",
-                ),
-            ),
-        )
-
-        assertEquals("987654321", restored.packetDraft)
-    }
-
-    @Test
-    fun incompletePacketDialog_isDroppedInsteadOfBecomingInvisibleModalState() {
-        val savedState = SavedStateHandle(
-            mapOf(
-                "control_dialog_kind" to ControlDialogKind.PACKET.name,
-                "control_packet_draft" to "32",
-            ),
-        )
-
-        val restored = restoreControlUiState(savedState)
-
-        assertNull(restored.pendingDialog)
-        assertNull(restored.packetTarget)
-        assertFalse(savedState.contains("control_dialog_kind"))
-        assertFalse(savedState.contains("control_packet_draft"))
-    }
-
-    @Test
     fun errorDialog_reconstructionRequiresKindAndDetails() {
         val restored = restoreControlUiState(
             SavedStateHandle(
@@ -114,7 +64,6 @@ class ControlDialogStateModelTest {
             UiText.Resource(R.string.control_unknown_error),
             restored.errorDialog?.details,
         )
-        assertNull(restored.packetTarget)
     }
 
     @Test

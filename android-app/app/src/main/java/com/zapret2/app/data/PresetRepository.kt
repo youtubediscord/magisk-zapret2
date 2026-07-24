@@ -12,6 +12,7 @@ import javax.inject.Singleton
 
 interface PresetRepository {
     suspend fun loadCatalog(): PresetCatalog?
+    suspend fun readActive(): ActivePresetSource?
     suspend fun readCompatible(fileName: String): String?
     suspend fun preview(fileName: String, content: String): PresetPreviewOutcome
     suspend fun apply(fileName: String): PresetMutationOutcome
@@ -22,6 +23,11 @@ interface PresetRepository {
         applyAfterSave: Boolean,
     ): PresetMutationOutcome
 }
+
+data class ActivePresetSource(
+    val fileName: String,
+    val content: String,
+)
 
 object PresetNamePolicy {
     fun isValid(fileName: String): Boolean =
@@ -403,6 +409,15 @@ internal class TransactionalPresetRepository @Inject constructor(
             discovery = discovery,
             selection = selection,
         )
+    }
+
+    override suspend fun readActive(): ActivePresetSource? = withContext(Dispatchers.IO) {
+        val selection = runner.loadSelection() ?: return@withContext null
+        val fileName = selection.activePresetFile
+        if (!PresetNamePolicy.isValid(fileName)) return@withContext null
+        val content = (runner.snapshotFile(fileName) as? PresetFileSnapshot.Present)?.content
+            ?: return@withContext null
+        ActivePresetSource(fileName, content)
     }
 
     override suspend fun readCompatible(fileName: String): String? = withContext(Dispatchers.IO) {

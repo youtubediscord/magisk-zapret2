@@ -29,14 +29,28 @@ class ComposeLifecyclePolicyTest {
                 "$fileName restored raw collectAsState",
                 source.contains(".collectAsState()"),
             )
-            assertTrue(
-                "$fileName must bind its active work to the destination STARTED lifecycle",
+        }
+
+        val passiveScreens = statefulScreens - setOf("ControlScreen.kt", "LogsScreen.kt")
+        passiveScreens.forEach { fileName ->
+            val source = productionFile("ui/screen/$fileName").readText()
+            assertFalse(
+                "$fileName must not start I/O merely because its destination entered STARTED",
                 source.contains("LifecycleStartEffect(activeViewModel)"),
             )
             assertTrue(
-                "$fileName must release its active lifecycle ownership on stop",
-                source.contains("onStopOrDispose { activeViewModel?.onScreenStopped() }"),
+                "$fileName must request its retained state through a one-shot loader",
+                source.contains("activeViewModel?.ensureLoaded()"),
             )
+        }
+        assertTrue(
+            productionFile("ui/screen/ControlScreen.kt").readText()
+                .contains("activeViewModel?.ensureInitialized()"),
+        )
+        listOf("ControlScreen.kt", "LogsScreen.kt").forEach { fileName ->
+            val source = productionFile("ui/screen/$fileName").readText()
+            assertTrue(source.contains("LifecycleStartEffect(activeViewModel)"))
+            assertTrue(source.contains("onStopOrDispose { activeViewModel?.onScreenStopped() }"))
         }
 
         val productionUi = productionFile("ui").walkTopDown()
@@ -47,14 +61,27 @@ class ComposeLifecyclePolicyTest {
     }
 
     @Test
-    fun pollingObserversAndCoroutines_haveCompositionOrViewModelOwnership() {
+    fun destinations_haveNoRecurringPrivilegedPollingLoops() {
         val control = productionFile("viewmodel/ControlViewModel.kt").readText()
         val logs = productionFile("viewmodel/LogsViewModel.kt").readText()
         listOf(control, logs).forEach { source ->
-            assertTrue(source.contains("while (isActive)"))
-            assertTrue(source.contains("pollingJob?.cancel()"))
-            assertTrue(source.contains("fun onScreenStopped()"))
+            assertFalse(source.contains("while (isActive)"))
+            assertFalse(source.contains("pollingJob"))
+            assertFalse(source.contains("startPolling("))
         }
+        assertTrue(control.contains("serviceEventBus.serviceRestarted.collect"))
+        assertTrue(logs.contains("serviceEventBus.serviceRestarted.collect"))
+        val logRefresh = logs
+            .substringAfter("fun refresh()")
+            .substringBefore("fun clearMessage()")
+        assertTrue(logRefresh.contains("loadCurrentTab(force = true)"))
+        assertFalse(logRefresh.contains("loadCmdline()"))
+        assertFalse(logRefresh.contains("loadLogs("))
+        val logStop = logs
+            .substringAfter("fun onScreenStopped()")
+            .substringBefore("fun selectTab(")
+        assertTrue(logStop.contains("commandLoadJob?.cancel()"))
+        assertTrue(logStop.contains("outputLoadJob?.cancel()"))
 
         val motion = productionFile("ui/components/MotionPreference.kt").readText()
         assertTrue(motion.contains("mutableStateOf(true)"))

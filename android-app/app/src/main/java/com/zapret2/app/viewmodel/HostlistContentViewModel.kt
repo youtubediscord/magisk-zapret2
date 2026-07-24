@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 
 enum class HostlistContentLoadState { IDLE, LOADING, READY, ERROR }
@@ -140,8 +141,7 @@ class HostlistContentViewModel @Inject constructor(
     private var editorLoadJob: Job? = null
     private var loadGeneration = 0L
     private var editorBaseline = restoredBaseline.orEmpty()
-    private var hasEnteredScreen = false
-    private var refreshAfterOperation = false
+    private val initialLoadRequested = AtomicBoolean(false)
 
     init {
         if (isAllowedHostlistPath()) {
@@ -150,7 +150,6 @@ class HostlistContentViewModel @Inject constructor(
             savedStateHandle[KEY_QUERY] = restoredQuery
             if (!restoredEditing) {
                 clearPersistedEditorState()
-                loadInitial(restoredQuery)
             }
         } else {
             clearRouteScopedSavedState()
@@ -160,6 +159,15 @@ class HostlistContentViewModel @Inject constructor(
                     loadError = HostlistContentError.INVALID_PATH,
                 )
             }
+        }
+    }
+
+    fun ensureLoaded() {
+        if (initialLoadRequested.compareAndSet(false, true) &&
+            isAllowedHostlistPath() &&
+            !restoredEditing
+        ) {
+            loadInitial(restoredQuery)
         }
     }
 
@@ -185,23 +193,6 @@ class HostlistContentViewModel @Inject constructor(
         } else if (!state.isLoading && !state.isEditing && !state.isSaving && isAllowedHostlistPath()) {
             loadInitial(state.searchQuery)
         }
-    }
-
-    fun onScreenEntered() {
-        val firstEntry = !hasEnteredScreen
-        hasEnteredScreen = true
-        val state = _uiState.value
-        if (firstEntry && !restoredEditing) return
-        if (!isAllowedHostlistPath()) return
-        if (state.isSaving || state.loadState == HostlistContentLoadState.LOADING) {
-            refreshAfterOperation = true
-        } else {
-            revalidateCurrentMode(state)
-        }
-    }
-
-    fun onScreenStopped() {
-        refreshAfterOperation = false
     }
 
     fun clearMessage() {
@@ -262,7 +253,6 @@ class HostlistContentViewModel @Inject constructor(
             } finally {
                 if (generation == loadGeneration) {
                     initialLoadJob = null
-                    runPendingRefresh()
                 }
             }
         }
@@ -346,7 +336,6 @@ class HostlistContentViewModel @Inject constructor(
             } finally {
                 if (generation == loadGeneration) {
                     initialLoadJob = null
-                    runPendingRefresh()
                 }
             }
         }
@@ -470,7 +459,6 @@ class HostlistContentViewModel @Inject constructor(
             } finally {
                 if (generation == loadGeneration) {
                     editorLoadJob = null
-                    runPendingRefresh()
                 }
             }
         }
@@ -620,25 +608,7 @@ class HostlistContentViewModel @Inject constructor(
                     HostlistContentSaveOutcome.RollbackFailed -> HostlistContentResult.ROLLBACK_FAILED
                 },
             )
-            runPendingRefresh()
         }
-    }
-
-    private fun revalidateCurrentMode(state: HostlistContentUiState = _uiState.value) {
-        if (state.isEditing) {
-            revalidateEditorSource()
-        } else {
-            searchJob?.cancel()
-            searchJob = null
-            loadInitial(state.searchQuery)
-        }
-    }
-
-    private fun runPendingRefresh() {
-        val state = _uiState.value
-        if (!refreshAfterOperation || state.isSaving || state.isLoading || !isAllowedHostlistPath()) return
-        refreshAfterOperation = false
-        revalidateCurrentMode(state)
     }
 
     private fun loadFilePage(): PageLoadResult {

@@ -1,6 +1,7 @@
 package com.zapret2.app.viewmodel
 
 import androidx.lifecycle.SavedStateHandle
+import com.zapret2.app.data.ActivePresetSource
 import com.zapret2.app.data.PresetCatalog
 import com.zapret2.app.data.PresetCommandPreview
 import com.zapret2.app.data.PresetDiscovery
@@ -234,6 +235,11 @@ class PresetsViewModelSafetyTest {
         var applyCalls = 0
 
         override suspend fun loadCatalog(): PresetCatalog? = catalog
+        override suspend fun readActive(): ActivePresetSource? {
+            val fileName = catalog?.selection?.activePresetFile ?: return null
+            val content = compatibleContent ?: return null
+            return ActivePresetSource(fileName, content)
+        }
         override suspend fun readCompatible(fileName: String): String? = compatibleContent
         override suspend fun preview(fileName: String, content: String): PresetPreviewOutcome {
             previewContent = content

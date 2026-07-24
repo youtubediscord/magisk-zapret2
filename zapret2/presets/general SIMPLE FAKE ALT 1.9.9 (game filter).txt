@@ -1,6 +1,10 @@
 # Preset: general SIMPLE FAKE ALT 1.9.9 (game filter)
 # BuiltinVersion: 2.25
 # IconColor: #60cdff
+# NFQWS2_TCP_PKT_OUT=20
+# NFQWS2_TCP_PKT_IN=10
+# NFQWS2_UDP_PKT_OUT=20
+# NFQWS2_UDP_PKT_IN=10
 
 --lua-init=@lua/zapret-lib.lua
 --lua-init=@lua/zapret-antidpi.lua

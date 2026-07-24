@@ -13,17 +13,22 @@ interface ProfileRepository {
     suspend fun loadActive(): PresetProfileDocument?
     suspend fun loadStrategies(scope: StrategyCatalogScope, availableBlobs: Set<String>): List<StrategyCatalogEntry>?
     suspend fun loadListEntries(selectorLine: String): List<ProfileListEntry>?
-    suspend fun setEnabled(document: PresetProfileDocument, profileIndex: Int, enabled: Boolean): PresetMutationOutcome
-    suspend fun rename(document: PresetProfileDocument, profileIndex: Int, name: String): PresetMutationOutcome
+    suspend fun setEnabled(document: PresetProfileDocument, profileIndex: Int, enabled: Boolean): ProfileMutationResult
+    suspend fun rename(document: PresetProfileDocument, profileIndex: Int, name: String): ProfileMutationResult
     suspend fun replaceSelector(
         document: PresetProfileDocument,
         profileIndex: Int,
         selectorIndex: Int,
         relativePath: String,
-    ): PresetMutationOutcome
-    suspend fun replaceStrategy(document: PresetProfileDocument, profileIndex: Int, strategy: StrategyCatalogEntry): PresetMutationOutcome
-    suspend fun move(document: PresetProfileDocument, fromIndex: Int, toIndex: Int): PresetMutationOutcome
+    ): ProfileMutationResult
+    suspend fun replaceStrategy(document: PresetProfileDocument, profileIndex: Int, strategy: StrategyCatalogEntry): ProfileMutationResult
+    suspend fun move(document: PresetProfileDocument, fromIndex: Int, toIndex: Int): ProfileMutationResult
 }
+
+data class ProfileMutationResult(
+    val outcome: PresetMutationOutcome,
+    val publishedDocument: PresetProfileDocument? = null,
+)
 
 @Module
 @InstallIn(SingletonComponent::class)
@@ -38,9 +43,8 @@ class DefaultProfileRepository @Inject constructor(
     private val hostlists: HostlistRepository,
 ) : ProfileRepository {
     override suspend fun loadActive(): PresetProfileDocument? = withContext(Dispatchers.IO) {
-        val active = presets.loadCatalog()?.selection?.activePresetFile ?: return@withContext null
-        val source = presets.readCompatible(active) ?: return@withContext null
-        PresetProfileParser.parse(active, source)
+        val active = presets.readActive() ?: return@withContext null
+        PresetProfileParser.parse(active.fileName, active.content)
     }
 
     override suspend fun loadStrategies(
@@ -72,28 +76,28 @@ class DefaultProfileRepository @Inject constructor(
         document: PresetProfileDocument,
         profileIndex: Int,
         enabled: Boolean,
-    ): PresetMutationOutcome = save(document, PresetProfileParser.setEnabled(document, profileIndex, enabled))
+    ): ProfileMutationResult = save(document, PresetProfileParser.setEnabled(document, profileIndex, enabled))
 
     override suspend fun rename(
         document: PresetProfileDocument,
         profileIndex: Int,
         name: String,
-    ): PresetMutationOutcome = save(document, PresetProfileParser.rename(document, profileIndex, name))
+    ): ProfileMutationResult = save(document, PresetProfileParser.rename(document, profileIndex, name))
 
     override suspend fun replaceSelector(
         document: PresetProfileDocument,
         profileIndex: Int,
         selectorIndex: Int,
         relativePath: String,
-    ): PresetMutationOutcome {
+    ): ProfileMutationResult {
         val selector = document.profiles.getOrNull(profileIndex)?.selectors?.getOrNull(selectorIndex)
-            ?: return PresetMutationOutcome.Rejected(PresetIssue.MALFORMED_PROTOCOL)
+            ?: return ProfileMutationResult(PresetMutationOutcome.Rejected(PresetIssue.MALFORMED_PROTOCOL))
         val fileName = relativePath.removePrefix("lists/")
         if (relativePath != "lists/$fileName" ||
             isIpSetHostlistFileName(fileName) !=
             (selector.startsWith("--ipset=") || selector.startsWith("--ipset-exclude="))
         ) {
-            return PresetMutationOutcome.Rejected(PresetIssue.MALFORMED_PROTOCOL)
+            return ProfileMutationResult(PresetMutationOutcome.Rejected(PresetIssue.MALFORMED_PROTOCOL))
         }
         return save(document, PresetProfileParser.replaceSelector(document, profileIndex, selectorIndex, relativePath))
     }
@@ -102,9 +106,9 @@ class DefaultProfileRepository @Inject constructor(
         document: PresetProfileDocument,
         profileIndex: Int,
         strategy: StrategyCatalogEntry,
-    ): PresetMutationOutcome {
+    ): ProfileMutationResult {
         if (!document.declaredBlobs.containsAll(strategy.requiredBlobs)) {
-            return PresetMutationOutcome.Rejected(PresetIssue.DEPENDENCY_MISSING)
+            return ProfileMutationResult(PresetMutationOutcome.Rejected(PresetIssue.DEPENDENCY_MISSING))
         }
         return save(document, PresetProfileParser.replaceStrategy(document, profileIndex, strategy.arguments))
     }
@@ -113,16 +117,29 @@ class DefaultProfileRepository @Inject constructor(
         document: PresetProfileDocument,
         fromIndex: Int,
         toIndex: Int,
-    ): PresetMutationOutcome = save(document, PresetProfileParser.move(document, fromIndex, toIndex))
+    ): ProfileMutationResult = save(document, PresetProfileParser.move(document, fromIndex, toIndex))
 
-    private suspend fun save(document: PresetProfileDocument, updated: String?): PresetMutationOutcome {
-        if (updated == null) return PresetMutationOutcome.Rejected(PresetIssue.MALFORMED_PROTOCOL)
-        return presets.save(
+    private suspend fun save(document: PresetProfileDocument, updated: String?): ProfileMutationResult {
+        if (updated == null) {
+            return ProfileMutationResult(PresetMutationOutcome.Rejected(PresetIssue.MALFORMED_PROTOCOL))
+        }
+        val outcome = presets.save(
             fileName = document.fileName,
             expectedContent = document.sourceText,
             content = updated,
             applyAfterSave = false,
         )
+        val published = if (outcome in setOf(
+                PresetMutationOutcome.Saved,
+                PresetMutationOutcome.SavedAndApplied,
+                PresetMutationOutcome.Applied,
+            )
+        ) {
+            PresetProfileParser.parse(document.fileName, updated)
+        } else {
+            null
+        }
+        return ProfileMutationResult(outcome, published)
     }
 
     private companion object {

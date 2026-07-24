@@ -81,6 +81,12 @@ EOF
 cat > "$MOCK/iptables" <<'EOF'
 #!/bin/sh
 case " $* " in
+    *' -t mangle -L OUTPUT -n '*) exit 0 ;;
+    *' -t mangle -C OUTPUT -j ZAPRET2_OUT '*|*' -t mangle -C INPUT -j ZAPRET2_IN '*)
+        exit 1
+        ;;
+    *' -t mangle -S ZAPRET2_OUT '*|*' -t mangle -S ZAPRET2_IN '*) exit 1 ;;
+    ' -t mangle -S ') exit 0 ;;
     *' -A '*|*' -I '*|*' -D '*|*' -N '*|*' -E '*|*' -F '*|*' -X '*)
         printf '%s\n' "$*" >> "$Z2_BOOT_MUTATION_LOG"
         exit 99
@@ -110,7 +116,8 @@ prepare_case() {
     mkdir -p "$module/zapret2/scripts" "$state"
     chmod 0700 "$state"
     cp "$ROOT/service.sh" "$module/service.sh"
-    cp "$ROOT/zapret2/scripts/common.sh" "$ROOT/zapret2/scripts/zapret-start.sh" "$module/zapret2/scripts/"
+    cp "$ROOT/zapret2/scripts/common.sh" "$ROOT/zapret2/scripts/firewall-reconciler.sh" \
+        "$ROOT/zapret2/scripts/zapret-start.sh" "$module/zapret2/scripts/"
     if [ "$Z2_TEST_BOOT_OVERRIDE" = 1 ]; then
         cat >> "$module/zapret2/scripts/common.sh" <<EOF
 read_current_boot_id() { CURRENT_BOOT_ID=$actual_boot; }
@@ -138,36 +145,14 @@ EOF
         export STATE_DIR MODDIR ZAPRET_DIR SCRIPT_DIR
         . "$module/zapret2/scripts/common.sh"
         read_current_boot_id() { CURRENT_BOOT_ID="$stale_boot"; }
-        QNUM=200; PORTS_TCP=80:65535; PORTS_UDP=443:65535; PKT_OUT=20; PKT_IN=10; DESYNC_MARK=0x40000000
-        FIREWALL_TAG=AbCdEf1234; ZAPRET2_OUT=Z2O_AbCdEf1234; ZAPRET2_IN=Z2I_AbCdEf1234
+        QNUM=200; PORTS_TCP=80:65535; PORTS_UDP=443:65535; TCP_PKT_OUT=20; TCP_PKT_IN=10; UDP_PKT_OUT=20; UDP_PKT_IN=10; PKT_OUT=20; PKT_IN=10; DESYNC_MARK=0x40000000
+        prepare_new_firewall_identity || exit 30
         IPV4_CONNBYTES=1; IPV4_MULTIPORT=1; IPV4_MARK=1
         IPV6_CONNBYTES=1; IPV6_MULTIPORT=1; IPV6_MARK=1
         prepare_owner_generation_spec 1 0 || exit 31
         write_owner_state 999999 1 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 200 boot-recovery-owner active || exit 32
         write_numeric_pidfile 999999 || exit 33
         read_owner_state || exit 34
-        iptables() {
-            [ "$*" = '-t mangle -S' ] || return 1
-            cat <<'EOF'
--N Z2O_AbCdEf1234
--N Z2I_AbCdEf1234
--N Z2R_AbCdEf1234_O1
--N Z2R_AbCdEf1234_O2
--N Z2R_AbCdEf1234_I1
--N Z2R_AbCdEf1234_I2
--A OUTPUT -j Z2O_AbCdEf1234
--A INPUT -j Z2I_AbCdEf1234
--A Z2O_AbCdEf1234 -j Z2R_AbCdEf1234_O1
--A Z2O_AbCdEf1234 -j Z2R_AbCdEf1234_O2
--A Z2I_AbCdEf1234 -j Z2R_AbCdEf1234_I1
--A Z2I_AbCdEf1234 -j Z2R_AbCdEf1234_I2
--A Z2R_AbCdEf1234_O1 -p tcp -m multiport --dports 80:65535 -j NFQUEUE
--A Z2R_AbCdEf1234_O2 -p udp -m multiport --dports 443:65535 -j NFQUEUE
--A Z2R_AbCdEf1234_I1 -p tcp -m multiport --sports 80:65535 -j NFQUEUE
--A Z2R_AbCdEf1234_I2 -p udp -m multiport --sports 443:65535 -j NFQUEUE
-EOF
-        }
-        create_teardown_operation_journal || exit 35
         printf '%s\n' 'status=ok' 'qnum=200' > "$STATUS_SNAPSHOT"
         chmod 0600 "$STATUS_SNAPSHOT"
     ) || fail "$mode fixture owner publication failed"
@@ -184,7 +169,8 @@ run_case() {
     [ ! -e "$state/owner.meta" ] && [ ! -L "$state/owner.meta" ] || fail "$mode retained stale owner"
     [ ! -e "$state/nfqws2.pid" ] && [ ! -L "$state/nfqws2.pid" ] || fail "$mode retained stale pidfile"
     [ ! -e "$state/status.snapshot" ] && [ ! -L "$state/status.snapshot" ] || fail "$mode retained stale status"
-    [ ! -e "$state/firewall-teardown.wal" ] && [ ! -L "$state/firewall-teardown.wal" ] || fail "$mode retained stale WAL"
+    [ ! -e "$state/firewall-teardown.wal" ] && [ ! -L "$state/firewall-teardown.wal" ] ||
+        fail "$mode created an obsolete firewall WAL"
     [ ! -e "$state/lifecycle.lock" ] && [ ! -L "$state/lifecycle.lock" ] || fail "$mode leaked lifecycle lock"
     [ ! -e "$MUTATION_LOG.daemon" ] || fail "$mode started nfqws2"
     [ ! -s "$MUTATION_LOG" ] || fail "$mode attempted a firewall mutation"

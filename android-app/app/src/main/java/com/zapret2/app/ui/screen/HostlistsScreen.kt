@@ -39,6 +39,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -51,7 +52,6 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import com.zapret2.app.R
@@ -88,9 +88,8 @@ fun HostlistsScreen(
         compactNumberFormat.format(state.totalEntries)
     }
 
-    LifecycleStartEffect(activeViewModel) {
-        activeViewModel?.onScreenEntered()
-        onStopOrDispose { activeViewModel?.onScreenStopped() }
+    LaunchedEffect(activeViewModel) {
+        activeViewModel?.ensureLoaded()
     }
 
     val importLauncher = if (activeViewModel != null) {

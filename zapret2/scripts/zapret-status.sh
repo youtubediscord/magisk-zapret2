@@ -115,7 +115,6 @@ state_dir_is_secure && STATE_DIR_SECURE=1
 load_effective_core_config_readonly >/dev/null 2>&1 || CONFIG_VALID=0
 normalize_qnum "${QNUM:-}" >/dev/null 2>&1 || CONFIG_VALID=0
 [ "$CONFIG_VALID" = 0 ] || QNUM="$QNUM_NORMALIZED"
-is_decimal "${PKT_OUT:-}" && is_decimal "${PKT_IN:-}" || CONFIG_VALID=0
 read_iptables_status >/dev/null 2>&1 || true
 
 Z2_PID=""

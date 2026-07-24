@@ -160,10 +160,17 @@ validate_strategy_blob_references() {
     done
 }
 
+validate_capture_packet_count() {
+    case "$1" in ''|0|0*|*[!0-9]*) return 1 ;; esac
+    [ "${#1}" -le 9 ] 2>/dev/null
+}
+
 validate_preset_file() {
     local preset_file="$1" logical_name="$2" candidate_name line cr size
     local in_profiles=0 profile_open=0 profile_name=0 profile_filter=0 profile_strategy=0 profile_skip=0
     local profiles=0 lua_count=0 blob_count=0 raw option blob_name
+    local capture_tcp_out= capture_tcp_in= capture_udp_out= capture_udp_in=
+    local seen_capture_tcp_out=0 seen_capture_tcp_in=0 seen_capture_udp_out=0 seen_capture_udp_in=0
     local declared_blobs='|fake_default_http|fake_default_quic|fake_default_tls|'
 
     PRESET_VALIDATION_CODE=OK
@@ -191,7 +198,53 @@ validate_preset_file() {
     cr="$(printf '\r')"
     while IFS= read -r line || [ -n "$line" ]; do
         line="${line%"$cr"}"
-        case "$line" in ''|'#'*|';'*) continue ;; esac
+        case "$line" in
+            '# NFQWS2_TCP_PKT_OUT='*)
+                [ "$in_profiles" -eq 0 ] && [ "$seen_capture_tcp_out" -eq 0 ] || {
+                    preset_validation_fail INVALID_CAPTURE_POLICY "$logical_name"; return 1;
+                }
+                capture_tcp_out="${line#*=}"
+                validate_capture_packet_count "$capture_tcp_out" || {
+                    preset_validation_fail INVALID_CAPTURE_POLICY "$logical_name"; return 1;
+                }
+                seen_capture_tcp_out=1
+                continue
+                ;;
+            '# NFQWS2_TCP_PKT_IN='*)
+                [ "$in_profiles" -eq 0 ] && [ "$seen_capture_tcp_in" -eq 0 ] || {
+                    preset_validation_fail INVALID_CAPTURE_POLICY "$logical_name"; return 1;
+                }
+                capture_tcp_in="${line#*=}"
+                validate_capture_packet_count "$capture_tcp_in" || {
+                    preset_validation_fail INVALID_CAPTURE_POLICY "$logical_name"; return 1;
+                }
+                seen_capture_tcp_in=1
+                continue
+                ;;
+            '# NFQWS2_UDP_PKT_OUT='*)
+                [ "$in_profiles" -eq 0 ] && [ "$seen_capture_udp_out" -eq 0 ] || {
+                    preset_validation_fail INVALID_CAPTURE_POLICY "$logical_name"; return 1;
+                }
+                capture_udp_out="${line#*=}"
+                validate_capture_packet_count "$capture_udp_out" || {
+                    preset_validation_fail INVALID_CAPTURE_POLICY "$logical_name"; return 1;
+                }
+                seen_capture_udp_out=1
+                continue
+                ;;
+            '# NFQWS2_UDP_PKT_IN='*)
+                [ "$in_profiles" -eq 0 ] && [ "$seen_capture_udp_in" -eq 0 ] || {
+                    preset_validation_fail INVALID_CAPTURE_POLICY "$logical_name"; return 1;
+                }
+                capture_udp_in="${line#*=}"
+                validate_capture_packet_count "$capture_udp_in" || {
+                    preset_validation_fail INVALID_CAPTURE_POLICY "$logical_name"; return 1;
+                }
+                seen_capture_udp_in=1
+                continue
+                ;;
+            ''|'#'*|';'*) continue ;;
+        esac
         case "$line" in *[[:cntrl:]]*) preset_validation_fail UNSAFE_OPTION_VALUE "$logical_name"; return 1 ;; esac
         case "$line" in --ipcache*) preset_validation_fail FORBIDDEN_IPCACHE_OPTION "$logical_name"; return 1 ;; esac
 
@@ -283,6 +336,13 @@ validate_preset_file() {
     [ "$profiles" -gt 0 ] && [ "$lua_count" -gt 0 ] && [ "$blob_count" -gt 0 ] || {
         preset_validation_fail NO_VALID_OPTIONS "$logical_name"; return 1;
     }
+    [ "$seen_capture_tcp_out$seen_capture_tcp_in$seen_capture_udp_out$seen_capture_udp_in" = 1111 ] || {
+        preset_validation_fail CAPTURE_POLICY_MISSING "$logical_name"; return 1;
+    }
+    COMPILED_TCP_PKT_OUT="$capture_tcp_out"
+    COMPILED_TCP_PKT_IN="$capture_tcp_in"
+    COMPILED_UDP_PKT_OUT="$capture_udp_out"
+    COMPILED_UDP_PKT_IN="$capture_udp_in"
 }
 
 normalize_port_union_file() {
@@ -400,9 +460,12 @@ compile_preset_artifact() {
     [ ! -e "$tmp" ] && [ ! -L "$tmp" ] || return 1
     umask 077
     {
-        printf 'Z2_ARGV\t1\n'
-        printf 'PRESET\t%s\nSHA256\t%s\nRUNTIME_SHA256\t%s\nTCP\t%s\nUDP\t%s\nARGS\n' \
+        printf 'Z2_ARGV\t2\n'
+        printf 'PRESET\t%s\nSHA256\t%s\nRUNTIME_SHA256\t%s\nTCP\t%s\nUDP\t%s\n' \
             "$logical_name" "$source_sha" "$runtime_sha" "$COMPILED_TCP_PORTS" "$COMPILED_UDP_PORTS"
+        printf 'TCP_PKT_OUT\t%s\nTCP_PKT_IN\t%s\nUDP_PKT_OUT\t%s\nUDP_PKT_IN\t%s\nARGS\n' \
+            "$COMPILED_TCP_PKT_OUT" "$COMPILED_TCP_PKT_IN" \
+            "$COMPILED_UDP_PKT_OUT" "$COMPILED_UDP_PKT_IN"
         printf '%s\n' "--qnum=${QNUM:-200}" "--fwmark=${DESYNC_MARK:-0x40000000}" "--uid=${NFQWS_UID:-0:0}"
         case "${LOG_MODE:-none}" in
             android) printf '%s\n' '--debug=android' ;;
@@ -428,8 +491,10 @@ compile_preset_artifact() {
 }
 
 read_compiled_artifact_metadata() {
-    local artifact="$1" line stage=0 seen_preset=0 seen_sha=0 seen_runtime_sha=0 seen_tcp=0 seen_udp=0 size tab key value
+    local artifact="$1" line stage=0 seen_preset=0 seen_sha=0 seen_runtime_sha=0 seen_tcp=0 seen_udp=0
+    local seen_tcp_out=0 seen_tcp_in=0 seen_udp_out=0 seen_udp_in=0 size tab key value
     COMPILED_PRESET=; COMPILED_SOURCE_SHA256=; COMPILED_RUNTIME_SHA256=; COMPILED_TCP_PORTS=; COMPILED_UDP_PORTS=
+    COMPILED_TCP_PKT_OUT=; COMPILED_TCP_PKT_IN=; COMPILED_UDP_PKT_OUT=; COMPILED_UDP_PKT_IN=
     [ -f "$artifact" ] && [ ! -L "$artifact" ] && [ -r "$artifact" ] || return 1
     size="$(wc -c < "$artifact" 2>/dev/null)" || return 1
     case "$size" in ''|*[!0-9]*) return 1 ;; esac
@@ -437,7 +502,7 @@ read_compiled_artifact_metadata() {
     tab="$(printf '\t')"
     while IFS= read -r line || [ -n "$line" ]; do
         if [ "$stage" -eq 0 ]; then
-            [ "$line" = "Z2_ARGV${tab}1" ] || return 1
+            [ "$line" = "Z2_ARGV${tab}2" ] || return 1
             stage=1
             continue
         fi
@@ -451,13 +516,19 @@ read_compiled_artifact_metadata() {
                 RUNTIME_SHA256) [ "$seen_runtime_sha" -eq 0 ] || return 1; COMPILED_RUNTIME_SHA256="$value"; seen_runtime_sha=1 ;;
                 TCP) [ "$seen_tcp" -eq 0 ] || return 1; COMPILED_TCP_PORTS="$value"; seen_tcp=1 ;;
                 UDP) [ "$seen_udp" -eq 0 ] || return 1; COMPILED_UDP_PORTS="$value"; seen_udp=1 ;;
+                TCP_PKT_OUT) [ "$seen_tcp_out" -eq 0 ] || return 1; COMPILED_TCP_PKT_OUT="$value"; seen_tcp_out=1 ;;
+                TCP_PKT_IN) [ "$seen_tcp_in" -eq 0 ] || return 1; COMPILED_TCP_PKT_IN="$value"; seen_tcp_in=1 ;;
+                UDP_PKT_OUT) [ "$seen_udp_out" -eq 0 ] || return 1; COMPILED_UDP_PKT_OUT="$value"; seen_udp_out=1 ;;
+                UDP_PKT_IN) [ "$seen_udp_in" -eq 0 ] || return 1; COMPILED_UDP_PKT_IN="$value"; seen_udp_in=1 ;;
                 *) return 1 ;;
             esac
             continue
         fi
         case "$line" in --*) ;; *) return 1 ;; esac
     done < "$artifact"
-    [ "$stage" -eq 2 ] && [ "$seen_preset$seen_sha$seen_runtime_sha$seen_tcp$seen_udp" = 11111 ] || return 1
+    [ "$stage" -eq 2 ] &&
+        [ "$seen_preset$seen_sha$seen_runtime_sha$seen_tcp$seen_udp$seen_tcp_out$seen_tcp_in$seen_udp_out$seen_udp_in" = 111111111 ] ||
+        return 1
     is_safe_preset_file_name "$COMPILED_PRESET" || return 1
     case "$COMPILED_SOURCE_SHA256" in *[!0-9a-f]*|'') return 1 ;; esac
     [ "${#COMPILED_SOURCE_SHA256}" -eq 64 ] || return 1
@@ -468,6 +539,10 @@ read_compiled_artifact_metadata() {
     [ -z "$COMPILED_UDP_PORTS" ] ||
         validate_filter_ports "$(printf '%s' "$COMPILED_UDP_PORTS" | tr ':' '-')" || return 1
     [ -n "$COMPILED_TCP_PORTS$COMPILED_UDP_PORTS" ] || return 1
+    validate_capture_packet_count "$COMPILED_TCP_PKT_OUT" || return 1
+    validate_capture_packet_count "$COMPILED_TCP_PKT_IN" || return 1
+    validate_capture_packet_count "$COMPILED_UDP_PKT_OUT" || return 1
+    validate_capture_packet_count "$COMPILED_UDP_PKT_IN" || return 1
 }
 
 run_compiled_artifact() {
@@ -510,8 +585,10 @@ preview_compiled_artifact_machine() {
     local artifact="$1" logical_name="$2" line in_args=0 count=0
     read_compiled_artifact_metadata "$artifact" || return 1
     [ "$COMPILED_PRESET" = "$logical_name" ] || return 1
-    printf 'Z2_COMMAND_PREVIEW\t1\t%s\tTCP=%s\tUDP=%s\n' \
-        "$logical_name" "$COMPILED_TCP_PORTS" "$COMPILED_UDP_PORTS"
+    printf 'Z2_COMMAND_PREVIEW\t2\t%s\tTCP=%s\tUDP=%s\tTCP_OUT=%s\tTCP_IN=%s\tUDP_OUT=%s\tUDP_IN=%s\n' \
+        "$logical_name" "$COMPILED_TCP_PORTS" "$COMPILED_UDP_PORTS" \
+        "$COMPILED_TCP_PKT_OUT" "$COMPILED_TCP_PKT_IN" \
+        "$COMPILED_UDP_PKT_OUT" "$COMPILED_UDP_PKT_IN"
     printf 'Z2_COMMAND_EXECUTABLE\t%s\n' "$NFQWS2"
     # Preview is a pure projection of the packaged launcher contract. Runtime
     # capability checks and binary execution belong to preflight/start.

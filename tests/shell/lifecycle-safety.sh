@@ -13,23 +13,29 @@ cat > "$MOCK/iptables" <<'EOF'
 #!/bin/sh
 case "${Z2_QUERY_MODE:-clean}" in
     fail) exit 42 ;;
-    present)
-        printf '%s\n' "-N ${ZAPRET2_OUT:?}" "-A OUTPUT -j $ZAPRET2_OUT"
+esac
+case " $* " in
+    *' -t mangle -L OUTPUT -n '*) exit 0 ;;
+    *' -t mangle -S ZAPRET2_OUT '*)
+        case "${Z2_QUERY_MODE:-clean}" in
+            present|foreign) echo '-N ZAPRET2_OUT'; exit 0 ;;
+            *) exit 1 ;;
+        esac
+        ;;
+    *' -t mangle -S ZAPRET2_IN '*) exit 1 ;;
+esac
+case "${Z2_QUERY_MODE:-clean}: $* " in
+    present:*' -t mangle -C OUTPUT -j ZAPRET2_OUT '*) exit 0 ;;
+    present:*' -t mangle -S ')
+        printf '%s\n' '-N ZAPRET2_OUT' '-A OUTPUT -j ZAPRET2_OUT'
         exit 0
         ;;
-    residue)
-        printf '%s\n' \
-            '-N Z2O_Ab12Cd34Ef' \
-            '-N Z2I_Ab12Cd34Ef' \
-            '-N Z2R_Ab12Cd34Ef_O1' \
-            '-A Z2O_Ab12Cd34Ef -j Z2R_Ab12Cd34Ef_O1'
+    foreign:*' -t mangle -S ')
+        printf '%s\n' '-N ZAPRET2_OUT' '-A FORWARD -j ZAPRET2_OUT'
         exit 0
         ;;
-    lookalike)
-        printf '%s\n' '-N Z2O_short' '-N Z2R_Ab12Cd34Ef_X1' '-A OUTPUT -j Z2O_short'
-        exit 0
-        ;;
-    clean) exit 0 ;;
+    clean:*' -t mangle -S ') exit 0 ;;
+    *) exit 1 ;;
 esac
 EOF
 chmod 0755 "$MOCK/iptables"
@@ -43,10 +49,6 @@ chmod 0700 "$STATE_DIR"
 PATH="$MOCK:$PATH"
 export PATH STATE_DIR
 . "$ROOT/zapret2/scripts/common.sh"
-FIREWALL_TAG=testsafety
-ZAPRET2_OUT="Z2O_$FIREWALL_TAG"
-ZAPRET2_IN="Z2I_$FIREWALL_TAG"
-export FIREWALL_TAG ZAPRET2_OUT ZAPRET2_IN
 
 # A stopped service must not perform the expensive exact identity proof for
 # every Android PID. The shell-builtin cmdline prefilter admits the current
@@ -83,14 +85,10 @@ Z2_QUERY_MODE=present; export Z2_QUERY_MODE
 owned_family_present iptables || fail "owned chain/anchor was not detected"
 if owned_family_absent iptables; then fail "owned state was accepted as absent"; fi
 
-Z2_QUERY_MODE=residue; export Z2_QUERY_MODE
-zapret2_namespace_present iptables || fail "detached dynamic generation residue was not detected"
-Z2_QUERY_MODE=lookalike; export Z2_QUERY_MODE
-set +e
-zapret2_namespace_present iptables
-rc=$?
-set -e
-[ "$rc" = 1 ] || fail "malformed dynamic-chain lookalike entered the owned namespace"
+Z2_QUERY_MODE=foreign; export Z2_QUERY_MODE
+if z2_fw_cleanup_is_unambiguous iptables; then
+    fail "foreign reference to the stable namespace passed cleanup preflight"
+fi
 
 LEGACY_QNUM=200
 Z2_QUERY_MODE=fail; export Z2_QUERY_MODE
@@ -98,23 +96,19 @@ if legacy_direct_qnum_count iptables >/dev/null 2>&1; then
     fail "legacy full-list query failure was masked by its counting pipeline"
 fi
 
-[ "$(teardown_phase_rank pending)" = 1 ] || fail "teardown pending rank"
-[ "$(teardown_phase_rank consuming-ipv4)" -lt "$(teardown_phase_rank consumed-ipv4)" ] || fail "IPv4 teardown ranks regress"
-[ "$(teardown_phase_rank consumed-ipv4)" -lt "$(teardown_phase_rank consuming-ipv6)" ] || fail "family teardown ranks regress"
-[ "$(teardown_phase_rank consumed-ipv6)" -lt "$(teardown_phase_rank consumed)" ] || fail "teardown commit rank regresses"
-
 grep -Fq 'boot_id=%s' "$ROOT/zapret2/scripts/common.sh" || fail "owner publication is not boot-bound"
 grep -Fq 'return 2' "$ROOT/zapret2/scripts/common.sh" || fail "tri-state query error is absent"
 grep -Fq 'phase_at_least process-clean' "$ROOT/zapret2/scripts/zapret-full-rollback.sh" || fail "rollback resume gates are absent"
 
-# The operation WAL must use bracket markers for exact D reconciliation and
-# rename tombstones for exact X reconciliation without xt_comment.
-grep -Fq 'prepare_teardown_marker' "$ROOT/zapret2/scripts/common.sh" || fail "rule/anchor bracket protocol is absent"
-grep -Fq 'consume_bracketed_teardown_target' "$ROOT/zapret2/scripts/common.sh" || fail "bracketed D recovery is absent"
-grep -Fq -- '-E "$chain" "$tomb"' "$ROOT/zapret2/scripts/common.sh" || fail "chain rename tombstone protocol is absent"
-grep -Fq 'target-consumed' "$ROOT/zapret2/scripts/common.sh" || fail "post-D/X durable state is absent"
-grep -Fq 'validate_teardown_operation_journal && return 0' "$ROOT/zapret2/scripts/common.sh" || fail "authenticated partial WAL admission is absent"
-grep -Fq 'locate_teardown_rule_block' "$ROOT/zapret2/scripts/common.sh" || fail "ordered generation occurrence lookup is absent"
-grep -Fq 'teardown_bracket_matches' "$ROOT/zapret2/scripts/common.sh" || fail "immediate pre-D byte verification is absent"
+# Boot-local firewall state is reconstructed from one stable namespace. It has
+# no durability journal and rejects ambiguous foreign references before delete.
+grep -Fq 'z2_fw_cleanup_is_unambiguous' "$ROOT/zapret2/scripts/firewall-reconciler.sh" ||
+    fail "stable namespace cleanup preflight is absent"
+grep -Fq -- '--test --noflush' "$ROOT/zapret2/scripts/firewall-reconciler.sh" ||
+    fail "whole-batch restore validation is absent"
+if grep -Eq 'prepare_teardown_marker|consume_bracketed_teardown_target|target-consumed' \
+    "$ROOT/zapret2/scripts/firewall-reconciler.sh"; then
+    fail "firewall reconciler contains obsolete teardown WAL machinery"
+fi
 
 echo "Lifecycle safety shell tests passed"

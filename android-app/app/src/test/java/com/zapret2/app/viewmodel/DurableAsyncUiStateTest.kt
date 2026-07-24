@@ -15,7 +15,7 @@ class DurableAsyncUiStateTest {
     fun logsState_keepsRawPayloadsFreeOfPresentationSentinels() {
         val state = LogsUiState()
 
-        assertEquals(LogsLoadState.LOADING, state.commandLoadState)
+        assertEquals(LogsLoadState.IDLE, state.commandLoadState)
         assertEquals(LogsLoadState.IDLE, state.outputLoadState)
         assertTrue(state.cmdline.isEmpty())
         assertTrue(state.logs.isEmpty())

@@ -75,7 +75,7 @@ The shell regression sources cover the corresponding host/module boundary:
 - quoting, unsafe roots, shell metacharacters, path traversal and valid filenames with
   spaces: `tests/shell/run.sh` and `tests/shell/preset-contract.sh`;
 - malformed/missing runtime, owner, cleanup and rollback evidence:
-  `tests/shell/run.sh`, `owner-state-v6.sh`, `update-cleanup-v2.sh`,
+  `tests/shell/run.sh`, `owner-state-v8.sh`, `update-cleanup-v2.sh`,
   `wal-validator.sh`, and `full-rollback.sh`;
 - missing/unsafe binaries, scripts, dependencies and package entries:
   `run.sh`, `preset-contract.sh`, `package-owner-protocol.sh`, and

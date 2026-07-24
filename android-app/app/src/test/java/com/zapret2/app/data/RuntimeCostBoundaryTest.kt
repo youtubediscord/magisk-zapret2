@@ -85,6 +85,87 @@ class RuntimeCostBoundaryTest {
     }
 
     @Test
+    fun profileRead_usesOnlyActiveSelectionAndNeverEnumeratesThePresetCatalog() {
+        val profiles = repositoryFile(
+            "android-app/app/src/main/java/com/zapret2/app/data/ProfileRepository.kt",
+        ).readText()
+        val loadActive = profiles
+            .substringAfter("override suspend fun loadActive()")
+            .substringBefore("override suspend fun loadStrategies(")
+
+        assertTrue(loadActive.contains("presets.readActive()"))
+        assertFalse(loadActive.contains("loadCatalog"))
+        assertFalse(loadActive.contains("listPresets"))
+    }
+
+    @Test
+    fun successfulPresetAndProfileMutations_projectVerifiedResultsWithoutCatalogReloads() {
+        val presets = repositoryFile(
+            "android-app/app/src/main/java/com/zapret2/app/viewmodel/PresetsViewModel.kt",
+        ).readText()
+        val apply = presets
+            .substringAfter("internal suspend fun applyPresetNow(")
+            .substringBefore("fun openPresetEditor(")
+        val save = presets
+            .substringAfter("internal suspend fun savePresetNow(")
+            .substringBefore("private fun launchOperation(")
+        val profiles = repositoryFile(
+            "android-app/app/src/main/java/com/zapret2/app/viewmodel/ProfilesViewModel.kt",
+        ).readText()
+        val mutate = profiles
+            .substringAfter("private fun mutate(")
+            .substringBefore("private fun outcomeMessage(")
+
+        assertFalse(apply.contains("loadPresetsNow()"))
+        assertFalse(save.contains("loadPresetsNow()"))
+        assertTrue(mutate.contains("result.publishedDocument"))
+        assertTrue(mutate.contains("outcome == PresetMutationOutcome.SourceChanged -> repository.loadActive()"))
+    }
+
+    @Test
+    fun ordinaryServiceStatus_reusesPublishedEnvironmentAndTypedSnapshot() {
+        val control = repositoryFile(
+            "android-app/app/src/main/java/com/zapret2/app/viewmodel/ControlViewModel.kt",
+        ).readText()
+        val refresh = control
+            .substringAfter("private suspend fun refreshStatus()")
+            .substringBefore("fun refreshStatusManually()")
+
+        assertTrue(refresh.contains("ServiceLifecycleController.getStatus()"))
+        assertFalse(refresh.contains("reconcileEnvironment()"))
+        assertFalse(refresh.contains("RuntimeConfigStore.readCore()"))
+        assertFalse(refresh.contains("checkRootAccess()"))
+    }
+
+    @Test
+    fun rootTransport_doesNotSerializeAnIdProbeBeforeEveryCommand() {
+        val controller = repositoryFile(
+            "android-app/app/src/main/java/com/zapret2/app/data/ServiceLifecycleController.kt",
+        ).readText()
+        val executeRaw = controller
+            .substringAfter("private suspend fun executeRaw(")
+            .substringBefore("private fun executeShell(")
+
+        assertFalse(executeRaw.contains("executeShell(\"id -u\""))
+        assertTrue(executeRaw.contains("val result = executeShell(command, policy)"))
+    }
+
+    @Test
+    fun installationObservation_trustsOneGenerationReceiptInsteadOfPackagePathScans() {
+        val repository = repositoryFile(
+            "android-app/app/src/main/java/com/zapret2/app/data/Zapret2ModuleRepository.kt",
+        ).readText()
+        val probe = repository
+            .substringAfter("internal fun buildProbeCommand()")
+            .substringBefore("internal fun parseEnvironmentOutput(")
+
+        assertTrue(probe.contains("InstallGenerationMetadata.shellValidator"))
+        assertFalse(probe.contains("runtimeReadinessRegularFiles"))
+        assertFalse(probe.contains("runtimeReadinessExecutables"))
+        assertFalse(probe.contains("for z2_relative"))
+    }
+
+    @Test
     fun shellContract_keepsExhaustiveByteComparisonOutsidePublication() {
         val source = repositoryFile("zapret2/scripts/package-contract.sh").readText()
         val runtimeComparison = source

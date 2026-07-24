@@ -50,6 +50,7 @@ internal object ModulePackageContract {
      */
     val mandatoryRuntimeExecutables = listOf(
         "zapret2/scripts/common.sh",
+        "zapret2/scripts/firewall-reconciler.sh",
         COMMAND_BUILDER_SCRIPT_PATH,
         PACKAGE_CONTRACT_SCRIPT_PATH,
         "zapret2/scripts/runtime-config.sh",

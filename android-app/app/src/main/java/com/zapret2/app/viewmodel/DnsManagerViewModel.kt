@@ -25,6 +25,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 
 enum class DnsManagerOperation { LOAD, APPLY, RESET }
@@ -52,8 +53,7 @@ class DnsManagerViewModel @Inject constructor(
 
     private val _uiState = MutableStateFlow(DnsManagerUiState())
     val uiState: StateFlow<DnsManagerUiState> = _uiState.asStateFlow()
-    private var hasEnteredScreen = false
-    private var refreshAfterOperation = false
+    private val initialLoadRequested = AtomicBoolean(false)
 
     private sealed interface ApplyOutcome {
         data object Failed : ApplyOutcome
@@ -65,23 +65,12 @@ class DnsManagerViewModel @Inject constructor(
         data class ModuleFailed(val diagnostic: String) : ApplyOutcome
     }
 
-    init {
-        loadData()
+    fun ensureLoaded() {
+        if (initialLoadRequested.compareAndSet(false, true)) loadData()
     }
 
     fun clearMessage() {
         _uiState.update { it.copy(message = null) }
-    }
-
-    fun onScreenEntered() {
-        val firstEntry = !hasEnteredScreen
-        hasEnteredScreen = true
-        if (firstEntry) return
-        if (_uiState.value.operation == null) loadData() else refreshAfterOperation = true
-    }
-
-    fun onScreenStopped() {
-        refreshAfterOperation = false
     }
 
     fun loadData() {
@@ -164,7 +153,6 @@ class DnsManagerViewModel @Inject constructor(
                     )
                 }
             } finally {
-                runPendingRefresh()
             }
         }
     }
@@ -316,10 +304,7 @@ class DnsManagerViewModel @Inject constructor(
                 blockedMessage = R.string.dns_apply_blocked,
             )
             if (outcome == ApplyOutcome.CatalogChanged) {
-                refreshAfterOperation = false
                 loadData()
-            } else {
-                runPendingRefresh()
             }
         }
     }
@@ -399,14 +384,7 @@ class DnsManagerViewModel @Inject constructor(
                 blockedMessage = R.string.dns_reset_blocked,
                 clearSelectionOnSuccess = true,
             )
-            runPendingRefresh()
         }
-    }
-
-    private fun runPendingRefresh() {
-        if (!refreshAfterOperation || _uiState.value.operation != null) return
-        refreshAfterOperation = false
-        loadData()
     }
 
     private fun restoreHostsOrFalse(snapshot: HostsOverlaySnapshot): Boolean = try {

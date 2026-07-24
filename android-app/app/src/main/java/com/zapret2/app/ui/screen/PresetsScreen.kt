@@ -41,6 +41,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -48,7 +49,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.zapret2.app.ui.theme.SizeTokens
 import com.zapret2.app.ui.theme.SpacingTokens
@@ -83,9 +83,8 @@ fun PresetsScreen(
     val context = LocalContext.current
     val settingsEnabled = !state.isLoading && state.hasAuthoritativeCatalog
 
-    LifecycleStartEffect(activeViewModel) {
-        activeViewModel?.onScreenEntered()
-        onStopOrDispose { activeViewModel?.onScreenStopped() }
+    LaunchedEffect(activeViewModel) {
+        activeViewModel?.ensureLoaded()
     }
 
     AppSnackbarEffect(state.message, snackbarHostState) { activeViewModel?.clearMessage() }

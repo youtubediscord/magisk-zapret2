@@ -111,7 +111,7 @@ class Zapret2ModuleRepository @Inject constructor() {
             Build.SUPPORTED_ABIS.toList(),
         )
         val result = ServiceLifecycleController.executeRoot(
-            buildProbeCommand(binaryDirectory),
+            buildProbeCommand(),
         )
         if (!result.success) return null
 
@@ -155,14 +155,9 @@ class Zapret2ModuleRepository @Inject constructor() {
         )
     }
 
-    internal fun buildProbeCommand(binaryDirectory: String?): String {
+    internal fun buildProbeCommand(): String {
         val activeDir = RootFileIo.shellQuote(ACTIVE_MODULE_DIR)
         val pendingDir = RootFileIo.shellQuote(PENDING_MODULE_DIR)
-        val regularPaths = ModulePackageContract.runtimeReadinessRegularFiles.joinToString(" ")
-        val executablePaths = buildList {
-            addAll(ModulePackageContract.runtimeReadinessExecutables)
-            binaryDirectory?.let { add(ModulePackageContract.binaryRelativePath(it)) }
-        }.distinct().joinToString(" ")
         val disableMarker = ModulePackageContract.DISABLE_MARKER
         return """
             z2_probe_slot() {
@@ -183,44 +178,14 @@ class Zapret2ModuleRepository @Inject constructor() {
                     *) printf '%s\n' unreadable; return ;;
                 esac
 
+                # Package bytes were exhaustively qualified before this generation was published.
+                # Runtime observation trusts its bounded publication receipt instead of rescanning
+                # scripts, binaries, catalogs and Lua assets on every status request.
                 z2_state=ready
-                for z2_relative in $regularPaths
-                do
-                    z2_required="${'$'}z2_slot/${'$'}z2_relative"
-                    if ! { [ -f "${'$'}z2_required" ] && [ ! -L "${'$'}z2_required" ] &&
-                        [ -s "${'$'}z2_required" ] &&
-                        [ "${'$'}(stat -c %u "${'$'}z2_required" 2>/dev/null)" = 0 ] &&
-                        [ "${'$'}(stat -c %a "${'$'}z2_required" 2>/dev/null)" = 644 ] &&
-                        [ "${'$'}(stat -c %h "${'$'}z2_required" 2>/dev/null)" = 1 ]; }; then
-                        z2_state=partial
-                        break
-                    fi
-                done
-                if [ "${'$'}z2_state" = ready ]; then
-                    z2_contract="${'$'}z2_slot/${ModulePackageContract.LIFECYCLE_CONTRACT_PATH}"
-                    [ "${'$'}(cat "${'$'}z2_contract" 2>/dev/null)" = ${ModulePackageContract.LIFECYCLE_CONTRACT_VERSION} ] ||
-                        z2_state=partial
-                fi
-                if [ "${'$'}z2_state" = ready ]; then
-                    for z2_relative in $executablePaths
-                    do
-                        z2_required="${'$'}z2_slot/${'$'}z2_relative"
-                        if ! { [ -f "${'$'}z2_required" ] && [ ! -L "${'$'}z2_required" ] &&
-                            [ -s "${'$'}z2_required" ] &&
-                            [ "${'$'}(stat -c %u "${'$'}z2_required" 2>/dev/null)" = 0 ] &&
-                            [ "${'$'}(stat -c %a "${'$'}z2_required" 2>/dev/null)" = 755 ] &&
-                            [ "${'$'}(stat -c %h "${'$'}z2_required" 2>/dev/null)" = 1 ]; }; then
-                            z2_state=partial
-                            break
-                        fi
-                    done
-                fi
-                if [ "${'$'}z2_state" = ready ]; then
-                    ${InstallGenerationMetadata.shellValidator(
-                        "\"${'$'}z2_slot/${InstallGenerationMetadata.RELATIVE_PATH}\"",
-                        required = true,
-                    )} || z2_state=partial
-                fi
+                ${InstallGenerationMetadata.shellValidator(
+                    "\"${'$'}z2_slot/${InstallGenerationMetadata.RELATIVE_PATH}\"",
+                    required = true,
+                )} || z2_state=partial
                 if [ "${'$'}z2_kind" = active ]; then
                     z2_remove="${'$'}z2_slot/remove"
                     z2_disable="${'$'}z2_slot/$disableMarker"

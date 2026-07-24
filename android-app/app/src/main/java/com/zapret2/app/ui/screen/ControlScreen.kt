@@ -20,11 +20,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.CallMade
-import androidx.compose.material.icons.automirrored.filled.CallReceived
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteForever
@@ -42,7 +39,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -50,6 +46,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -62,14 +59,12 @@ import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.zapret2.app.ui.theme.SizeTokens
 import com.zapret2.app.ui.theme.SpacingTokens
 import com.zapret2.app.R
-import com.zapret2.app.data.MAX_PACKET_COUNT
 import com.zapret2.app.data.ModulePurgeController
 import com.zapret2.app.data.ServiceLifecycleController
 import com.zapret2.app.ui.UiText
@@ -94,7 +89,6 @@ import com.zapret2.app.viewmodel.ControlUiState
 import com.zapret2.app.viewmodel.ControlViewModel
 import com.zapret2.app.viewmodel.FullRollbackUiState
 import com.zapret2.app.viewmodel.ModulePurgeUiState
-import com.zapret2.app.viewmodel.PacketTarget
 import com.zapret2.app.viewmodel.labelRes
 import com.zapret2.app.viewmodel.moduleStateLabelRes
 
@@ -111,6 +105,10 @@ fun ControlScreen(
     val context = LocalContext.current
     val errorDetailsLabel = stringResource(R.string.control_error_details)
     var localSnackbar by remember { mutableStateOf<AppSnackbarMessage?>(null) }
+
+    LaunchedEffect(activeViewModel) {
+        activeViewModel?.ensureInitialized()
+    }
 
     LifecycleStartEffect(activeViewModel) {
         activeViewModel?.onScreenStarted()
@@ -159,18 +157,6 @@ fun ControlScreen(
                     ),
                 )
             },
-            onDismiss = { activeViewModel?.dismissDialog() },
-        )
-    }
-
-    state.packetTarget
-        ?.takeIf { state.pendingDialog == ControlDialogKind.PACKET }
-        ?.let { target ->
-        PacketCountDialog(
-            title = stringResource(target.titleRes),
-            textValue = state.packetDraft,
-            onTextValueChange = { activeViewModel?.updatePacketDraft(it) },
-            onConfirm = { activeViewModel?.confirmPacketDialog() },
             onDismiss = { activeViewModel?.dismissDialog() },
         )
     }
@@ -325,29 +311,6 @@ fun ControlScreen(
                             checked = state.autostart,
                             onCheckedChange = { activeViewModel?.setAutostart(it) },
                             icon = Icons.Default.PowerSettingsNew,
-                            enabled = state.canEditSettings,
-                        )
-                    }
-                }
-
-                item {
-                    SectionHeader(stringResource(R.string.control_packet_interception))
-                    ContentCard {
-                        SettingRow(
-                            title = stringResource(R.string.control_outgoing_packets),
-                            value = state.pktOut.toString(),
-                            subtitle = stringResource(R.string.term_pkt_out),
-                            icon = Icons.AutoMirrored.Filled.CallMade,
-                            onClick = { activeViewModel?.showPacketDialog(PacketTarget.OUT) },
-                            enabled = state.canEditSettings,
-                        )
-                        Spacer(Modifier.height(SpacingTokens.Small))
-                        SettingRow(
-                            title = stringResource(R.string.control_incoming_packets),
-                            value = state.pktIn.toString(),
-                            subtitle = stringResource(R.string.term_pkt_in),
-                            icon = Icons.AutoMirrored.Filled.CallReceived,
-                            onClick = { activeViewModel?.showPacketDialog(PacketTarget.IN) },
                             enabled = state.canEditSettings,
                         )
                     }
@@ -974,45 +937,6 @@ private fun ErrorDetailsDialog(
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_close)) }
-        },
-    )
-}
-
-@Composable
-private fun PacketCountDialog(
-    title: String,
-    textValue: String,
-    onTextValueChange: (String) -> Unit,
-    onConfirm: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    val parsedValue = textValue.toIntOrNull()
-    val isValid = parsedValue != null && parsedValue in 1..MAX_PACKET_COUNT
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        shape = MaterialTheme.shapes.extraLarge,
-        title = { Text(title) },
-        text = {
-            OutlinedTextField(
-                value = textValue,
-                onValueChange = onTextValueChange,
-                singleLine = true,
-                isError = textValue.isNotEmpty() && !isValid,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                label = { Text(stringResource(R.string.control_packet_count)) },
-                supportingText = { Text(stringResource(R.string.control_packet_range)) },
-                modifier = Modifier.fillMaxWidth(),
-            )
-        },
-        confirmButton = {
-            TextButton(
-                onClick = onConfirm,
-                enabled = isValid,
-            ) { Text(stringResource(R.string.action_apply)) }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) }
         },
     )
 }

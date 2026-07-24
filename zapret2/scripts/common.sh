@@ -1,8 +1,21 @@
 #!/system/bin/sh
 # Shared lifecycle, configuration and ownership helpers for zapret2.
+#
+# Durability boundary:
+# Files under STATE_DIR describe boot-local processes, kernel firewall state,
+# lifecycle ownership, and bounded recovery evidence. Atomic rename makes those
+# publications indivisible to same-boot readers and preserves evidence when a
+# shell process exits or is killed. They must not call the global sync command:
+# a reboot removes the processes and netfilter state they describe, while
+# sync() flushes unrelated dirty data from every mounted filesystem.
+#
+# Persistent package, runtime-configuration, rollback, and purge transactions
+# own their durability barriers in their dedicated mutation scripts.
 
 ZAPRET_DIR="${ZAPRET_DIR:-$(dirname "$SCRIPT_DIR")}"
 MODDIR="${MODDIR:-$(dirname "$ZAPRET_DIR")}"
+FIREWALL_RECONCILER="$SCRIPT_DIR/firewall-reconciler.sh"
+[ ! -r "$FIREWALL_RECONCILER" ] || . "$FIREWALL_RECONCILER"
 
 umask 077
 
@@ -90,11 +103,7 @@ DEBUG_LOG="$STATE_DIR/nfqws2-debug.log"
 RUNTIME_OWNER_MARKER="$STATE_DIR/runtime.owner"
 STATUS_SNAPSHOT="$STATE_DIR/status.snapshot"
 RUNTIME_METADATA_MAX_BYTES=262144
-# Legacy owner schemas duplicated a command of up to 256 KiB as hex. Keep a
-# read-only compatibility envelope for those records, while every current
-# record stores only a fixed-size SHA-256 identity and has a much tighter cap.
-OWNER_STATE_MAX_BYTES=1048576
-OWNER_STATE_CURRENT_MAX_BYTES=65536
+OWNER_STATE_MAX_BYTES=65536
 
 RUNTIME_CONFIG="$ZAPRET_DIR/runtime.ini"
 
@@ -125,15 +134,10 @@ FULL_ROLLBACK_VERSION=1
 INSTALL_GENERATION_META="$ZAPRET_DIR/install-generation.meta"
 INSTALL_GENERATION_VERSION=1
 LEGACY_MIGRATION_MARKER="$STATE_DIR/legacy-direct-rules.migrated"
-OWNER_STATE_VERSION=7
-OWNER_STATE_V3_FIELD_SEQUENCE="version|pid|starttime|argv_hex|qnum|exe|generation|phase"
-OWNER_STATE_V4_FIELD_SEQUENCE="version|pid|starttime|argv_hex|qnum|exe|generation|phase|install_generation|install_archive_sha256|ports_tcp|ports_udp|stun_ports|pkt_out|pkt_in|desync_mark|ipv4_active|ipv6_active|ipv4_connbytes|ipv4_multiport|ipv4_mark|ipv6_connbytes|ipv6_multiport|ipv6_mark|ipv4_rules|ipv6_rules|ipv4_spec|ipv6_spec|firewall_fingerprint"
-OWNER_STATE_V5_FIELD_SEQUENCE="version|pid|starttime|argv_hex|qnum|exe|generation|boot_id|phase|install_generation|install_archive_sha256|ports_tcp|ports_udp|stun_ports|pkt_out|pkt_in|desync_mark|ipv4_active|ipv6_active|ipv4_connbytes|ipv4_multiport|ipv4_mark|ipv6_connbytes|ipv6_multiport|ipv6_mark|ipv4_rules|ipv6_rules|ipv4_spec|ipv6_spec|firewall_fingerprint"
-OWNER_STATE_V6_FIELD_SEQUENCE="version|pid|starttime|argv_hex|qnum|exe|generation|boot_id|phase|install_generation|install_archive_sha256|firewall_tag|out_chain|in_chain|ports_tcp|ports_udp|stun_ports|pkt_out|pkt_in|desync_mark|ipv4_active|ipv6_active|ipv4_connbytes|ipv4_multiport|ipv4_mark|ipv6_connbytes|ipv6_multiport|ipv6_mark|ipv4_rules|ipv6_rules|ipv4_spec|ipv6_spec|firewall_fingerprint"
-OWNER_STATE_V7_FIELD_SEQUENCE="version|pid|starttime|argv_sha256|qnum|exe|generation|boot_id|phase|install_generation|install_archive_sha256|firewall_tag|out_chain|in_chain|ports_tcp|ports_udp|stun_ports|pkt_out|pkt_in|desync_mark|ipv4_active|ipv6_active|ipv4_connbytes|ipv4_multiport|ipv4_mark|ipv6_connbytes|ipv6_multiport|ipv6_mark|ipv4_rules|ipv6_rules|ipv4_spec|ipv6_spec|firewall_fingerprint"
+OWNER_STATE_VERSION=8
+OWNER_STATE_V8_FIELD_SEQUENCE="version|pid|starttime|argv_sha256|qnum|exe|generation|boot_id|phase|install_generation|install_archive_sha256|firewall_tag|out_chain|in_chain|ports_tcp|ports_udp|stun_ports|tcp_pkt_out|tcp_pkt_in|udp_pkt_out|udp_pkt_in|desync_mark|ipv4_active|ipv6_active|ipv4_connbytes|ipv4_multiport|ipv4_mark|ipv6_connbytes|ipv6_multiport|ipv6_mark|ipv4_rules|ipv6_rules|ipv4_spec|ipv6_spec|firewall_fingerprint"
 TRACK_JOURNAL_VERSION=2
-TEARDOWN_JOURNAL="$STATE_DIR/firewall-teardown.wal"
-TEARDOWN_JOURNAL_VERSION=2
+OBSOLETE_FIREWALL_WAL="$STATE_DIR/firewall-teardown.wal"
 
 export STATE_DIR PIDFILE OWNER_STATE LOGFILE LOGFILE_PREVIOUS CMDLINE_FILE COMPILED_ARGV_FILE
 export STARTUP_LOG ERROR_LOG DEBUG_LOG RUNTIME_OWNER_MARKER STATUS_SNAPSHOT
@@ -143,7 +147,6 @@ export LIFECYCLE_LOCK_QUARANTINE UNINSTALL_TOMBSTONE
 export PURGE_REQUEST
 export FULL_ROLLBACK_TRANSACTION FULL_ROLLBACK_META FULL_ROLLBACK_HOSTS_BACKUP
 export INSTALL_GENERATION_META LEGACY_MIGRATION_MARKER
-export TEARDOWN_JOURNAL
 
 CORE_CONFIG_SOURCE="defaults"
 CORE_CONFIG_SOURCE_PATH="built-in defaults"
@@ -151,7 +154,7 @@ RUNTIME_CONFIG_STATUS="unknown"
 RUNTIME_CONFIG_REASON=""
 RUNTIME_CONFIG_ERROR=""
 RUNTIME_CORE_REPAIR_MODE="defaults"
-RUNTIME_CORE_REQUIRED_KEYS="schema_version config_format runtime_source autostart wifi_only debug qnum desync_mark pkt_out pkt_in active_preset nfqws_uid log_mode"
+RUNTIME_CORE_REQUIRED_KEYS="schema_version config_format runtime_source autostart wifi_only debug qnum desync_mark active_preset nfqws_uid log_mode"
 
 is_decimal() {
     case "$1" in
@@ -433,7 +436,7 @@ validate_track_journal_identity() {
 track_journal_is_terminal() {
     local path="$1"
     # validate_track_journal_identity() has already authenticated the complete
-    # grammar. A journal with no records, or only durable consumed records, no
+    # grammar. A journal with no records, or only atomically published consumed records, no
     # longer protects an uncommitted firewall mutation. In particular, it is
     # safe to retire without querying a family whose iptables frontend is
     # present but unusable on this kernel.
@@ -590,7 +593,6 @@ retire_installer_ephemeral_track_journals() {
     [ "$found" = 1 ] || return 0
 
     for path in $retired; do rm -f "$path" 2>/dev/null || return 1; done
-    sync >/dev/null 2>&1 || return 1
     for path in $retired; do
         [ ! -e "$path" ] && [ ! -L "$path" ] || return 1
     done
@@ -606,7 +608,7 @@ caller_holds_exact_lifecycle_lock() {
 }
 
 recover_stale_owner_publication() {
-    local current_boot pidfile_pid legacy=0
+    local current_boot pidfile_pid
     STALE_OWNER_PUBLICATION_RETIRED=0
     { [ -e "$OWNER_STATE" ] || [ -L "$OWNER_STATE" ] || [ -e "$PIDFILE" ] || [ -L "$PIDFILE" ]; } || return 0
     # The owner record is the authenticated commit marker.  A bare pidfile can
@@ -615,11 +617,6 @@ recover_stale_owner_publication() {
         STALE_TRACK_DIAGNOSTIC="unauthenticated owner publication remains"
         return 1
     }
-    case "$OWNER_STATE_SCHEMA_VERSION" in
-        3|4|5|6) legacy=1 ;;
-        "$OWNER_STATE_VERSION") ;;
-        *) STALE_TRACK_DIAGNOSTIC="owner publication schema is unsupported"; return 1 ;;
-    esac
     if [ -e "$PIDFILE" ] || [ -L "$PIDFILE" ]; then
         [ ! -L "$PIDFILE" ] && state_file_is_secure "$PIDFILE" || {
             STALE_TRACK_DIAGNOSTIC="unsafe pidfile accompanies owner publication"
@@ -633,33 +630,26 @@ recover_stale_owner_publication() {
     fi
     read_current_boot_id || { STALE_TRACK_DIAGNOSTIC="current boot identity is unavailable"; return 1; }
     current_boot="$CURRENT_BOOT_ID"
-    if [ "$legacy" = 0 ] && [ "$OWNER_STATE_BOOT_ID" = "$current_boot" ]; then
+    if [ "$OWNER_STATE_BOOT_ID" = "$current_boot" ]; then
         verify_nfqws_pid "$OWNER_STATE_PID" "$OWNER_STATE_START" "$OWNER_STATE_ARGV_SHA256" "$OWNER_STATE_QNUM" && return 0
         STALE_TRACK_DIAGNOSTIC="same-boot owner/PID ambiguity remains"
         return 1
     fi
-    if { [ "$OWNER_STATE_SCHEMA_VERSION" = 5 ] || [ "$OWNER_STATE_SCHEMA_VERSION" = 6 ]; } &&
-       [ "$OWNER_STATE_BOOT_ID" = "$current_boot" ]; then
-        STALE_TRACK_DIAGNOSTIC="same-boot legacy owner requires an explicit restart migration"
-        return 1
-    fi
     STALE_TRACK_REQUIRED_TOOLS=iptables
-    [ "$OWNER_STATE_SCHEMA_VERSION" != 3 ] && [ "$OWNER_STATE_IPV6_ACTIVE" = 1 ] &&
+    [ "$OWNER_STATE_IPV6_ACTIVE" = 1 ] &&
         STALE_TRACK_REQUIRED_TOOLS="$STALE_TRACK_REQUIRED_TOOLS ip6tables"
     stale_track_clean_ownership_proof generation || {
-        if [ "$legacy" = 1 ]; then
-            STALE_TRACK_DIAGNOSTIC="legacy owner recovery lacks a clean process/firewall snapshot"
-        else
-            STALE_TRACK_DIAGNOSTIC="cross-boot owner recovery lacks a clean process/firewall snapshot"
-        fi
+        STALE_TRACK_DIAGNOSTIC="cross-boot owner recovery lacks a clean process/firewall snapshot"
         return 1
     }
     # Audits before lock acquisition may classify this state, but only the
-    # exact lifecycle-lock owner may retire durable metadata.
+    # exact lifecycle-lock owner may retire published metadata.
     caller_holds_exact_lifecycle_lock || return 0
-    if [ -e "$TEARDOWN_JOURNAL" ] || [ -L "$TEARDOWN_JOURNAL" ]; then
-        [ "$legacy" != 1 ] && validate_teardown_operation_journal || {
-                STALE_TRACK_DIAGNOSTIC="teardown journal does not authenticate to the stale owner"
+    if [ -e "$OBSOLETE_FIREWALL_WAL" ] || [ -L "$OBSOLETE_FIREWALL_WAL" ]; then
+        state_file_is_secure "$OBSOLETE_FIREWALL_WAL" &&
+            path_mode_is_0600 "$OBSOLETE_FIREWALL_WAL" &&
+            path_nlink_is_one "$OBSOLETE_FIREWALL_WAL" || {
+                STALE_TRACK_DIAGNOSTIC="obsolete firewall WAL is unsafe"
                 return 1
             }
     fi
@@ -671,17 +661,14 @@ recover_stale_owner_publication() {
                 return 1
             }
     fi
-    if [ -e "$TEARDOWN_JOURNAL" ] || [ -L "$TEARDOWN_JOURNAL" ]; then
-        rm -f "$TEARDOWN_JOURNAL" || return 1
-        sync || return 1
+    if [ -e "$OBSOLETE_FIREWALL_WAL" ]; then
+        rm -f "$OBSOLETE_FIREWALL_WAL" || return 1
     fi
-    if [ -e "$PIDFILE" ]; then rm -f "$PIDFILE" || return 1; sync || return 1; fi
+    if [ -e "$PIDFILE" ]; then rm -f "$PIDFILE" || return 1; fi
     if [ "${BOOT_STALE_RUNTIME_RECOVERY:-0}" = 1 ] && [ -e "$STATUS_SNAPSHOT" ]; then
         rm -f "$STATUS_SNAPSHOT" || return 1
-        sync || return 1
     fi
     rm -f "$OWNER_STATE" || return 1
-    sync || return 1
     STALE_OWNER_PUBLICATION_RETIRED=1
     return 0
 }
@@ -750,7 +737,6 @@ classify_stale_track_journals() {
         retired_files="$STALE_TRACK_FILES"
         for path in $STALE_TRACK_FILES; do
             rm -f "$path" 2>/dev/null || return 1
-            sync >/dev/null 2>&1 || return 1
         done
         for path in $retired_files; do
             [ ! -e "$path" ] && [ ! -L "$path" ] || return 1
@@ -1164,14 +1150,6 @@ apply_core_config_key() {
         debug|DEBUG) case "$value" in 0|1) DEBUG="$value" ;; *) return 1;; esac ;;
         qnum|QNUM) normalize_qnum "$value" || return 1; QNUM="$QNUM_NORMALIZED" ;;
         desync_mark|DESYNC_MARK) canonical_mark "$value" || return 1; DESYNC_MARK="$MARK_CANONICAL" ;;
-        pkt_out|PKT_OUT)
-            is_canonical_positive_decimal "$value" && [ "${#value}" -le 9 ] 2>/dev/null || return 1
-            PKT_OUT="$value"
-            ;;
-        pkt_in|PKT_IN)
-            is_canonical_positive_decimal "$value" && [ "${#value}" -le 9 ] 2>/dev/null || return 1
-            PKT_IN="$value"
-            ;;
         active_preset|ACTIVE_PRESET)
             is_safe_runtime_file_name "$value" || return 1
             case "$value" in _*|*.txt) ;; *) return 1 ;; esac
@@ -1218,8 +1196,6 @@ set_core_config_defaults() {
     DEBUG=0
     QNUM=200
     DESYNC_MARK=0x40000000
-    PKT_OUT=20
-    PKT_IN=10
     ACTIVE_PRESET="Default v1 (game filter).txt"
     NFQWS_UID="0:0"
     LOG_MODE="none"
@@ -1303,7 +1279,7 @@ apply_runtime_core_overrides() {
                 case "$value" in ""|*[!A-Za-z0-9._-]*) RUNTIME_CONFIG_ERROR="invalid runtime.ini runtime_source"; return 1;; esac
                 RUNTIME_SOURCE="$value"
                 ;;
-            autostart|wifi_only|debug|qnum|desync_mark|pkt_out|pkt_in|active_preset|nfqws_uid|log_mode)
+            autostart|wifi_only|debug|qnum|desync_mark|active_preset|nfqws_uid|log_mode)
                 apply_core_config_key "$key" "$value" || {
                     if [ "$key" = qnum ]; then
                         RUNTIME_CONFIG_ERROR="qnum=$value, expected 1..65535"
@@ -1940,18 +1916,17 @@ proc_cmdline_may_match_nfqws() {
 
 OWNER_STATE_PID=""
 OWNER_STATE_START=""
-OWNER_STATE_ARGV_HEX=""
 OWNER_STATE_ARGV_SHA256=""
 OWNER_STATE_QNUM=""
 OWNER_STATE_EXE=""
 OWNER_STATE_GENERATION=""
 OWNER_STATE_PHASE=""
 OWNER_STATE_SCHEMA_VERSION=""
-OWNER_STATE_LEGACY=0
 OWNER_STATE_INSTALL_GENERATION=""
 OWNER_STATE_INSTALL_ARCHIVE_SHA256=""
 OWNER_STATE_PORTS_TCP=""; OWNER_STATE_PORTS_UDP=""; OWNER_STATE_STUN_PORTS=""
-OWNER_STATE_PKT_OUT=""; OWNER_STATE_PKT_IN=""; OWNER_STATE_DESYNC_MARK=""
+OWNER_STATE_TCP_PKT_OUT=""; OWNER_STATE_TCP_PKT_IN=""
+OWNER_STATE_UDP_PKT_OUT=""; OWNER_STATE_UDP_PKT_IN=""; OWNER_STATE_DESYNC_MARK=""
 OWNER_STATE_IPV4_ACTIVE=0; OWNER_STATE_IPV6_ACTIVE=0
 OWNER_STATE_IPV4_CONNBYTES=0; OWNER_STATE_IPV4_MULTIPORT=0; OWNER_STATE_IPV4_MARK=0
 OWNER_STATE_IPV6_CONNBYTES=0; OWNER_STATE_IPV6_MULTIPORT=0; OWNER_STATE_IPV6_MARK=0
@@ -1995,39 +1970,32 @@ owner_port_rule_count() {
 
 is_safe_firewall_identity() {
     local tag="$1" out="$2" inchain="$3"
+    if [ "$tag" = stable0001 ]; then
+        [ "$out" = ZAPRET2_OUT ] && [ "$inchain" = ZAPRET2_IN ]
+        return
+    fi
     case "$tag" in ""|*[!A-Za-z0-9]*) return 1;; esac
     [ "${#tag}" -eq 10 ] 2>/dev/null || return 1
     [ "$out" = "Z2O_$tag" ] && [ "$inchain" = "Z2I_$tag" ] && [ "${#out}" -le 28 ] 2>/dev/null
 }
 
 prepare_new_firewall_identity() {
-    local token clean
+    local token
     token="$(new_lifecycle_token)" || return 1
-    clean="$(printf '%s' "$token" | tr -cd 'A-Za-z0-9' | cut -c1-10)"
-    [ "${#clean}" -eq 10 ] 2>/dev/null || return 1
-    FIREWALL_TAG="$clean"; ZAPRET2_OUT="Z2O_$clean"; ZAPRET2_IN="Z2I_$clean"; PENDING_OWNER_GENERATION="$token"
+    FIREWALL_TAG=stable0001
+    ZAPRET2_OUT=ZAPRET2_OUT
+    ZAPRET2_IN=ZAPRET2_IN
+    PENDING_OWNER_GENERATION="$token"
     is_safe_firewall_identity "$FIREWALL_TAG" "$ZAPRET2_OUT" "$ZAPRET2_IN"
 }
 
-# Every NFQUEUE payload lives in its own generation-bound chain.  The parent
-# chain contains only the unique jump, giving teardown a stable kernel object
-# identity instead of relying on a mutable rule number or payload equality.
-owner_rule_chain() {
-    local parent="$1" ordinal="$2" side
-    is_decimal "$ordinal" && [ "$ordinal" -gt 0 ] 2>/dev/null || return 1
-    if [ "$parent" = "$ZAPRET2_OUT" ]; then side=O
-    elif [ "$parent" = "$ZAPRET2_IN" ]; then side=I
-    else return 1
-    fi
-    OWNER_RULE_CHAIN="Z2R_${FIREWALL_TAG}_${side}${ordinal}"
-    [ "${#OWNER_RULE_CHAIN}" -le 28 ] 2>/dev/null || return 1
-}
-
 owner_build_family_spec() {
-    printf 'family:%s;active:%s;tag:%s;outchain:%s;inchain:%s;qnum:%s;tcp:%s;udp:%s;stun:%s;out:%s;in:%s;mark:%s;connbytes:%s;multiport:%s;markcap:%s;rules:%s\n' \
+    printf 'family:%s;active:%s;tag:%s;outchain:%s;inchain:%s;qnum:%s;tcp:%s;udp:%s;stun:%s;tcp_out:%s;tcp_in:%s;udp_out:%s;udp_in:%s;mark:%s;connbytes:%s;multiport:%s;markcap:%s;rules:%s\n' \
         "$1" "$2" "$OWNER_WRITE_FIREWALL_TAG" "$OWNER_WRITE_OUT_CHAIN" "$OWNER_WRITE_IN_CHAIN" \
         "$OWNER_WRITE_QNUM" "$OWNER_WRITE_PORTS_TCP" "$OWNER_WRITE_PORTS_UDP" "$OWNER_WRITE_STUN_PORTS" \
-        "$OWNER_WRITE_PKT_OUT" "$OWNER_WRITE_PKT_IN" "$OWNER_WRITE_DESYNC_MARK" "$3" "$4" "$5" "$6"
+        "$OWNER_WRITE_TCP_PKT_OUT" "$OWNER_WRITE_TCP_PKT_IN" \
+        "$OWNER_WRITE_UDP_PKT_OUT" "$OWNER_WRITE_UDP_PKT_IN" \
+        "$OWNER_WRITE_DESYNC_MARK" "$3" "$4" "$5" "$6"
 }
 
 owner_spec_fingerprint() {
@@ -2048,8 +2016,10 @@ prepare_owner_generation_spec() {
     [ -n "$OWNER_WRITE_PORTS_TCP$OWNER_WRITE_PORTS_UDP" ] || return 1
     # Voice ports are already folded into the compiled UDP union.
     OWNER_WRITE_STUN_PORTS=0
-    is_decimal "${PKT_OUT:-}" && [ "$PKT_OUT" -gt 0 ] || return 1; OWNER_WRITE_PKT_OUT="$PKT_OUT"
-    is_decimal "${PKT_IN:-}" && [ "$PKT_IN" -gt 0 ] || return 1; OWNER_WRITE_PKT_IN="$PKT_IN"
+    is_canonical_positive_decimal "${TCP_PKT_OUT:-}" || return 1; OWNER_WRITE_TCP_PKT_OUT="$TCP_PKT_OUT"
+    is_canonical_positive_decimal "${TCP_PKT_IN:-}" || return 1; OWNER_WRITE_TCP_PKT_IN="$TCP_PKT_IN"
+    is_canonical_positive_decimal "${UDP_PKT_OUT:-}" || return 1; OWNER_WRITE_UDP_PKT_OUT="$UDP_PKT_OUT"
+    is_canonical_positive_decimal "${UDP_PKT_IN:-}" || return 1; OWNER_WRITE_UDP_PKT_IN="$UDP_PKT_IN"
     canonical_mark "${DESYNC_MARK:-}" || return 1; OWNER_WRITE_DESYNC_MARK="$MARK_CANONICAL"
     case "$ipv4_active:$ipv6_active" in 1:0|1:1) ;; *) return 1;; esac
     OWNER_WRITE_IPV4_ACTIVE="$ipv4_active"; OWNER_WRITE_IPV6_ACTIVE="$ipv6_active"
@@ -2077,7 +2047,9 @@ owner_load_generation_fields() {
     OWNER_WRITE_QNUM="$OWNER_STATE_QNUM"; OWNER_WRITE_PORTS_TCP="$OWNER_STATE_PORTS_TCP"; OWNER_WRITE_PORTS_UDP="$OWNER_STATE_PORTS_UDP"; OWNER_WRITE_STUN_PORTS="$OWNER_STATE_STUN_PORTS"
     OWNER_WRITE_FIREWALL_TAG="$OWNER_STATE_FIREWALL_TAG"; OWNER_WRITE_OUT_CHAIN="$OWNER_STATE_OUT_CHAIN"; OWNER_WRITE_IN_CHAIN="$OWNER_STATE_IN_CHAIN"
     FIREWALL_TAG="$OWNER_STATE_FIREWALL_TAG"; ZAPRET2_OUT="$OWNER_STATE_OUT_CHAIN"; ZAPRET2_IN="$OWNER_STATE_IN_CHAIN"
-    OWNER_WRITE_PKT_OUT="$OWNER_STATE_PKT_OUT"; OWNER_WRITE_PKT_IN="$OWNER_STATE_PKT_IN"; OWNER_WRITE_DESYNC_MARK="$OWNER_STATE_DESYNC_MARK"
+    OWNER_WRITE_TCP_PKT_OUT="$OWNER_STATE_TCP_PKT_OUT"; OWNER_WRITE_TCP_PKT_IN="$OWNER_STATE_TCP_PKT_IN"
+    OWNER_WRITE_UDP_PKT_OUT="$OWNER_STATE_UDP_PKT_OUT"; OWNER_WRITE_UDP_PKT_IN="$OWNER_STATE_UDP_PKT_IN"
+    OWNER_WRITE_DESYNC_MARK="$OWNER_STATE_DESYNC_MARK"
     OWNER_WRITE_IPV4_ACTIVE="$OWNER_STATE_IPV4_ACTIVE"; OWNER_WRITE_IPV6_ACTIVE="$OWNER_STATE_IPV6_ACTIVE"
     OWNER_WRITE_IPV4_CONNBYTES="$OWNER_STATE_IPV4_CONNBYTES"; OWNER_WRITE_IPV4_MULTIPORT="$OWNER_STATE_IPV4_MULTIPORT"; OWNER_WRITE_IPV4_MARK="$OWNER_STATE_IPV4_MARK"
     OWNER_WRITE_IPV6_CONNBYTES="$OWNER_STATE_IPV6_CONNBYTES"; OWNER_WRITE_IPV6_MULTIPORT="$OWNER_STATE_IPV6_MULTIPORT"; OWNER_WRITE_IPV6_MARK="$OWNER_STATE_IPV6_MARK"
@@ -2099,10 +2071,11 @@ owner_loaded_generation_for_write() {
 
 read_owner_state() {
     local expected_nfqws2="${AUDIT_NFQWS2_OVERRIDE:-$NFQWS2}"
-    OWNER_STATE_PID=""; OWNER_STATE_START=""; OWNER_STATE_ARGV_HEX=""; OWNER_STATE_ARGV_SHA256=""
-    OWNER_STATE_QNUM=""; OWNER_STATE_EXE=""; OWNER_STATE_GENERATION=""; OWNER_STATE_BOOT_ID=""; OWNER_STATE_PHASE=""; OWNER_STATE_SCHEMA_VERSION=""; OWNER_STATE_LEGACY=0
+    OWNER_STATE_PID=""; OWNER_STATE_START=""; OWNER_STATE_ARGV_SHA256=""
+    OWNER_STATE_QNUM=""; OWNER_STATE_EXE=""; OWNER_STATE_GENERATION=""; OWNER_STATE_BOOT_ID=""; OWNER_STATE_PHASE=""; OWNER_STATE_SCHEMA_VERSION=""
     OWNER_STATE_INSTALL_GENERATION=""; OWNER_STATE_INSTALL_ARCHIVE_SHA256=""
-    OWNER_STATE_PORTS_TCP=""; OWNER_STATE_PORTS_UDP=""; OWNER_STATE_STUN_PORTS=""; OWNER_STATE_PKT_OUT=""; OWNER_STATE_PKT_IN=""; OWNER_STATE_DESYNC_MARK=""
+    OWNER_STATE_PORTS_TCP=""; OWNER_STATE_PORTS_UDP=""; OWNER_STATE_STUN_PORTS=""
+    OWNER_STATE_TCP_PKT_OUT=""; OWNER_STATE_TCP_PKT_IN=""; OWNER_STATE_UDP_PKT_OUT=""; OWNER_STATE_UDP_PKT_IN=""; OWNER_STATE_DESYNC_MARK=""
     OWNER_STATE_IPV4_ACTIVE=""; OWNER_STATE_IPV6_ACTIVE=""; OWNER_STATE_IPV4_CONNBYTES=""; OWNER_STATE_IPV4_MULTIPORT=""; OWNER_STATE_IPV4_MARK=""
     OWNER_STATE_IPV6_CONNBYTES=""; OWNER_STATE_IPV6_MULTIPORT=""; OWNER_STATE_IPV6_MARK=""; OWNER_STATE_IPV4_RULES=""; OWNER_STATE_IPV6_RULES=""
     OWNER_STATE_IPV4_SPEC=""; OWNER_STATE_IPV6_SPEC=""; OWNER_STATE_FIREWALL_FINGERPRINT=""
@@ -2120,7 +2093,6 @@ read_owner_state() {
             version) version="$value" ;;
             pid) OWNER_STATE_PID="$value" ;;
             starttime) OWNER_STATE_START="$value" ;;
-            argv_hex) OWNER_STATE_ARGV_HEX="$value" ;;
             argv_sha256) OWNER_STATE_ARGV_SHA256="$value" ;;
             qnum) OWNER_STATE_QNUM="$value" ;;
             exe) OWNER_STATE_EXE="$value" ;;
@@ -2135,8 +2107,10 @@ read_owner_state() {
             ports_tcp) OWNER_STATE_PORTS_TCP="$value" ;;
             ports_udp) OWNER_STATE_PORTS_UDP="$value" ;;
             stun_ports) OWNER_STATE_STUN_PORTS="$value" ;;
-            pkt_out) OWNER_STATE_PKT_OUT="$value" ;;
-            pkt_in) OWNER_STATE_PKT_IN="$value" ;;
+            tcp_pkt_out) OWNER_STATE_TCP_PKT_OUT="$value" ;;
+            tcp_pkt_in) OWNER_STATE_TCP_PKT_IN="$value" ;;
+            udp_pkt_out) OWNER_STATE_UDP_PKT_OUT="$value" ;;
+            udp_pkt_in) OWNER_STATE_UDP_PKT_IN="$value" ;;
             desync_mark) OWNER_STATE_DESYNC_MARK="$value" ;;
             ipv4_active) OWNER_STATE_IPV4_ACTIVE="$value" ;;
             ipv6_active) OWNER_STATE_IPV6_ACTIVE="$value" ;;
@@ -2154,53 +2128,30 @@ read_owner_state() {
             *) return 1 ;;
         esac
     done < "$OWNER_STATE"
-    case "$version" in
-        3) [ "$field_sequence" = "$OWNER_STATE_V3_FIELD_SEQUENCE" ] || return 1; OWNER_STATE_SCHEMA_VERSION=3; OWNER_STATE_LEGACY=1 ;;
-        4) [ "$field_sequence" = "$OWNER_STATE_V4_FIELD_SEQUENCE" ] || return 1; OWNER_STATE_SCHEMA_VERSION=4; OWNER_STATE_LEGACY=1 ;;
-        5) [ "$field_sequence" = "$OWNER_STATE_V5_FIELD_SEQUENCE" ] || return 1; OWNER_STATE_SCHEMA_VERSION=5; OWNER_STATE_LEGACY=1 ;;
-        6) [ "$field_sequence" = "$OWNER_STATE_V6_FIELD_SEQUENCE" ] || return 1; OWNER_STATE_SCHEMA_VERSION=6; OWNER_STATE_LEGACY=1 ;;
-        "$OWNER_STATE_VERSION") [ "$field_sequence" = "$OWNER_STATE_V7_FIELD_SEQUENCE" ] || return 1; OWNER_STATE_SCHEMA_VERSION="$OWNER_STATE_VERSION" ;;
-        *) return 1 ;;
-    esac
-    if [ "$OWNER_STATE_SCHEMA_VERSION" = "$OWNER_STATE_VERSION" ]; then
-        [ "$size" -le "$OWNER_STATE_CURRENT_MAX_BYTES" ] 2>/dev/null || return 1
-    fi
+    [ "$version" = "$OWNER_STATE_VERSION" ] &&
+        [ "$field_sequence" = "$OWNER_STATE_V8_FIELD_SEQUENCE" ] || return 1
+    OWNER_STATE_SCHEMA_VERSION="$OWNER_STATE_VERSION"
     is_canonical_positive_decimal "$OWNER_STATE_PID" &&
         is_canonical_nonnegative_i64 "$OWNER_STATE_START" || return 1
     normalize_qnum "$OWNER_STATE_QNUM" || return 1
     OWNER_STATE_QNUM="$QNUM_NORMALIZED"
     [ "$OWNER_STATE_EXE" = "$expected_nfqws2" ] || return 1
-    if [ "$OWNER_STATE_SCHEMA_VERSION" = "$OWNER_STATE_VERSION" ]; then
-        [ -z "$OWNER_STATE_ARGV_HEX" ] && is_lower_sha256 "$OWNER_STATE_ARGV_SHA256" || return 1
-    else
-        [ -z "$OWNER_STATE_ARGV_SHA256" ] && [ -n "$OWNER_STATE_ARGV_HEX" ] || return 1
-        case "$OWNER_STATE_ARGV_HEX" in *[!0-9A-Fa-f]*) return 1 ;; esac
-    fi
+    is_lower_sha256 "$OWNER_STATE_ARGV_SHA256" || return 1
     is_safe_token "$OWNER_STATE_GENERATION" || return 1
-    case "$OWNER_STATE_SCHEMA_VERSION" in
-        5|6|"$OWNER_STATE_VERSION") is_valid_boot_id "$OWNER_STATE_BOOT_ID" || return 1 ;;
-        *) [ -z "$OWNER_STATE_BOOT_ID" ] || return 1 ;;
-    esac
+    is_valid_boot_id "$OWNER_STATE_BOOT_ID" || return 1
     case "$OWNER_STATE_PHASE" in launched|active|stopping|error) ;; *) return 1 ;; esac
-    [ "$OWNER_STATE_SCHEMA_VERSION" = 3 ] && return 0
     is_safe_token "$OWNER_STATE_INSTALL_GENERATION" && [ "${#OWNER_STATE_INSTALL_GENERATION}" -le 128 ] 2>/dev/null || return 1
     is_lower_sha256 "$OWNER_STATE_INSTALL_ARCHIVE_SHA256" || return 1
-    case "$OWNER_STATE_SCHEMA_VERSION" in
-        6|"$OWNER_STATE_VERSION")
-            is_safe_firewall_identity "$OWNER_STATE_FIREWALL_TAG" "$OWNER_STATE_OUT_CHAIN" "$OWNER_STATE_IN_CHAIN" || return 1
-            OWNER_WRITE_FIREWALL_TAG="$OWNER_STATE_FIREWALL_TAG"; OWNER_WRITE_OUT_CHAIN="$OWNER_STATE_OUT_CHAIN"; OWNER_WRITE_IN_CHAIN="$OWNER_STATE_IN_CHAIN"
-            ;;
-        *)
-            [ -z "$OWNER_STATE_FIREWALL_TAG$OWNER_STATE_OUT_CHAIN$OWNER_STATE_IN_CHAIN" ] || return 1
-            OWNER_WRITE_FIREWALL_TAG=legacy; OWNER_WRITE_OUT_CHAIN=ZAPRET2_OUT; OWNER_WRITE_IN_CHAIN=ZAPRET2_IN
-            ;;
-    esac
+    is_safe_firewall_identity "$OWNER_STATE_FIREWALL_TAG" "$OWNER_STATE_OUT_CHAIN" "$OWNER_STATE_IN_CHAIN" || return 1
+    OWNER_WRITE_FIREWALL_TAG="$OWNER_STATE_FIREWALL_TAG"; OWNER_WRITE_OUT_CHAIN="$OWNER_STATE_OUT_CHAIN"; OWNER_WRITE_IN_CHAIN="$OWNER_STATE_IN_CHAIN"
     normalize_owner_optional_port_list "$OWNER_STATE_PORTS_TCP" || return 1; [ "$OWNER_PORT_LIST_NORMALIZED" = "$OWNER_STATE_PORTS_TCP" ] || return 1
     normalize_owner_optional_port_list "$OWNER_STATE_PORTS_UDP" || return 1; [ "$OWNER_PORT_LIST_NORMALIZED" = "$OWNER_STATE_PORTS_UDP" ] || return 1
     [ -n "$OWNER_STATE_PORTS_TCP$OWNER_STATE_PORTS_UDP" ] || return 1
     [ "$OWNER_STATE_STUN_PORTS" = 0 ] || return 1
-    is_canonical_positive_decimal "$OWNER_STATE_PKT_OUT" && [ "${#OWNER_STATE_PKT_OUT}" -le 9 ] 2>/dev/null || return 1
-    is_canonical_positive_decimal "$OWNER_STATE_PKT_IN" && [ "${#OWNER_STATE_PKT_IN}" -le 9 ] 2>/dev/null || return 1
+    is_canonical_positive_decimal "$OWNER_STATE_TCP_PKT_OUT" && [ "${#OWNER_STATE_TCP_PKT_OUT}" -le 9 ] 2>/dev/null || return 1
+    is_canonical_positive_decimal "$OWNER_STATE_TCP_PKT_IN" && [ "${#OWNER_STATE_TCP_PKT_IN}" -le 9 ] 2>/dev/null || return 1
+    is_canonical_positive_decimal "$OWNER_STATE_UDP_PKT_OUT" && [ "${#OWNER_STATE_UDP_PKT_OUT}" -le 9 ] 2>/dev/null || return 1
+    is_canonical_positive_decimal "$OWNER_STATE_UDP_PKT_IN" && [ "${#OWNER_STATE_UDP_PKT_IN}" -le 9 ] 2>/dev/null || return 1
     canonical_mark "$OWNER_STATE_DESYNC_MARK" || return 1; [ "$MARK_CANONICAL" = "$OWNER_STATE_DESYNC_MARK" ] || return 1
     case "$OWNER_STATE_IPV4_ACTIVE:$OWNER_STATE_IPV6_ACTIVE:$OWNER_STATE_IPV4_CONNBYTES:$OWNER_STATE_IPV4_MULTIPORT:$OWNER_STATE_IPV4_MARK:$OWNER_STATE_IPV6_CONNBYTES:$OWNER_STATE_IPV6_MULTIPORT:$OWNER_STATE_IPV6_MARK" in *[!01:]*) return 1;; esac
     [ "$OWNER_STATE_IPV4_ACTIVE" = 1 ] || return 1
@@ -2218,14 +2169,15 @@ read_owner_state() {
     else expected=$((tcp_count + udp_count)); fi
     expected=$((expected * (1 + OWNER_STATE_IPV6_CONNBYTES)))
     [ "$OWNER_STATE_IPV6_RULES" = $((expected * OWNER_STATE_IPV6_ACTIVE)) ] || return 1
-    [ "$OWNER_STATE_SCHEMA_VERSION" = "$OWNER_STATE_VERSION" ] || return 0
     # A cold lifecycle process has no prior OWNER_WRITE_* generation.  Build
-    # the authenticated v7 specs solely from the just-validated owner fields;
+    # the authenticated v8 specs solely from the just-validated owner fields;
     # otherwise a valid record is accidentally accepted only in the writer's
     # original shell where these globals happen to remain populated.
     OWNER_WRITE_QNUM="$OWNER_STATE_QNUM"
     OWNER_WRITE_PORTS_TCP="$OWNER_STATE_PORTS_TCP"; OWNER_WRITE_PORTS_UDP="$OWNER_STATE_PORTS_UDP"; OWNER_WRITE_STUN_PORTS="$OWNER_STATE_STUN_PORTS"
-    OWNER_WRITE_PKT_OUT="$OWNER_STATE_PKT_OUT"; OWNER_WRITE_PKT_IN="$OWNER_STATE_PKT_IN"; OWNER_WRITE_DESYNC_MARK="$OWNER_STATE_DESYNC_MARK"
+    OWNER_WRITE_TCP_PKT_OUT="$OWNER_STATE_TCP_PKT_OUT"; OWNER_WRITE_TCP_PKT_IN="$OWNER_STATE_TCP_PKT_IN"
+    OWNER_WRITE_UDP_PKT_OUT="$OWNER_STATE_UDP_PKT_OUT"; OWNER_WRITE_UDP_PKT_IN="$OWNER_STATE_UDP_PKT_IN"
+    OWNER_WRITE_DESYNC_MARK="$OWNER_STATE_DESYNC_MARK"
     [ "$(owner_build_family_spec ipv4 "$OWNER_STATE_IPV4_ACTIVE" "$OWNER_STATE_IPV4_CONNBYTES" "$OWNER_STATE_IPV4_MULTIPORT" "$OWNER_STATE_IPV4_MARK" "$OWNER_STATE_IPV4_RULES")" = "$OWNER_STATE_IPV4_SPEC" ] || return 1
     [ "$(owner_build_family_spec ipv6 "$OWNER_STATE_IPV6_ACTIVE" "$OWNER_STATE_IPV6_CONNBYTES" "$OWNER_STATE_IPV6_MULTIPORT" "$OWNER_STATE_IPV6_MARK" "$OWNER_STATE_IPV6_RULES")" = "$OWNER_STATE_IPV6_SPEC" ] || return 1
     [ "$(owner_spec_fingerprint "$OWNER_STATE_IPV4_SPEC" "$OWNER_STATE_IPV6_SPEC")" = "$OWNER_STATE_FIREWALL_FINGERPRINT" ] || return 1
@@ -2265,14 +2217,17 @@ write_owner_state() {
         printf 'qnum=%s\nexe=%s\ngeneration=%s\nboot_id=%s\nphase=%s\n' "$qnum" "$NFQWS2" "$generation" "$boot_id" "$phase"
         printf 'install_generation=%s\ninstall_archive_sha256=%s\n' "$OWNER_WRITE_INSTALL_GENERATION" "$OWNER_WRITE_INSTALL_ARCHIVE_SHA256"
         printf 'firewall_tag=%s\nout_chain=%s\nin_chain=%s\n' "$OWNER_WRITE_FIREWALL_TAG" "$OWNER_WRITE_OUT_CHAIN" "$OWNER_WRITE_IN_CHAIN"
-        printf 'ports_tcp=%s\nports_udp=%s\nstun_ports=%s\npkt_out=%s\npkt_in=%s\ndesync_mark=%s\n' "$OWNER_WRITE_PORTS_TCP" "$OWNER_WRITE_PORTS_UDP" "$OWNER_WRITE_STUN_PORTS" "$OWNER_WRITE_PKT_OUT" "$OWNER_WRITE_PKT_IN" "$OWNER_WRITE_DESYNC_MARK"
+        printf 'ports_tcp=%s\nports_udp=%s\nstun_ports=%s\n' "$OWNER_WRITE_PORTS_TCP" "$OWNER_WRITE_PORTS_UDP" "$OWNER_WRITE_STUN_PORTS"
+        printf 'tcp_pkt_out=%s\ntcp_pkt_in=%s\nudp_pkt_out=%s\nudp_pkt_in=%s\ndesync_mark=%s\n' \
+            "$OWNER_WRITE_TCP_PKT_OUT" "$OWNER_WRITE_TCP_PKT_IN" \
+            "$OWNER_WRITE_UDP_PKT_OUT" "$OWNER_WRITE_UDP_PKT_IN" "$OWNER_WRITE_DESYNC_MARK"
         printf 'ipv4_active=%s\nipv6_active=%s\nipv4_connbytes=%s\nipv4_multiport=%s\nipv4_mark=%s\n' "$OWNER_WRITE_IPV4_ACTIVE" "$OWNER_WRITE_IPV6_ACTIVE" "$OWNER_WRITE_IPV4_CONNBYTES" "$OWNER_WRITE_IPV4_MULTIPORT" "$OWNER_WRITE_IPV4_MARK"
         printf 'ipv6_connbytes=%s\nipv6_multiport=%s\nipv6_mark=%s\nipv4_rules=%s\nipv6_rules=%s\n' "$OWNER_WRITE_IPV6_CONNBYTES" "$OWNER_WRITE_IPV6_MULTIPORT" "$OWNER_WRITE_IPV6_MARK" "$OWNER_WRITE_IPV4_RULES" "$OWNER_WRITE_IPV6_RULES"
         printf 'ipv4_spec=%s\nipv6_spec=%s\nfirewall_fingerprint=%s\n' "$OWNER_WRITE_IPV4_SPEC" "$OWNER_WRITE_IPV6_SPEC" "$OWNER_WRITE_FIREWALL_FINGERPRINT"
     } > "$tmp" || { rm -f "$tmp"; return 1; }
     size="$(wc -c < "$tmp" 2>/dev/null)" || { rm -f "$tmp"; return 1; }
     is_decimal "$size" && [ "$size" -gt 0 ] 2>/dev/null &&
-        [ "$size" -le "$OWNER_STATE_CURRENT_MAX_BYTES" ] 2>/dev/null || { rm -f "$tmp"; return 1; }
+        [ "$size" -le "$OWNER_STATE_MAX_BYTES" ] 2>/dev/null || { rm -f "$tmp"; return 1; }
     chmod 0600 "$tmp" 2>/dev/null || { rm -f "$tmp"; return 1; }
     mv -f "$tmp" "$OWNER_STATE" || { rm -f "$tmp"; return 1; }
     OWNER_WRITE_READY=0; OWNER_WRITE_SOURCE_GENERATION=""
@@ -2286,13 +2241,12 @@ publish_nfqws_owner() {
     generation="${PENDING_OWNER_GENERATION:-}"
     [ -n "$generation" ] || generation="$(new_lifecycle_token)" || return 1
     # The authenticated, boot-bound owner is the publication commit marker.
-    # Publish it first so a power loss can leave at worst an owner-only state,
-    # which process preflight can verify exactly.  A bare numeric pidfile is
-    # intentionally never produced.
+    # Publish it first so a same-boot process interruption can leave at worst
+    # an owner-only state, which process preflight can verify exactly. A bare
+    # numeric pidfile is intentionally never produced. Cross-boot recovery
+    # proves that the corresponding process and kernel firewall state vanished.
     write_owner_state "$pid" "$start" "$argv_sha256" "$qnum" "$generation" "$phase" || return 1
-    sync || return 1
     write_numeric_pidfile "$pid" || return 1
-    sync || return 1
     PUBLISHED_PID="$pid"
     PUBLISHED_START="$start"
     PUBLISHED_GENERATION="$generation"
@@ -2476,10 +2430,8 @@ stop_pidfile_process() {
     [ -z "$OWNED_SCAN_PIDS" ] || rc=1
     if [ "$rc" -eq 0 ]; then
         process_snapshot_pidfile_matches && process_snapshot_owner_matches || return 1
-        if [ -e "$TEARDOWN_JOURNAL" ] || [ -L "$TEARDOWN_JOURNAL" ]; then teardown_operation_commit_proven || return 1; fi
         if [ "$PROCESS_PREFLIGHT_PIDFILE_PRESENT" = 1 ]; then rm -f "$PIDFILE" 2>/dev/null || rc=1; fi
         if [ "$PROCESS_PREFLIGHT_OWNER_PRESENT" = 1 ]; then rm -f "$OWNER_STATE" 2>/dev/null || rc=1; fi
-        if [ "$rc" -eq 0 ] && [ "${TEARDOWN_COMMIT_PROVEN:-0}" = 1 ]; then rm -f "$TEARDOWN_JOURNAL" 2>/dev/null || rc=1; sync || rc=1; fi
     fi
     return "$rc"
 }
@@ -2562,7 +2514,7 @@ preflight_owned_process_cleanup() {
             return 1
         }
         owner_state_is_current_boot || {
-            PROCESS_CLEANUP_PREFLIGHT_ERROR="owner metadata is legacy or not bound to the current boot"
+            PROCESS_CLEANUP_PREFLIGHT_ERROR="owner metadata is not bound to the current boot"
             return 1
         }
         PROCESS_PREFLIGHT_OWNER_PRESENT=1
@@ -2609,752 +2561,80 @@ preflight_owned_process_cleanup() {
     return 0
 }
 
-exact_anchor_exists() {
-    local tool="$1" builtin="$2" target="$3" listing
-    listing="$("$tool" -t mangle -S 2>/dev/null)" || return 2
-    printf '%s\n' "$listing" | grep -Fqx -- "-A $builtin -j $target"
-}
-
-exact_anchor_count() {
-    local tool="$1" builtin="$2" target="$3" count
-    local listing
-    listing="$("$tool" -t mangle -S 2>/dev/null)" || return 1
-    count="$(printf '%s\n' "$listing" | grep -Fxc -- "-A $builtin -j $target" || true)"
-    is_decimal "$count" || count=0
-    printf '%s\n' "$count"
-}
-
-owned_chain_reference_count() {
-    local tool="$1" target="$2" listing count
-    listing="$("$tool" -t mangle -S 2>/dev/null)" || return 1
-    count="$(printf '%s\n' "$listing" | awk -v target="$target" '
-        $1 == "-A" {
-            for (i = 3; i <= NF; i++) {
-                if (($i == "-j" || $i == "--jump" || $i == "-g" || $i == "--goto") &&
-                    $(i + 1) == target) count++
-            }
-        }
-        END { print count + 0 }
-    ')" || return 1
-    is_decimal "$count" || return 1
-    printf '%s\n' "$count"
-}
-
-owned_chain_exists() {
-    local listing
-    listing="$("$1" -t mangle -S 2>/dev/null)" || return 2
-    printf '%s\n' "$listing" | grep -Fqx -- "-N $2"
-}
-
-delete_exact_anchor() {
-    local tool="$1" builtin="$2" target="$3"
-    exact_anchor_exists "$tool" "$builtin" "$target"
-    case $? in 0) ;; 1) return 0;; *) return 1;; esac
-    "$tool" -t mangle -D "$builtin" -j "$target" 2>/dev/null || return 1
-    exact_anchor_exists "$tool" "$builtin" "$target"
-    case $? in 1) return 0;; *) return 1;; esac
-}
-
-destroy_owned_chain() {
-    local tool="$1" chain="$2"
-    owned_chain_exists "$tool" "$chain"
-    case $? in 0) ;; 1) return 0;; *) return 1;; esac
-    "$tool" -t mangle -X "$chain" 2>/dev/null || return 1
-    owned_chain_exists "$tool" "$chain"
-    case $? in 1) return 0;; *) return 1;; esac
-}
-
-FIREWALL_CLEANUP_PREFLIGHT_ERROR=""
-owner_rule_once() {
-    local tool="$1" op="$2" chain="$3" proto="$4" direction="$5" ports="$6" packet_count="$7" cb_dir="$8"
-    local qnum="$9" mark="${10}" connbytes="${11}" multiport="${12}" markcap="${13}"
-    set -- -t mangle "$op" "$chain" -p "$proto"
-    if [ "$multiport" = 1 ]; then
-        if [ "$direction" = out ]; then set -- "$@" -m multiport --dports "$ports"; else set -- "$@" -m multiport --sports "$ports"; fi
+owner_family_generation_healthy() {
+    local tool="$1" family="$2" active connbytes expected
+    local PORTS_TCP="$OWNER_STATE_PORTS_TCP" PORTS_UDP="$OWNER_STATE_PORTS_UDP"
+    local TCP_PKT_OUT="$OWNER_STATE_TCP_PKT_OUT" TCP_PKT_IN="$OWNER_STATE_TCP_PKT_IN"
+    local UDP_PKT_OUT="$OWNER_STATE_UDP_PKT_OUT" UDP_PKT_IN="$OWNER_STATE_UDP_PKT_IN"
+    local QNUM="$OWNER_STATE_QNUM" DESYNC_MARK="$OWNER_STATE_DESYNC_MARK"
+    is_safe_firewall_identity "$OWNER_STATE_FIREWALL_TAG" \
+        "$OWNER_STATE_OUT_CHAIN" "$OWNER_STATE_IN_CHAIN" || return 1
+    [ "$OWNER_STATE_OUT_CHAIN" = "$Z2_FW_OUT_CHAIN" ] &&
+        [ "$OWNER_STATE_IN_CHAIN" = "$Z2_FW_IN_CHAIN" ] || return 1
+    if [ "$family" = ipv4 ]; then
+        active="$OWNER_STATE_IPV4_ACTIVE"
+        connbytes="$OWNER_STATE_IPV4_CONNBYTES"
+        expected="$OWNER_STATE_IPV4_RULES"
+        [ "$OWNER_STATE_IPV4_MULTIPORT" = 1 ] && [ "$OWNER_STATE_IPV4_MARK" = 1 ] || return 1
     else
-        if [ "$direction" = out ]; then set -- "$@" --dport "$ports"; else set -- "$@" --sport "$ports"; fi
+        active="$OWNER_STATE_IPV6_ACTIVE"
+        connbytes="$OWNER_STATE_IPV6_CONNBYTES"
+        expected="$OWNER_STATE_IPV6_RULES"
+        [ "$OWNER_STATE_IPV6_MULTIPORT" = 1 ] && [ "$OWNER_STATE_IPV6_MARK" = 1 ] || return 1
     fi
-    [ "$connbytes" != 1 ] || set -- "$@" -m connbytes --connbytes "1:$packet_count" --connbytes-dir "$cb_dir" --connbytes-mode packets
-    [ "$markcap" != 1 ] || set -- "$@" -m mark ! --mark "$mark/$mark"
-    set -- "$@" -j NFQUEUE --queue-num "$qnum" --queue-bypass
-    "$tool" "$@" >/dev/null 2>&1
-}
-
-owner_rule_set() {
-    local tool="$1" op="$2" chain="$3" proto="$4" direction="$5" ports="$6" packet_count="$7" cb_dir="$8"
-    local qnum="$9" mark="${10}" connbytes="${11}" multiport="${12}" markcap="${13}" old_ifs item rc=0
-    [ -n "$ports" ] || return 0
-    if [ "$multiport" = 1 ]; then owner_rule_once "$tool" "$op" "$chain" "$proto" "$direction" "$ports" "$packet_count" "$cb_dir" "$qnum" "$mark" "$connbytes" "$multiport" "$markcap"; return; fi
-    old_ifs="$IFS"; IFS=,; set -- $ports; IFS="$old_ifs"
-    for item in "$@"; do owner_rule_once "$tool" "$op" "$chain" "$proto" "$direction" "$item" "$packet_count" "$cb_dir" "$qnum" "$mark" "$connbytes" 0 "$markcap" || rc=1; done
-    return "$rc"
-}
-
-owner_payload_rule_once() {
-    local tool="$1" parent="$2" ordinal="$3" proto="$4" direction="$5" ports="$6" packet_count="$7" cb_dir="$8"
-    local qnum="$9" mark="${10}" connbytes="${11}" multiport="${12}" markcap="${13}" refs rules jumps
-    owner_rule_chain "$parent" "$ordinal" || return 1
-    owned_chain_exists "$tool" "$OWNER_RULE_CHAIN" || return 1
-    jumps="$(exact_anchor_count "$tool" "$parent" "$OWNER_RULE_CHAIN")" || return 1
-    refs="$(owned_chain_reference_count "$tool" "$OWNER_RULE_CHAIN")" || return 1
-    rules="$(chain_owned_rule_count "$tool" "$OWNER_RULE_CHAIN")" || return 1
-    [ "$jumps" = 1 ] && [ "$refs" = 1 ] && [ "$rules" = 1 ] || return 1
-    owner_rule_once "$tool" -C "$OWNER_RULE_CHAIN" "$proto" "$direction" "$ports" "$packet_count" "$cb_dir" "$qnum" "$mark" "$connbytes" "$multiport" "$markcap"
-}
-
-owner_payload_rule_set() {
-    local tool="$1" parent="$2" proto="$3" direction="$4" ports="$5" packet_count="$6" cb_dir="$7"
-    local qnum="$8" mark="$9" connbytes="${10}" multiport="${11}" markcap="${12}" item old_ifs ordinal first
-    [ -n "$ports" ] || return 0
-    if [ "$parent" = "$ZAPRET2_OUT" ]; then OWNER_PAYLOAD_OUT_ORDINAL=$((OWNER_PAYLOAD_OUT_ORDINAL + 1)); ordinal="$OWNER_PAYLOAD_OUT_ORDINAL"
-    else OWNER_PAYLOAD_IN_ORDINAL=$((OWNER_PAYLOAD_IN_ORDINAL + 1)); ordinal="$OWNER_PAYLOAD_IN_ORDINAL"; fi
-    if [ "$multiport" = 1 ]; then
-        owner_payload_rule_once "$tool" "$parent" "$ordinal" "$proto" "$direction" "$ports" "$packet_count" "$cb_dir" "$qnum" "$mark" "$connbytes" 1 "$markcap"
+    if [ "$active" = 0 ]; then
+        z2_fw_family_absent "$tool"
         return
     fi
-    old_ifs="$IFS"; IFS=,; set -- $ports; IFS="$old_ifs"
-    first=1
-    for item in "$@"; do
-        if [ "$first" = 0 ]; then
-            if [ "$parent" = "$ZAPRET2_OUT" ]; then OWNER_PAYLOAD_OUT_ORDINAL=$((OWNER_PAYLOAD_OUT_ORDINAL + 1)); ordinal="$OWNER_PAYLOAD_OUT_ORDINAL"
-            else OWNER_PAYLOAD_IN_ORDINAL=$((OWNER_PAYLOAD_IN_ORDINAL + 1)); ordinal="$OWNER_PAYLOAD_IN_ORDINAL"; fi
-        fi
-        first=0
-        owner_payload_rule_once "$tool" "$parent" "$ordinal" "$proto" "$direction" "$item" "$packet_count" "$cb_dir" "$qnum" "$mark" "$connbytes" 0 "$markcap" || return 1
-    done
-}
-
-owner_family_generation_healthy() {
-    local tool="$1" family="$2" active connbytes multiport markcap expected out_count in_count out_anchor in_anchor out_refs in_refs subchains
-    if [ "$family" = ipv4 ]; then active="$OWNER_STATE_IPV4_ACTIVE"; connbytes="$OWNER_STATE_IPV4_CONNBYTES"; multiport="$OWNER_STATE_IPV4_MULTIPORT"; markcap="$OWNER_STATE_IPV4_MARK"; expected="$OWNER_STATE_IPV4_RULES"
-    else active="$OWNER_STATE_IPV6_ACTIVE"; connbytes="$OWNER_STATE_IPV6_CONNBYTES"; multiport="$OWNER_STATE_IPV6_MULTIPORT"; markcap="$OWNER_STATE_IPV6_MARK"; expected="$OWNER_STATE_IPV6_RULES"; fi
-    if [ "$active" = 0 ]; then owned_family_absent "$tool"; return; fi
-    "$tool" -t mangle -S >/dev/null 2>&1 || {
-        FIREWALL_CLEANUP_PREFLIGHT_ERROR="$tool mangle ruleset is unavailable"
-        return 1
-    }
-    owned_chain_exists "$tool" "$ZAPRET2_OUT" || return 1
-    owned_chain_exists "$tool" "$ZAPRET2_PROBE" && return 1
-    out_anchor="$(exact_anchor_count "$tool" OUTPUT "$ZAPRET2_OUT")" || return 1
-    in_anchor="$(exact_anchor_count "$tool" INPUT "$ZAPRET2_IN")" || return 1
-    out_refs="$(owned_chain_reference_count "$tool" "$ZAPRET2_OUT")" || return 1
-    in_refs="$(owned_chain_reference_count "$tool" "$ZAPRET2_IN")" || return 1
-    [ "$out_anchor" = 1 ] && [ "$out_refs" = 1 ] || return 1
-    if [ "$connbytes" = 1 ]; then
-        owned_chain_exists "$tool" "$ZAPRET2_IN" || return 1
-        [ "$in_anchor" = 1 ] && [ "$in_refs" = 1 ] || return 1
-    else
-        if owned_chain_exists "$tool" "$ZAPRET2_IN"; then return 1
-        else case $? in 1) ;; *) return 1;; esac; fi
-        [ "$in_anchor" = 0 ] && [ "$in_refs" = 0 ] || return 1
-    fi
-    out_count="$(chain_owned_rule_count "$tool" "$ZAPRET2_OUT")" || return 1
-    if [ "$connbytes" = 1 ]; then in_count="$(chain_owned_rule_count "$tool" "$ZAPRET2_IN")" || return 1
-    else in_count=0; fi
-    [ $((out_count + in_count)) = "$expected" ] || return 1
-    subchains="$("$tool" -t mangle -S 2>/dev/null | awk -v p="Z2R_${FIREWALL_TAG}_" '$1=="-N"&&index($2,p)==1{n++} END{print n+0}')" || return 1
-    [ "$subchains" = "$expected" ] || return 1
-    OWNER_PAYLOAD_OUT_ORDINAL=0; OWNER_PAYLOAD_IN_ORDINAL=0
-    owner_payload_rule_set "$tool" "$ZAPRET2_OUT" tcp out "$OWNER_STATE_PORTS_TCP" "$OWNER_STATE_PKT_OUT" original "$OWNER_STATE_QNUM" "$OWNER_STATE_DESYNC_MARK" "$connbytes" "$multiport" "$markcap" || return 1
-    owner_payload_rule_set "$tool" "$ZAPRET2_OUT" udp out "$OWNER_STATE_PORTS_UDP" "$OWNER_STATE_PKT_OUT" original "$OWNER_STATE_QNUM" "$OWNER_STATE_DESYNC_MARK" "$connbytes" "$multiport" "$markcap" || return 1
-    if [ "$connbytes" = 1 ]; then
-        owner_payload_rule_set "$tool" "$ZAPRET2_IN" tcp in "$OWNER_STATE_PORTS_TCP" "$OWNER_STATE_PKT_IN" reply "$OWNER_STATE_QNUM" "$OWNER_STATE_DESYNC_MARK" "$connbytes" "$multiport" "$markcap" || return 1
-        owner_payload_rule_set "$tool" "$ZAPRET2_IN" udp in "$OWNER_STATE_PORTS_UDP" "$OWNER_STATE_PKT_IN" reply "$OWNER_STATE_QNUM" "$OWNER_STATE_DESYNC_MARK" "$connbytes" "$multiport" "$markcap" || return 1
-    fi
-    return 0
+    z2_fw_verify_family "$tool" "$connbytes" || return 1
+    [ "$Z2_FW_RULES" = "$expected" ]
 }
 
 audit_owned_firewall_for_cleanup() {
-    local ipv4_state ipv6_state=1
     FIREWALL_CLEANUP_PREFLIGHT_ERROR=""
-    if [ -e "$TEARDOWN_JOURNAL" ] || [ -L "$TEARDOWN_JOURNAL" ]; then
-        caller_holds_exact_lifecycle_lock && read_runtime_owner_marker && read_owner_state &&
-            owner_state_is_current_boot && read_install_generation_meta &&
-            [ "$OWNER_STATE_INSTALL_GENERATION" = "$INSTALL_META_GENERATION" ] &&
-            [ "$OWNER_STATE_INSTALL_ARCHIVE_SHA256" = "$INSTALL_META_ARCHIVE_SHA256" ] &&
-            validate_teardown_operation_journal && return 0
-        FIREWALL_CLEANUP_PREFLIGHT_ERROR="partial teardown WAL is corrupt, foreign, or not owned by the exact lifecycle generation"
+    command -v z2_fw_cleanup_family >/dev/null 2>&1 || {
+        FIREWALL_CLEANUP_PREFLIGHT_ERROR="firewall reconciler is unavailable"
+        return 1
+    }
+    z2_fw_tool_available iptables || {
+        FIREWALL_CLEANUP_PREFLIGHT_ERROR="IPv4 mangle backend is unavailable"
+        return 1
+    }
+    z2_fw_cleanup_is_unambiguous iptables || {
+        FIREWALL_CLEANUP_PREFLIGHT_ERROR="IPv4 stable namespace has a foreign reference"
+        return 1
+    }
+    if z2_fw_tool_available ip6tables &&
+       ! z2_fw_cleanup_is_unambiguous ip6tables; then
+        FIREWALL_CLEANUP_PREFLIGHT_ERROR="IPv6 stable namespace has a foreign reference"
         return 1
     fi
-    command -v iptables >/dev/null 2>&1 || { FIREWALL_CLEANUP_PREFLIGHT_ERROR="iptables is unavailable"; return 1; }
-    owned_family_present iptables 2>/dev/null; ipv4_state=$?
-    [ "$ipv4_state" -ne 2 ] || { FIREWALL_CLEANUP_PREFLIGHT_ERROR="IPv4 mangle ruleset is unavailable"; return 1; }
-    if command -v ip6tables >/dev/null 2>&1; then
-        owned_family_present ip6tables 2>/dev/null; ipv6_state=$?
-        [ "$ipv6_state" -ne 2 ] || { FIREWALL_CLEANUP_PREFLIGHT_ERROR="IPv6 mangle ruleset is unavailable"; return 1; }
-    fi
-    if [ "$ipv4_state" = 1 ] && [ "$ipv6_state" = 1 ]; then
-        return 0
-    fi
-    read_runtime_owner_marker || { FIREWALL_CLEANUP_PREFLIGHT_ERROR="exact runtime ownership marker is unavailable"; return 1; }
-    read_owner_state || { FIREWALL_CLEANUP_PREFLIGHT_ERROR="owner metadata is malformed or unsafe"; return 1; }
-    owner_state_is_current_boot || { FIREWALL_CLEANUP_PREFLIGHT_ERROR="owner metadata is legacy or not bound to the current boot"; return 1; }
-    read_install_generation_meta && [ "$OWNER_STATE_INSTALL_GENERATION" = "$INSTALL_META_GENERATION" ] &&
-        [ "$OWNER_STATE_INSTALL_ARCHIVE_SHA256" = "$INSTALL_META_ARCHIVE_SHA256" ] || {
-            FIREWALL_CLEANUP_PREFLIGHT_ERROR="owner firewall generation does not bind to the installed archive"
-            return 1
-        }
-    owner_family_generation_healthy iptables ipv4 || { FIREWALL_CLEANUP_PREFLIGHT_ERROR="IPv4 persisted generation does not exactly match live rules"; return 1; }
-    if [ "$OWNER_STATE_IPV6_ACTIVE" = 1 ] && command -v ip6tables >/dev/null 2>&1; then
-        owner_family_generation_healthy ip6tables ipv6 || { FIREWALL_CLEANUP_PREFLIGHT_ERROR="IPv6 persisted generation does not exactly match live rules"; return 1; }
-    elif [ "$OWNER_STATE_IPV6_ACTIVE" = 1 ]; then
-        FIREWALL_CLEANUP_PREFLIGHT_ERROR="ip6tables is unavailable for an active owned family"
-        return 1
-    elif command -v ip6tables >/dev/null 2>&1 && ! owned_family_absent ip6tables; then
-        FIREWALL_CLEANUP_PREFLIGHT_ERROR="unexpected IPv6 owned-family artifacts"
-        return 1
-    fi
+    # Stable chain names are the ownership boundary. Cleanup is idempotent and
+    # never touches another chain or a non-exact built-in anchor.
     return 0
 }
 
-read_teardown_journal() {
-    local key value version="" module="" generation="" fingerprint="" phase="" boot_id="" seen=""
-    state_file_is_secure "$TEARDOWN_JOURNAL" && path_mode_is_0600 "$TEARDOWN_JOURNAL" || return 1
-    while IFS='=' read -r key value; do
-        case "$key" in
-            version) case "$seen" in *v*) return 1;; esac; version="$value"; seen="${seen}v";;
-            module_dir) case "$seen" in *m*) return 1;; esac; module="$value"; seen="${seen}m";;
-            generation) case "$seen" in *g*) return 1;; esac; generation="$value"; seen="${seen}g";;
-            fingerprint) case "$seen" in *f*) return 1;; esac; fingerprint="$value"; seen="${seen}f";;
-            boot_id) case "$seen" in *b*) return 1;; esac; boot_id="$value"; seen="${seen}b";;
-            phase) case "$seen" in *p*) return 1;; esac; phase="$value"; seen="${seen}p";;
-            *) return 1;;
-        esac
-    done < "$TEARDOWN_JOURNAL"
-    [ "$seen" = vmgfbp ] && [ "$version" = "$TEARDOWN_JOURNAL_VERSION" ] && [ "$module" = "$MODDIR" ] || return 1
-    is_safe_token "$generation" && is_lower_sha256 "$fingerprint" && is_valid_boot_id "$boot_id" || return 1
-    case "$phase" in pending|applied|consuming-ipv4|consumed-ipv4|consuming-ipv6|consumed-ipv6|consumed) ;; *) return 1;; esac
-    TEARDOWN_GENERATION="$generation"; TEARDOWN_FINGERPRINT="$fingerprint"; TEARDOWN_BOOT_ID="$boot_id"; TEARDOWN_PHASE="$phase"
-}
-
-teardown_phase_rank() {
-    case "$1" in pending) printf '1\n';; applied) printf '2\n';; consuming-ipv4) printf '3\n';;
-        consumed-ipv4) printf '4\n';; consuming-ipv6) printf '5\n';; consumed-ipv6) printf '6\n';;
-        consumed) printf '7\n';; *) return 1;; esac
-}
-
-write_teardown_journal() {
-    local phase="$1" tmp="$TEARDOWN_JOURNAL.tmp.$$" boot_id have_rank want_rank
-    case "$phase" in pending|applied|consuming-ipv4|consumed-ipv4|consuming-ipv6|consumed-ipv6|consumed) ;; *) return 1;; esac
-    owner_state_is_current_boot || return 1
-    want_rank="$(teardown_phase_rank "$phase")" || return 1
-    if [ -e "$TEARDOWN_JOURNAL" ] || [ -L "$TEARDOWN_JOURNAL" ]; then
-        read_teardown_journal || return 1
-        [ "$TEARDOWN_GENERATION" = "$OWNER_STATE_GENERATION" ] && [ "$TEARDOWN_FINGERPRINT" = "$OWNER_STATE_FIREWALL_FINGERPRINT" ] &&
-            [ "$TEARDOWN_BOOT_ID" = "$OWNER_STATE_BOOT_ID" ] || return 1
-        have_rank="$(teardown_phase_rank "$TEARDOWN_PHASE")" || return 1
-        [ "$have_rank" -le "$want_rank" ] 2>/dev/null || return 1
-        [ "$have_rank" -lt "$want_rank" ] 2>/dev/null || return 0
-    fi
-    read_current_boot_id || return 1
-    boot_id="$CURRENT_BOOT_ID"
-    state_file_target_is_safe "$TEARDOWN_JOURNAL" || return 1
-    [ ! -e "$tmp" ] && [ ! -L "$tmp" ] || return 1
-    umask 077
-    printf 'version=%s\nmodule_dir=%s\ngeneration=%s\nfingerprint=%s\nboot_id=%s\nphase=%s\n' \
-        "$TEARDOWN_JOURNAL_VERSION" "$MODDIR" "$OWNER_STATE_GENERATION" "$OWNER_STATE_FIREWALL_FINGERPRINT" "$boot_id" "$phase" > "$tmp" || { rm -f "$tmp"; return 1; }
-    chmod 0600 "$tmp" 2>/dev/null || { rm -f "$tmp"; return 1; }
-    mv -f "$tmp" "$TEARDOWN_JOURNAL" || { rm -f "$tmp"; return 1; }
-    sync || return 1
-    TEARDOWN_PHASE="$phase"; TEARDOWN_BOOT_ID="$boot_id"
-}
-
-prepare_teardown_journal() {
-    owner_state_is_current_boot || return 1
-    if [ -e "$TEARDOWN_JOURNAL" ] || [ -L "$TEARDOWN_JOURNAL" ]; then
-        read_teardown_journal || return 1
-        [ "$TEARDOWN_GENERATION" = "$OWNER_STATE_GENERATION" ] &&
-            [ "$TEARDOWN_FINGERPRINT" = "$OWNER_STATE_FIREWALL_FINGERPRINT" ] &&
-            [ "$TEARDOWN_BOOT_ID" = "$OWNER_STATE_BOOT_ID" ] || return 1
-        case "$TEARDOWN_PHASE" in
-            consuming-ipv4) owned_family_absent iptables || return 1; write_teardown_journal consumed-ipv4 || return 1;;
-            consuming-ipv6) command -v ip6tables >/dev/null 2>&1 && owned_family_absent ip6tables || return 1; write_teardown_journal consumed-ipv6 || return 1;;
-        esac
-        return 0
-    fi
-    write_teardown_journal pending || return 1
-    write_teardown_journal applied
-}
-
-retire_teardown_journal() {
-    write_teardown_journal consumed || return 1
-    owned_family_absent iptables || return 1
-    if command -v ip6tables >/dev/null 2>&1; then owned_family_absent ip6tables || return 1; fi
-    rm -f "$TEARDOWN_JOURNAL" || return 1
-    sync
-}
-
-teardown_append_rule_records() {
-    local path="$1" family="$2" parent="$3" proto="$4" direction="$5" ports="$6" packet_count="$7" cb_dir="$8"
-    local qnum="$9" mark="${10}" connbytes="${11}" multiport="${12}" markcap="${13}" item old_ifs ordinal first
-    [ -n "$ports" ] || return 0
-    old_ifs="$IFS"; if [ "$multiport" = 1 ]; then set -- "$ports"; else IFS=,; set -- $ports; IFS="$old_ifs"; fi
-    first=1
-    for item in "$@"; do
-        if [ "$parent" = "$ZAPRET2_OUT" ]; then TEARDOWN_OUT_ORDINAL=$((TEARDOWN_OUT_ORDINAL + 1)); ordinal="$TEARDOWN_OUT_ORDINAL"
-        else TEARDOWN_IN_ORDINAL=$((TEARDOWN_IN_ORDINAL + 1)); ordinal="$TEARDOWN_IN_ORDINAL"; fi
-        owner_rule_chain "$parent" "$ordinal" || return 1; chain="$OWNER_RULE_CHAIN"
-        TEARDOWN_RECORD_ID=$((TEARDOWN_RECORD_ID + 1))
-        printf 'record|%s|pending|%s|anchor|%s|%s|Z2M%s_%s_%s\n' "$TEARDOWN_RECORD_ID" "$family" "$parent" "$chain" "${family#ipv}" "$TEARDOWN_RECORD_ID" "$TEARDOWN_TOKEN_SHORT" >> "$path"
-        TEARDOWN_RECORD_ID=$((TEARDOWN_RECORD_ID + 1))
-        TEARDOWN_LINE_HEX="$(teardown_snapshot_rule_hex "$TEARDOWN_FAMILY_SNAPSHOT" "$chain" 1)" || return 1
-        printf 'record|%s|pending|%s|rule|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|1|%s|Z2M%s_%s_%s\n' \
-            "$TEARDOWN_RECORD_ID" "$family" "$chain" "$proto" "$direction" "$item" "$packet_count" "$cb_dir" "$qnum" "$mark" "$connbytes" "$multiport" "$markcap" "$TEARDOWN_LINE_HEX" "${family#ipv}" "$TEARDOWN_RECORD_ID" "$TEARDOWN_TOKEN_SHORT" >> "$path"
-        TEARDOWN_RECORD_ID=$((TEARDOWN_RECORD_ID + 1))
-        printf 'record|%s|pending|%s|chain|%s|Z2X%s_%s_%s\n' "$TEARDOWN_RECORD_ID" "$family" "$chain" "${family#ipv}" "$TEARDOWN_RECORD_ID" "$TEARDOWN_TOKEN_SHORT" >> "$path"
-        first=0
-    done
-}
-
-teardown_snapshot_rule_hex() {
-    local snapshot="$1" chain="$2" ordinal="$3" line
-    line="$(printf '%s\n' "$snapshot" | awk -v chain="$chain" -v ordinal="$ordinal" '$1=="-A"&&$2==chain { if(++n==ordinal) { print; found=1; exit } } END { if(!found) exit 1 }')" || return 1
-    printf '%s' "$line" | od -An -v -tx1 | tr -d '[:space:]'
-}
-
-owner_family_snapshot_structurally_healthy() {
-    local family="$1" listing="$2" active connbytes expected result
-    if [ "$family" = ipv4 ]; then active="$OWNER_STATE_IPV4_ACTIVE"; connbytes="$OWNER_STATE_IPV4_CONNBYTES"; expected="$OWNER_STATE_IPV4_RULES"
-    else active="$OWNER_STATE_IPV6_ACTIVE"; connbytes="$OWNER_STATE_IPV6_CONNBYTES"; expected="$OWNER_STATE_IPV6_RULES"; fi
-    result="$(printf '%s\n' "$listing" | awk -v active="$active" -v connbytes="$connbytes" -v expected="$expected" -v out="$ZAPRET2_OUT" -v inchain="$ZAPRET2_IN" -v probe="$ZAPRET2_PROBE" -v prefix="Z2R_${FIREWALL_TAG}_" '
-        $1=="-N" { if($2==out) no++; else if($2==inchain) ni++; else if($2==probe) np++; else if(index($2,prefix)==1){ ns++; declared[$2]++ } }
-        $1=="-A" {
-            if($2==out || $2==inchain) {
-                if(NF!=4 || $3!="-j" || index($4,prefix)!=1) bad=1
-                else { parentrules++; jumps[$4]++; if($2==out && index($4,prefix "O")!=1) bad=1; if($2==inchain && index($4,prefix "I")!=1) bad=1 }
-            } else if(index($2,prefix)==1) payload[$2]++
-            for(i=3;i<=NF;i++) if(($i=="-j"||$i=="--jump"||$i=="-g"||$i=="--goto")) {
-                if($(i+1)==out) refsout++; if($(i+1)==inchain) refsin++; if($(i+1)==probe) refsprobe++
-                if(index($(i+1),prefix)==1) subrefs[$(i+1)]++
-            }
-            if($2=="OUTPUT" && NF==4 && $3=="-j" && $4==out) ao++
-            if($2=="INPUT" && NF==4 && $3=="-j" && $4==inchain) ai++
-        }
-        END {
-            for(c in declared) if(declared[c]!=1 || jumps[c]!=1 || subrefs[c]!=1 || payload[c]!=1) bad=1
-            for(c in jumps) if(declared[c]!=1) bad=1
-            if(active==0) ok=(no+ni+np+ns+refsout+refsin+refsprobe==0)
-            else if(connbytes==1) ok=(!bad&&no==1&&ni==1&&np==0&&ao==1&&ai==1&&refsout==1&&refsin==1&&refsprobe==0&&ns==expected&&parentrules==expected)
-            else ok=(!bad&&no==1&&ni==0&&np==0&&ao==1&&ai==0&&refsout==1&&refsin==0&&refsprobe==0&&ns==expected&&parentrules==expected)
-            print ok?"ok":"bad"
-        }
-    ')" || return 1
-    [ "$result" = ok ]
-}
-
-create_teardown_operation_journal() {
-    local tmp="$TEARDOWN_JOURNAL.tmp.$$" family active connbytes multiport markcap tool boot_id token
-    owner_state_is_current_boot || return 1
-    read_current_boot_id || return 1; boot_id="$CURRENT_BOOT_ID"
-    state_file_target_is_safe "$TEARDOWN_JOURNAL" || return 1
-    [ ! -e "$tmp" ] && [ ! -L "$tmp" ] || return 1
-    token="$(new_lifecycle_token)" || return 1
-    TEARDOWN_TOKEN_SHORT="$(printf '%s' "$token" | tr -cd 'A-Za-z0-9' | cut -c1-8)"
-    [ "${#TEARDOWN_TOKEN_SHORT}" -ge 6 ] 2>/dev/null || return 1
-    TEARDOWN_RECORD_ID=0
-    umask 077
-    printf 'version=%s\nmodule_dir=%s\ngeneration=%s\nfingerprint=%s\nboot_id=%s\ntoken=%s\nmode=records\n' \
-        "$TEARDOWN_JOURNAL_VERSION" "$MODDIR" "$OWNER_STATE_GENERATION" "$OWNER_STATE_FIREWALL_FINGERPRINT" "$boot_id" "$token" > "$tmp" || return 1
-    for family in ipv4 ipv6; do
-        if [ "$family" = ipv4 ]; then
-            active="$OWNER_STATE_IPV4_ACTIVE"; connbytes="$OWNER_STATE_IPV4_CONNBYTES"; multiport="$OWNER_STATE_IPV4_MULTIPORT"; markcap="$OWNER_STATE_IPV4_MARK"
-        else
-            active="$OWNER_STATE_IPV6_ACTIVE"; connbytes="$OWNER_STATE_IPV6_CONNBYTES"; multiport="$OWNER_STATE_IPV6_MULTIPORT"; markcap="$OWNER_STATE_IPV6_MARK"
-        fi
-        [ "$active" = 1 ] || continue
-        if [ "$family" = ipv4 ]; then TEARDOWN_FAMILY_SNAPSHOT="$(iptables -t mangle -S 2>/dev/null)" || { rm -f "$tmp"; return 1; }
-        else TEARDOWN_FAMILY_SNAPSHOT="$(ip6tables -t mangle -S 2>/dev/null)" || { rm -f "$tmp"; return 1; }; fi
-        owner_family_snapshot_structurally_healthy "$family" "$TEARDOWN_FAMILY_SNAPSHOT" || { rm -f "$tmp"; return 1; }
-        TEARDOWN_OUT_ORDINAL=0; TEARDOWN_IN_ORDINAL=0
-        TEARDOWN_RECORD_ID=$((TEARDOWN_RECORD_ID + 1)); printf 'record|%s|pending|%s|anchor|OUTPUT|%s|Z2M%s_%s_%s\n' "$TEARDOWN_RECORD_ID" "$family" "$ZAPRET2_OUT" "${family#ipv}" "$TEARDOWN_RECORD_ID" "$TEARDOWN_TOKEN_SHORT" >> "$tmp"
-        teardown_append_rule_records "$tmp" "$family" "$ZAPRET2_OUT" tcp out "$OWNER_STATE_PORTS_TCP" "$OWNER_STATE_PKT_OUT" original "$OWNER_STATE_QNUM" "$OWNER_STATE_DESYNC_MARK" "$connbytes" "$multiport" "$markcap" || { rm -f "$tmp"; return 1; }
-        teardown_append_rule_records "$tmp" "$family" "$ZAPRET2_OUT" udp out "$OWNER_STATE_PORTS_UDP" "$OWNER_STATE_PKT_OUT" original "$OWNER_STATE_QNUM" "$OWNER_STATE_DESYNC_MARK" "$connbytes" "$multiport" "$markcap" || { rm -f "$tmp"; return 1; }
-        if [ "$connbytes" = 1 ]; then
-            TEARDOWN_RECORD_ID=$((TEARDOWN_RECORD_ID + 1)); printf 'record|%s|pending|%s|anchor|INPUT|%s|Z2M%s_%s_%s\n' "$TEARDOWN_RECORD_ID" "$family" "$ZAPRET2_IN" "${family#ipv}" "$TEARDOWN_RECORD_ID" "$TEARDOWN_TOKEN_SHORT" >> "$tmp"
-            teardown_append_rule_records "$tmp" "$family" "$ZAPRET2_IN" tcp in "$OWNER_STATE_PORTS_TCP" "$OWNER_STATE_PKT_IN" reply "$OWNER_STATE_QNUM" "$OWNER_STATE_DESYNC_MARK" "$connbytes" "$multiport" "$markcap" || { rm -f "$tmp"; return 1; }
-            teardown_append_rule_records "$tmp" "$family" "$ZAPRET2_IN" udp in "$OWNER_STATE_PORTS_UDP" "$OWNER_STATE_PKT_IN" reply "$OWNER_STATE_QNUM" "$OWNER_STATE_DESYNC_MARK" "$connbytes" "$multiport" "$markcap" || { rm -f "$tmp"; return 1; }
-        fi
-        TEARDOWN_RECORD_ID=$((TEARDOWN_RECORD_ID + 1)); printf 'record|%s|pending|%s|chain|%s|Z2X%s_%s_%s\n' "$TEARDOWN_RECORD_ID" "$family" "$ZAPRET2_OUT" "${family#ipv}" "$TEARDOWN_RECORD_ID" "$TEARDOWN_TOKEN_SHORT" >> "$tmp"
-        if [ "$connbytes" = 1 ]; then
-            TEARDOWN_RECORD_ID=$((TEARDOWN_RECORD_ID + 1)); printf 'record|%s|pending|%s|chain|%s|Z2X%s_%s_%s\n' "$TEARDOWN_RECORD_ID" "$family" "$ZAPRET2_IN" "${family#ipv}" "$TEARDOWN_RECORD_ID" "$TEARDOWN_TOKEN_SHORT" >> "$tmp"
-        fi
-    done
-    chmod 0600 "$tmp" 2>/dev/null || { rm -f "$tmp"; return 1; }
-    mv -f "$tmp" "$TEARDOWN_JOURNAL" || { rm -f "$tmp"; return 1; }
-    sync
-}
-
-validate_teardown_operation_journal() {
-    local identity
-    state_file_is_secure "$TEARDOWN_JOURNAL" && path_mode_is_0600 "$TEARDOWN_JOURNAL" || return 1
-    identity="$(awk -F '|' -v version="$TEARDOWN_JOURNAL_VERSION" -v module="$MODDIR" \
-        -v a4="$OWNER_STATE_IPV4_ACTIVE" -v a6="$OWNER_STATE_IPV6_ACTIVE" \
-        -v c4="$OWNER_STATE_IPV4_CONNBYTES" -v m4="$OWNER_STATE_IPV4_MULTIPORT" -v k4="$OWNER_STATE_IPV4_MARK" \
-        -v c6="$OWNER_STATE_IPV6_CONNBYTES" -v m6="$OWNER_STATE_IPV6_MULTIPORT" -v k6="$OWNER_STATE_IPV6_MARK" \
-        -v tcp="$OWNER_STATE_PORTS_TCP" -v udp="$OWNER_STATE_PORTS_UDP" \
-        -v po="$OWNER_STATE_PKT_OUT" -v pi="$OWNER_STATE_PKT_IN" -v q="$OWNER_STATE_QNUM" -v mark="$OWNER_STATE_DESYNC_MARK" \
-        -v outchain="$OWNER_STATE_OUT_CHAIN" -v inchain="$OWNER_STATE_IN_CHAIN" -v tag="$OWNER_STATE_FIREWALL_TAG" '
-        function add(f,s) { expected[++expected_n]=f "|" s }
-        function one(f,chain,proto,dir,port,pkt,cb,conn,multi,markcap, key,side,rulechain) {
-            key=f SUBSEP chain
-            ord[key]++; side=(chain==outchain?"O":"I"); rulechain="Z2R_" tag "_" side ord[key]
-            add(f,"anchor|" chain "|" rulechain)
-            add(f,"rule|" rulechain "|" proto "|" dir "|" port "|" pkt "|" cb "|" q "|" mark "|" conn "|" multi "|" markcap "|1")
-            add(f,"chain|" rulechain)
-        }
-        function rules(f,chain,proto,dir,ports,pkt,cb,conn,multi,markcap, n,p,i) {
-            if (ports=="") return
-            if (multi==1) { one(f,chain,proto,dir,ports,pkt,cb,conn,multi,markcap); return }
-            n=split(ports,p,","); for(i=1;i<=n;i++) one(f,chain,proto,dir,p[i],pkt,cb,conn,0,markcap)
-        }
-        function family(f,active,conn,multi,markcap) {
-            if(active!=1) return
-            add(f,"anchor|OUTPUT|" outchain)
-            rules(f,outchain,"tcp","out",tcp,po,"original",conn,multi,markcap)
-            rules(f,outchain,"udp","out",udp,po,"original",conn,multi,markcap)
-            if(conn==1) {
-                add(f,"anchor|INPUT|" inchain)
-                rules(f,inchain,"tcp","in",tcp,pi,"reply",conn,multi,markcap)
-                rules(f,inchain,"udp","in",udp,pi,"reply",conn,multi,markcap)
-            }
-            add(f,"chain|" outchain); if(conn==1) add(f,"chain|" inchain)
-        }
-        BEGIN { family("ipv4",a4,c4,m4,k4); family("ipv6",a6,c6,m6,k6) }
-        NR==1 { if ($0 != "version=" version) exit 1; next }
-        NR==2 { if ($0 != "module_dir=" module) exit 1; next }
-        NR==3 { split($0,a,"="); if (a[1]!="generation" || a[2]=="") exit 1; generation=a[2]; next }
-        NR==4 { split($0,a,"="); if (a[1]!="fingerprint" || length(a[2])!=64 || a[2] !~ /^[0-9a-f]+$/) exit 1; fingerprint=a[2]; next }
-        NR==5 { split($0,a,"="); if (a[1]!="boot_id" || a[2]=="") exit 1; boot=a[2]; next }
-        NR==6 { split($0,a,"="); if (a[1]!="token" || a[2]=="" || a[2] !~ /^[A-Za-z0-9._:-]+$/) exit 1; token=a[2]; short=token; gsub(/[^A-Za-z0-9]/,"",short); short=substr(short,1,8); if(length(short)<6) exit 1; next }
-        NR==7 { if ($0 != "mode=records") exit 1; next }
-        NR>7 {
-            if ($1!="record" || $2 != ++id || $3 !~ /^(pending|applied|consuming|target-consumed|consumed)$/ || $4 !~ /^ipv[46]$/) exit 1
-            digit=substr($4,4,1)
-            if ($5=="anchor") { if (NF!=8 || $6 !~ /^[A-Za-z0-9_]+$/ || $7 !~ /^[A-Za-z0-9_]+$/ || $8 != "Z2M" digit "_" id "_" short || seen_name[$8]++) exit 1; actual=$4 "|anchor|" $6 "|" $7 }
-            else if ($5=="chain") { if (NF!=7 || $6 !~ /^[A-Za-z0-9_]+$/ || $7 != "Z2X" digit "_" id "_" short || seen_name[$7]++) exit 1; actual=$4 "|chain|" $6 }
-            else if ($5=="rule") {
-                # The port field is authenticated below by exact equality with
-                # the already normalized owner metadata.  Do not duplicate its
-                # grammar here: doing so previously rejected valid ranges such
-                # as 80:65535 after this writer had durably emitted them.
-                if (NF!=19 || index($6,"Z2R_" tag "_")!=1 || $7 !~ /^(tcp|udp)$/ || $8 !~ /^(out|in)$/ || $10 !~ /^[0-9]+$/ || $11 !~ /^(original|reply)$/ || $12 !~ /^[0-9]+$/ || $13 !~ /^(0x)?[0-9A-Fa-f]+$/ || $14 !~ /^(0|1)$/ || $15 !~ /^(0|1)$/ || $16 !~ /^(0|1)$/ || $17 != 1 || $18 !~ /^[0-9a-f]+$/ || $19 != "Z2M" digit "_" id "_" short || seen_name[$19]++) exit 1
-                actual=$4 "|rule|" $6 "|" $7 "|" $8 "|" $9 "|" $10 "|" $11 "|" $12 "|" $13 "|" $14 "|" $15 "|" $16 "|" $17
-            }
-            else exit 1
-            if (id>expected_n || actual!=expected[id]) { if (ENVIRON["Z2_WAL_DEBUG"]=="1") print "manifest mismatch " id ": " actual " != " expected[id] > "/dev/stderr"; exit 1 }
-        }
-        END { if (NR<7 || id!=expected_n || expected_n==0) exit 1; print generation "|" fingerprint "|" boot }
-    ' "$TEARDOWN_JOURNAL" 2>/dev/null)" || return 1
-    [ "$identity" = "$OWNER_STATE_GENERATION|$OWNER_STATE_FIREWALL_FINGERPRINT|$OWNER_STATE_BOOT_ID" ]
-}
-
-set_teardown_record_state() {
-    local id="$1" from="$2" to="$3" tmp="$TEARDOWN_JOURNAL.tmp.$$"
-    awk -F '|' -v OFS='|' -v id="$id" -v from="$from" -v to="$to" '
-        $1=="record" && $2==id { if ($3!=from) exit 2; $3=to; changed=1 }
-        { print }
-        END { if (!changed) exit 3 }
-    ' "$TEARDOWN_JOURNAL" > "$tmp" || { rm -f "$tmp"; return 1; }
-    chmod 0600 "$tmp" 2>/dev/null || { rm -f "$tmp"; return 1; }
-    mv -f "$tmp" "$TEARDOWN_JOURNAL" || { rm -f "$tmp"; return 1; }
-    sync
-}
-
-teardown_marker_positions() {
-    local tool="$1" chain="$2" marker="$3" listing
-    listing="$("$tool" -t mangle -S 2>/dev/null)" || return 2
-    TEARDOWN_MARKER_POSITIONS="$(printf '%s\n' "$listing" | awk -v chain="$chain" -v marker="$marker" '
-        $1=="-A" && $2==chain { n++; if (NF==4 && $3=="-j" && $4==marker) printf "%s%s", found++?" ":"", n }
-    ')" || return 2
-}
-
-locate_teardown_rule_block() {
-    local tool="$1" family="$2" chain="$3" id="$4" listing lines line hex actual="" expected
-    listing="$("$tool" -t mangle -S 2>/dev/null)" || return 1
-    lines="$(printf '%s\n' "$listing" | awk -v chain="$chain" '$1=="-A"&&$2==chain { print }')" || return 1
-    while IFS= read -r line; do
-        [ -n "$line" ] || continue
-        hex="$(printf '%s' "$line" | od -An -v -tx1 | tr -d '[:space:]')" || return 1
-        actual="${actual}${actual:+
-}$hex"
-    done <<EOF
-$lines
-EOF
-    expected="$(awk -F '|' -v family="$family" -v chain="$chain" -v id="$id" '$1=="record"&&$4==family&&$5=="rule"&&$6==chain&&$2>=id&&$3!="consumed" { print $18 }' "$TEARDOWN_JOURNAL")" || return 1
-    [ -n "$expected" ] || return 1
-    printf '%s\n' "$actual" | awk -v expected="$expected" '
-        BEGIN { ne=split(expected,e,"\n") }
-        { a[++na]=$0 }
-        END {
-            for(i=1;i<=na-ne+1;i++) { ok=1; for(j=1;j<=ne;j++) if(a[i+j-1]!=e[j]) { ok=0; break } if(ok){ found++; pos=i } }
-            if(found!=1) exit 1; print pos
-        }
-    '
-}
-
-ensure_teardown_marker_chain() {
-    local tool="$1" marker="$2" listing count rules
-    listing="$("$tool" -t mangle -S 2>/dev/null)" || return 1
-    if ! printf '%s\n' "$listing" | grep -Fqx -- "-N $marker"; then
-        "$tool" -t mangle -N "$marker" >/dev/null 2>&1 || return 1
-        "$tool" -t mangle -A "$marker" -j RETURN >/dev/null 2>&1 || return 1
-        return 0
-    fi
-    rules="$(printf '%s\n' "$listing" | grep -F -- "-A $marker " || true)"
-    if [ -z "$rules" ]; then "$tool" -t mangle -A "$marker" -j RETURN >/dev/null 2>&1
-    else [ "$rules" = "-A $marker -j RETURN" ]; fi
-}
-
-prepare_teardown_marker() {
-    local tool="$1" kind="$2" chain="$3" target="$4" marker="$5" family="$6" id="$7" expected_hex="$8" positions count endpos targetpos listing
-    ensure_teardown_marker_chain "$tool" "$marker" || return 1
-    teardown_marker_positions "$tool" "$chain" "$marker" || return 1
-    positions="$TEARDOWN_MARKER_POSITIONS"; set -- $positions; count=$#
-    [ "$count" -le 2 ] || return 1
-    if [ "$count" = 0 ]; then
-        if [ "$kind" = anchor ]; then
-            listing="$("$tool" -t mangle -S 2>/dev/null)" || return 1
-            targetpos="$(printf '%s\n' "$listing" | awk -v chain="$chain" -v target="$target" '$1=="-A"&&$2==chain { n++; if (NF==4&&$3=="-j"&&$4==target) { if(found) exit 2; found=1; pos=n } } END { if(!found) exit 1; print pos }')" || return 1
-        else
-            targetpos="$(locate_teardown_rule_block "$tool" "$family" "$chain" "$id")" || return 1
-        fi
-        "$tool" -t mangle -I "$chain" $((targetpos + 1)) -j "$marker" >/dev/null 2>&1 || return 1
-        "$tool" -t mangle -I "$chain" "$targetpos" -j "$marker" >/dev/null 2>&1 || return 1
-    elif [ "$count" = 1 ]; then
-        endpos="$1"; [ "$endpos" -gt 1 ] 2>/dev/null || return 1
-        "$tool" -t mangle -I "$chain" $((endpos - 1)) -j "$marker" >/dev/null 2>&1 || return 1
-    fi
-    teardown_marker_positions "$tool" "$chain" "$marker" || return 1
-    set -- $TEARDOWN_MARKER_POSITIONS
-    [ "$#" = 2 ] && [ "$2" -eq $(( $1 + 2 )) ] 2>/dev/null || return 1
-    teardown_bracket_matches "$tool" "$chain" "$marker" "$expected_hex"
-}
-
-teardown_bracket_matches() {
-    local tool="$1" chain="$2" marker="$3" expected_hex="$4" listing middle middle_hex
-    teardown_marker_positions "$tool" "$chain" "$marker" || return 1
-    set -- $TEARDOWN_MARKER_POSITIONS
-    [ "$#" = 2 ] && [ "$2" -eq $(( $1 + 2 )) ] 2>/dev/null || return 1
-    listing="$("$tool" -t mangle -S 2>/dev/null)" || return 1
-    middle="$(printf '%s\n' "$listing" | awk -v chain="$chain" -v pos="$(( $1 + 1 ))" '$1=="-A"&&$2==chain { if(++n==pos){ print; found=1; exit } } END { if(!found) exit 1 }')" || return 1
-    middle_hex="$(printf '%s' "$middle" | od -An -v -tx1 | tr -d '[:space:]')" || return 1
-    [ "$middle_hex" = "$expected_hex" ]
-}
-
-consume_bracketed_teardown_target() {
-    local tool="$1" chain="$2" marker="$3" expected_hex="$4"
-    teardown_marker_positions "$tool" "$chain" "$marker" || return 1
-    set -- $TEARDOWN_MARKER_POSITIONS
-    [ "$#" = 2 ] || return 1
-    if [ "$2" -eq $(( $1 + 2 )) ] 2>/dev/null; then
-        teardown_bracket_matches "$tool" "$chain" "$marker" "$expected_hex" || return 1
-        TEARDOWN_TARGET_PRESENT=1
-    elif [ "$2" -ne $(( $1 + 1 )) ] 2>/dev/null; then
-        return 1
-    else
-        TEARDOWN_TARGET_PRESENT=0
-    fi
-}
-
-cleanup_teardown_marker() {
-    local tool="$1" chain="$2" marker="$3" rc listing
-    teardown_marker_positions "$tool" "$chain" "$marker" || return 1
-    set -- $TEARDOWN_MARKER_POSITIONS
-    [ "$#" -le 2 ] || return 1
-    while [ "$#" -gt 0 ]; do "$tool" -t mangle -D "$chain" -j "$marker" >/dev/null 2>&1 || return 1; shift; done
-    listing="$("$tool" -t mangle -S 2>/dev/null)" || return 1
-    if printf '%s\n' "$listing" | grep -Fqx -- "-N $marker"; then
-        "$tool" -t mangle -D "$marker" -j RETURN >/dev/null 2>&1 || true
-        "$tool" -t mangle -X "$marker" >/dev/null 2>&1 || return 1
-    fi
-}
-
-run_teardown_operation_journal() {
-    local line old_ifs id state family kind tool rc chain marker target proto direction ports packet_count cb_dir qnum mark connbytes multiport markcap tomb listing ordinal line_hex expected_hex
-    owner_state_is_current_boot || return 1
-    validate_teardown_operation_journal || return 1
-    while :; do
-        line="$(awk -F '|' '$1=="record" && $3!="consumed" { print; exit }' "$TEARDOWN_JOURNAL")" || return 1
-        [ -n "$line" ] || return 0
-        old_ifs="$IFS"; IFS='|'; set -- $line; IFS="$old_ifs"
-        id="$2"; state="$3"; family="$4"; kind="$5"; shift 5
-        if [ "$family" = ipv4 ]; then tool=iptables; else tool=ip6tables; fi
-        command -v "$tool" >/dev/null 2>&1 || return 1
-        case "$state" in
-            pending) set_teardown_record_state "$id" pending applied || return 1; continue;;
-            applied)
-                if [ "$kind" = chain ]; then
-                    chain="$1"; tomb="$2"
-                    "$tool" -t mangle -S >/dev/null 2>&1 || return 1
-                    owned_chain_exists "$tool" "$chain" || return 1
-                    owned_chain_exists "$tool" "$tomb"; case $? in 1) ;; *) return 1;; esac
-                    set_teardown_record_state "$id" applied consuming || return 1
-                    "$tool" -t mangle -E "$chain" "$tomb" >/dev/null 2>&1 || return 1
-                else
-                    if [ "$kind" = anchor ]; then
-                        chain="$1"; target="$2"; marker="$3"; expected_hex="$(printf '%s' "-A $chain -j $target" | od -An -v -tx1 | tr -d '[:space:]')" || return 1
-                    else
-                        chain="$1"; proto="$2"; direction="$3"; ports="$4"; packet_count="$5"; cb_dir="$6"; qnum="$7"; mark="$8"; connbytes="$9"; multiport="${10}"; markcap="${11}"; ordinal="${12}"; line_hex="${13}"; marker="${14}"
-                        owner_rule_once "$tool" -C "$chain" "$proto" "$direction" "$ports" "$packet_count" "$cb_dir" "$qnum" "$mark" "$connbytes" "$multiport" "$markcap" || return 1
-                        target=""; expected_hex="$line_hex"
-                    fi
-                    prepare_teardown_marker "$tool" "$kind" "$chain" "$target" "$marker" "$family" "$id" "$expected_hex" || return 1
-                    set_teardown_record_state "$id" applied consuming || return 1
-                fi
-                continue
-                ;;
-            consuming)
-                if [ "$kind" = chain ]; then
-                    chain="$1"; tomb="$2"; listing="$("$tool" -t mangle -S 2>/dev/null)" || return 1
-                    if printf '%s\n' "$listing" | grep -Fqx -- "-N $tomb"; then :
-                    elif printf '%s\n' "$listing" | grep -Fqx -- "-N $chain"; then "$tool" -t mangle -E "$chain" "$tomb" >/dev/null 2>&1 || return 1
-                    else return 1; fi
-                    set_teardown_record_state "$id" consuming target-consumed || return 1
-                else
-                    if [ "$kind" = anchor ]; then
-                        chain="$1"; target="$2"; marker="$3"; expected_hex="$(printf '%s' "-A $chain -j $target" | od -An -v -tx1 | tr -d '[:space:]')" || return 1
-                    else chain="$1"; expected_hex="${13}"; marker="${14}"; fi
-                    consume_bracketed_teardown_target "$tool" "$chain" "$marker" "$expected_hex" || return 1
-                    if [ "$TEARDOWN_TARGET_PRESENT" = 1 ]; then
-                        if [ "$kind" = anchor ]; then "$tool" -t mangle -D "$chain" -j "$target" >/dev/null 2>&1 || return 1
-                        else owner_rule_once "$tool" -D "$chain" "$2" "$3" "$4" "$5" "$6" "$7" "$8" "$9" "${10}" "${11}" || return 1; fi
-                    fi
-                    set_teardown_record_state "$id" consuming target-consumed || return 1
-                fi
-                ;;
-            target-consumed)
-                if [ "$kind" = chain ]; then
-                    tomb="$2"; listing="$("$tool" -t mangle -S 2>/dev/null)" || return 1
-                    if printf '%s\n' "$listing" | grep -Fqx -- "-N $tomb"; then "$tool" -t mangle -X "$tomb" >/dev/null 2>&1 || return 1; fi
-                else
-                    if [ "$kind" = anchor ]; then chain="$1"; marker="$3"; else chain="$1"; marker="${14}"; fi
-                    cleanup_teardown_marker "$tool" "$chain" "$marker" || return 1
-                fi
-                set_teardown_record_state "$id" target-consumed consumed || return 1
-                ;;
-        esac
-    done
-}
-
-retire_teardown_operation_journal() {
-    validate_teardown_operation_journal || return 1
-    awk -F '|' '$1=="record" && $3!="consumed" { bad=1 } END { exit bad ? 1 : 0 }' "$TEARDOWN_JOURNAL" || return 1
-    TEARDOWN_COMMIT_PROVEN=0
-    teardown_operation_commit_proven
-}
-
-teardown_operation_commit_proven() {
-    [ "${TEARDOWN_COMMIT_PROVEN:-0}" = 1 ] && return 0
-    owner_state_is_current_boot || return 1
-    validate_teardown_operation_journal || return 1
-    awk -F '|' '$1=="record" && $3!="consumed" { bad=1 } END { exit bad ? 1 : 0 }' "$TEARDOWN_JOURNAL" || return 1
-    command -v iptables >/dev/null 2>&1 && iptables -t mangle -S >/dev/null 2>&1 || return 1
-    if [ "$OWNER_STATE_IPV6_ACTIVE" = 1 ]; then command -v ip6tables >/dev/null 2>&1 && ip6tables -t mangle -S >/dev/null 2>&1 || return 1; fi
-    TEARDOWN_COMMIT_PROVEN=1
-}
-
-cleanup_owned_family() {
-    local tool="$1" family="${2:-}" rc=0 active connbytes multiport markcap
-    if [ -z "$family" ]; then case "$tool" in iptables) family=ipv4;; *) family=ipv6;; esac; fi
-    if [ -z "${OWNER_WRITE_QNUM:-}" ]; then
-        if [ "$family" = ipv4 ]; then prepare_owner_generation_spec 1 0 || return 1
-        else prepare_owner_generation_spec 1 1 || return 1; fi
-    fi
-    if [ "$family" = ipv4 ]; then active="$OWNER_WRITE_IPV4_ACTIVE"; connbytes="$OWNER_WRITE_IPV4_CONNBYTES"; multiport="$OWNER_WRITE_IPV4_MULTIPORT"; markcap="$OWNER_WRITE_IPV4_MARK"
-    else active="$OWNER_WRITE_IPV6_ACTIVE"; connbytes="$OWNER_WRITE_IPV6_CONNBYTES"; multiport="$OWNER_WRITE_IPV6_MULTIPORT"; markcap="$OWNER_WRITE_IPV6_MARK"; fi
-    [ "$active" = 1 ] || { owned_family_absent "$tool"; return; }
-    owned_family_present "$tool"
-    case $? in 0) ;; 1) return 0;; *) return 1;; esac
-    "$tool" -t mangle -D OUTPUT -j "$ZAPRET2_OUT" >/dev/null 2>&1 || true
-    "$tool" -t mangle -D INPUT -j "$ZAPRET2_IN" >/dev/null 2>&1 || true
-    owner_rule_set "$tool" -D "$ZAPRET2_OUT" tcp out "$OWNER_WRITE_PORTS_TCP" "$OWNER_WRITE_PKT_OUT" original "$OWNER_WRITE_QNUM" "$OWNER_WRITE_DESYNC_MARK" "$connbytes" "$multiport" "$markcap" || true
-    owner_rule_set "$tool" -D "$ZAPRET2_OUT" udp out "$OWNER_WRITE_PORTS_UDP" "$OWNER_WRITE_PKT_OUT" original "$OWNER_WRITE_QNUM" "$OWNER_WRITE_DESYNC_MARK" "$connbytes" "$multiport" "$markcap" || true
-    owner_rule_set "$tool" -D "$ZAPRET2_IN" tcp in "$OWNER_WRITE_PORTS_TCP" "$OWNER_WRITE_PKT_IN" reply "$OWNER_WRITE_QNUM" "$OWNER_WRITE_DESYNC_MARK" "$connbytes" "$multiport" "$markcap" || true
-    owner_rule_set "$tool" -D "$ZAPRET2_IN" udp in "$OWNER_WRITE_PORTS_UDP" "$OWNER_WRITE_PKT_IN" reply "$OWNER_WRITE_QNUM" "$OWNER_WRITE_DESYNC_MARK" "$connbytes" "$multiport" "$markcap" || true
-    if owned_chain_exists "$tool" "$ZAPRET2_OUT"; then "$tool" -t mangle -X "$ZAPRET2_OUT" >/dev/null 2>&1 || rc=1; fi
-    if owned_chain_exists "$tool" "$ZAPRET2_IN"; then "$tool" -t mangle -X "$ZAPRET2_IN" >/dev/null 2>&1 || rc=1; fi
-    owned_family_absent "$tool" || rc=1
-    return "$rc"
-}
-
 cleanup_owned_firewall() {
-    local rc=0 ipv4_state ipv6_state=1 committed=0
-    read_iptables_status >/dev/null 2>&1 || true
-    command -v iptables >/dev/null 2>&1 || return 1
-    owned_family_present iptables 2>/dev/null; ipv4_state=$?
-    [ "$ipv4_state" -ne 2 ] || return 1
-    if command -v ip6tables >/dev/null 2>&1; then owned_family_present ip6tables 2>/dev/null; ipv6_state=$?; [ "$ipv6_state" -ne 2 ] || return 1; fi
-    if [ "$ipv4_state" = 1 ] && [ "$ipv6_state" = 1 ]; then
-        if [ -e "$TEARDOWN_JOURNAL" ] || [ -L "$TEARDOWN_JOURNAL" ]; then
-            read_owner_state || return 1
-            [ "$OWNER_STATE_SCHEMA_VERSION" = "$OWNER_STATE_VERSION" ] || return 1
-            validate_teardown_operation_journal || return 1
-            run_teardown_operation_journal || return 1
-            retire_teardown_operation_journal || return 1
-        fi
-        return 0
+    local rc=0 result
+    command -v z2_fw_cleanup_family >/dev/null 2>&1 || return 1
+    z2_fw_cleanup_family iptables
+    result=$?
+    [ "$result" = 0 ] || rc=1
+    if z2_fw_tool_available ip6tables; then
+        z2_fw_cleanup_family ip6tables || rc=1
     fi
-    if read_owner_state; then
-        owner_state_is_current_boot || { FIREWALL_CLEANUP_PREFLIGHT_ERROR="owner metadata is legacy or not bound to the current boot"; return 1; }
-        owner_loaded_generation_for_write || return 1
-        committed=1
-    elif [ "${FIREWALL_MUTATED:-0}" = 1 ]; then
-        prepare_owner_generation_spec "${IPV4_BUILT:-1}" "${IPV6_BUILT:-0}" || return 1
-    else
-        owned_family_absent iptables 2>/dev/null || return 1
-        if command -v ip6tables >/dev/null 2>&1; then owned_family_absent ip6tables 2>/dev/null || return 1; fi
-        return 0
+    if [ -e "$OBSOLETE_FIREWALL_WAL" ] || [ -L "$OBSOLETE_FIREWALL_WAL" ]; then
+        state_file_is_secure "$OBSOLETE_FIREWALL_WAL" &&
+            path_mode_is_0600 "$OBSOLETE_FIREWALL_WAL" &&
+            path_nlink_is_one "$OBSOLETE_FIREWALL_WAL" &&
+            rm -f "$OBSOLETE_FIREWALL_WAL" 2>/dev/null || rc=1
     fi
-    if [ "$committed" = 1 ]; then
-        if [ -e "$TEARDOWN_JOURNAL" ] || [ -L "$TEARDOWN_JOURNAL" ]; then
-            validate_teardown_operation_journal || return 1
-        else
-            create_teardown_operation_journal || return 1
-        fi
-        run_teardown_operation_journal || return 1
-        retire_teardown_operation_journal
-        return
-    fi
-    [ "$committed" != 1 ] || prepare_teardown_journal || return 1
-    if command -v iptables >/dev/null 2>&1; then
-        case "${TEARDOWN_PHASE:-}" in consumed-ipv4|consuming-ipv6|consumed-ipv6|consumed) :;;
-            *) [ "$committed" != 1 ] || write_teardown_journal consuming-ipv4 || return 1
-               cleanup_owned_family iptables ipv4 || rc=1
-               [ "$rc" != 0 ] || { [ "$committed" != 1 ] || write_teardown_journal consumed-ipv4 || return 1; };;
-        esac
-    else
-        rc=1
-    fi
-    if command -v ip6tables >/dev/null 2>&1; then
-        case "${TEARDOWN_PHASE:-}" in consumed-ipv6|consumed) :;;
-            *) [ "$rc" = 0 ] || return 1
-               [ "$committed" != 1 ] || write_teardown_journal consuming-ipv6 || return 1
-               cleanup_owned_family ip6tables ipv6 || rc=1
-               [ "$rc" != 0 ] || { [ "$committed" != 1 ] || write_teardown_journal consumed-ipv6 || return 1; };;
-        esac
-    elif [ "$OWNER_WRITE_IPV6_ACTIVE" = 1 ]; then
-        rc=1
-    fi
-    [ "$rc" != 0 ] || { [ "$committed" != 1 ] || retire_teardown_journal || return 1; }
     return "$rc"
-}
-
-chain_owned_rule_count() {
-    local tool="$1" chain="$2" count listing
-    listing="$("$tool" -t mangle -S 2>/dev/null)" || return 1
-    count="$(printf '%s\n' "$listing" | grep -c "^-A $chain " || true)"
-    is_decimal "$count" || count=0
-    printf '%s\n' "$count"
 }
 
 owned_family_present() {
-    local tool="$1" listing
-    listing="$("$tool" -t mangle -S 2>/dev/null)" || return 2
-    printf '%s\n' "$listing" | awk -v out="$ZAPRET2_OUT" -v inchain="$ZAPRET2_IN" -v probe="$ZAPRET2_PROBE" -v prefix="Z2R_${FIREWALL_TAG}_" '
-        $1 == "-N" && ($2 == out || $2 == inchain || $2 == probe || index($2,prefix)==1) { found=1 }
-        $1 == "-A" { for (i=3;i<=NF;i++) if (($i=="-j" || $i=="--jump" || $i=="-g" || $i=="--goto") && ($(i+1)==out || $(i+1)==inchain || $(i+1)==probe || index($(i+1),prefix)==1)) found=1 }
-        END { exit found ? 0 : 1 }
-    '
+    z2_fw_family_absent "$1"
+    case $? in 0) return 1;; 1) return 0;; *) return 2;; esac
 }
 
 # Read-only namespace discovery for a failed generation that never reached
@@ -3457,8 +2737,7 @@ purge_zapret2_namespace() {
 }
 
 owned_family_absent() {
-    owned_family_present "$1"
-    case $? in 1) return 0;; *) return 1;; esac
+    z2_fw_family_absent "$1"
 }
 
 # Legacy direct-rule migration is a separate transaction from the current

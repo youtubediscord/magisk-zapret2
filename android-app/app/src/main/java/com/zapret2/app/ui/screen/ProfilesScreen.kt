@@ -34,12 +34,12 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.zapret2.app.data.PresetProfile
 import com.zapret2.app.data.ProfileListEntry
@@ -60,10 +60,10 @@ fun ProfilesScreen(
     val state = previewState ?: runtimeState?.value ?: ProfilesUiState()
     val snackbar = remember { SnackbarHostState() }
 
-    LifecycleStartEffect(activeViewModel) {
-        activeViewModel?.onScreenEntered()
-        onStopOrDispose { activeViewModel?.onScreenStopped() }
+    LaunchedEffect(activeViewModel) {
+        activeViewModel?.ensureLoaded()
     }
+
     AppSnackbarEffect(state.message, snackbar) { activeViewModel?.clearMessage() }
 
     val selectedProfile = state.strategyProfileIndex?.let { state.document?.profiles?.getOrNull(it) }

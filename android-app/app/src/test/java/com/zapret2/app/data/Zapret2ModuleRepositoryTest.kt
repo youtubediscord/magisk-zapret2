@@ -59,14 +59,13 @@ class Zapret2ModuleRepositoryTest {
     }
 
     @Test
-    fun installationProbe_ownsBothMagiskSlotsWithoutExecutingRuntimeStrategies() {
-        val command = repository.buildProbeCommand("arm64-v8a")
+    fun installationProbe_trustsPublishedGenerationReceiptsWithoutRescanningPackageBytes() {
+        val command = repository.buildProbeCommand()
 
         assertTrue(command.contains(Zapret2ModuleRepository.ACTIVE_MODULE_DIR))
         assertTrue(command.contains(Zapret2ModuleRepository.PENDING_MODULE_DIR))
-        assertTrue(command.contains("zapret2/bin/arm64-v8a/nfqws2"))
-        assertTrue(command.contains(ModulePackageContract.LIFECYCLE_CONTRACT_PATH))
-        assertTrue(command.contains("= ${ModulePackageContract.LIFECYCLE_CONTRACT_VERSION} ]"))
+        assertFalse(command.contains("zapret2/bin/"))
+        assertFalse(command.contains(ModulePackageContract.LIFECYCLE_CONTRACT_PATH))
         assertFalse(command.contains("package_contract_validate_runtime_selection"))
         assertFalse(command.contains("--validate-strategies-machine"))
         assertFalse(command.contains("--preflight-preset-machine"))
@@ -74,6 +73,7 @@ class Zapret2ModuleRepositoryTest {
         assertFalse(command.contains("strategy-catalogs"))
         assertFalse(command.contains("zapret2/lua/"))
         assertTrue(command.contains(InstallGenerationMetadata.RELATIVE_PATH))
+        assertFalse(command.contains("for z2_relative"))
         assertFalse(command.contains("lifecycle.lock"))
     }
 

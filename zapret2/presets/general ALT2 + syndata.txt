@@ -1,6 +1,10 @@
 # Preset: general ALT2 + syndata
 # BuiltinVersion: 2.24
 # IconColor: #b475f0ff
+# NFQWS2_TCP_PKT_OUT=20
+# NFQWS2_TCP_PKT_IN=10
+# NFQWS2_UDP_PKT_OUT=20
+# NFQWS2_UDP_PKT_IN=10
 
 --lua-init=@lua/zapret-lib.lua
 --lua-init=@lua/zapret-antidpi.lua

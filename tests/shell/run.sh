@@ -34,6 +34,16 @@ for script in "$ROOT"/*.sh "$ROOT"/zapret2/scripts/*.sh "$ROOT"/tests/shell/*.sh
     esac
 done
 
+# Process, firewall, owner, status, and recovery evidence in STATE_DIR is
+# boot-local. A global sync here flushes unrelated Android filesystems and
+# turns the number of firewall journal transitions into boot latency.
+for script in "$ROOT/zapret2/scripts/common.sh" "$ROOT/zapret2/scripts/zapret-start.sh"; do
+    if sed '/^[[:space:]]*#/d' "$script" |
+       grep -Eq '(^|[;&|[:space:]])sync([;&|[:space:]]|$)'; then
+        fail "boot-local lifecycle script invokes global sync: $script"
+    fi
+done
+
 for retired in \
     "$ROOT/zapret2/config.sh" \
     "$ROOT/zapret2/categories.ini" \
@@ -104,6 +114,11 @@ exit 97
 EOF
 chmod 0755 "$FIXTURE/nfqws2"
 cat > "$FIXTURE/presets/TCP only.txt" <<'EOF'
+# NFQWS2_TCP_PKT_OUT=20
+# NFQWS2_TCP_PKT_IN=10
+# NFQWS2_UDP_PKT_OUT=20
+# NFQWS2_UDP_PKT_IN=10
+
 --lua-init=@lua/zapret-lib.lua
 --blob=zero:0x00
 
@@ -112,6 +127,11 @@ cat > "$FIXTURE/presets/TCP only.txt" <<'EOF'
 --lua-desync=pass
 EOF
 cat > "$FIXTURE/presets/UDP only.txt" <<'EOF'
+# NFQWS2_TCP_PKT_OUT=20
+# NFQWS2_TCP_PKT_IN=10
+# NFQWS2_UDP_PKT_OUT=7
+# NFQWS2_UDP_PKT_IN=3
+
 --lua-init=@lua/zapret-lib.lua
 --blob=zero:0x00
 
@@ -134,7 +154,8 @@ QNUM=200 DESYNC_MARK=0x40000000 NFQWS_UID=0:0 LOG_MODE=none
 compile_preset_artifact "$FIXTURE/presets/TCP only.txt" "TCP only.txt" "$TMP/tcp.argv" ||
     fail "TCP-only preset did not compile"
 read_compiled_artifact_metadata "$TMP/tcp.argv" || fail "TCP artifact metadata is invalid"
-[ "$COMPILED_TCP_PORTS" = 80 ] && [ -z "$COMPILED_UDP_PORTS" ] ||
+[ "$COMPILED_TCP_PORTS" = 80 ] && [ -z "$COMPILED_UDP_PORTS" ] &&
+    [ "$COMPILED_TCP_PKT_OUT:$COMPILED_TCP_PKT_IN:$COMPILED_UDP_PKT_OUT:$COMPILED_UDP_PKT_IN" = 20:10:20:10 ] ||
     fail "TCP-only preset opened unexpected ports"
 sed '/--filter-tcp=80/a --filter-tcp=443' "$FIXTURE/presets/TCP only.txt" > "$FIXTURE/presets/Multi filter.txt"
 compile_preset_artifact "$FIXTURE/presets/Multi filter.txt" "Multi filter.txt" "$TMP/multi-filter.argv" ||
@@ -152,6 +173,8 @@ compile_preset_artifact "$FIXTURE/presets/UDP only.txt" "UDP only.txt" "$TMP/udp
 read_compiled_artifact_metadata "$TMP/udp.argv" || fail "UDP artifact metadata is invalid"
 [ -z "$COMPILED_TCP_PORTS" ] && [ "$COMPILED_UDP_PORTS" = 443,3478,5349,19302 ] ||
     fail "voice UDP union is not exact"
+[ "$COMPILED_TCP_PKT_OUT:$COMPILED_TCP_PKT_IN:$COMPILED_UDP_PKT_OUT:$COMPILED_UDP_PKT_IN" = 20:10:7:3 ] ||
+    fail "protocol-specific capture policy was not preserved"
 grep -Fxq -- '--name=Discord voice' "$TMP/udp.argv" || fail "argument with spaces was split"
 
 PREVIEW_OUTPUT="$TMP/preview.out"
@@ -161,7 +184,7 @@ if ! STATE_DIR="$STATE_DIR" sh "$FIXTURE/scripts/command-builder.sh" \
     sed -n '1,80p' "$PREVIEW_OUTPUT" >&2
     fail "command preview rejected a valid unsaved candidate"
 fi
-grep -Fxq "Z2_COMMAND_PREVIEW$(printf '\t')1$(printf '\t')TCP only.txt$(printf '\t')TCP=80$(printf '\t')UDP=" \
+grep -Fxq "Z2_COMMAND_PREVIEW$(printf '\t')2$(printf '\t')TCP only.txt$(printf '\t')TCP=80$(printf '\t')UDP=$(printf '\t')TCP_OUT=20$(printf '\t')TCP_IN=10$(printf '\t')UDP_OUT=20$(printf '\t')UDP_IN=10" \
     "$PREVIEW_OUTPUT" || fail "command preview port metadata is not exact"
 grep -Fxq "Z2_COMMAND_EXECUTABLE$(printf '\t')$FIXTURE/nfqws2" "$PREVIEW_OUTPUT" ||
     fail "command preview executable is not exact"
@@ -202,10 +225,8 @@ Z2_TEST_TMP="$TMP" sh "$ROOT/tests/shell/full-rollback.sh"
 Z2_TEST_TMP="$TMP" sh "$ROOT/tests/shell/error-contract.sh"
 Z2_TEST_TMP="$TMP" sh "$ROOT/tests/shell/purge-contract.sh"
 Z2_TEST_TMP="$TMP" sh "$ROOT/tests/shell/lifecycle-safety.sh"
-Z2_TEST_TMP="$TMP" sh "$ROOT/tests/shell/marker-occurrence.sh"
-Z2_TEST_TMP="$TMP" sh "$ROOT/tests/shell/wal-validator.sh"
 Z2_TEST_TMP="$TMP" sh "$ROOT/tests/shell/owner-generation.sh"
-Z2_TEST_TMP="$TMP" sh "$ROOT/tests/shell/owner-state-v6.sh"
+Z2_TEST_TMP="$TMP" sh "$ROOT/tests/shell/owner-state-v8.sh"
 Z2_TEST_TMP="$TMP" sh "$ROOT/tests/shell/boot-recovery.sh"
 Z2_TEST_TMP="$TMP" sh "$ROOT/tests/shell/lifecycle-lock-owner.sh"
 Z2_TEST_TMP="$TMP" sh "$ROOT/tests/shell/lifecycle-status-v4.sh"
@@ -215,7 +236,7 @@ Z2_TEST_TMP="$TMP" sh "$ROOT/tests/shell/package-owner-protocol.sh"
 Z2_TEST_TMP="$TMP" sh "$ROOT/tests/shell/runtime-config-contract.sh"
 Z2_TEST_TMP="$TMP" sh "$ROOT/tests/shell/release-generation.sh"
 Z2_TEST_TMP="$TMP" sh "$ROOT/tests/shell/transactional-start.sh"
-Z2_TEST_TMP="$TMP" sh "$ROOT/tests/shell/detached-build.sh"
+Z2_TEST_TMP="$TMP" sh "$ROOT/tests/shell/firewall-reconciler.sh"
 Z2_TEST_TMP="$TMP" sh "$ROOT/tests/shell/magisk-boot-installer.sh"
 Z2_TEST_TMP="$TMP" sh "$ROOT/tests/shell/packaging-recovery-flow.sh"
 Z2_TEST_TMP="$TMP" sh "$ROOT/tests/shell/preset-contract.sh"

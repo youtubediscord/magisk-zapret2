@@ -5,12 +5,18 @@ import kotlinx.coroutines.flow.asSharedFlow
 import javax.inject.Inject
 import javax.inject.Singleton
 
+enum class ServiceEventSource {
+    CONTROL,
+    PRESETS,
+    PROFILES,
+}
+
 @Singleton
 class ServiceEventBus @Inject constructor() {
-    private val _serviceRestarted = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    private val _serviceRestarted = MutableSharedFlow<ServiceEventSource>(extraBufferCapacity = 1)
     val serviceRestarted = _serviceRestarted.asSharedFlow()
 
-    fun notifyServiceRestarted() {
-        _serviceRestarted.tryEmit(Unit)
+    fun notifyServiceRestarted(source: ServiceEventSource) {
+        _serviceRestarted.tryEmit(source)
     }
 }

@@ -67,7 +67,6 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import com.zapret2.app.ui.theme.SizeTokens
@@ -107,9 +106,8 @@ fun HostlistContentScreen(
 
     AppSnackbarEffect(state.message, snackbarHostState) { activeViewModel?.clearMessage() }
 
-    LifecycleStartEffect(activeViewModel) {
-        activeViewModel?.onScreenEntered()
-        onStopOrDispose { activeViewModel?.onScreenStopped() }
+    LaunchedEffect(activeViewModel) {
+        activeViewModel?.ensureLoaded()
     }
 
     LaunchedEffect(state.isEditing, state.hasUnsavedChanges, state.isSaving) {

@@ -16,6 +16,7 @@ assert_line() { grep -Fxq -- "$2" "$1" || fail "missing $2"; }
 mkdir -p "$MOD/zapret2/scripts" "$MOD/zapret2/lists" "$MOD/system/etc" "$STATE" "$MOCK"
 chmod 0700 "$STATE"
 cp "$ROOT/zapret2/scripts/common.sh" "$MOD/zapret2/scripts/common.sh"
+cp "$ROOT/zapret2/scripts/firewall-reconciler.sh" "$MOD/zapret2/scripts/firewall-reconciler.sh"
 cp "$ROOT/zapret2/scripts/zapret-full-rollback.sh" "$MOD/zapret2/scripts/zapret-full-rollback.sh"
 cp "$ROOT/zapret2/runtime.ini" "$MOD/zapret2/runtime.ini"
 cat >> "$MOD/zapret2/runtime.ini" <<'EOF'
@@ -47,6 +48,7 @@ if [ "${Z2_MOCK_AMBIGUOUS:-0}" = 1 ]; then
     esac
 fi
 case "$*" in
+    *' -L OUTPUT -n') exit 0 ;;
     *' -F '*|*' -X '*|*' -D '*) echo "$*" >> "${Z2_MOCK_LOG:?}"; exit 0 ;;
     *'-S ZAPRET2_OUT'|*'-S ZAPRET2_IN'|*'-S ZAPRET2_PROBE') exit 1 ;;
     *'-S') exit 0 ;;
@@ -239,8 +241,8 @@ module_dir=$MOD
 nfqws=$MOD/zapret2/nfqws2
 EOF
 STATE_DIR="$STATE" SCRIPT_DIR="$MOD/zapret2/scripts" ZAPRET_DIR="$MOD/zapret2" MODDIR="$MOD" \
-    sh -c '. "$SCRIPT_DIR/common.sh"; QNUM=200; PORTS_TCP=80,443; PORTS_UDP=443; PKT_OUT=20; PKT_IN=10; DESYNC_MARK=0x40000000; IPV4_CONNBYTES=1; IPV4_MULTIPORT=1; IPV4_MARK=1; IPV6_CONNBYTES=1; IPV6_MULTIPORT=1; IPV6_MARK=1; prepare_owner_generation_spec 1 0 && write_owner_state "$1" "$2" "$3" 200 foreign-audit active' \
-    sh "$nf_pid" "$nf_start" "$nf_argv_sha256" || fail "could not publish valid v7 owner generation"
+    sh -c '. "$SCRIPT_DIR/common.sh"; QNUM=200; PORTS_TCP=80,443; PORTS_UDP=443; TCP_PKT_OUT=20; TCP_PKT_IN=10; UDP_PKT_OUT=20; UDP_PKT_IN=10; PKT_OUT=20; PKT_IN=10; DESYNC_MARK=0x40000000; IPV4_CONNBYTES=1; IPV4_MULTIPORT=1; IPV4_MARK=1; IPV6_CONNBYTES=1; IPV6_MULTIPORT=1; IPV6_MARK=1; prepare_owner_generation_spec 1 0 && write_owner_state "$1" "$2" "$3" 200 foreign-audit active' \
+    sh "$nf_pid" "$nf_start" "$nf_argv_sha256" || fail "could not publish valid v8 owner generation"
 chmod 0600 "$STATE/nfqws2.pid" "$STATE/runtime.owner" "$STATE/owner.meta"
 mock_out_chain="$(awk -F= '$1 == "out_chain" { print $2 }' "$STATE/owner.meta")"
 [ -n "$mock_out_chain" ] || fail "owner generation did not publish its output chain"
