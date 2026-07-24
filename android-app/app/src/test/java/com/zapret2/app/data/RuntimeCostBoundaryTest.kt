@@ -216,8 +216,23 @@ class RuntimeCostBoundaryTest {
         assertFalse(source.contains("scan_exact_owned_nfqws"))
         assertFalse(source.contains("owned_family_present"))
         assertFalse(source.contains("owner_family_generation_healthy"))
+        assertFalse(source.contains("read_owner_state"))
+        assertFalse(source.contains("read_verified_pidfile"))
+        assertFalse(source.contains("read_install_generation_meta"))
+        assertTrue(source.contains("verify_status_snapshot_pid"))
         assertTrue(source.contains("STATUS_FILE_OWNER_GENERATION"))
         assertTrue(source.contains("Z2_FAST_SNAPSHOT=1"))
+    }
+
+    @Test
+    fun lifecycleStart_reusesTheCompiledPresetReceiptUntilItsInputsChange() {
+        val start = repositoryFile("zapret2/scripts/zapret-start.sh").readText()
+        val prepare = start
+            .substringAfter("prepare_options() {")
+            .substringBefore("compiled_source_binding_current() {")
+
+        assertTrue(prepare.contains("ensure_compiled_artifact"))
+        assertFalse(prepare.contains("compile_preset_artifact"))
     }
 
     @Test

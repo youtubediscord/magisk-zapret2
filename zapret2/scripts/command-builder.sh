@@ -345,109 +345,98 @@ validate_preset_file() {
     COMPILED_UDP_PKT_IN="$capture_udp_in"
 }
 
-normalize_port_union_file() {
-    local input="$1"
+collect_capture_ports() {
+    local preset_file="$1" output="${STATE_DIR:-${TMPDIR:-/tmp}}/z2-ports.$$" extra ports_valid=1
     awk '
-        function add(a,b) { n++; lo[n]=a+0; hi[n]=b+0 }
-        {
-            count=split($0, values, ",")
+        function add_interval(family, first, last) {
+            if (family == "tcp") {
+                tcp_count++; tcp_first[tcp_count]=first+0; tcp_last[tcp_count]=last+0
+            } else {
+                udp_count++; udp_first[udp_count]=first+0; udp_last[udp_count]=last+0
+            }
+        }
+        function add_list(family, list, count, values, i, token, parts, pair) {
+            count=split(list, values, ",")
             for (i=1; i<=count; i++) {
                 token=values[i]
-                if (token == "*") { add(1,65535); continue }
+                if (token == "*") { add_interval(family, 1, 65535); continue }
                 gsub(/-/, ":", token)
                 parts=split(token, pair, ":")
-                if (parts == 1) add(pair[1],pair[1]); else add(pair[1],pair[2])
+                if (parts == 1) add_interval(family, pair[1], pair[1])
+                else add_interval(family, pair[1], pair[2])
+            }
+        }
+        function flush_profile() {
+            if (!profile_skip) {
+                if (profile_tcp != "") add_list("tcp", profile_tcp)
+                if (profile_udp != "") add_list("udp", profile_udp)
+                if (profile_voice) add_list("udp", "3478,5349,19302")
+            }
+            profile_skip=0; profile_tcp=""; profile_udp=""; profile_voice=0
+        }
+        function normalize(first, last, count, i, j, swap, out, have, lo, hi, token) {
+            for (i=1; i<=count; i++) for (j=i+1; j<=count; j++)
+                if (first[j] < first[i] || (first[j] == first[i] && last[j] < last[i])) {
+                    swap=first[i]; first[i]=first[j]; first[j]=swap
+                    swap=last[i]; last[i]=last[j]; last[j]=swap
+                }
+            out=""; have=0
+            for (i=1; i<=count; i++) {
+                if (!have) { lo=first[i]; hi=last[i]; have=1; continue }
+                if (first[i] <= hi+1) {
+                    if (last[i] > hi) hi=last[i]
+                    continue
+                }
+                token=(lo == hi ? lo : lo ":" hi)
+                out=out (out == "" ? "" : ",") token
+                lo=first[i]; hi=last[i]
+            }
+            if (have) {
+                token=(lo == hi ? lo : lo ":" hi)
+                out=out (out == "" ? "" : ",") token
+            }
+            return out
+        }
+        {
+            sub(/\r$/, "")
+            if ($0 == "--new") { flush_profile(); next }
+            if ($0 == "--skip") { profile_skip=1; next }
+            if ($0 ~ /^--filter-tcp=/) {
+                value=substr($0, length("--filter-tcp=") + 1)
+                profile_tcp=profile_tcp (profile_tcp == "" ? "" : ",") value
+                next
+            }
+            if ($0 ~ /^--filter-udp=/) {
+                value=substr($0, length("--filter-udp=") + 1)
+                profile_udp=profile_udp (profile_udp == "" ? "" : ",") value
+                next
+            }
+            if ($0 == "--filter-l7=stun" || $0 == "--filter-l7=discord" ||
+                $0 == "--filter-l7=stun,discord" || $0 == "--filter-l7=discord,stun") {
+                profile_voice=1
             }
         }
         END {
-            for (i=1; i<=n; i++) for (j=i+1; j<=n; j++)
-                if (lo[j] < lo[i] || (lo[j] == lo[i] && hi[j] < hi[i])) {
-                    t=lo[i]; lo[i]=lo[j]; lo[j]=t; t=hi[i]; hi[i]=hi[j]; hi[j]=t
-                }
-            out=""; have=0
-            for (i=1; i<=n; i++) {
-                if (!have) { a=lo[i]; b=hi[i]; have=1; continue }
-                if (lo[i] <= b+1) { if (hi[i] > b) b=hi[i]; continue }
-                token=(a==b ? a : a ":" b); out=out (out=="" ? "" : ",") token; a=lo[i]; b=hi[i]
-            }
-            if (have) { token=(a==b ? a : a ":" b); out=out (out=="" ? "" : ",") token }
-            print out
+            flush_profile()
+            print normalize(tcp_first, tcp_last, tcp_count)
+            print normalize(udp_first, udp_last, udp_count)
         }
-    ' "$input"
-}
-
-collect_capture_ports() {
-    local preset_file="$1" temp_base tcp_raw udp_raw line cr
-    local profile_skip=0 profile_tcp="" profile_udp="" profile_voice=0
-    temp_base="${STATE_DIR:-${TMPDIR:-/tmp}}/z2-ports.$$"
-    tcp_raw="$temp_base.tcp"; udp_raw="$temp_base.udp"
-    : > "$tcp_raw" && : > "$udp_raw" || return 1
-    cr="$(printf '\r')"
-    flush_profile_ports() {
-        if [ "$profile_skip" = 0 ]; then
-            [ -z "$profile_tcp" ] || printf '%s\n' "$profile_tcp" >> "$tcp_raw" || return 1
-            [ -z "$profile_udp" ] || printf '%s\n' "$profile_udp" >> "$udp_raw" || return 1
-            [ "$profile_voice" = 0 ] || printf '%s\n' '3478,5349,19302' >> "$udp_raw" || return 1
-        fi
-        profile_skip=0; profile_tcp=""; profile_udp=""; profile_voice=0
-    }
-    while IFS= read -r line || [ -n "$line" ]; do
-        line="${line%"$cr"}"
-        case "$line" in
-            --new) flush_profile_ports || { rm -f "$tcp_raw" "$udp_raw"; return 1; } ;;
-            --skip) profile_skip=1 ;;
-            --filter-tcp=*)
-                if [ -n "$profile_tcp" ]; then
-                    profile_tcp="$profile_tcp
-${line#--filter-tcp=}"
-                else
-                    profile_tcp="${line#--filter-tcp=}"
-                fi
-                ;;
-            --filter-udp=*)
-                if [ -n "$profile_udp" ]; then
-                    profile_udp="$profile_udp
-${line#--filter-udp=}"
-                else
-                    profile_udp="${line#--filter-udp=}"
-                fi
-                ;;
-            --filter-l7=stun|--filter-l7=discord|--filter-l7=stun,discord|--filter-l7=discord,stun)
-                profile_voice=1
-                ;;
-        esac
-    done < "$preset_file"
-    flush_profile_ports || { rm -f "$tcp_raw" "$udp_raw"; return 1; }
-    COMPILED_TCP_PORTS="$(normalize_port_union_file "$tcp_raw")" || return 1
-    COMPILED_UDP_PORTS="$(normalize_port_union_file "$udp_raw")" || return 1
-    rm -f "$tcp_raw" "$udp_raw"
+    ' "$preset_file" > "$output" || { rm -f "$output"; return 1; }
+    {
+        IFS= read -r COMPILED_TCP_PORTS || ports_valid=0
+        IFS= read -r COMPILED_UDP_PORTS || ports_valid=0
+        if IFS= read -r extra; then ports_valid=0; fi
+    } < "$output"
+    rm -f "$output"
+    [ "$ports_valid" = 1 ] || return 1
     [ -n "$COMPILED_TCP_PORTS$COMPILED_UDP_PORTS" ] || {
         preset_validation_fail NO_ENABLED_PROFILE
         return 1
     }
 }
 
-normalize_preset_argument() {
-    local line="$1" raw option
-    NORMALIZED_ARGUMENT="$line"
-    case "$line" in
-        --lua-init=*)
-            raw="${line#--lua-init=}"; validate_preset_dependency lua "$raw" || return 1
-            NORMALIZED_ARGUMENT="--lua-init=@$PRESET_DEPENDENCY_PATH"
-            ;;
-        --blob=*:@bin/*)
-            raw="${line##*:}"; validate_preset_dependency blob "$raw" || return 1
-            NORMALIZED_ARGUMENT="${line%:*}:@$PRESET_DEPENDENCY_PATH"
-            ;;
-        --hostlist=*|--hostlist-exclude=*|--ipset=*|--ipset-exclude=*)
-            option="${line%%=*}"; raw="${line#*=}"; validate_preset_dependency list "$raw" || return 1
-            NORMALIZED_ARGUMENT="$option=$PRESET_DEPENDENCY_PATH"
-            ;;
-    esac
-}
-
 compile_preset_artifact() {
-    local preset_file="$1" logical_name="$2" artifact="$3" tmp line cr source_sha runtime_sha size
+    local preset_file="$1" logical_name="$2" artifact="$3" tmp source_sha runtime_sha size
     validate_preset_file "$preset_file" "$logical_name" || return 1
     collect_capture_ports "$preset_file" || return 1
     source_sha="$(sha256sum "$preset_file" 2>/dev/null)" || return 1
@@ -474,13 +463,23 @@ compile_preset_artifact() {
             none) ;;
             *) return 1 ;;
         esac
-        cr="$(printf '\r')"
-        while IFS= read -r line || [ -n "$line" ]; do
-            line="${line%"$cr"}"
-            case "$line" in ''|'#'*|';'*) continue ;; esac
-            normalize_preset_argument "$line" || return 1
-            printf '%s\n' "$NORMALIZED_ARGUMENT"
-        done < "$preset_file"
+        awk \
+            -v lua_prefix="$ZAPRET_DIR/lua/" \
+            -v bin_prefix="$ZAPRET_DIR/bin/" \
+            -v lists_prefix="$LISTS_DIR/" '
+            {
+                sub(/\r$/, "")
+                if ($0 == "" || $0 ~ /^[#;]/) next
+                if ($0 ~ /^--lua-init=@lua\//) {
+                    sub(/^--lua-init=@lua\//, "--lua-init=@" lua_prefix)
+                } else if ($0 ~ /^--blob=.*:@bin\//) {
+                    sub(/:@bin\//, ":@" bin_prefix)
+                } else if ($0 ~ /^--(hostlist|hostlist-exclude|ipset|ipset-exclude)=lists\//) {
+                    sub(/=lists\//, "=" lists_prefix)
+                }
+                print
+            }
+        ' "$preset_file"
     } > "$tmp" || { rm -f "$tmp"; return 1; }
     size="$(wc -c < "$tmp" 2>/dev/null)" || { rm -f "$tmp"; return 1; }
     case "$size" in ''|*[!0-9]*) rm -f "$tmp"; return 1 ;; esac
@@ -488,6 +487,28 @@ compile_preset_artifact() {
     chmod 0600 "$tmp" 2>/dev/null || { rm -f "$tmp"; return 1; }
     mv -f "$tmp" "$artifact" || { rm -f "$tmp"; return 1; }
     COMPILED_ARGV_FILE="$artifact"
+}
+
+compiled_artifact_binding_current() {
+    local artifact="$1" preset_file="$2" logical_name="$3"
+    local current_source_sha current_runtime_sha
+    read_compiled_artifact_metadata "$artifact" || return 1
+    [ "$COMPILED_PRESET" = "$logical_name" ] || return 1
+    current_source_sha="$(sha256sum "$preset_file" 2>/dev/null)" || return 1
+    current_source_sha="${current_source_sha%% *}"
+    [ "$current_source_sha" = "$COMPILED_SOURCE_SHA256" ] || return 1
+    current_runtime_sha="$(sha256sum "$RUNTIME_CONFIG" 2>/dev/null)" || return 1
+    current_runtime_sha="${current_runtime_sha%% *}"
+    [ "$current_runtime_sha" = "$COMPILED_RUNTIME_SHA256" ]
+}
+
+ensure_compiled_artifact() {
+    local preset_file="$1" logical_name="$2" artifact="$3"
+    if compiled_artifact_binding_current "$artifact" "$preset_file" "$logical_name"; then
+        COMPILED_ARGV_FILE="$artifact"
+        return 0
+    fi
+    compile_preset_artifact "$preset_file" "$logical_name" "$artifact"
 }
 
 read_compiled_artifact_metadata() {
@@ -535,9 +556,9 @@ read_compiled_artifact_metadata() {
     case "$COMPILED_RUNTIME_SHA256" in *[!0-9a-f]*|'') return 1 ;; esac
     [ "${#COMPILED_RUNTIME_SHA256}" -eq 64 ] || return 1
     [ -z "$COMPILED_TCP_PORTS" ] ||
-        validate_filter_ports "$(printf '%s' "$COMPILED_TCP_PORTS" | tr ':' '-')" || return 1
+        validate_filter_ports "$COMPILED_TCP_PORTS" || return 1
     [ -z "$COMPILED_UDP_PORTS" ] ||
-        validate_filter_ports "$(printf '%s' "$COMPILED_UDP_PORTS" | tr ':' '-')" || return 1
+        validate_filter_ports "$COMPILED_UDP_PORTS" || return 1
     [ -n "$COMPILED_TCP_PORTS$COMPILED_UDP_PORTS" ] || return 1
     validate_capture_packet_count "$COMPILED_TCP_PKT_OUT" || return 1
     validate_capture_packet_count "$COMPILED_TCP_PKT_IN" || return 1
@@ -577,8 +598,8 @@ run_compiled_artifact() {
 nfqws_daemon_mode_supported() {
     local help_text="${NFQWS_HELP:-}"
     [ -n "$help_text" ] || help_text="$("$NFQWS2" --help 2>&1)" || return 1
-    printf '%s\n' "$help_text" | grep -Fq -- '--daemon' &&
-        printf '%s\n' "$help_text" | grep -Fq -- '--pidfile'
+    case "$help_text" in *--daemon*) ;; *) return 1 ;; esac
+    case "$help_text" in *--pidfile*) return 0 ;; *) return 1 ;; esac
 }
 
 preview_compiled_artifact_machine() {

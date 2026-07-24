@@ -46,10 +46,23 @@ GOOD_PROP="$CASE/module.prop.good"
 cp "$ROOT/module.prop" "$GOOD_PROP"
 cp "$GOOD_PROP" "$CASE/module.prop"
 package_contract_validate_module_prop "$CASE" || fail "valid module.prop rejected: $PACKAGE_CONTRACT_CODE"
+sed 's/^\(version=v[0-9][0-9.]*\)$/\1-dev.20260724123456.deadbeef/' \
+    "$GOOD_PROP" > "$CASE/module.prop"
+package_contract_validate_module_prop "$CASE" ||
+    fail "valid dev module.prop rejected: $PACKAGE_CONTRACT_CODE"
 assert_module_prop_rejected() {
     label="$1"
     if package_contract_validate_module_prop "$CASE"; then fail "$label module.prop was accepted"; fi
 }
+sed 's/^\(version=v[0-9][0-9.]*\)$/\1-beta.20260724123456.deadbeef/' \
+    "$GOOD_PROP" > "$CASE/module.prop"
+assert_module_prop_rejected foreign-prerelease-channel
+sed 's/^\(version=v[0-9][0-9.]*\)$/\1-dev.2026072412345.deadbeef/' \
+    "$GOOD_PROP" > "$CASE/module.prop"
+assert_module_prop_rejected malformed-dev-timestamp
+sed 's/^\(version=v[0-9][0-9.]*\)$/\1-dev.20260724123456.DEADBEEF/' \
+    "$GOOD_PROP" > "$CASE/module.prop"
+assert_module_prop_rejected malformed-dev-source
 sed 's/^version=v/version=/' "$GOOD_PROP" > "$CASE/module.prop"
 assert_module_prop_rejected noncanonical-version
 sed 's/^versionCode=.*/versionCode=999/' "$GOOD_PROP" > "$CASE/module.prop"

@@ -874,6 +874,10 @@ class ControlViewModel @Inject constructor(
         operationInProgress = exclusiveActionInProgress,
     )
     private val statusRefreshSequence = AtomicLong(0)
+    private val lifecycleSettlementObserver = LifecycleSettlementObserver(
+        scope = viewModelScope,
+        observe = { refreshServiceStatusOnce() },
+    )
 
     init {
         viewModelScope.launch {
@@ -895,6 +899,9 @@ class ControlViewModel @Inject constructor(
     fun onScreenStarted() {
         if (screenStarted) return
         screenStarted = true
+        if (_uiState.value.moduleMutationState == ModuleMutationState.IN_PROGRESS) {
+            lifecycleSettlementObserver.ensureObserving()
+        }
         if (statusInvalidated) {
             statusInvalidated = false
             viewModelScope.launch { refreshServiceStatusOnce() }
@@ -903,6 +910,7 @@ class ControlViewModel @Inject constructor(
 
     fun onScreenStopped() {
         screenStarted = false
+        lifecycleSettlementObserver.stop()
     }
 
     fun clearMessage() {
@@ -1314,10 +1322,10 @@ class ControlViewModel @Inject constructor(
         }
     }
 
-    private suspend fun refreshServiceStatusOnce() {
-        if (exclusiveActionInProgress.get()) return
-        try {
-            checkStatus()
+    private suspend fun refreshServiceStatusOnce(): ModuleMutationState? {
+        if (exclusiveActionInProgress.get()) return null
+        return try {
+            checkStatus().moduleMutationState
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {
@@ -1328,12 +1336,14 @@ class ControlViewModel @Inject constructor(
                     iptablesActive = false,
                 )
             }
+            null
         }
     }
 
     private data class ServiceSnapshot(
         val isRunning: Boolean,
-        val canStopService: Boolean
+        val canStopService: Boolean,
+        val moduleMutationState: ModuleMutationState,
     )
 
     private suspend fun checkStatus(): ServiceSnapshot {
@@ -1382,14 +1392,22 @@ class ControlViewModel @Inject constructor(
                     )
                 }
             }
-            return ServiceSnapshot(isRunning = false, canStopService = false)
+            return ServiceSnapshot(
+                isRunning = false,
+                canStopService = false,
+                moduleMutationState = ModuleMutationState.IDLE,
+            )
         }
 
         val serviceStatus = ServiceLifecycleController.getStatus()
         val lifecycleMutationState = serviceStatus.lifecycleState.toModuleMutationState()
         if (lifecycleMutationState != ModuleMutationState.IDLE) {
             val current = _uiState.value
-            if (refreshId == statusRefreshSequence.get()) {
+            val publishResult = refreshId == statusRefreshSequence.get()
+            val currentNetworkType = UiText.Resource(
+                networkStatsManager.getNetworkType().labelRes,
+            )
+            if (publishResult) {
                 _uiState.update {
                     it.copy(
                         status = projectedControlStatus(
@@ -1405,12 +1423,21 @@ class ControlViewModel @Inject constructor(
                         nfqueueSupported = environment.nfqueueSupported,
                         hasAuthoritativeRuntimeSettings = false,
                         moduleDiagnostic = projectedLifecycleDiagnostic(serviceStatus),
+                        networkType = currentNetworkType,
                     )
                 }
+            }
+            if (
+                publishResult &&
+                screenStarted &&
+                lifecycleMutationState == ModuleMutationState.IN_PROGRESS
+            ) {
+                lifecycleSettlementObserver.ensureObserving()
             }
             return ServiceSnapshot(
                 isRunning = current.isRunning,
                 canStopService = current.canStopService,
+                moduleMutationState = lifecycleMutationState,
             )
         }
         val netStats = networkStatsManager.getNetworkStats(serviceStatus)
@@ -1470,7 +1497,8 @@ class ControlViewModel @Inject constructor(
 
         return ServiceSnapshot(
             isRunning = isRunning,
-            canStopService = canStopService
+            canStopService = canStopService,
+            moduleMutationState = lifecycleMutationState,
         )
     }
 

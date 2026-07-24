@@ -111,11 +111,16 @@ esac
 
 CONFIG_VALID=1
 STATE_DIR_SECURE=0
-state_dir_is_secure && STATE_DIR_SECURE=1
+OBSERVER_STATE_DIR_VERIFIED=0
+if state_dir_is_secure; then
+    STATE_DIR_SECURE=1
+    OBSERVER_STATE_DIR_VERIFIED=1
+fi
 load_effective_core_config_readonly >/dev/null 2>&1 || CONFIG_VALID=0
 normalize_qnum "${QNUM:-}" >/dev/null 2>&1 || CONFIG_VALID=0
 [ "$CONFIG_VALID" = 0 ] || QNUM="$QNUM_NORMALIZED"
-read_iptables_status >/dev/null 2>&1 || true
+STATUS_SNAPSHOT_VALID=0
+read_iptables_status >/dev/null 2>&1 && STATUS_SNAPSHOT_VALID=1
 
 Z2_PID=""
 Z2_PID_STARTTIME=""
@@ -130,23 +135,6 @@ Z2_UNINSTALL_TOMBSTONE=0
 { [ -e "$UNINSTALL_TOMBSTONE" ] || [ -L "$UNINSTALL_TOMBSTONE" ]; } && Z2_UNINSTALL_TOMBSTONE=1
 module_removal_pending && Z2_UNINSTALL_TOMBSTONE=1
 
-if read_verified_pidfile && [ "$OWNER_STATE_PHASE" = active ] &&
-   [ "$OWNER_STATE_SCHEMA_VERSION" = "$OWNER_STATE_VERSION" ] && read_install_generation_meta &&
-   [ "$OWNER_STATE_INSTALL_GENERATION" = "$INSTALL_META_GENERATION" ] &&
-   [ "$OWNER_STATE_INSTALL_ARCHIVE_SHA256" = "$INSTALL_META_ARCHIVE_SHA256" ]; then
-    Z2_PID="$VERIFIED_PID"
-    Z2_PID_STARTTIME="$VERIFIED_PID_START"
-    Z2_OWNER_GENERATION="$OWNER_STATE_GENERATION"
-    Z2_QNUM="$OWNER_STATE_QNUM"
-    Z2_PID_VERIFIED=1
-    Z2_OWNER_METADATA_VERIFIED=1
-    Z2_PROCESS=1
-else
-    # Status is an observer, not a recovery audit. Full /proc discovery belongs
-    # to start/stop/recovery and must never run on an ordinary status query.
-    :
-fi
-
 Z2_IPV4=0
 Z2_IPV6=0
 Z2_IPV4_RULES=0
@@ -156,23 +144,25 @@ IPV6_VERIFIED=0
 IPV6_UNKNOWN=0
 Z2_FAST_SNAPSHOT=0
 
-# The module lifecycle boundary is the single firewall authority. Bind its
-# durable snapshot to the exact live owner generation so app polling never
-# needs a second owner.meta/iptables interpreter.
-if [ "$Z2_OWNER_METADATA_VERIFIED" = 1 ] &&
+# The lifecycle operation has already verified owner.meta, the exact process,
+# the installation receipt and the firewall generation before atomically
+# publishing this snapshot. Ordinary observation consumes that single receipt
+# and only proves that its PID/starttime/argv identity is still live.
+if [ "$STATUS_SNAPSHOT_VALID" = 1 ] &&
    [ "$STATUS_FILE_STATUS" = ok ] &&
-   [ "$STATUS_FILE_OWN_PID" = "$Z2_PID" ] &&
-   [ "$STATUS_FILE_OWN_PID_STARTTIME" = "$Z2_PID_STARTTIME" ] &&
-   [ "$STATUS_FILE_OWNER_GENERATION" = "$Z2_OWNER_GENERATION" ] &&
-   [ "$STATUS_FILE_QNUM" = "$Z2_QNUM" ] &&
    [ "$STATUS_FILE_OWNER_METADATA_VERIFIED" = 1 ] &&
    [ "$STATUS_FILE_RULESET_VERIFIED" = 1 ] &&
-   [ "$STATUS_FILE_IPV4_ACTIVE" = "$OWNER_STATE_IPV4_ACTIVE" ] &&
-   [ "$STATUS_FILE_IPV6_ACTIVE" = "$OWNER_STATE_IPV6_ACTIVE" ] &&
-   [ "$STATUS_FILE_IPV4_RULES" = "$OWNER_STATE_IPV4_RULES" ] &&
-   [ "$STATUS_FILE_IPV6_RULES" = "$OWNER_STATE_IPV6_RULES" ] &&
+   [ "$STATUS_FILE_IPV4_ACTIVE" = 1 ] &&
+   [ "$STATUS_FILE_RULES_TOTAL" = "$((STATUS_FILE_IPV4_RULES + STATUS_FILE_IPV6_RULES))" ] &&
    [ "$STATUS_FILE_RULES_TOTAL" = "$STATUS_FILE_RULES_EXPECTED" ] &&
-   [ "$STATUS_FILE_RULES_EXPECTED" = "$((OWNER_STATE_IPV4_RULES + OWNER_STATE_IPV6_RULES))" ]; then
+   verify_status_snapshot_pid; then
+    Z2_PID="$VERIFIED_PID"
+    Z2_PID_STARTTIME="$VERIFIED_PID_START"
+    Z2_OWNER_GENERATION="$STATUS_FILE_OWNER_GENERATION"
+    Z2_QNUM="$STATUS_FILE_QNUM"
+    Z2_PID_VERIFIED=1
+    Z2_OWNER_METADATA_VERIFIED=1
+    Z2_PROCESS=1
     Z2_FAST_SNAPSHOT=1
     Z2_IPV4="$STATUS_FILE_IPV4_ACTIVE"
     Z2_IPV6="$STATUS_FILE_IPV6_ACTIVE"
@@ -180,7 +170,7 @@ if [ "$Z2_OWNER_METADATA_VERIFIED" = 1 ] &&
     Z2_IPV6_RULES="$STATUS_FILE_IPV6_RULES"
     IPV4_VERIFIED="$Z2_IPV4"
     [ "$Z2_IPV6" = 0 ] || IPV6_VERIFIED=1
-elif [ "$Z2_PROCESS" = 0 ] &&
+elif [ "$STATUS_SNAPSHOT_VALID" = 1 ] &&
      [ ! -e "$PIDFILE" ] && [ ! -L "$PIDFILE" ] &&
      [ ! -e "$OWNER_STATE" ] && [ ! -L "$OWNER_STATE" ] &&
      [ "$STATUS_FILE_STATUS" = stopped ] &&
@@ -195,19 +185,14 @@ if [ "$Z2_FAST_SNAPSHOT" = 0 ] && [ "$STATUS_FILE_IPV6_ACTIVE" = 1 ]; then
 fi
 
 Z2_RULES=$((Z2_IPV4_RULES + Z2_IPV6_RULES))
-Z2_EXPECTED_RULES=0
-if [ "$Z2_OWNER_METADATA_VERIFIED" = 1 ] && [ "$OWNER_STATE_SCHEMA_VERSION" = "$OWNER_STATE_VERSION" ]; then
-    Z2_EXPECTED_RULES=$((OWNER_STATE_IPV4_RULES + OWNER_STATE_IPV6_RULES))
-else
-    case "$STATUS_FILE_RULES_EXPECTED" in
-        ''|*[!0-9]*) Z2_EXPECTED_RULES=0 ;;
-        *) Z2_EXPECTED_RULES="$STATUS_FILE_RULES_EXPECTED" ;;
-    esac
-fi
+case "$STATUS_FILE_RULES_EXPECTED" in
+    ''|*[!0-9]*) Z2_EXPECTED_RULES=0 ;;
+    *) Z2_EXPECTED_RULES="$STATUS_FILE_RULES_EXPECTED" ;;
+esac
 Z2_RULESET_VERIFIED=0
 if [ "$IPV4_VERIFIED" = 1 ] && [ "$IPV6_UNKNOWN" = 0 ]; then
-    if { [ "${OWNER_STATE_IPV6_ACTIVE:-0}" = 0 ] && [ "$Z2_IPV6" = 0 ]; } ||
-       { [ "${OWNER_STATE_IPV6_ACTIVE:-0}" = 1 ] && [ "$IPV6_VERIFIED" = 1 ]; }; then
+    if { [ "$STATUS_FILE_IPV6_ACTIVE" = 0 ] && [ "$Z2_IPV6" = 0 ]; } ||
+       { [ "$STATUS_FILE_IPV6_ACTIVE" = 1 ] && [ "$IPV6_VERIFIED" = 1 ]; }; then
         [ "$Z2_RULES" = "$Z2_EXPECTED_RULES" ] && Z2_RULESET_VERIFIED=1
     fi
 fi
@@ -231,16 +216,13 @@ Z2_ANCHORS=0
 Z2_STATUS=degraded
 
 if [ "$Z2_OWNER_METADATA_VERIFIED" = 1 ] && [ "$Z2_RULESET_VERIFIED" = 1 ] &&
-   [ "$Z2_QNUM" = "$OWNER_STATE_QNUM" ]; then
+   [ "$Z2_QNUM" = "$STATUS_FILE_QNUM" ]; then
     Z2_ACTIVE=1
     Z2_NFQUEUE=1
     Z2_QUEUE_BYPASS=1
     Z2_STATUS=ok
-    Z2_CHAINS=$((1 + OWNER_STATE_IPV4_CONNBYTES))
-    if [ "$OWNER_STATE_IPV6_ACTIVE" = 1 ]; then
-        Z2_CHAINS=$((Z2_CHAINS + 1 + OWNER_STATE_IPV6_CONNBYTES))
-    fi
-    Z2_ANCHORS="$Z2_CHAINS"
+    Z2_CHAINS="$STATUS_FILE_CHAINS"
+    Z2_ANCHORS="$STATUS_FILE_ANCHORS"
 elif [ "$Z2_OWNED" = 0 ]; then
     Z2_STATUS=stopped
     Z2_EXPECTED_RULES=0

@@ -1,4 +1,4 @@
-name: Build Magisk Module
+name: Background release validation
 
 on:
   push:
@@ -28,52 +28,7 @@ jobs:
       - name: Reject committed secrets and release debug flags
         run: |
           set -euo pipefail
-
-          FORBIDDEN_TRACKED="$(
-            git ls-files |
-              grep -E '(^|/)(local\.properties|keystore\.properties|signing\.properties|\.env(\.[^/]*)?|[^/]+\.(jks|keystore|p12|pfx))$' || true
-          )"
-          if [ -n "$FORBIDDEN_TRACKED" ]; then
-            printf 'Forbidden secret-bearing files are tracked:\n%s\n' "$FORBIDDEN_TRACKED" >&2
-            exit 1
-          fi
-
-          if git grep -n -I -E -- '-----BEGIN ([A-Z0-9 ]+ )?PRIVATE KEY-----'; then
-            echo 'A private-key PEM block is tracked in the repository' >&2
-            exit 1
-          fi
-
-          MAIN_MANIFEST='android-app/app/src/main/AndroidManifest.xml'
-          APP_BUILD='android-app/app/build.gradle.kts'
-          RELEASE_BLOCK="$(sed -n '/^        release {$/,/^        }$/p' "$APP_BUILD")"
-          if git grep -n -E 'android:(debuggable|testOnly)="true"' -- "$MAIN_MANIFEST"; then
-            echo 'The release manifest contains a debug-only application flag' >&2
-            exit 1
-          fi
-          [ -n "$RELEASE_BLOCK" ] || {
-            echo 'The release build type could not be located' >&2
-            exit 1
-          }
-          printf '%s\n' "$RELEASE_BLOCK" | grep -Fq 'isDebuggable = false' || {
-            echo 'Release debuggability is not explicitly disabled' >&2
-            exit 1
-          }
-          printf '%s\n' "$RELEASE_BLOCK" | grep -Fq 'signingConfig = signingConfigs.getByName("release")' || {
-            echo 'Release signing configuration is not fail-closed' >&2
-            exit 1
-          }
-          printf '%s\n' "$RELEASE_BLOCK" | grep -Fq 'isMinifyEnabled = true' || {
-            echo 'Release code optimization is not enabled' >&2
-            exit 1
-          }
-          printf '%s\n' "$RELEASE_BLOCK" | grep -Fq 'isShrinkResources = true' || {
-            echo 'Release resource optimization is not enabled' >&2
-            exit 1
-          }
-          if printf '%s\n' "$RELEASE_BLOCK" | grep -Fq 'signingConfigs.getByName("debug")'; then
-            echo 'The release build type references a debug signing configuration' >&2
-            exit 1
-          fi
+          bash tests/release/source-policy.sh
 
       - name: Download verified upstream payload
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
@@ -97,6 +52,7 @@ jobs:
         run: |
           set -euo pipefail
           bash -n upstream/fetch-release.sh
+          bash tests/release/release-channel.sh
           chmod +x tests/shell/run.sh
           sudo sh tests/shell/run.sh
 
@@ -114,8 +70,6 @@ jobs:
 
       - name: Read canonical release version
         id: version
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           VERSION_METADATA=$(sh tools/release-version.sh)
@@ -124,39 +78,8 @@ jobs:
           VERSION_TAG=$(sed -n 's/^version_tag=//p' <<<"$VERSION_METADATA")
           [[ -n "$VERSION" && -n "$VERSION_CODE" && -n "$VERSION_TAG" ]]
 
-          if git ls-remote --exit-code --tags origin "refs/tags/$VERSION_TAG" >/dev/null 2>&1; then
-            echo "Release tag $VERSION_TAG already exists; bump version.properties intentionally"
-            exit 1
-          fi
-
-          RELEASES_JSON=$(gh api --method GET \
-            repos/youtubediscord/magisk-zapret2/releases -f per_page=100)
-          LATEST_CANONICAL=$(jq -cer '
-            map(select(
-              (.draft | not) and
-              (.prerelease | not) and
-              (.tag_name | test("^v[0-9]+[.][0-9]+[.][0-9]+$")) and
-              any(.assets[]; .name == "update.json")
-            )) | first
-          ' <<<"$RELEASES_JSON")
-          LATEST_CANONICAL_TAG=$(jq -er '.tag_name' <<<"$LATEST_CANONICAL")
-          LATEST_UPDATE_ASSET_ID=$(jq -er \
-            '.assets | map(select(.name == "update.json")) | first.id' \
-            <<<"$LATEST_CANONICAL")
-          LATEST_JSON=$(gh api \
-            "repos/youtubediscord/magisk-zapret2/releases/assets/$LATEST_UPDATE_ASSET_ID" \
-            -H 'Accept: application/octet-stream')
-          LATEST_VERSION=$(jq -er '.version | strings' <<<"$LATEST_JSON")
-          LATEST_VERSION_CODE=$(jq -er '.versionCode | select(type == "number" and floor == .)' \
-            <<<"$LATEST_JSON")
-          [[ "$LATEST_VERSION" == "$LATEST_CANONICAL_TAG" ]]
-          if (( VERSION_CODE <= LATEST_VERSION_CODE )); then
-            echo "versionCode $VERSION_CODE must exceed published versionCode $LATEST_VERSION_CODE"
-            exit 1
-          fi
-
           printf '%s\n' "$VERSION_METADATA" >> "$GITHUB_OUTPUT"
-          echo "Using ${VERSION_TAG} (versionCode=${VERSION_CODE})"
+          echo "Validating ${VERSION_TAG} (versionCode=${VERSION_CODE})"
 
   build-apk:
     name: Build Android APK
@@ -534,54 +457,3 @@ jobs:
         with:
           name: zapret2-release-metadata
           path: update.json
-
-  release:
-    name: Publish GitHub Release
-    runs-on: ubuntu-latest
-    needs: [prepare-version, package-module]
-    permissions:
-      contents: write
-
-    steps:
-      - name: Download module artifact
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          name: zapret2-magisk-module
-          path: release-assets
-
-      - name: Download APK artifact
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          name: zapret2-control-apk
-          path: release-assets
-
-      - name: Download release metadata
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          name: zapret2-release-metadata
-          path: release-assets
-
-      - name: Create Tag and Release
-        run: |
-          set -euo pipefail
-          VERSION_TAG="${{ needs.prepare-version.outputs.version_tag }}"
-
-          cd release-assets
-          sha256sum -c zapret2-magisk-*.zip.sha256
-          sha256sum -c zapret2-control-*.apk.sha256
-
-          # Create release (tag is created automatically if missing)
-          gh release create "$VERSION_TAG" \
-            --target "$GITHUB_SHA" \
-            --title "Zapret2 ${{ needs.prepare-version.outputs.version }}" \
-            --generate-notes \
-            zapret2-magisk-*.zip \
-            zapret2-magisk-*.zip.sha256 \
-            zapret2-control-*.apk \
-            zapret2-control-*.apk.sha256 \
-            update.json
-        env:
-          GH_TOKEN: ${{ github.token }}
-          # The release command runs from release-assets, which intentionally
-          # has no checkout/.git directory. Keep repository selection explicit.
-          GH_REPO: ${{ github.repository }}

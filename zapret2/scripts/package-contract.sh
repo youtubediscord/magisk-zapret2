@@ -439,6 +439,15 @@ package_contract_validate_module_prop() {
             version = properties["version"]
             if (substr(version, 1, 1) != "v") exit 1
             version = substr(version, 2)
+            prerelease_separator = index(version, "-")
+            if (prerelease_separator > 0) {
+                prerelease = substr(version, prerelease_separator + 1)
+                version = substr(version, 1, prerelease_separator - 1)
+                if (split(prerelease, pre, ".") != 3 ||
+                    pre[1] != "dev" ||
+                    pre[2] !~ /^[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]$/ ||
+                    pre[3] !~ /^[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]$/) exit 1
+            }
             if (split(version, parts, ".") != 3 || !canonical_long(parts[1]) ||
                 !canonical_long(parts[2]) || !canonical_long(parts[3]) ||
                 parts[1] + 0 < 1 || parts[1] + 0 > 2100 ||

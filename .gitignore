@@ -1,7 +1,11 @@
 CLAUDE.md
 AGENTS.md
 /.claude
-/.codex/
+/.codex/*
+!/.codex/skills/
+/.codex/skills/*
+!/.codex/skills/build-zapret2-locally/
+!/.codex/skills/build-zapret2-locally/**
 .env
 .env.*
 .gradle/

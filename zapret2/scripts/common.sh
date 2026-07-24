@@ -35,9 +35,10 @@ z2_error_detail_normalize() {
 }
 
 z2_error_detail_is_valid() {
-    local normalized
-    normalized="$(z2_error_detail_normalize "$1")"
-    [ "$1" = "$normalized" ]
+    local LC_ALL=C
+    [ "${#1}" -le "$Z2_ERROR_DETAIL_MAX_BYTES" ] 2>/dev/null || return 1
+    case "$1" in *[[:cntrl:]]*) return 1 ;; esac
+    return 0
 }
 
 z2_error_fields_are_valid() {
@@ -200,14 +201,14 @@ path_uid_is_root() {
 }
 
 state_dir_is_secure() {
-    local mode listing
+    local metadata listing
     [ -d "$STATE_DIR" ] && [ ! -L "$STATE_DIR" ] || return 1
-    path_uid_is_root "$STATE_DIR" || return 1
     if command -v stat >/dev/null 2>&1; then
-        mode="$(stat -c '%a' "$STATE_DIR" 2>/dev/null)" || return 1
-        [ "$mode" = 700 ]
+        metadata="$(stat -c '%u:%a' "$STATE_DIR" 2>/dev/null)" || return 1
+        [ "$metadata" = 0:700 ]
         return
     fi
+    path_uid_is_root "$STATE_DIR" || return 1
     listing="$(ls -ldn "$STATE_DIR" 2>/dev/null)" || return 1
     set -- $listing
     case "${1:-}" in drwx------*) return 0 ;; *) return 1 ;; esac
@@ -240,6 +241,13 @@ state_path_is_managed_file() {
 
 state_file_is_secure() {
     state_dir_is_secure || return 1
+    state_path_is_managed_file "$1" || return 1
+    [ -f "$1" ] && [ ! -L "$1" ] || return 1
+    path_uid_is_root "$1"
+}
+
+observer_state_file_is_secure() {
+    [ "${OBSERVER_STATE_DIR_VERIFIED:-0}" = 1 ] || return 1
     state_path_is_managed_file "$1" || return 1
     [ -f "$1" ] && [ ! -L "$1" ] || return 1
     path_uid_is_root "$1"
@@ -1031,7 +1039,10 @@ normalize_qnum() {
     local raw="$1" normalized
     QNUM_NORMALIZED=""
     is_decimal "$raw" || return 1
-    normalized="$(printf '%s' "$raw" | sed 's/^0*//')"
+    normalized="$raw"
+    while [ "${normalized#0}" != "$normalized" ]; do
+        normalized="${normalized#0}"
+    done
     [ -n "$normalized" ] || normalized=0
     [ "${#normalized}" -le 5 ] || return 1
     [ "$normalized" -ge 1 ] 2>/dev/null || return 1
@@ -2373,6 +2384,33 @@ read_verified_pidfile() {
     return 0
 }
 
+verify_status_snapshot_pid() {
+    local candidate before after actual_argv_sha256
+    VERIFIED_PID=""
+    VERIFIED_PID_START=""
+    VERIFIED_PID_ARGV_SHA256=""
+    VERIFIED_PID_QNUM=""
+    observer_state_file_is_secure "$PIDFILE" && [ -r "$PIDFILE" ] || return 1
+    IFS= read -r candidate < "$PIDFILE" 2>/dev/null || return 1
+    is_canonical_positive_decimal "$candidate" || return 1
+    [ "$candidate" = "$STATUS_FILE_OWN_PID" ] || return 1
+    is_canonical_nonnegative_i64 "$STATUS_FILE_OWN_PID_STARTTIME" || return 1
+    is_lower_sha256 "$STATUS_FILE_OWN_ARGV_SHA256" || return 1
+    before="$(proc_starttime "$candidate")" || return 1
+    [ "$before" = "$STATUS_FILE_OWN_PID_STARTTIME" ] || return 1
+    kill -0 "$candidate" 2>/dev/null || return 1
+    proc_cmdline_may_match_nfqws "$candidate" || return 1
+    actual_argv_sha256="$(proc_cmdline_sha256 "$candidate")" || return 1
+    [ "$actual_argv_sha256" = "$STATUS_FILE_OWN_ARGV_SHA256" ] || return 1
+    after="$(proc_starttime "$candidate")" || return 1
+    [ "$before" = "$after" ] || return 1
+    VERIFIED_PID="$candidate"
+    VERIFIED_PID_START="$after"
+    VERIFIED_PID_ARGV_SHA256="$actual_argv_sha256"
+    VERIFIED_PID_QNUM="$STATUS_FILE_QNUM"
+    return 0
+}
+
 read_live_pidfile() {
     LIVE_PIDFILE_PID=""
     state_file_is_secure "$PIDFILE" && [ -r "$PIDFILE" ] || return 1
@@ -3486,6 +3524,7 @@ STATUS_FILE_OWNER_METADATA_VERIFIED=0
 STATUS_FILE_RULES_EXPECTED=0
 STATUS_FILE_OWN_PID=""
 STATUS_FILE_OWN_PID_STARTTIME=""
+STATUS_FILE_OWN_ARGV_SHA256=""
 STATUS_FILE_OWNER_GENERATION=""
 STATUS_FILE_DIAGNOSTICS=""
 STATUS_FILE_ERROR_SCHEMA=0
@@ -3504,12 +3543,17 @@ read_iptables_status() {
     STATUS_FILE_IPV4_RULES=0; STATUS_FILE_IPV6_RULES=0
     STATUS_FILE_CHAINS=0; STATUS_FILE_ANCHORS=0; STATUS_FILE_RULESET_VERIFIED=0
     STATUS_FILE_OWNER_METADATA_VERIFIED=0; STATUS_FILE_RULES_EXPECTED=0; STATUS_FILE_DIAGNOSTICS=""
-    STATUS_FILE_OWN_PID=""; STATUS_FILE_OWN_PID_STARTTIME=""; STATUS_FILE_OWNER_GENERATION=""
+    STATUS_FILE_OWN_PID=""; STATUS_FILE_OWN_PID_STARTTIME=""
+    STATUS_FILE_OWN_ARGV_SHA256=""; STATUS_FILE_OWNER_GENERATION=""
     STATUS_FILE_ERROR_SCHEMA=0; STATUS_FILE_ERROR_STATUS=OK
     STATUS_FILE_ERROR_DOMAIN=NONE; STATUS_FILE_ERROR_CODE=NONE
     STATUS_FILE_ERROR_STAGE=NONE; STATUS_FILE_ERROR_DETAIL=""
     if [ "$path" = "$IPTABLES_STATUS" ]; then
-        state_file_is_secure "$path" && [ -r "$path" ] || return 1
+        if [ "${OBSERVER_STATE_DIR_VERIFIED:-0}" = 1 ]; then
+            observer_state_file_is_secure "$path" && [ -r "$path" ] || return 1
+        else
+            state_file_is_secure "$path" && [ -r "$path" ] || return 1
+        fi
     else
         [ "$path" = "$LEGACY_IPTABLES_STATUS" ] || return 1
         [ -f "$path" ] && [ ! -L "$path" ] && [ -r "$path" ] || return 1
@@ -3537,6 +3581,7 @@ read_iptables_status() {
             rules_expected) STATUS_FILE_RULES_EXPECTED="$value" ;;
             own_pid) STATUS_FILE_OWN_PID="$value" ;;
             own_pid_starttime) STATUS_FILE_OWN_PID_STARTTIME="$value" ;;
+            own_argv_sha256) STATUS_FILE_OWN_ARGV_SHA256="$value" ;;
             owner_generation) STATUS_FILE_OWNER_GENERATION="$value" ;;
             diagnostics) STATUS_FILE_DIAGNOSTICS="$value" ;;
             error_schema) STATUS_FILE_ERROR_SCHEMA="$value" ;;
@@ -3560,10 +3605,12 @@ read_iptables_status() {
         case "$value" in 0|1) ;; *) return 1 ;; esac
     done
     if [ -n "$STATUS_FILE_OWN_PID" ] || [ -n "$STATUS_FILE_OWN_PID_STARTTIME" ] ||
-       [ -n "$STATUS_FILE_OWNER_GENERATION" ]; then
+       [ -n "$STATUS_FILE_OWN_ARGV_SHA256" ] || [ -n "$STATUS_FILE_OWNER_GENERATION" ]; then
         is_decimal "$STATUS_FILE_OWN_PID" &&
             is_decimal "$STATUS_FILE_OWN_PID_STARTTIME" &&
             is_safe_token "$STATUS_FILE_OWNER_GENERATION" || return 1
+        [ -z "$STATUS_FILE_OWN_ARGV_SHA256" ] ||
+            is_lower_sha256 "$STATUS_FILE_OWN_ARGV_SHA256" || return 1
     fi
     if [ "$STATUS_FILE_ERROR_SCHEMA" = "$Z2_ERROR_SCHEMA_VERSION" ] &&
        z2_error_fields_are_valid "$STATUS_FILE_ERROR_STATUS" "$STATUS_FILE_ERROR_DOMAIN" \
@@ -3617,6 +3664,7 @@ write_iptables_status() {
         echo "errors=$errors"
         echo "own_pid=${STATUS_OWN_PID:-}"
         echo "own_pid_starttime=${STATUS_OWN_PID_STARTTIME:-}"
+        echo "own_argv_sha256=${STATUS_OWN_ARGV_SHA256:-}"
         echo "owner_generation=${STATUS_OWNER_GENERATION:-}"
         echo "pid_verified=${STATUS_PID_VERIFIED:-0}"
         echo "owner_metadata_verified=${STATUS_OWNER_METADATA_VERIFIED:-0}"

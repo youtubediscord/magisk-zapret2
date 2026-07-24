@@ -157,6 +157,10 @@ read_compiled_artifact_metadata "$TMP/tcp.argv" || fail "TCP artifact metadata i
 [ "$COMPILED_TCP_PORTS" = 80 ] && [ -z "$COMPILED_UDP_PORTS" ] &&
     [ "$COMPILED_TCP_PKT_OUT:$COMPILED_TCP_PKT_IN:$COMPILED_UDP_PKT_OUT:$COMPILED_UDP_PKT_IN" = 20:10:20:10 ] ||
     fail "TCP-only preset opened unexpected ports"
+(
+    compile_preset_artifact() { return 97; }
+    ensure_compiled_artifact "$FIXTURE/presets/TCP only.txt" "TCP only.txt" "$TMP/tcp.argv"
+) || fail "unchanged compiled preset was rebuilt instead of reusing its bound artifact"
 sed '/--filter-tcp=80/a --filter-tcp=443' "$FIXTURE/presets/TCP only.txt" > "$FIXTURE/presets/Multi filter.txt"
 compile_preset_artifact "$FIXTURE/presets/Multi filter.txt" "Multi filter.txt" "$TMP/multi-filter.argv" ||
     fail "multiple filters in one profile did not compile"
@@ -216,7 +220,7 @@ assert_not_contains "$RUNTIME_TARGET" 'strategy_preset='
 assert_not_contains "$RUNTIME_TARGET" 'ports_tcp='
 assert_not_contains "$RUNTIME_TARGET" 'ports_udp='
 
-assert_contains "$ROOT/zapret2/scripts/zapret-start.sh" 'compile_preset_artifact'
+assert_contains "$ROOT/zapret2/scripts/zapret-start.sh" 'ensure_compiled_artifact'
 assert_contains "$ROOT/zapret2/scripts/zapret-start.sh" 'run_compiled_artifact'
 assert_not_contains "$ROOT/zapret2/scripts/zapret-start.sh" '@config'
 assert_not_contains "$ROOT/zapret2/scripts/command-builder.sh" 'eval '
@@ -232,6 +236,7 @@ Z2_TEST_TMP="$TMP" sh "$ROOT/tests/shell/lifecycle-lock-owner.sh"
 Z2_TEST_TMP="$TMP" sh "$ROOT/tests/shell/lifecycle-status-v4.sh"
 Z2_TEST_TMP="$TMP" sh "$ROOT/tests/shell/lifecycle-status-v5.sh"
 Z2_TEST_TMP="$TMP" sh "$ROOT/tests/shell/lifecycle-status-v6.sh"
+Z2_TEST_TMP="$TMP" sh "$ROOT/tests/shell/status-snapshot-fast-path.sh"
 Z2_TEST_TMP="$TMP" sh "$ROOT/tests/shell/package-owner-protocol.sh"
 Z2_TEST_TMP="$TMP" sh "$ROOT/tests/shell/runtime-config-contract.sh"
 Z2_TEST_TMP="$TMP" sh "$ROOT/tests/shell/release-generation.sh"

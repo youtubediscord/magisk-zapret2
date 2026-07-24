@@ -135,7 +135,7 @@ prepare_options() {
     is_safe_preset_file_name "$ACTIVE_PRESET" || return 1
     preset_file="$PRESETS_DIR/$ACTIVE_PRESET"
     state_path_is_managed_file "$COMPILED_ARGV_FILE" || return 1
-    compile_preset_artifact "$preset_file" "$ACTIVE_PRESET" "$COMPILED_ARGV_FILE" || return 1
+    ensure_compiled_artifact "$preset_file" "$ACTIVE_PRESET" "$COMPILED_ARGV_FILE" || return 1
     read_compiled_artifact_metadata "$COMPILED_ARGV_FILE" || return 1
     PORTS_TCP="$COMPILED_TCP_PORTS"
     PORTS_UDP="$COMPILED_UDP_PORTS"
@@ -177,15 +177,8 @@ prepare_options() {
 }
 
 compiled_source_binding_current() {
-    local current_source_sha current_runtime_sha
-    read_compiled_artifact_metadata "$COMPILED_ARGV_FILE" || return 1
-    [ "$ACTIVE_PRESET" = "$COMPILED_PRESET" ] || return 1
-    current_source_sha="$(sha256sum "$PRESETS_DIR/$ACTIVE_PRESET" 2>/dev/null)" || return 1
-    current_source_sha="${current_source_sha%% *}"
-    [ "$current_source_sha" = "$COMPILED_SOURCE_SHA256" ] || return 1
-    current_runtime_sha="$(sha256sum "$RUNTIME_CONFIG" 2>/dev/null)" || return 1
-    current_runtime_sha="${current_runtime_sha%% *}"
-    [ "$current_runtime_sha" = "$COMPILED_RUNTIME_SHA256" ]
+    compiled_artifact_binding_current \
+        "$COMPILED_ARGV_FILE" "$PRESETS_DIR/$ACTIVE_PRESET" "$ACTIVE_PRESET"
 }
 
 count_family_rules() {
@@ -228,7 +221,9 @@ normal_health_ok() {
 write_ok_status() {
     STATUS_RULES_OK="$1"; STATUS_RULES_FAIL=0; STATUS_RULES_TOTAL="$1"
     STATUS_ERRORS=""; STATUS_OWN_PID="$2"; STATUS_PID_VERIFIED=1; STATUS_QNUM="$QNUM"
-    STATUS_OWN_PID_STARTTIME="$HEALTH_PID_START"; STATUS_OWNER_GENERATION="$HEALTH_GENERATION"
+    STATUS_OWN_PID_STARTTIME="$HEALTH_PID_START"
+    STATUS_OWN_ARGV_SHA256="$OWNER_STATE_ARGV_SHA256"
+    STATUS_OWNER_GENERATION="$HEALTH_GENERATION"
     STATUS_OWNER_METADATA_VERIFIED=1; STATUS_RULESET_VERIFIED=1; STATUS_RULES_EXPECTED="$1"
     STATUS_IPV4_ACTIVE=1; STATUS_IPV6_ACTIVE="$3"
     STATUS_IPV4_RULES="$OWNER_STATE_IPV4_RULES"; STATUS_IPV6_RULES="$OWNER_STATE_IPV6_RULES"
@@ -335,7 +330,8 @@ fail_start() {
     snapshot_owned_state
     restore_status_facts
     STATUS_RULES_OK=0; STATUS_RULES_FAIL=1; STATUS_RULES_TOTAL="$SNAP_RULES"
-    STATUS_ERRORS="$message"; STATUS_OWN_PID="$SNAP_PID"; STATUS_PID_VERIFIED="$SNAP_PID_VERIFIED"; STATUS_QNUM="${QNUM:-${STATUS_QNUM:-}}"
+    STATUS_ERRORS="$message"; STATUS_OWN_PID="$SNAP_PID"; STATUS_OWN_ARGV_SHA256=""
+    STATUS_PID_VERIFIED="$SNAP_PID_VERIFIED"; STATUS_QNUM="${QNUM:-${STATUS_QNUM:-}}"
     STATUS_OWN_PID_STARTTIME="$SNAP_PID_START"; STATUS_OWNER_GENERATION="$SNAP_GENERATION"
     STATUS_OWNER_METADATA_VERIFIED="$SNAP_PID_VERIFIED"; STATUS_RULESET_VERIFIED=0; STATUS_RULES_EXPECTED=0
     STATUS_IPV4_ACTIVE="$SNAP_IPV4"; STATUS_IPV6_ACTIVE="$SNAP_IPV6"; STATUS_CHAINS="$SNAP_CHAINS"; STATUS_ANCHORS="$SNAP_ANCHORS"

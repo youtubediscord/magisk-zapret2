@@ -7,14 +7,15 @@ set -e
 
 REQUESTED_VERSION="${1:-}"
 OUTPUT_DIR="${2:-.artifacts/module}"
+PRERELEASE_ID="${3:-}"
 
 VERSION_METADATA=$(sh tools/release-version.sh)
 VERSION=$(printf '%s\n' "$VERSION_METADATA" | sed -n 's/^version=//p')
 VERSION_CODE=$(printf '%s\n' "$VERSION_METADATA" | sed -n 's/^version_code=//p')
-[ -n "$VERSION" ] && [ -n "$VERSION_CODE" ] || {
+if [ -z "$VERSION" ] || [ -z "$VERSION_CODE" ]; then
     echo "ERROR: canonical release metadata is incomplete"
     exit 1
-}
+fi
 
 if [ -n "$REQUESTED_VERSION" ] &&
    [ "${REQUESTED_VERSION#v}" != "$VERSION" ]; then
@@ -24,6 +25,19 @@ fi
 
 echo "Building Zapret2 Root Module v$VERSION"
 echo "=========================================="
+
+VERSION_LABEL="v$VERSION"
+if [ -n "$PRERELEASE_ID" ]; then
+    case "$PRERELEASE_ID" in
+        dev.*)
+            case "$PRERELEASE_ID" in
+                *[!0-9A-Za-z.-]*|*..*|.*|*.) echo "ERROR: invalid dev prerelease identifier"; exit 1 ;;
+            esac
+            ;;
+        *) echo "ERROR: only dev prerelease identifiers are supported"; exit 1 ;;
+    esac
+    VERSION_LABEL="$VERSION_LABEL-$PRERELEASE_ID"
+fi
 
 # Create output directory
 mkdir -p "$OUTPUT_DIR"
@@ -44,7 +58,7 @@ if [ $MISSING_BIN -eq 1 ]; then
 fi
 
 # Update version in module.prop
-sed -i "s/^version=.*/version=v$VERSION/" module.prop
+sed -i "s/^version=.*/version=$VERSION_LABEL/" module.prop
 sed -i "s/^versionCode=.*/versionCode=$VERSION_CODE/" module.prop
 
 # Make scripts executable
@@ -162,7 +176,7 @@ for command_name in start stop status restart full-rollback; do
 done
 
 # Create ZIP
-ZIP_NAME="zapret2-magisk-v$VERSION.zip"
+ZIP_NAME="zapret2-magisk-$VERSION_LABEL.zip"
 ZIP_PATH="$OUTPUT_DIR_ABS/$ZIP_NAME"
 
 echo "Creating $ZIP_NAME..."
