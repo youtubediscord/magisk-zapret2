@@ -4,7 +4,6 @@ import com.zapret2.app.R
 import com.zapret2.app.data.ModuleInstallState
 import com.zapret2.app.data.ModuleMutationState
 import com.zapret2.app.data.ModuleEnvironmentSnapshot
-import com.zapret2.app.data.NetworkStatsManager
 import com.zapret2.app.data.PendingModuleState
 import com.zapret2.app.data.ServiceLifecycleController
 import org.junit.Assert.assertEquals
@@ -118,7 +117,6 @@ class ModuleServiceStatusPolicyTest {
                     processRunning = false,
                     lifecycleState = ServiceLifecycleController.LifecycleState.ACTIVE,
                 ),
-                watchdogVerdict = NetworkStatsManager.FirewallWatchdogVerdict.NOT_REQUIRED,
                 canStopService = false,
             ),
         )

@@ -153,24 +153,6 @@ class ServiceLifecycleControllerTest {
     }
 
     @Test
-    fun ownerStateSchema_acceptsOnlyCurrentVersionSeven() {
-        assertEquals(7, OwnerStateSchema.VERSION)
-        assertTrue(OwnerStateSchema.accepts("7"))
-        assertFalse(OwnerStateSchema.accepts("6"))
-        assertFalse(OwnerStateSchema.accepts("5"))
-        assertFalse(OwnerStateSchema.accepts("4"))
-        assertFalse(OwnerStateSchema.accepts("3"))
-        assertFalse(OwnerStateSchema.accepts("1"))
-        assertFalse(OwnerStateSchema.accepts("03"))
-        assertEquals(33, OwnerStateSchema.fields.size)
-        assertEquals("argv_sha256", OwnerStateSchema.currentFields[3])
-        assertEquals("boot_id", OwnerStateSchema.currentFields[7])
-        assertEquals(listOf("firewall_tag", "out_chain", "in_chain"), OwnerStateSchema.currentFields.subList(11, 14))
-        assertTrue("install_generation" in OwnerStateSchema.fields)
-        assertTrue("firewall_fingerprint" in OwnerStateSchema.fields)
-    }
-
-    @Test
     fun parseStatusOutput_acceptsOnlyCompleteVerifiedHealthyState() {
         val status = ServiceLifecycleController.parseStatusOutput(healthyStatusLines())
 
@@ -221,6 +203,43 @@ class ServiceLifecycleControllerTest {
         assertTrue(recovered.metadataComplete)
         assertTrue(recovered.fullyStopped)
         assertEquals(ServiceLifecycleController.LifecycleState.RECOVERED, recovered.lifecycleState)
+    }
+
+    @Test
+    fun parseStatusOutput_acceptsVersionFiveAsCompleteFirewallUiContract() {
+        val status = ServiceLifecycleController.parseStatusOutput(
+            versionFiveStatusLines(
+                healthyStatusLines(),
+                lifecycleState = "idle",
+                chains = 4,
+                anchors = 4,
+            ),
+        )
+
+        assertTrue(status.metadataComplete)
+        assertTrue(status.healthy)
+        assertEquals(4, status.chainsCount)
+        assertEquals(4, status.anchorsCount)
+        assertEquals(ServiceLifecycleController.LifecycleState.IDLE, status.lifecycleState)
+    }
+
+    @Test
+    fun parseStatusOutput_rejectsIncompleteOrContradictoryVersionFiveTopologyFacts() {
+        val missing = versionFiveStatusLines(
+            healthyStatusLines(),
+            lifecycleState = "idle",
+            chains = 2,
+            anchors = 2,
+        ).filterNot { it.startsWith("Z2_ANCHORS=") }
+        val contradictory = versionFiveStatusLines(
+            healthyStatusLines(),
+            lifecycleState = "idle",
+            chains = 1,
+            anchors = 2,
+        )
+
+        assertFalse(ServiceLifecycleController.parseStatusOutput(missing).metadataComplete)
+        assertFalse(ServiceLifecycleController.parseStatusOutput(contradictory).metadataComplete)
     }
 
     @Test
@@ -798,6 +817,20 @@ class ServiceLifecycleControllerTest {
         add(lastIndex, "Z2_ERROR_CODE=NONE")
         add(lastIndex, "Z2_ERROR_DETAIL=")
     }
+
+    private fun versionFiveStatusLines(
+        base: List<String>,
+        lifecycleState: String,
+        ownerKind: String = "none",
+        chains: Int,
+        anchors: Int,
+    ): List<String> = versionFourStatusLines(base, lifecycleState, ownerKind)
+        .map { if (it == "Z2_PROTOCOL=4") "Z2_PROTOCOL=5" else it }
+        .toMutableList()
+        .apply {
+            add(lastIndex, "Z2_CHAINS=$chains")
+            add(lastIndex, "Z2_ANCHORS=$anchors")
+        }
 
     private fun lifecycleBarrierStatusLines(
         lifecycleState: String,

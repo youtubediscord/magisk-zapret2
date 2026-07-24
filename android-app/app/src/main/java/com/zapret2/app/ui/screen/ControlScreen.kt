@@ -492,7 +492,6 @@ private fun ServiceStatusCard(
         targetValue = when (state.status) {
             ControlStatus.RUNNING -> success.color
             ControlStatus.DEGRADED,
-            ControlStatus.UNCONFIRMED,
             ControlStatus.ROOT_OPERATION_BUSY,
             ControlStatus.LIFECYCLE_BUSY,
             -> warning.color

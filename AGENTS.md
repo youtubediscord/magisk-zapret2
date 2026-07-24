@@ -236,6 +236,10 @@ Status polling and ordinary lifecycle observation must be constant in the size
 of the package and the device process table: they may verify bounded owner/PID,
 boot, and snapshot metadata, but must not rescan every package file, preset,
 iptables rule through repeated subprocesses, or every `/proc` entry.
+The module's typed machine-status payload is the sole app-facing lifecycle and
+firewall-health contract. Android code may strictly parse and project that
+payload, but must not independently reinterpret `owner.meta`, reconstruct
+firewall topology, or run a competing `iptables` health audit.
 
 Never replace files in the active Magisk module tree. Every module package
 install or update must go through Magisk's pending `modules_update` path and

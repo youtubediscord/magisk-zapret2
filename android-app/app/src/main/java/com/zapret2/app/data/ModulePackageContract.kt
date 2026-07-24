@@ -17,7 +17,7 @@ internal object ModulePackageContract {
     internal const val PACKAGE_CONTRACT_SCRIPT_PATH = "zapret2/scripts/package-contract.sh"
     internal const val COMMAND_BUILDER_SCRIPT_PATH = "zapret2/scripts/command-builder.sh"
     internal const val LIFECYCLE_CONTRACT_PATH = "zapret2/lifecycle-contract.version"
-    internal const val LIFECYCLE_CONTRACT_VERSION = "4"
+    internal const val LIFECYCLE_CONTRACT_VERSION = "5"
     internal const val PURGE_CONTRACT_PATH = "zapret2/scripts/lifecycle/purge-contract.sh"
     internal const val PURGE_SCRIPT_PATH = "zapret2/scripts/lifecycle/zapret-purge.sh"
     internal const val MAX_SHELL_EXEC_BYTES = 256 * 1024

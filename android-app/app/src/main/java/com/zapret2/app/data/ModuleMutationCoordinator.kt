@@ -12,7 +12,7 @@ import kotlin.coroutines.CoroutineContext
 /** Serializes every app-process mutation of the installed module. */
 object ModuleMutationCoordinator {
 
-    const val STATE_DIR = OwnerStateSchema.STATE_DIR
+    const val STATE_DIR = RuntimeStatePaths.STATE_DIR
     const val FULL_ROLLBACK_TRANSACTION = "$STATE_DIR/full-rollback.transaction"
     const val UNINSTALL_TOMBSTONE = "$STATE_DIR/uninstall.tombstone"
     const val MAGISK_REMOVE_MARKER = "${ServiceLifecycleController.MODULE_DIR}/remove"
