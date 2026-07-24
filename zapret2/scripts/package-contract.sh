@@ -12,6 +12,10 @@ PACKAGE_CONTRACT_MAX_MANIFEST_BYTES=262144
 PACKAGE_CONTRACT_MAX_MODULE_PROP_BYTES=4096
 PACKAGE_CONTRACT_MAX_SHELL_EXEC_BYTES=262144
 PACKAGE_CONTRACT_UPDATE_JSON="https://github.com/youtubediscord/magisk-zapret2/releases/latest/download/update.json"
+# Mounted /system/bin wrappers no longer have a module-relative $0. All three
+# supported managers define this same active root, so the package contract owns
+# the one intentional absolute entrypoint path.
+PACKAGE_CONTRACT_ACTIVE_MODULE_DIR="/data/adb/modules/zapret2"
 PACKAGE_CONTRACT_CODE="OK"
 PACKAGE_CONTRACT_DETAIL=""
 
@@ -457,7 +461,7 @@ package_contract_validate_lifecycle_contract() {
     local file="$root/$relative"
     package_contract_check_regular "$file" "$relative" || return 1
     [ "$(wc -l < "$file" 2>/dev/null)" = 1 ] &&
-        [ "$(cat "$file" 2>/dev/null)" = 6 ] || {
+        [ "$(cat "$file" 2>/dev/null)" = 7 ] || {
         package_contract_fail "LIFECYCLE_CONTRACT_INVALID" "$relative"
         return 1
     }
@@ -474,7 +478,7 @@ package_contract_for_each_path() {
     while IFS='|' read -r class mode path extra || [ -n "$class$mode$path$extra" ]; do
         case "$class" in ""|'#'*|schema|owner_protocol) continue ;; esac
         if [ "$class" = "installed-exec" ] && [ "$profile" != "installed" ]; then continue; fi
-        # Magisk sources customize.sh from the package and then removes it from
+        # Root managers source customize.sh from the package and then remove it from
         # the installed module, so installer-only code is excluded from the
         # canonical installed profile.
         if [ "$profile" = "installed" ] && [ "$path" = "customize.sh" ]; then continue; fi
@@ -685,7 +689,7 @@ package_contract_compare_release_callback() {
 }
 
 # Constant-size generation comparison for release qualification and offline
-# diagnostics. APK releases delegate publication exclusively to Magisk staging.
+# diagnostics. APK releases delegate publication exclusively to root-manager staging.
 package_contract_compare_release() {
     local source_root="${1%/}" target_root="${2%/}" path
     [ -n "$source_root" ] && [ -d "$source_root" ] && [ ! -L "$source_root" ] || {
@@ -760,7 +764,7 @@ package_contract_validate_entrypoints() {
     }
     for command_name in start stop status restart full-rollback; do
         wrapper="system/bin/zapret2-$command_name"
-        target="/data/adb/modules/zapret2/zapret2/scripts/zapret-$command_name.sh"
+        target="$PACKAGE_CONTRACT_ACTIVE_MODULE_DIR/zapret2/scripts/zapret-$command_name.sh"
         package_contract_check_regular "$root/$wrapper" "$wrapper" || {
             rm -f "$expected"
             return 1
@@ -797,7 +801,7 @@ package_contract_chmod_callback() {
     }
 }
 
-# The Magisk installer first assigns 0644 to every staged regular file in one
+# Root-manager installers first assign 0644 to every staged regular file in one
 # batched find invocation. Only manifest executables need another chmod pass.
 package_contract_chmod_executable_callback() {
     local root="$1" class="$2" mode="$3" path="$4"

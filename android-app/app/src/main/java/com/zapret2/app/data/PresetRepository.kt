@@ -219,7 +219,7 @@ internal class ModulePresetMutationGate @Inject constructor() : PresetMutationGa
 
 @Singleton
 internal class RootPresetRunner @Inject constructor() : PresetRunner {
-    private val moduleDir = ServiceLifecycleController.MODULE_DIR
+    private val moduleDir = RootModuleContract.ACTIVE_MODULE_DIR
     private val zapretDir = "$moduleDir/zapret2"
     private val presetsDir = "$zapretDir/presets"
     private val commandBuilder = "$zapretDir/scripts/command-builder.sh"
@@ -288,30 +288,16 @@ internal class RootPresetRunner @Inject constructor() : PresetRunner {
     override suspend fun snapshotFile(fileName: String): PresetFileSnapshot {
         if (!isSafeName(fileName)) return PresetFileSnapshot.Unsafe
         val path = "$presetsDir/$fileName"
-        val quoted = RootFileIo.shellQuote(path)
-        val result = ServiceLifecycleController.executeRoot(
-            """
-                if [ ! -e $quoted ] && [ ! -L $quoted ]; then echo MISSING; exit 0; fi
-                [ -f $quoted ] && [ ! -L $quoted ] && [ -r $quoted ] &&
-                    [ "${'$'}(stat -c %u $quoted 2>/dev/null)" = 0 ] &&
-                    [ "${'$'}(stat -c %h $quoted 2>/dev/null)" = 1 ] || { echo UNSAFE; exit 0; }
-                z2_mode=${'$'}(stat -c %a $quoted 2>/dev/null) || { echo UNSAFE; exit 0; }
-                case "${'$'}z2_mode" in 600|644) ;; *) echo UNSAFE; exit 0 ;; esac
-                z2_size=${'$'}(stat -c %s $quoted 2>/dev/null) || { echo UNSAFE; exit 0; }
-                case "${'$'}z2_size" in ''|*[!0-9]*) echo UNSAFE; exit 0 ;; esac
-                [ "${'$'}z2_size" -gt 0 ] && [ "${'$'}z2_size" -le $MAX_PRESET_BYTES ] ||
-                    { echo UNSAFE; exit 0; }
-                echo PRESENT
-            """.trimIndent(),
-        )
-        if (!result.success) return PresetFileSnapshot.Unsafe
-        return when (result.stdout.singleOrNull()?.trim()) {
-            "MISSING" -> PresetFileSnapshot.Missing
-            "PRESENT" -> RootFileIo.readSecureRegularText(path, MAX_PRESET_BYTES)
-                ?.takeIf(PresetContentPolicy::isPersistable)
-                ?.let(PresetFileSnapshot::Present)
-                ?: PresetFileSnapshot.Unsafe
-            else -> PresetFileSnapshot.Unsafe
+        return when (val snapshot = RootFileIo.readAtomicMutableText(path, MAX_PRESET_BYTES)) {
+            AtomicTextSnapshot.Missing -> PresetFileSnapshot.Missing
+            is AtomicTextSnapshot.Present ->
+                snapshot.content
+                    .takeIf(PresetContentPolicy::isPersistable)
+                    ?.let(PresetFileSnapshot::Present)
+                    ?: PresetFileSnapshot.Unsafe
+            AtomicTextSnapshot.Unsafe,
+            AtomicTextSnapshot.Failed,
+            -> PresetFileSnapshot.Unsafe
         }
     }
 

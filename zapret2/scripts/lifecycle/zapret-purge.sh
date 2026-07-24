@@ -1,5 +1,5 @@
 #!/system/bin/sh
-# One-shot irreversible module cleanup shared by the APK, CLI and Magisk Action.
+# One-shot irreversible module cleanup shared by the APK, CLI and root-manager Action.
 
 umask 077
 LIFECYCLE_DIR="$(CDPATH=; cd "$(dirname "$0")" 2>/dev/null && pwd -P)" || exit 1
@@ -9,8 +9,15 @@ MODDIR="$(dirname "$ZAPRET_DIR")"
 COMMON_SCRIPT="$SCRIPT_DIR/common.sh"
 PURGE_CONTRACT="$LIFECYCLE_DIR/purge-contract.sh"
 UNINSTALL_SCRIPT="$MODDIR/uninstall.sh"
+MODULE_PROP="$MODDIR/module.prop"
 
-case "$MODDIR" in /data/adb/modules/zapret2) ;; *) echo "ERROR: non-canonical purge module path" >&2; exit 1 ;; esac
+[ -d "$MODDIR" ] && [ ! -L "$MODDIR" ] &&
+    [ -f "$MODULE_PROP" ] && [ ! -L "$MODULE_PROP" ] &&
+    [ "$(grep -c '^id=' "$MODULE_PROP" 2>/dev/null)" = 1 ] &&
+    grep -qx 'id=zapret2' "$MODULE_PROP" || {
+    echo "ERROR: purge module identity is unavailable" >&2
+    exit 1
+}
 for required in "$COMMON_SCRIPT" "$PURGE_CONTRACT" "$UNINSTALL_SCRIPT"; do
     [ -f "$required" ] && [ ! -L "$required" ] || { echo "ERROR: purge dependency is unavailable" >&2; exit 1; }
 done
@@ -68,7 +75,7 @@ remove_request_if_exact() {
 
 prepare_purge() {
     local source="$1" token created tmp
-    case "$source" in app|magisk|cli) ;; *) purge_prepare_report error "" "invalid purge source"; return 1 ;; esac
+    case "$source" in app|manager|cli) ;; *) purge_prepare_report error "" "invalid purge source"; return 1 ;; esac
     [ "$(id -u 2>/dev/null)" = 0 ] || { purge_prepare_report blocked "" "root access is required"; return 1; }
     z2_purge_module_identity_is_exact "$MODDIR" || { purge_prepare_report blocked "" "installed module identity is unsafe"; return 1; }
     ensure_state_dir && z2_purge_state_dir_is_secure || { purge_prepare_report error "" "secure purge state is unavailable"; return 1; }
@@ -158,7 +165,7 @@ publish_remove_marker() {
 
 commit_purge() {
     local source="$1" token="$2" uninstall_output uninstall_rc=0 cleanup_rc=0
-    case "$source" in app|magisk|cli) ;; *) purge_report error 0 0 0 0 0 0 "invalid purge source"; return 1 ;; esac
+    case "$source" in app|manager|cli) ;; *) purge_report error 0 0 0 0 0 0 "invalid purge source"; return 1 ;; esac
     z2_purge_is_safe_token "$token" || { purge_report error 0 0 0 0 0 0 "invalid purge token"; return 1; }
     [ "$(id -u 2>/dev/null)" = 0 ] || { purge_report blocked 0 0 0 0 0 0 "root access is required"; return 1; }
     z2_purge_request_is_live && [ "$Z2_PURGE_REQUEST_SOURCE" = "$source" ] &&
@@ -205,13 +212,13 @@ clear_installed_apk_private_data() {
     pm clear --user "$user" "$package" >/dev/null 2>&1
 }
 
-magisk_action() {
+manager_action() {
     local token
     Z2_PURGE_MACHINE=0
-    if z2_purge_request_is_live && [ "$Z2_PURGE_REQUEST_SOURCE" = magisk ]; then
+    if z2_purge_request_is_live && [ "$Z2_PURGE_REQUEST_SOURCE" = manager ]; then
         token="$Z2_PURGE_REQUEST_TOKEN"
         echo "Second confirmation received. Permanently removing Zapret2 module data..."
-        commit_purge magisk "$token" || return 1
+        commit_purge manager "$token" || return 1
         if clear_installed_apk_private_data; then
             echo "Zapret2 app data cleared; installed APK preserved. Reboot required."
         else
@@ -221,9 +228,9 @@ magisk_action() {
         return
     fi
     remove_request_if_exact >/dev/null 2>&1 || true
-    prepare_purge magisk || return 1
+    prepare_purge manager || return 1
     echo "WARNING: this permanently deletes the module, settings, lists, logs and recovery data."
-    echo "The Zapret2 APK is preserved. Press the Magisk Action button again within 120 seconds to confirm."
+    echo "The Zapret2 APK is preserved. Press the module Action button again within 120 seconds to confirm."
 }
 
 case "${1:-}" in
@@ -235,9 +242,9 @@ case "${1:-}" in
         [ "${4:-}" = --machine ] && Z2_PURGE_MACHINE=1
         commit_purge "${2:-}" "${3:-}"
         ;;
-    --magisk-action) magisk_action ;;
+    --manager-action) manager_action ;;
     *)
-        echo "usage: $0 --prepare {app|magisk|cli} --machine | --commit {app|magisk|cli} TOKEN --machine | --magisk-action" >&2
+        echo "usage: $0 --prepare {app|manager|cli} --machine | --commit {app|manager|cli} TOKEN --machine | --manager-action" >&2
         exit 2
         ;;
 esac

@@ -147,6 +147,15 @@ fun AboutScreen() {
                         onClick = { openDestination(AboutDestination.MAINTAINER) },
                     )
                 }
+                item {
+                    ExternalLinkCard(
+                        title = stringResource(R.string.about_license),
+                        subtitle = stringResource(R.string.about_license_details),
+                        icon = Icons.Default.Code,
+                        iconTint = MaterialTheme.colorScheme.tertiary,
+                        onClick = { openDestination(AboutDestination.LICENSING) },
+                    )
+                }
             }
         }
     }
@@ -157,6 +166,7 @@ private enum class AboutDestination(val httpsUrl: String) {
     VPN_BOT("https://t.me/zapretvpns_bot"),
     UPSTREAM_REPOSITORY("https://github.com/bol-van/zapret"),
     MAINTAINER("https://github.com/youtubediscord"),
+    LICENSING("https://github.com/youtubediscord/magisk-zapret2/blob/main/docs/LICENSING.md"),
 }
 
 @Composable

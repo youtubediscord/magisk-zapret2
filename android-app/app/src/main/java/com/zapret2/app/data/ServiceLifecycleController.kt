@@ -19,12 +19,12 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 object ServiceLifecycleController {
 
-    const val MODULE_DIR = "/data/adb/modules/zapret2"
-    private const val START_SCRIPT = "$MODULE_DIR/zapret2/scripts/zapret-start.sh"
-    private const val STOP_SCRIPT = "$MODULE_DIR/zapret2/scripts/zapret-stop.sh"
-    private const val RESTART_SCRIPT = "$MODULE_DIR/zapret2/scripts/zapret-restart.sh"
-    private const val STATUS_SCRIPT = "$MODULE_DIR/zapret2/scripts/zapret-status.sh"
-    private const val FULL_ROLLBACK_SCRIPT = "$MODULE_DIR/zapret2/scripts/zapret-full-rollback.sh"
+    private const val START_SCRIPT = "${RootModuleContract.SCRIPTS_DIR}/zapret-start.sh"
+    private const val STOP_SCRIPT = "${RootModuleContract.SCRIPTS_DIR}/zapret-stop.sh"
+    private const val RESTART_SCRIPT = "${RootModuleContract.SCRIPTS_DIR}/zapret-restart.sh"
+    private const val STATUS_SCRIPT = "${RootModuleContract.SCRIPTS_DIR}/zapret-status.sh"
+    private const val FULL_ROLLBACK_SCRIPT =
+        "${RootModuleContract.SCRIPTS_DIR}/zapret-full-rollback.sh"
     private val lifecycleMutex = Mutex()
     private val appUpdateInProgress = AtomicBoolean(false)
     private val fullRollbackInProgress = AtomicBoolean(false)

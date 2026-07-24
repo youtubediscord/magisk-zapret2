@@ -143,7 +143,7 @@ class HostsOverlayRepository @Inject constructor() {
 
     internal companion object {
         const val SYSTEM_HOSTS = "/system/etc/hosts"
-        const val OVERLAY_HOSTS = "/data/adb/modules/zapret2/system/etc/hosts"
+        const val OVERLAY_HOSTS = "${RootModuleContract.ACTIVE_MODULE_DIR}/system/etc/hosts"
         const val MAX_HOSTS_BYTES = 1024 * 1024
     }
 }

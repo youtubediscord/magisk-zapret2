@@ -15,15 +15,15 @@ object ModuleMutationCoordinator {
     const val STATE_DIR = RuntimeStatePaths.STATE_DIR
     const val FULL_ROLLBACK_TRANSACTION = "$STATE_DIR/full-rollback.transaction"
     const val UNINSTALL_TOMBSTONE = "$STATE_DIR/uninstall.tombstone"
-    const val MAGISK_REMOVE_MARKER = "${ServiceLifecycleController.MODULE_DIR}/remove"
-    const val MODULE_DISABLE_MARKER = "${ServiceLifecycleController.MODULE_DIR}/disable"
+    const val MODULE_REMOVE_MARKER = "${RootModuleContract.ACTIVE_MODULE_DIR}/remove"
+    const val MODULE_DISABLE_MARKER = "${RootModuleContract.ACTIVE_MODULE_DIR}/disable"
 
     class MutationBlockedException(message: String) : IllegalStateException(message)
 
     internal data class SafetyProbe(
         val fullRollbackTransaction: Boolean,
         val uninstallTombstone: Boolean,
-        val magiskRemove: Boolean,
+        val moduleRemove: Boolean,
         val moduleDisabled: Boolean,
     )
 
@@ -256,10 +256,10 @@ object ModuleMutationCoordinator {
                 else
                     echo Z2_UNINSTALL_TOMBSTONE=0
                 fi
-                if [ -e ${RootFileIo.shellQuote(MAGISK_REMOVE_MARKER)} ] || [ -L ${RootFileIo.shellQuote(MAGISK_REMOVE_MARKER)} ]; then
-                    echo Z2_MAGISK_REMOVE=1
+                if [ -e ${RootFileIo.shellQuote(MODULE_REMOVE_MARKER)} ] || [ -L ${RootFileIo.shellQuote(MODULE_REMOVE_MARKER)} ]; then
+                    echo Z2_MODULE_REMOVE=1
                 else
-                    echo Z2_MAGISK_REMOVE=0
+                    echo Z2_MODULE_REMOVE=0
                 fi
                 if [ -e ${RootFileIo.shellQuote(MODULE_DISABLE_MARKER)} ] || [ -L ${RootFileIo.shellQuote(MODULE_DISABLE_MARKER)} ]; then
                     echo Z2_MODULE_DISABLED=1
@@ -278,8 +278,8 @@ object ModuleMutationCoordinator {
         if (checkRemovalState && probe.uninstallTombstone) {
             throw MutationBlockedException("Module uninstall tombstone is present; changes were not saved")
         }
-        if (checkRemovalState && probe.magiskRemove) {
-            throw MutationBlockedException("Magisk module removal is pending; changes were not saved")
+        if (checkRemovalState && probe.moduleRemove) {
+            throw MutationBlockedException("Root-manager module removal is pending; changes were not saved")
         }
         if (checkUpdateState && probe.fullRollbackTransaction) {
             throw MutationBlockedException("A full rollback transaction requires recovery; your changes were not saved")
@@ -294,7 +294,7 @@ object ModuleMutationCoordinator {
         val keys = setOf(
             "Z2_FULL_ROLLBACK_TRANSACTION",
             "Z2_UNINSTALL_TOMBSTONE",
-            "Z2_MAGISK_REMOVE",
+            "Z2_MODULE_REMOVE",
             "Z2_MODULE_DISABLED",
             completion,
         )
@@ -312,7 +312,7 @@ object ModuleMutationCoordinator {
         return SafetyProbe(
             fullRollbackTransaction = values["Z2_FULL_ROLLBACK_TRANSACTION"] == "1",
             uninstallTombstone = values["Z2_UNINSTALL_TOMBSTONE"] == "1",
-            magiskRemove = values["Z2_MAGISK_REMOVE"] == "1",
+            moduleRemove = values["Z2_MODULE_REMOVE"] == "1",
             moduleDisabled = values["Z2_MODULE_DISABLED"] == "1",
         )
     }

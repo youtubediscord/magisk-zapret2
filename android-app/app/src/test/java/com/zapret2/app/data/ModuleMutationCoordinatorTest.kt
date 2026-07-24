@@ -66,7 +66,7 @@ class ModuleMutationCoordinatorTest {
     private fun validLines(): List<String> = listOf(
         "Z2_FULL_ROLLBACK_TRANSACTION=0",
         "Z2_UNINSTALL_TOMBSTONE=0",
-        "Z2_MAGISK_REMOVE=0",
+        "Z2_MODULE_REMOVE=0",
         "Z2_MODULE_DISABLED=0",
         "Z2_MUTATION_PROBE_COMPLETE=1",
     )

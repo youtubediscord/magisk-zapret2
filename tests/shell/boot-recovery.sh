@@ -156,6 +156,15 @@ EOF
         printf '%s\n' 'status=ok' 'qnum=200' > "$STATUS_SNAPSHOT"
         chmod 0600 "$STATUS_SNAPSHOT"
     ) || fail "$mode fixture owner publication failed"
+
+    if [ "$mode" = incompatible ]; then
+        printf '%s\n' 'version=999' 'opaque=unsupported' > "$state/owner.meta"
+        chmod 0600 "$state/owner.meta"
+        mkdir "$state/unknown-runtime-artifact"
+        printf '%s\n' stale > "$state/unknown-runtime-artifact/data"
+        printf '%s\n' preserved > "$CASE/$mode/outside"
+        ln -s "$CASE/$mode/outside" "$state/foreign-link"
+    fi
 }
 
 run_case() {
@@ -174,9 +183,21 @@ run_case() {
     [ ! -e "$state/lifecycle.lock" ] && [ ! -L "$state/lifecycle.lock" ] || fail "$mode leaked lifecycle lock"
     [ ! -e "$MUTATION_LOG.daemon" ] || fail "$mode started nfqws2"
     [ ! -s "$MUTATION_LOG" ] || fail "$mode attempted a firewall mutation"
+    if [ "$mode" = incompatible ]; then
+        [ ! -e "$state/unknown-runtime-artifact" ] &&
+            [ ! -L "$state/unknown-runtime-artifact" ] ||
+            fail "$mode retained an unsupported runtime artifact"
+        [ ! -e "$state/foreign-link" ] && [ ! -L "$state/foreign-link" ] ||
+            fail "$mode retained a foreign state link"
+        grep -Fxq preserved "$CASE/$mode/outside" ||
+            fail "$mode followed a foreign state link"
+        grep -Fq 'Incompatible boot-local state was discarded' "$state/nfqws2.log" ||
+            fail "$mode did not report incompatible state retirement"
+    fi
 }
 
 run_case disabled
 run_case autostart-off
+run_case incompatible
 
-echo "Disabled/autostart-off boot recovery shell tests passed"
+echo "Boot recovery shell tests passed"

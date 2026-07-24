@@ -328,7 +328,7 @@ class HostlistRepository @Inject constructor() {
         mapNotNull(::normalizedHostlistDataLineOrNull)
 
     internal companion object {
-        internal const val LISTS_DIR = "/data/adb/modules/zapret2/zapret2/lists"
+        internal const val LISTS_DIR = "${RootModuleContract.RUNTIME_DIR}/lists"
         internal const val MAX_HOSTLIST_BYTES = 16 * 1024 * 1024
         const val MAX_EDIT_BYTES = 1024 * 1024
         const val MAX_PAGE_SIZE = 500

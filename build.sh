@@ -1,6 +1,6 @@
 #!/bin/bash
 ##########################################################################################
-# Zapret2 Magisk Module - Local Build Script
+# Zapret2 Root Module - Local Build Script
 ##########################################################################################
 
 set -e
@@ -22,7 +22,7 @@ if [ -n "$REQUESTED_VERSION" ] &&
     exit 1
 fi
 
-echo "Building Zapret2 Magisk Module v$VERSION"
+echo "Building Zapret2 Root Module v$VERSION"
 echo "=========================================="
 
 # Create output directory
@@ -150,7 +150,7 @@ for purge_script in zapret2/scripts/lifecycle/purge-contract.sh zapret2/scripts/
 done
 for command_name in start stop status restart full-rollback; do
     wrapper="system/bin/zapret2-$command_name"
-    target="/data/adb/modules/zapret2/zapret2/scripts/zapret-$command_name.sh"
+    target="$PACKAGE_CONTRACT_ACTIVE_MODULE_DIR/zapret2/scripts/zapret-$command_name.sh"
     test -f "$wrapper"
     test ! -L "$wrapper"
     test -x "$wrapper"
@@ -204,7 +204,7 @@ package_contract_validate_modes "$PACKAGE_VALIDATE_ROOT" package || {
 grep -Fxq 'system/bin/' "$ZIP_LIST"
 for command_name in start stop status restart full-rollback; do
     entry="system/bin/zapret2-$command_name"
-    target="/data/adb/modules/zapret2/zapret2/scripts/zapret-$command_name.sh"
+    target="$PACKAGE_CONTRACT_ACTIVE_MODULE_DIR/zapret2/scripts/zapret-$command_name.sh"
     test "$(grep -Fxc "$entry" "$ZIP_LIST")" -eq 1
     zipinfo -l "$ZIP_PATH" "$entry" | grep -Eq '^-rwxr-xr-x[[:space:]]'
     {

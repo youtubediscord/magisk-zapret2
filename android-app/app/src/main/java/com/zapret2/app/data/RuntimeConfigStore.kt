@@ -58,11 +58,134 @@ fun RuntimeConfigReadResult.diagnosticText(): String = when (this) {
     is RuntimeConfigReadResult.Failure -> error.diagnosticText()
 }
 
+internal fun parseRuntimeConfigSnapshot(content: String): RuntimeConfigReadResult {
+    val section = RuntimeConfigCodec.parseSection(content, "core")
+    if (section !is RuntimeConfigSectionResult.Valid) {
+        return RuntimeConfigReadResult.Malformed(
+            runtimeConfigError("CONFIG_INVALID", "RUNTIME_PARSE", "runtime.ini [core] is malformed"),
+        )
+    }
+    val raw = section.values
+    val expectedKeys = setOf(
+        "schema_version", "config_format", "runtime_source", "autostart", "wifi_only",
+        "debug", "qnum", "desync_mark", "active_preset", "nfqws_uid", "log_mode",
+    )
+    if (raw.keys != expectedKeys) {
+        return RuntimeConfigReadResult.Malformed(
+            runtimeConfigError(
+                "CONFIG_INVALID",
+                "RUNTIME_PARSE",
+                "runtime.ini [core] is incomplete or contains unsupported keys",
+            ),
+        )
+    }
+    if (raw["schema_version"] != "1") {
+        return RuntimeConfigReadResult.UnsupportedSchema(
+            runtimeConfigError("UNSUPPORTED_SCHEMA", "RUNTIME_PARSE", "unsupported runtime.ini schema_version"),
+        )
+    }
+    if (raw["config_format"] != "runtime-v1") {
+        return RuntimeConfigReadResult.UnsupportedSchema(
+            runtimeConfigError("UNSUPPORTED_FORMAT", "RUNTIME_PARSE", "unsupported runtime.ini config_format"),
+        )
+    }
+
+    val runtimeSource = raw.getValue("runtime_source")
+        .takeIf { it.matches(Regex("[A-Za-z0-9._-]+")) }
+        ?: return malformedRuntimeValue("runtime_source")
+    val autostart = raw.getValue("autostart").takeIf(::isRuntimeBoolean)
+        ?: return malformedRuntimeValue("autostart")
+    val wifiOnly = raw.getValue("wifi_only").takeIf(::isRuntimeBoolean)
+        ?: return malformedRuntimeValue("wifi_only")
+    val debug = raw.getValue("debug").takeIf(::isRuntimeBoolean)
+        ?: return malformedRuntimeValue("debug")
+    val qnum = raw.getValue("qnum")
+        .takeIf { it.isNotEmpty() && it.all(Char::isDigit) }
+        ?.trimStart('0')
+        ?.ifEmpty { "0" }
+        ?.toIntOrNull()
+        ?.takeIf { it in 1..65535 }
+        ?.toString()
+        ?: return malformedRuntimeValue("qnum", "INVALID_QNUM")
+    val desyncMark = canonicalRuntimeMark(raw.getValue("desync_mark"))
+        ?: return malformedRuntimeValue("desync_mark")
+    val activePreset = raw.getValue("active_preset").takeIf(PresetNamePolicy::isValid)
+        ?: return malformedRuntimeValue("active_preset")
+    val nfqwsUid = raw.getValue("nfqws_uid").takeIf(::isCanonicalRuntimeUidPair)
+        ?: return malformedRuntimeValue("nfqws_uid")
+    val logMode = raw.getValue("log_mode").takeIf { it in setOf("android", "file", "syslog", "none") }
+        ?: return malformedRuntimeValue("log_mode")
+
+    return RuntimeConfigReadResult.Valid(
+        values = linkedMapOf(
+            "schema_version" to "1",
+            "config_format" to "runtime-v1",
+            "runtime_source" to runtimeSource,
+            "autostart" to autostart,
+            "wifi_only" to wifiOnly,
+            "debug" to debug,
+            "qnum" to qnum,
+            "desync_mark" to desyncMark,
+            "active_preset" to activePreset,
+            "nfqws_uid" to nfqwsUid,
+            "log_mode" to logMode,
+        ),
+        content = content,
+        digest = runtimeConfigDigest(content),
+    )
+}
+
+private fun isRuntimeBoolean(value: String): Boolean = value == "0" || value == "1"
+
+private fun canonicalRuntimeMark(value: String): String? {
+    val hexadecimal = value.startsWith("0x", ignoreCase = true)
+    val digits = if (hexadecimal) value.substring(2) else value
+    if (digits.isEmpty()) return null
+    val radix = if (hexadecimal) 16 else 10
+    val parsed = digits.toULongOrNull(radix)?.takeIf { it <= UInt.MAX_VALUE.toULong() } ?: return null
+    return "0x${parsed.toString(16)}"
+}
+
+private fun isCanonicalRuntimeUidPair(value: String): Boolean {
+    val fields = value.split(':')
+    if (fields.size != 2) return false
+    return fields.all { field ->
+        field == "0" ||
+            (field.isNotEmpty() && !field.startsWith('0') && field.all(Char::isDigit) &&
+                field.toLongOrNull() in 1..Int.MAX_VALUE.toLong())
+    }
+}
+
+private fun malformedRuntimeValue(
+    key: String,
+    code: String = "INVALID_CORE_VALUE",
+): RuntimeConfigReadResult.Malformed =
+    RuntimeConfigReadResult.Malformed(
+        runtimeConfigError(code, "RUNTIME_PARSE", "runtime.ini [core] $key is invalid"),
+    )
+
+private fun runtimeConfigError(code: String, stage: String, detail: String): LifecycleError =
+    LifecycleErrorContract.error(
+        domain = "CONFIG",
+        code = code,
+        stage = stage,
+        detail = detail,
+    )
+
+private fun runtimeConfigDigest(content: String): String =
+    MessageDigest.getInstance("SHA-256")
+        .digest(
+            (
+                content.replace("\r\n", "\n").replace('\r', '\n').trimEnd('\n') + "\n"
+                ).toByteArray(Charsets.UTF_8),
+        )
+        .joinToString("") { "%02x".format(it) }
+
 object RuntimeConfigStore {
 
-    private const val moduleDir = "/data/adb/modules/zapret2"
-    private const val runtimeConfigPath = "$moduleDir/zapret2/runtime.ini"
-    private const val runtimeConfigToolPath = "$moduleDir/zapret2/scripts/runtime-config.sh"
+    private const val runtimeConfigPath = "${RootModuleContract.RUNTIME_DIR}/runtime.ini"
+    private const val runtimeConfigToolPath =
+        "${RootModuleContract.SCRIPTS_DIR}/runtime-config.sh"
     private const val maxRuntimeBytes = 256 * 1024
     private val fileLock = Any()
 
@@ -235,70 +358,22 @@ object RuntimeConfigStore {
     }
 
     private fun inspectRuntimeConfig(): RuntimeConfigReadResult {
-        val command = "sh ${RootFileIo.shellQuote(runtimeConfigToolPath)} --inspect-machine " +
-            RootFileIo.shellQuote(runtimeConfigPath)
-        val result = try {
-            RootCommandExecutor.execute(command)
-        } catch (error: Exception) {
-            return unavailable("Runtime inspection failed: ${error.message ?: error.javaClass.simpleName}")
+        return when (val snapshot = RootFileIo.readAtomicMutableText(runtimeConfigPath, maxRuntimeBytes)) {
+            AtomicTextSnapshot.Missing ->
+                RuntimeConfigReadResult.Missing(
+                    runtimeConfigError("RUNTIME_MISSING", "RUNTIME_OPEN", "runtime.ini is missing"),
+                )
+            AtomicTextSnapshot.Unsafe ->
+                RuntimeConfigReadResult.UnsafeFile(
+                    runtimeConfigError(
+                        "UNSAFE_RUNTIME_FILE",
+                        "RUNTIME_OPEN",
+                        "runtime.ini is not a safe root-owned regular file",
+                    ),
+                )
+            AtomicTextSnapshot.Failed -> unavailable("runtime.ini snapshot could not be read")
+            is AtomicTextSnapshot.Present -> parseRuntimeConfigSnapshot(snapshot.content)
         }
-        if (!result.isSuccess) {
-            return unavailable(
-                (result.err + result.out).joinToString(" ").ifBlank {
-                    "runtime-config.sh exited unsuccessfully"
-                },
-            )
-        }
-        val envelope = LifecycleErrorContract.parseLines(result.out)
-            ?: return unavailable("runtime-config.sh returned an invalid diagnostic envelope")
-        if (!envelope.isNone) return classifyRuntimeError(envelope)
-
-        val hashLines = result.out.filter { it.startsWith("Z2_RUNTIME_SHA256\t") }
-        val expectedHash = hashLines.singleOrNull()
-            ?.removePrefix("Z2_RUNTIME_SHA256\t")
-            ?.takeIf { it.matches(Regex("[0-9a-f]{64}")) }
-            ?: return unavailable("runtime-config.sh returned an invalid runtime digest")
-        val corePairs = result.out.filter { it.startsWith("Z2_RUNTIME_CORE\t") }.mapNotNull { line ->
-            val fields = line.split('\t', limit = 3)
-            if (fields.size == 3) fields[1] to fields[2] else null
-        }
-        val expectedKeys = setOf(
-            "schema_version", "config_format", "runtime_source", "autostart", "wifi_only",
-            "debug", "qnum", "desync_mark", "active_preset",
-            "nfqws_uid", "log_mode",
-        )
-        val counts = corePairs.groupingBy { it.first }.eachCount()
-        if (corePairs.size != expectedKeys.size ||
-            counts.keys != expectedKeys ||
-            expectedKeys.any { counts[it] != 1 }
-        ) {
-            return unavailable("runtime-config.sh returned an invalid core payload")
-        }
-        val content = RootFileIo.readSecureRegularText(runtimeConfigPath, maxRuntimeBytes)
-            ?: return unavailable("runtime.ini could not be read after validation")
-        if (sha256(content) != expectedHash) {
-            return unavailable("runtime.ini changed after validation")
-        }
-        return RuntimeConfigReadResult.Valid(
-            values = corePairs.toMap(linkedMapOf()),
-            content = content,
-            digest = expectedHash,
-        )
-    }
-
-    private fun classifyRuntimeError(error: LifecycleError): RuntimeConfigReadResult = when (error.code) {
-        "RUNTIME_MISSING" -> RuntimeConfigReadResult.Missing(error)
-        "UNSAFE_RUNTIME_FILE" -> RuntimeConfigReadResult.UnsafeFile(error)
-        "UNSUPPORTED_SCHEMA", "UNSUPPORTED_FORMAT" ->
-            RuntimeConfigReadResult.UnsupportedSchema(error)
-        "DUPLICATE_CORE", "INVALID_CORE_KEY", "INVALID_QUOTED_VALUE",
-        "MALFORMED_CORE_LINE", "DUPLICATE_CORE_KEY", "INVALID_RUNTIME_SOURCE",
-        "UNKNOWN_CORE_KEY", "MISSING_CORE", "INCOMPLETE_CORE", "INVALID_QNUM",
-        "INVALID_CORE_VALUE", "CONFIG_INVALID",
-        -> RuntimeConfigReadResult.Malformed(error)
-        "RUNTIME_METADATA_UNAVAILABLE", "RUNTIME_READ_FAILED", "RUNTIME_CHANGED" ->
-            RuntimeConfigReadResult.Unavailable(error)
-        else -> RuntimeConfigReadResult.Failure(error)
     }
 
     private fun unavailable(detail: String): RuntimeConfigReadResult.Unavailable =
@@ -310,15 +385,6 @@ object RuntimeConfigStore {
                 detail = detail,
             ),
         )
-
-    private fun sha256(content: String): String =
-        MessageDigest.getInstance("SHA-256")
-            .digest(
-                (
-                    content.replace("\r\n", "\n").replace('\r', '\n').trimEnd('\n') + "\n"
-                    ).toByteArray(Charsets.UTF_8),
-            )
-            .joinToString("") { "%02x".format(it) }
 
     private fun commitCandidate(
         content: String,

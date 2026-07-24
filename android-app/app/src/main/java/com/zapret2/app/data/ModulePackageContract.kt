@@ -4,9 +4,9 @@ import java.io.File
 import java.util.Locale
 import java.util.zip.ZipFile
 
-/** One strict contract shared by downloaded archives and Magisk's pending installation. */
+/** One strict contract shared by downloaded archives and root-manager pending installation. */
 internal object ModulePackageContract {
-    private const val MODULE_ID = "zapret2"
+    private const val MODULE_ID = RootModuleContract.MODULE_ID
     internal const val MODULE_UPDATE_JSON =
         "https://github.com/youtubediscord/magisk-zapret2/releases/latest/download/update.json"
     internal const val MAX_MODULE_PROP_BYTES = 4 * 1024
@@ -17,7 +17,7 @@ internal object ModulePackageContract {
     internal const val PACKAGE_CONTRACT_SCRIPT_PATH = "zapret2/scripts/package-contract.sh"
     internal const val COMMAND_BUILDER_SCRIPT_PATH = "zapret2/scripts/command-builder.sh"
     internal const val LIFECYCLE_CONTRACT_PATH = "zapret2/lifecycle-contract.version"
-    internal const val LIFECYCLE_CONTRACT_VERSION = "6"
+    internal const val LIFECYCLE_CONTRACT_VERSION = "7"
     internal const val PURGE_CONTRACT_PATH = "zapret2/scripts/lifecycle/purge-contract.sh"
     internal const val PURGE_SCRIPT_PATH = "zapret2/scripts/lifecycle/zapret-purge.sh"
     internal const val MAX_SHELL_EXEC_BYTES = 256 * 1024
@@ -29,7 +29,7 @@ internal object ModulePackageContract {
         val relativePath: String = "system/bin/zapret2-$verb"
         val bytes: ByteArray = (
             "#!/system/bin/sh\n" +
-                "exec /data/adb/modules/zapret2/zapret2/scripts/zapret-$verb.sh \"\$@\"\n"
+                "exec ${RootModuleContract.SCRIPTS_DIR}/zapret-$verb.sh \"\$@\"\n"
             ).toByteArray(Charsets.UTF_8)
     }
 

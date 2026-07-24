@@ -388,7 +388,7 @@ audit_recovery_artifacts full-rollback || blocked "recovery artifact blocks roll
 read_install_generation_meta || blocked "install generation metadata is missing, unsafe, or malformed"
 RB_INSTALL_GENERATION="$INSTALL_META_GENERATION"; RB_INSTALL_ARCHIVE_SHA256="$INSTALL_META_ARCHIVE_SHA256"
 { [ -e "$UNINSTALL_TOMBSTONE" ] || [ -L "$UNINSTALL_TOMBSTONE" ]; } && blocked "uninstall tombstone blocks rollback"
-module_removal_pending && blocked "Magisk removal marker blocks rollback"
+module_removal_pending && blocked "Root-manager removal marker blocks rollback"
 
 if [ -e "$FULL_ROLLBACK_TRANSACTION" ] || [ -L "$FULL_ROLLBACK_TRANSACTION" ]; then
     read_transaction || blocked "rollback transaction is malformed or unsafe"

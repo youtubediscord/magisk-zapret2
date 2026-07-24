@@ -17,7 +17,7 @@ data class DirectService(val name: String, val entries: List<String>)
 
 object HostsIniParser {
 
-    private const val HOSTS_INI_PATH = "/data/adb/modules/zapret2/zapret2/hosts.ini"
+    private const val HOSTS_INI_PATH = "${RootModuleContract.RUNTIME_DIR}/hosts.ini"
     private const val MAX_HOSTS_INI_BYTES = 1024 * 1024
     private const val MARKER_BEGIN = "# BEGIN zapret2-dns"
     private const val MARKER_END = "# END zapret2-dns"

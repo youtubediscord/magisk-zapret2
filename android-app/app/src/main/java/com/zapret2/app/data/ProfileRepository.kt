@@ -52,7 +52,7 @@ class DefaultProfileRepository @Inject constructor(
         availableBlobs: Set<String>,
     ): List<StrategyCatalogEntry>? =
         withContext(Dispatchers.IO) {
-            val path = "${ServiceLifecycleController.MODULE_DIR}/zapret2/strategy-catalogs/${scope.fileName}"
+            val path = "${RootModuleContract.RUNTIME_DIR}/strategy-catalogs/${scope.fileName}"
             RootFileIo.readPublishedRegularText(path, MAX_CATALOG_BYTES)
                 ?.let(::parseStrategyCatalog)
                 ?.filter { availableBlobs.containsAll(it.requiredBlobs) }

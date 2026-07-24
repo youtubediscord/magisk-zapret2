@@ -1,7 +1,7 @@
 #!/system/bin/sh
-# Module package generations are activated only by Magisk at boot.
+# Module package generations are activated only by the root manager at boot.
 ##########################################################################################
-# Zapret2 Magisk Module - Service Script (runs at boot)
+# Zapret2 root module - Service Script (runs at boot)
 ##########################################################################################
 
 MODDIR="${0%/*}"
@@ -12,7 +12,7 @@ START_SCRIPT="$SCRIPT_DIR/zapret-start.sh"
 LOG_READY=0
 MODULE_DISABLED=0
 
-# This is the Magisk boot entry point. The lifecycle lock in zapret-start.sh
+# This is the root-manager boot entry point. The lifecycle lock in zapret-start.sh
 # serializes this invocation with other lifecycle callers.
 
 log() {
@@ -22,7 +22,7 @@ log() {
     /system/bin/log -t "Zapret2" "$1" 2>/dev/null
 }
 
-# Magisk/KernelSU disable markers are authoritative at boot.  A disabled module
+# Root-manager disable markers are authoritative at boot. A disabled module
 # still retires authenticated previous-boot runtime metadata when such state is
 # already present; with no state at all it remains a mutation-free no-op.
 # Unsafe marker types fail closed before state creation or lifecycle mutation.
@@ -88,6 +88,9 @@ if ! prepare_lifecycle_log; then
     /system/bin/log -p w -t "Zapret2" "Lifecycle file logging is unavailable; continuing in logcat only" 2>/dev/null
 fi
 
+if [ "$BOOT_INCOMPATIBLE_STATE_RETIRED" = 1 ]; then
+    log "Incompatible boot-local state was discarded"
+fi
 log "=== Zapret2 service starting ==="
 
 log "Boot completed, waiting for network..."
@@ -149,8 +152,8 @@ log "Category state source: $CATEGORIES_FILE"
 
 if [ "$AUTOSTART" = "1" ]; then
     log "Autostart enabled, launching zapret2..."
-    # Package updates are activated by Magisk only at boot. zapret-start.sh
-    # gates runtime lifecycle state, Magisk removal, and uninstall tombstones.
+    # Package updates are activated by the root manager only at boot.
+    # zapret-start.sh gates runtime state, module removal, and uninstall tombstones.
     /system/bin/sh "$START_SCRIPT"
     START_RC=$?
     if [ "$START_RC" -eq 0 ]; then

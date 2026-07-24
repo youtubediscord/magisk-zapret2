@@ -40,7 +40,7 @@ kernel firewall state. Their dedicated transaction owners retain bounded
 durability barriers at publication or terminal cleanup boundaries.
 
 Package installation never replaces files in the mounted active module tree.
-It stages a new Magisk generation, authenticated by its generation receipt,
+It stages a new root-manager generation, authenticated by its generation receipt,
 and activation requires a reboot.
 
 ## Regression policy

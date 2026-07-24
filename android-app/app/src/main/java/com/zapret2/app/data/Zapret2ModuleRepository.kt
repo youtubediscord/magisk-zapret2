@@ -97,9 +97,9 @@ internal data class RuntimeProcessMetrics(
 )
 
 /**
- * Single privileged source of truth for the Magisk module installation.
+ * Single privileged source of truth for the root module installation.
  *
- * Package integrity and Magisk staging are detected here. Lifecycle ownership deliberately does
+ * Package integrity and root-manager staging are detected here. Lifecycle ownership deliberately does
  * not participate in installation detection: it belongs to ServiceLifecycleController's typed,
  * serialized status boundary. Runtime configuration and strategy preflight likewise belong to
  * the service start/configuration boundary.
@@ -304,7 +304,7 @@ class Zapret2ModuleRepository @Inject constructor() {
         value.matches(Regex("0|[1-9][0-9]*")) && value.toLongOrNull() != null
 
     companion object {
-        const val ACTIVE_MODULE_DIR = ServiceLifecycleController.MODULE_DIR
-        const val PENDING_MODULE_DIR = "/data/adb/modules_update/zapret2"
+        const val ACTIVE_MODULE_DIR = RootModuleContract.ACTIVE_MODULE_DIR
+        const val PENDING_MODULE_DIR = RootModuleContract.PENDING_MODULE_DIR
     }
 }

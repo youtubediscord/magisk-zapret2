@@ -32,7 +32,7 @@ internal object InstallGenerationMetadata {
         val generation = values["generation"].orEmpty()
         val archive = values["archive_sha256"].orEmpty()
         if (values["version"] != VERSION ||
-            values["module_dir"] != ServiceLifecycleController.MODULE_DIR ||
+            values["module_dir"] != RootModuleContract.ACTIVE_MODULE_DIR ||
             !safeToken.matches(generation) ||
             !sha256.matches(archive)
         ) return null
@@ -51,7 +51,7 @@ internal object InstallGenerationMetadata {
             append("  [ ! -e \"${'$'}metadata_tmp\" ] && [ ! -L \"${'$'}metadata_tmp\" ] || status=1\n")
             append("  if [ \"${'$'}status\" -eq 0 ]; then\n")
             append("    umask 077\n")
-            append("    printf 'version=1\\nmodule_dir=/data/adb/modules/zapret2\\ngeneration=%s\\narchive_sha256=%s\\n' ")
+            append("    printf 'version=1\\nmodule_dir=${RootModuleContract.ACTIVE_MODULE_DIR}\\ngeneration=%s\\narchive_sha256=%s\\n' ")
             append(RootFileIo.shellQuote(record.generation)).append(' ')
             append(RootFileIo.shellQuote(record.archiveSha256))
             append(" > \"${'$'}metadata_tmp\" || status=${'$'}?\n")
@@ -95,7 +95,7 @@ internal object InstallGenerationMetadata {
                   esac
                 done < "${'$'}install_meta" &&
                 [ "${'$'}{#install_meta_seen}" -eq 4 ] && [ "${'$'}install_meta_version" = 1 ] &&
-                [ "${'$'}install_meta_module" = /data/adb/modules/zapret2 ] &&
+                [ "${'$'}install_meta_module" = ${RootModuleContract.ACTIVE_MODULE_DIR} ] &&
                 [ -n "${'$'}install_meta_generation" ] && [ "${'$'}{#install_meta_generation}" -le 128 ] &&
                 case "${'$'}install_meta_generation" in *[!A-Za-z0-9._-]*) false ;; *) true ;; esac &&
                 [ "${'$'}{#install_meta_archive}" -eq 64 ] &&

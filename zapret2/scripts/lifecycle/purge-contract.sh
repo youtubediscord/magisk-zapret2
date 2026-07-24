@@ -3,8 +3,16 @@
 
 Z2_PURGE_PROTOCOL_VERSION=1
 Z2_PURGE_REQUEST_TTL_SECONDS=120
-Z2_PURGE_CANONICAL_MODULE_DIR="/data/adb/modules/zapret2"
-Z2_PURGE_CANONICAL_PENDING_DIR="/data/adb/modules_update/zapret2"
+[ -n "${MODDIR:-}" ] || return 1 2>/dev/null || exit 1
+Z2_PURGE_MODULES_DIR="${MODDIR%/*}"
+Z2_PURGE_STORAGE_DIR="${Z2_PURGE_MODULES_DIR%/*}"
+Z2_PURGE_MODULE_ID="${MODDIR##*/}"
+[ "$Z2_PURGE_MODULES_DIR" = "$Z2_PURGE_STORAGE_DIR/modules" ] &&
+    [ "$Z2_PURGE_STORAGE_DIR" = /data/adb ] &&
+    [ "$Z2_PURGE_MODULE_ID" = zapret2 ] ||
+    return 1 2>/dev/null || exit 1
+Z2_PURGE_CANONICAL_MODULE_DIR="$MODDIR"
+Z2_PURGE_CANONICAL_PENDING_DIR="$Z2_PURGE_STORAGE_DIR/modules_update/$Z2_PURGE_MODULE_ID"
 Z2_PURGE_CANONICAL_STATE_DIR="/data/adb/zapret2-state"
 Z2_PURGE_REQUEST="${PURGE_REQUEST:-$Z2_PURGE_CANONICAL_STATE_DIR/purge.request}"
 
@@ -79,7 +87,7 @@ z2_purge_read_request() {
         esac
     done < "$Z2_PURGE_REQUEST"
     [ "${#seen}" -eq 6 ] 2>/dev/null && [ "$version" = "$Z2_PURGE_PROTOCOL_VERSION" ] || return 1
-    case "$source" in app|magisk|cli) ;; *) return 1 ;; esac
+    case "$source" in app|manager|cli) ;; *) return 1 ;; esac
     z2_purge_is_safe_token "$token" && z2_purge_is_decimal "$created" || return 1
     is_valid_boot_id "$boot" || return 1
     [ "$module" = "$Z2_PURGE_CANONICAL_MODULE_DIR" ] || return 1
@@ -119,9 +127,9 @@ z2_purge_managed_tree_path() {
     parent="${path%/*}"
     name="${path##*/}"
     case "$parent:$name" in
-        /data/adb:zapret2-install.*) suffix="${name#zapret2-install.}" ;;
-        /data/adb:zapret2-recovery.*) suffix="${name#zapret2-recovery.}" ;;
-        /data/adb/modules:.zapret2-recovery-*) suffix="${name#.zapret2-recovery-}" ;;
+        "$Z2_PURGE_STORAGE_DIR":zapret2-install.*) suffix="${name#zapret2-install.}" ;;
+        "$Z2_PURGE_STORAGE_DIR":zapret2-recovery.*) suffix="${name#zapret2-recovery.}" ;;
+        "$Z2_PURGE_MODULES_DIR":.zapret2-recovery-*) suffix="${name#.zapret2-recovery-}" ;;
         *) return 1 ;;
     esac
     z2_purge_is_safe_token "$suffix"
@@ -144,8 +152,9 @@ z2_purge_remove_external_workspaces() {
     local path rc=0 restore_noglob=0
     case "$-" in *f*) restore_noglob=1; set +f ;; esac
     set -- \
-        /data/adb/zapret2-install.* /data/adb/zapret2-recovery.* \
-        /data/adb/modules/.zapret2-recovery-*
+        "$Z2_PURGE_STORAGE_DIR"/zapret2-install.* \
+        "$Z2_PURGE_STORAGE_DIR"/zapret2-recovery.* \
+        "$Z2_PURGE_MODULES_DIR"/.zapret2-recovery-*
     [ "$restore_noglob" = 1 ] && set -f
     for path in "$@"; do
         [ -e "$path" ] || [ -L "$path" ] || continue

@@ -1,13 +1,31 @@
 #!/system/bin/sh
 ##########################################################################################
-# Zapret2 Magisk Module - Uninstall Script
+# Zapret2 root module - Uninstall Script
 ##########################################################################################
 
-MODPATH="${MODPATH:-/data/adb/modules/zapret2}"
-case "$MODPATH" in
-    /data/adb/modules/zapret2) ;;
-    *) printf '%s\n' "ERROR: refusing unexpected uninstall path: $MODPATH" >&2; exit 1 ;;
-esac
+SCRIPT_MODPATH="${0%/*}"
+if [ -n "${MODPATH:-}" ] && [ "$MODPATH" != "$SCRIPT_MODPATH" ]; then
+    printf '%s\n' "ERROR: uninstall path disagrees with the executing module" >&2
+    exit 1
+fi
+MODPATH="$SCRIPT_MODPATH"
+MODULE_PROP="$MODPATH/module.prop"
+[ -d "$MODPATH" ] && [ ! -L "$MODPATH" ] &&
+    [ -f "$MODULE_PROP" ] && [ ! -L "$MODULE_PROP" ] &&
+    [ "$(grep -c '^id=' "$MODULE_PROP" 2>/dev/null)" = 1 ] &&
+    grep -qx 'id=zapret2' "$MODULE_PROP" || {
+    printf '%s\n' "ERROR: refusing uninstall without the exact Zapret2 module identity" >&2
+    exit 1
+}
+MODULES_DIR="${MODPATH%/*}"
+MODULE_STORAGE="${MODULES_DIR%/*}"
+MODULE_ID="${MODPATH##*/}"
+[ "$MODULES_DIR" = "$MODULE_STORAGE/modules" ] &&
+    [ "$MODULE_STORAGE" = /data/adb ] && [ "$MODULE_ID" = zapret2 ] || {
+    printf '%s\n' "ERROR: refusing uninstall outside the supported root-manager storage" >&2
+    exit 1
+}
+PENDING_MODPATH="$MODULE_STORAGE/modules_update/$MODULE_ID"
 ZAPRET_DIR="$MODPATH/zapret2"
 SCRIPT_DIR="$ZAPRET_DIR/scripts"
 STOP_SCRIPT="$SCRIPT_DIR/zapret-stop.sh"
@@ -446,14 +464,14 @@ publish_uninstall_tombstone() {
     {
         printf 'version=%s\n' "$UNINSTALL_TOMBSTONE_VERSION"
         printf 'pid=%s\nstarttime=%s\ntoken=%s\n' "$$" "$self_start" "$token"
-        printf 'module_dir=%s\n' "/data/adb/modules/zapret2"
+        printf 'module_dir=%s\n' "$MODPATH"
     } > "$tmp" || { rm -f "$tmp"; return 1; }
     chmod 0600 "$tmp" 2>/dev/null || { rm -f "$tmp"; return 1; }
     mv -f "$tmp" "$UNINSTALL_TOMBSTONE" 2>/dev/null || { rm -f "$tmp"; return 1; }
     state_file_is_secure "$UNINSTALL_TOMBSTONE" && read_uninstall_tombstone || return 1
     [ "$UNINSTALL_FILE_PID" = "$$" ] && [ "$UNINSTALL_FILE_START" = "$self_start" ] &&
         [ "$UNINSTALL_FILE_TOKEN" = "$token" ] &&
-        [ "$UNINSTALL_FILE_MODULE" = "/data/adb/modules/zapret2" ] || return 1
+        [ "$UNINSTALL_FILE_MODULE" = "$MODPATH" ] || return 1
 
     ZAPRET2_UNINSTALL_TOKEN="$token"
     ZAPRET2_UNINSTALL_OWNER_PID="$$"
@@ -462,7 +480,7 @@ publish_uninstall_tombstone() {
     uninstall_tombstone_allows_stop
 }
 
-magisk_removal_marker_is_exact() {
+manager_removal_marker_is_exact() {
     local marker="$MODPATH/remove" size
     [ -f "$marker" ] && [ ! -L "$marker" ] && path_uid_is_root "$marker" &&
         path_nlink_is_one "$marker" || return 1
@@ -470,15 +488,15 @@ magisk_removal_marker_is_exact() {
     [ "$size" = 0 ]
 }
 
-magisk_remove_all_owned_state() {
-    local tool pending_nfqws="/data/adb/modules_update/zapret2/zapret2/nfqws2"
+manager_remove_all_owned_state() {
+    local tool pending_nfqws="$PENDING_MODPATH/zapret2/nfqws2"
     [ -f "$PURGE_CONTRACT" ] && [ ! -L "$PURGE_CONTRACT" ] || {
-        report_error "Magisk removal cleanup contract is unavailable"
+        report_error "Root-manager removal cleanup contract is unavailable"
         return 1
     }
     . "$PURGE_CONTRACT" || return 1
 
-    # The root-owned empty Magisk remove marker is the durable global fence.
+    # The root-owned empty module remove marker is the durable global fence.
     # zapret-start and every mutation entry refuse work while it exists, so no
     # lifecycle tombstone is needed after the whole private state tree is gone.
     stop_all_exact_owned_nfqws_for_path "$NFQWS2" || {
@@ -494,7 +512,7 @@ magisk_remove_all_owned_state() {
     for tool in iptables ip6tables; do
         if ! command -v "$tool" >/dev/null 2>&1; then
             [ "$tool" = ip6tables ] && continue
-            report_error "Unable to access $tool during Magisk removal"
+            report_error "Unable to access $tool during root-manager removal"
             return 1
         fi
         purge_zapret2_namespace "$tool" || {
@@ -515,19 +533,19 @@ magisk_remove_all_owned_state() {
     z2_purge_remove_managed_tree "$Z2_PURGE_CANONICAL_STATE_DIR" || return 1
     sync >/dev/null 2>&1 || return 1
     [ ! -e "$STATE_DIR" ] && [ ! -L "$STATE_DIR" ] || return 1
-    report_notice "Magisk removal marker verified; all Zapret2 service, firewall, and private state was removed"
+    report_notice "Root-manager removal marker verified; all Zapret2 service, firewall, and private state was removed"
     return 0
 }
 
 if module_removal_pending; then
-    if ! magisk_removal_marker_is_exact; then
-        report_error "Magisk removal marker is unsafe; refusing uninstall"
+    if ! manager_removal_marker_is_exact; then
+        report_error "Root-manager removal marker is unsafe; refusing uninstall"
         exit 1
     fi
-    magisk_remove_all_owned_state
+    manager_remove_all_owned_state
     exit $?
 else
-    report_warning "Magisk removal marker is absent (non-Magisk manager or direct invocation); relying on the persistent uninstall tombstone"
+    report_warning "Root-manager removal marker is absent (direct invocation); relying on the persistent uninstall tombstone"
 fi
 
 if [ -e "$STATE_DIR" ] || [ -L "$STATE_DIR" ]; then
@@ -683,7 +701,7 @@ done
 if ! state_file_is_secure "$UNINSTALL_TOMBSTONE" || ! read_uninstall_tombstone ||
    [ "$UNINSTALL_FILE_PID" != "$$" ] ||
    [ "$UNINSTALL_FILE_TOKEN" != "$ZAPRET2_UNINSTALL_TOKEN" ] ||
-   [ "$UNINSTALL_FILE_MODULE" != "/data/adb/modules/zapret2" ]; then
+   [ "$UNINSTALL_FILE_MODULE" != "$MODPATH" ]; then
     report_error "Persistent uninstall tombstone changed after lifecycle unlock; manual repair is required"
     exit 1
 fi

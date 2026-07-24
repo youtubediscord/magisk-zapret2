@@ -77,8 +77,10 @@
     <string name="about_source_credits">Source and credits</string>
     <string name="about_original_project">Original project</string>
     <string name="about_module_maintainer">Android module maintainer</string>
+    <string name="about_license">AGPL-3.0-only</string>
+    <string name="about_license_details">License and trademarks</string>
     <string name="about_version">Version %1$s</string>
-    <string name="about_description">DPI bypass module for Android devices with Magisk root access.</string>
+    <string name="about_description">DPI bypass module for rooted Android devices using Magisk, KernelSU, or APatch.</string>
     <string name="about_open_link">Open %1$s</string>
     <string name="control_environment">Environment</string>
     <string name="control_environment_probe_failed">The protected module environment could not be verified. Check root access and the module installation, then retry.</string>
@@ -117,7 +119,7 @@
     <string name="control_full_rollback_failure_unknown">No rollback diagnostic was returned.</string>
     <string name="control_purge_action">Erase module data completely</string>
     <string name="control_purge_confirm_title">Erase Zapret2 completely?</string>
-    <string name="control_purge_confirm_body">This irreversible reset removes the Magisk module, all settings, strategies, hostlists, logs, app settings, update and recovery artifacts. Only the installed APK remains. Reinstalling the module afterwards starts from a clean state. A reboot is required.</string>
+    <string name="control_purge_confirm_body">This irreversible reset removes the root module, all settings, strategies, hostlists, logs, app settings, update and recovery artifacts. Only the installed APK remains. Reinstalling the module afterwards starts from a clean state. A reboot is required.</string>
     <string name="control_purge_confirm_action">Erase permanently</string>
     <string name="control_purge_progress_title">Erasing Zapret2</string>
     <string name="control_purge_progress_body">Stopping the service and removing all module-owned data. Do not close the app or reboot yet.</string>
@@ -217,7 +219,7 @@
     <string name="control_update_module_entry_too_large">A module archive entry is too large</string>
     <string name="control_update_module_expanded_too_large">The module archive expands beyond the size limit</string>
     <string name="control_update_module_empty">The module archive is empty</string>
-    <string name="control_update_module_identity_missing">The archive is not a Zapret2 Magisk module</string>
+    <string name="control_update_module_identity_missing">The archive is not a compatible Zapret2 root module</string>
     <string name="control_update_module_package_invalid">The module package failed its integrity or compatibility check</string>
     <string name="control_update_module_validation_failed">The module archive could not be validated</string>
     <string name="control_update_unsupported_abi">This device ABI is not supported by the module package</string>

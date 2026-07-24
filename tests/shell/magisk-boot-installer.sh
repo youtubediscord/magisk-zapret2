@@ -63,6 +63,18 @@ run_installer() {
 }
 
 prepare_magisk_stage
+KSU=true run_installer "$CASE/kernelsu.log" ||
+    fail "KernelSU boot-mode installation failed"
+grep -Fq 'for KernelSU' "$CASE/kernelsu.log" ||
+    fail "KernelSU environment was not detected"
+
+prepare_magisk_stage
+APATCH=true run_installer "$CASE/apatch.log" ||
+    fail "APatch boot-mode installation failed"
+grep -Fq 'for APatch' "$CASE/apatch.log" ||
+    fail "APatch environment was not detected"
+
+prepare_magisk_stage
 started=$(date +%s)
 run_installer "$CASE/fresh.log" || fail "fresh boot-mode installation failed"
 elapsed=$(( $(date +%s) - started ))

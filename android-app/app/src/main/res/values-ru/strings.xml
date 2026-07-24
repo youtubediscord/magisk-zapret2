@@ -77,8 +77,10 @@
     <string name="about_source_credits">Исходный код и авторы</string>
     <string name="about_original_project">Исходный проект</string>
     <string name="about_module_maintainer">Разработчик модуля для Android</string>
+    <string name="about_license">AGPL-3.0-only</string>
+    <string name="about_license_details">Лицензия и товарные знаки</string>
     <string name="about_version">Версия %1$s</string>
-    <string name="about_description">Модуль обхода DPI для устройств Android с root-доступом через Magisk.</string>
+    <string name="about_description">Модуль обхода DPI для Android с root-доступом через Magisk, KernelSU или APatch.</string>
     <string name="about_open_link">Открыть: %1$s</string>
     <string name="control_environment">Окружение</string>
     <string name="control_environment_probe_failed">Не удалось проверить защищённое окружение модуля. Проверьте root-доступ и установку модуля, затем повторите попытку.</string>
@@ -117,7 +119,7 @@
     <string name="control_full_rollback_failure_unknown">Сценарий отката не вернул диагностические данные.</string>
     <string name="control_purge_action">Удалить данные модуля полностью</string>
     <string name="control_purge_confirm_title">Полностью удалить Zapret2?</string>
-    <string name="control_purge_confirm_body">Это необратимый сброс: будут удалены Magisk-модуль, все настройки, стратегии, списки хостов, журналы, настройки приложения, данные обновления и восстановления. Останется только установленный APK. Следующая установка модуля начнётся с чистого состояния. Потребуется перезагрузка.</string>
+    <string name="control_purge_confirm_body">Это необратимый сброс: будут удалены root-модуль, все настройки, стратегии, списки хостов, журналы, настройки приложения, данные обновления и восстановления. Останется только установленный APK. Следующая установка модуля начнётся с чистого состояния. Потребуется перезагрузка.</string>
     <string name="control_purge_confirm_action">Удалить безвозвратно</string>
     <string name="control_purge_progress_title">Полное удаление Zapret2</string>
     <string name="control_purge_progress_body">Служба останавливается, все данные модуля удаляются. Пока не закрывайте приложение и не перезагружайте устройство.</string>
@@ -217,7 +219,7 @@
     <string name="control_update_module_entry_too_large">Запись в архиве модуля слишком велика</string>
     <string name="control_update_module_expanded_too_large">Размер распакованного архива модуля превышает ограничение</string>
     <string name="control_update_module_empty">Архив модуля пуст</string>
-    <string name="control_update_module_identity_missing">Архив не является модулем Zapret2 для Magisk</string>
+    <string name="control_update_module_identity_missing">Архив не является совместимым root-модулем Zapret2</string>
     <string name="control_update_module_package_invalid">Пакет модуля не прошёл проверку целостности или совместимости</string>
     <string name="control_update_module_validation_failed">Не удалось проверить архив модуля</string>
     <string name="control_update_unsupported_abi">Пакет модуля не поддерживает ABI этого устройства</string>

@@ -33,6 +33,32 @@ class RuntimeConfigStoreTest {
     }
 
     @Test
+    fun appSnapshotParser_matchesTheAuthoritativeShellFixtures() {
+        fixtureCases().forEach { (fixture, expected) ->
+            val result = parseRuntimeConfigSnapshot(fixture.readText())
+            val actual = when (result) {
+                is RuntimeConfigReadResult.Valid -> "VALID"
+                is RuntimeConfigReadResult.UnsupportedSchema -> "UNSUPPORTED_SCHEMA"
+                else -> "MALFORMED"
+            }
+            assertEquals("${fixture.name}: app verdict", expected, actual)
+        }
+    }
+
+    @Test
+    fun appSnapshotParser_projectsCanonicalRuntimeValuesAndSnapshotDigest() {
+        val result = parseRuntimeConfigSnapshot(
+            fixtureDirectory().resolve("valid-leading-zero-qnum.ini").readText(),
+        )
+
+        assertTrue(result is RuntimeConfigReadResult.Valid)
+        result as RuntimeConfigReadResult.Valid
+        assertEquals("200", result.values["qnum"])
+        assertEquals("0x40000000", result.values["desync_mark"])
+        assertTrue(result.digest.matches(Regex("[0-9a-f]{64}")))
+    }
+
+    @Test
     fun kotlinTextEditor_outputIsAcceptedByTheRealShellParser() {
         val source = fixtureDirectory().resolve("valid-default.ini").readText()
         val updated = RuntimeConfigCodec.upsertSectionValues(

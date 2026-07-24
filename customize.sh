@@ -1,28 +1,41 @@
 #!/system/bin/sh
 SKIPUNZIP=1
 
-# Magisk owns publication in modules_update. This installer creates one fresh
-# release generation and never reads, merges, stops, or replaces the live tree.
+# The active root manager owns publication in modules_update. This installer
+# creates one fresh release generation and never reads, merges, stops, or
+# replaces the live tree.
 
 umask 077
 
-LIVE_MODPATH="/data/adb/modules/zapret2"
-EXPECTED_MODPATH="/data/adb/modules_update/zapret2"
-
 [ "${BOOTMODE:-false}" = true ] ||
-    abort "! Zapret2 supports installation from Magisk or its APK only"
-[ "$MODPATH" = "$EXPECTED_MODPATH" ] ||
-    abort "! Unexpected Magisk staging path: $MODPATH"
+    abort "! Zapret2 must be installed from a running root manager"
+case "${MODPATH:-}" in
+    /*/modules_update/zapret2) ;;
+    *) abort "! Unexpected module staging path: ${MODPATH:-missing}" ;;
+esac
+case "$MODPATH" in
+    *//*|*/./*|*/../*) abort "! Unsafe module staging path: $MODPATH" ;;
+esac
 [ -d "$MODPATH" ] && [ ! -L "$MODPATH" ] ||
-    abort "! Magisk staging directory is missing or unsafe"
+    abort "! Module staging directory is missing or unsafe"
 [ -f "$ZIPFILE" ] && [ ! -L "$ZIPFILE" ] ||
     abort "! Module archive is missing or unsafe"
+
+MODULE_STORAGE="${MODPATH%/modules_update/zapret2}"
+[ "$MODULE_STORAGE" = /data/adb ] ||
+    abort "! Unsupported root-manager module storage: $MODULE_STORAGE"
+LIVE_MODPATH="$MODULE_STORAGE/modules/zapret2"
+case "${APATCH:-false}:${KSU:-false}" in
+    true:*) ROOT_MANAGER="APatch" ;;
+    *:true) ROOT_MANAGER="KernelSU" ;;
+    *) ROOT_MANAGER="Magisk" ;;
+esac
 
 # SKIPUNZIP leaves extraction to this script. Start with an empty, exact pending
 # directory so a successful generation cannot inherit files from an earlier one.
 find "$MODPATH" -mindepth 1 -maxdepth 1 -exec rm -rf {} + ||
-    abort "! Cannot clear the Magisk staging directory"
-ui_print "- Extracting a fresh Zapret2 generation"
+    abort "! Cannot clear the module staging directory"
+ui_print "- Extracting a fresh Zapret2 generation for $ROOT_MANAGER"
 unzip -o "$ZIPFILE" -x 'META-INF/*' -d "$MODPATH" >&2 ||
     abort "! Cannot extract module files"
 
@@ -126,4 +139,4 @@ for required_exec in \
         abort "! Prepared module is incomplete: ${required_exec#"$MODPATH"/}"
 done
 
-ui_print "- Fresh Zapret2 generation staged; reboot to activate it"
+ui_print "- Fresh Zapret2 generation staged by $ROOT_MANAGER; reboot to activate it"

@@ -18,6 +18,7 @@ assert_contains() { grep -Fq -- "$2" "$1" || fail "missing contract fragment: $2
 
 # Pure allowlist/token helpers can be exercised without touching Android paths.
 STATE_DIR=/data/adb/zapret2-state
+MODDIR=/data/adb/modules/zapret2
 is_valid_boot_id() { case "$1" in ""|*[!A-Za-z0-9._-]*) return 1 ;; *) return 0 ;; esac; }
 read_current_boot_id() { CURRENT_BOOT_ID=test-boot; }
 . "$CONTRACT"
@@ -39,10 +40,10 @@ fi
 if z2_purge_managed_tree_path /data/adb/modules; then fail "broad module root accepted"; fi
 if z2_purge_managed_tree_path /data/adb; then fail "broad adb root accepted"; fi
 
-# The irreversible path is one implementation shared by APK and Magisk, and
+# The irreversible path is one implementation shared by APK and root managers, and
 # the APK-preservation bit is produced by the script rather than trusted input.
 assert_contains "$ACTION" 'zapret2/scripts/lifecycle/zapret-purge.sh'
-assert_contains "$ACTION" 'exec /system/bin/sh "$PURGE_SCRIPT" --magisk-action'
+assert_contains "$ACTION" 'exec /system/bin/sh "$PURGE_SCRIPT" --manager-action'
 assert_contains "$PURGE" 'Z2_PURGE_APK_TOUCHED=0'
 assert_contains "$PURGE" 'remove_request_if_exact ||'
 assert_contains "$PURGE" 'publish_remove_marker ||'

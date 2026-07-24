@@ -13,7 +13,7 @@ internal object LifecycleMutationLockProtocol {
     private const val VERSION = "1"
     private const val KIND = "android-mutation"
     private const val COMMON_SCRIPT =
-        "${ServiceLifecycleController.MODULE_DIR}/zapret2/scripts/common.sh"
+        "${RootModuleContract.SCRIPTS_DIR}/common.sh"
     private val safeToken = Regex("[A-Za-z0-9._-]+")
     private val bootId = Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 
@@ -27,7 +27,7 @@ internal object LifecycleMutationLockProtocol {
     fun buildAcquireCommand(pid: Int, token: String): String? {
         if (pid <= 0 || !token.matches(safeToken) || token.length > 128) return null
         return """
-            module_dir=${RootFileIo.shellQuote(ServiceLifecycleController.MODULE_DIR)}
+            module_dir=${RootFileIo.shellQuote(RootModuleContract.ACTIVE_MODULE_DIR)}
             common=${RootFileIo.shellQuote(COMMON_SCRIPT)}
             app_pid=${RootFileIo.shellQuote(pid.toString())}
             app_token=${RootFileIo.shellQuote(token)}
@@ -232,7 +232,7 @@ internal object LifecycleMutationLockProtocol {
     fun buildOwnedLeaseProbeCommand(pid: Int, token: String): String? {
         if (pid <= 0 || !token.matches(safeToken) || token.length > 128) return null
         return """
-            module_dir=${RootFileIo.shellQuote(ServiceLifecycleController.MODULE_DIR)}
+            module_dir=${RootFileIo.shellQuote(RootModuleContract.ACTIVE_MODULE_DIR)}
             common=${RootFileIo.shellQuote(COMMON_SCRIPT)}
             expected_pid=${RootFileIo.shellQuote(pid.toString())}
             expected_token=${RootFileIo.shellQuote(token)}
@@ -293,7 +293,7 @@ internal object LifecycleMutationLockProtocol {
     fun buildReleaseCommand(lease: Lease, releaseToken: String): String? {
         if (!isValid(lease) || !releaseToken.matches(safeToken) || releaseToken.length > 128) return null
         return """
-            module_dir=${RootFileIo.shellQuote(ServiceLifecycleController.MODULE_DIR)}
+            module_dir=${RootFileIo.shellQuote(RootModuleContract.ACTIVE_MODULE_DIR)}
             common=${RootFileIo.shellQuote(COMMON_SCRIPT)}
             [ -f "${'$'}common" ] && [ ! -L "${'$'}common" ] || exit 1
             SCRIPT_DIR="${'$'}module_dir/zapret2/scripts"

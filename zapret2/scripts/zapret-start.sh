@@ -444,7 +444,7 @@ main() {
     if module_removal_pending; then
         release_lifecycle_lock
         start_error_exit LIFECYCLE MODULE_REMOVAL_PENDING START_PREFLIGHT 0 \
-            "start blocked because Magisk scheduled the module for removal"
+            "start blocked because the root manager scheduled the module for removal"
     fi
     if ! audit_recovery_artifacts lifecycle; then
         release_lifecycle_lock

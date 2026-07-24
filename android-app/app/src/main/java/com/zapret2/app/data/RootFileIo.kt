@@ -5,10 +5,20 @@ internal fun canonicalProtectedText(value: String): String = value
     .replace('\r', '\n')
     .trimEnd('\n')
 
+internal sealed interface AtomicTextSnapshot {
+    data object Missing : AtomicTextSnapshot
+    data object Unsafe : AtomicTextSnapshot
+    data object Failed : AtomicTextSnapshot
+    data class Present(val content: String) : AtomicTextSnapshot
+}
+
 /** Small, centralized boundary for root file operations used by the app. */
 internal object RootFileIo {
 
     private const val MAX_FILE_NAME_BYTES = 255
+    private const val SNAPSHOT_MISSING = "Z2_ATOMIC_TEXT_MISSING"
+    private const val SNAPSHOT_UNSAFE = "Z2_ATOMIC_TEXT_UNSAFE"
+    private const val SNAPSHOT_PRESENT = "Z2_ATOMIC_TEXT_PRESENT"
 
     fun shellQuote(value: String): String = "'" + value.replace("'", "'\\''") + "'"
 
@@ -26,6 +36,81 @@ internal object RootFileIo {
         if (!path.startsWith("$normalizedParent/")) return false
         val child = path.removePrefix("$normalizedParent/")
         return isSimpleFileName(child, requiredSuffix)
+    }
+
+    /**
+     * Reads one snapshot of a project-owned mutable file.
+     *
+     * Project mutations publish these files by atomic rename, so stable device/inode/metadata
+     * around one `cat` is the relevant observation contract. Re-hashing the file before and after
+     * the read would add subprocesses without strengthening that project-owned transaction model.
+     * Callers validate the captured bytes and derive any compare-and-swap digest from that exact
+     * snapshot.
+     */
+    fun readAtomicMutableText(
+        path: String,
+        maxBytes: Int,
+        allowEmpty: Boolean = false,
+    ): AtomicTextSnapshot {
+        if (path.isBlank() || maxBytes <= 0) return AtomicTextSnapshot.Failed
+        val minimumBytes = if (allowEmpty) 0 else 1
+        val quoted = shellQuote(path)
+        val command = """
+            if [ ! -e $quoted ] && [ ! -L $quoted ]; then
+                echo $SNAPSHOT_MISSING
+                exit 0
+            fi
+            [ -f $quoted ] && [ ! -L $quoted ] && [ -r $quoted ] || {
+                echo $SNAPSHOT_UNSAFE
+                exit 0
+            }
+            z2_meta=${'$'}(stat -c '%d:%i:%u:%a:%h:%s' $quoted 2>/dev/null) || {
+                echo $SNAPSHOT_UNSAFE
+                exit 0
+            }
+            IFS=: read -r z2_device z2_inode z2_uid z2_mode z2_links z2_size <<EOF
+            ${'$'}z2_meta
+            EOF
+            [ "${'$'}z2_uid" = 0 ] && [ "${'$'}z2_links" = 1 ] || {
+                echo $SNAPSHOT_UNSAFE
+                exit 0
+            }
+            case "${'$'}z2_mode" in 600|644) ;; *)
+                echo $SNAPSHOT_UNSAFE
+                exit 0
+                ;;
+            esac
+            case "${'$'}z2_size" in ''|*[!0-9]*)
+                echo $SNAPSHOT_UNSAFE
+                exit 0
+                ;;
+            esac
+            [ "${'$'}z2_size" -ge $minimumBytes ] && [ "${'$'}z2_size" -le $maxBytes ] || {
+                echo $SNAPSHOT_UNSAFE
+                exit 0
+            }
+            echo $SNAPSHOT_PRESENT
+            cat $quoted || exit 1
+            z2_after=${'$'}(stat -c '%d:%i:%u:%a:%h:%s' $quoted 2>/dev/null) || exit 1
+            [ "${'$'}z2_after" = "${'$'}z2_meta" ]
+        """.trimIndent()
+        val result = RootCommandExecutor.execute(command)
+        if (!result.isSuccess) return AtomicTextSnapshot.Failed
+        return when (result.out.firstOrNull()) {
+            SNAPSHOT_MISSING ->
+                if (result.out.size == 1) AtomicTextSnapshot.Missing else AtomicTextSnapshot.Failed
+            SNAPSHOT_UNSAFE ->
+                if (result.out.size == 1) AtomicTextSnapshot.Unsafe else AtomicTextSnapshot.Failed
+            SNAPSHOT_PRESENT -> {
+                val content = result.out.drop(1).joinToString("\n")
+                if ('\u0000' in content || (!allowEmpty && content.isEmpty())) {
+                    AtomicTextSnapshot.Failed
+                } else {
+                    AtomicTextSnapshot.Present(content)
+                }
+            }
+            else -> AtomicTextSnapshot.Failed
+        }
     }
 
     /** Reads a stable protected text file; empty authoritative files require an explicit opt-in. */

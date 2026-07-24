@@ -16,11 +16,11 @@ class RuntimeCostBoundaryTest {
 
         assertFalse(source.contains("package_contract_validate_all"))
         assertFalse(source.contains("package_contract_compare_release"))
-        assertTrue(source.contains("magisk --install-module"))
+        assertTrue(source.contains("RootModuleContract.installCommand"))
     }
 
     @Test
-    fun moduleUpdate_neverReplacesTheActiveMagiskTree() {
+    fun moduleUpdate_neverReplacesTheActiveModuleTree() {
         val source = repositoryFile(
             "android-app/app/src/main/java/com/zapret2/app/data/UpdateManager.kt",
         ).readText()
@@ -32,7 +32,7 @@ class RuntimeCostBoundaryTest {
             .substringBefore("private suspend fun verifyStandardModuleInstall(")
 
         assertFalse(stagingBoundary.contains("runExclusiveLifecycleTask"))
-        assertTrue(install.contains("magisk --install-module"))
+        assertTrue(install.contains("RootModuleContract.installCommand"))
         assertTrue(install.contains("needsReboot = true"))
         assertFalse(install.contains("validateModuleArchive"))
         assertFalse(install.contains("rollbackHotUpdate"))
@@ -96,6 +96,37 @@ class RuntimeCostBoundaryTest {
         assertTrue(loadActive.contains("presets.readActive()"))
         assertFalse(loadActive.contains("loadCatalog"))
         assertFalse(loadActive.contains("listPresets"))
+    }
+
+    @Test
+    fun runtimeAndPresetReads_consumeOneAtomicSnapshotWithoutRepeatedHashes() {
+        val runtime = repositoryFile(
+            "android-app/app/src/main/java/com/zapret2/app/data/RuntimeConfigStore.kt",
+        ).readText()
+        val inspect = runtime
+            .substringAfter("private fun inspectRuntimeConfig()")
+            .substringBefore("private fun unavailable(")
+        val presets = repositoryFile(
+            "android-app/app/src/main/java/com/zapret2/app/data/PresetRepository.kt",
+        ).readText()
+        val snapshot = presets
+            .substringAfter("override suspend fun snapshotFile(")
+            .substringBefore("override suspend fun writeCandidate(")
+        val rootIo = repositoryFile(
+            "android-app/app/src/main/java/com/zapret2/app/data/RootFileIo.kt",
+        ).readText()
+        val atomicRead = rootIo
+            .substringAfter("fun readAtomicMutableText(")
+            .substringBefore("/** Reads a stable protected text file")
+
+        assertTrue(inspect.contains("readAtomicMutableText"))
+        assertFalse(inspect.contains("runtime-config.sh"))
+        assertFalse(inspect.contains("readSecureRegularText"))
+        assertTrue(snapshot.contains("readAtomicMutableText"))
+        assertFalse(snapshot.contains("executeRoot"))
+        assertFalse(snapshot.contains("readSecureRegularText"))
+        assertEquals(1, atomicRead.split("cat ${'$'}quoted").size - 1)
+        assertFalse(atomicRead.contains("sha256sum"))
     }
 
     @Test
@@ -203,11 +234,11 @@ class RuntimeCostBoundaryTest {
     }
 
     @Test
-    fun canonicalStagingRelease_forcesLegacyApkIntoItsMagiskFallback() {
-        assertEquals("6", ModulePackageContract.LIFECYCLE_CONTRACT_VERSION)
+    fun canonicalStagingRelease_keepsActivationOwnedByTheRootManager() {
+        assertEquals("7", ModulePackageContract.LIFECYCLE_CONTRACT_VERSION)
         assertTrue(
             repositoryFile("service.sh").readText()
-                .contains("Module package generations are activated only by Magisk at boot."),
+                .contains("Module package generations are activated only by the root manager at boot."),
         )
     }
 

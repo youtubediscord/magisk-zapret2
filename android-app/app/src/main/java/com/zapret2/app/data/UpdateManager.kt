@@ -153,7 +153,7 @@ internal fun standardInstallPublicationMatches(
 
 /**
  * A submitted install is never retried from its transport result alone. Loss of the response or
- * a command deadline can happen after Magisk has published the pending generation, so callers
+ * a command deadline can happen after the root manager has published the pending generation, so callers
  * reconcile the authenticated modules_update receipt instead.
  */
 internal fun shouldVerifyStandardInstallPublication(
@@ -234,7 +234,7 @@ private fun comparePreRelease(left: String, right: String): Int {
 
 /**
  * Manager for checking and installing updates from GitHub Releases.
- * Handles both APK updates and Magisk module updates.
+ * Handles both APK updates and root-module updates.
  */
 class UpdateManager(private val context: Context) {
 
@@ -255,8 +255,6 @@ class UpdateManager(private val context: Context) {
         private const val UPDATE_MODULE_FILE = "zapret2-module.zip"
         private const val PRIVATE_FILE_MODE = 0b110_000_000 // 0600
         private const val PRIVATE_DIRECTORY_MODE = 0b111_000_000 // 0700
-        private const val MODULE_DIR = "/data/adb/modules/zapret2"
-        private const val MODULE_UPDATE_DIR = "/data/adb/modules_update/zapret2"
     }
 
     private class ModuleInstallRejectedException : IllegalStateException()
@@ -747,10 +745,10 @@ class UpdateManager(private val context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) longVersionCode else versionCode.toLong()
 
     /**
-     * Stages a validated Magisk module through Magisk's installer.
+     * Stages a validated module through the active root manager's installer.
      *
-     * Magisk explicitly treats mounted module files as unsafe to modify. Every module
-     * installation therefore publishes to modules_update and becomes active after reboot.
+     * Supported managers treat active module files as unsafe to replace. Every module
+     * installation publishes to modules_update and becomes active after reboot.
      * Live reload is reserved for user-owned runtime data and never replaces package code.
      */
     private suspend fun installValidatedModule(
@@ -771,7 +769,7 @@ class UpdateManager(private val context: Context) {
                 }.also { completedResult = it }
             }
         } catch (cancelled: CancellationException) {
-            // Magisk may have committed the pending generation before coroutine cancellation.
+            // The root manager may commit the pending generation before coroutine cancellation.
             // Preserve that terminal result so the UI always reports the required reboot.
             completedResult?.takeIf { it.success } ?: throw cancelled
         }
@@ -792,8 +790,8 @@ class UpdateManager(private val context: Context) {
 
         val layout = ServiceLifecycleController.executeRoot(
             """
-                z2_live=${RootFileIo.shellQuote(MODULE_DIR)}
-                z2_pending=${RootFileIo.shellQuote(MODULE_UPDATE_DIR)}
+                z2_live=${RootFileIo.shellQuote(RootModuleContract.ACTIVE_MODULE_DIR)}
+                z2_pending=${RootFileIo.shellQuote(RootModuleContract.PENDING_MODULE_DIR)}
                 [ ! -e "${'$'}z2_pending" ] && [ ! -L "${'$'}z2_pending" ] || exit 1
                 if [ ! -e "${'$'}z2_live" ] && [ ! -L "${'$'}z2_live" ]; then
                     printf 'Z2_MODULE_LAYOUT=MISSING\n'
@@ -813,7 +811,7 @@ class UpdateManager(private val context: Context) {
         }
         if (moduleExists) {
             val installedVersion = RootFileIo.readSecureRegularText(
-                "$MODULE_DIR/module.prop",
+                "${RootModuleContract.ACTIVE_MODULE_DIR}/module.prop",
                 ModulePackageContract.MAX_MODULE_PROP_BYTES,
             )?.let(ModulePackageContract::validatedInstalledVersion)
             if (!moduleVersionAllowsInstall(
@@ -826,14 +824,23 @@ class UpdateManager(private val context: Context) {
             }
         }
 
-        if (!ServiceLifecycleController.executeRoot("magisk -v").success) {
+        val installerProbe = ServiceLifecycleController.executeRoot(
+            RootModuleContract.installerProbeCommand(),
+        )
+        val installerBackend = installerProbe
+            .takeIf { it.success }
+            ?.let { RootModuleContract.parseInstallerBackend(it.stdout) }
+        if (installerBackend == null) {
             return ModuleInstallResult(false, false)
         }
         val result = ModuleInstallResult(success = true, needsReboot = true)
         return when (CancellationSafeTerminalCommit.run(
             command = {
                 val install = ServiceLifecycleController.executeRoot(
-                    "magisk --install-module ${RootFileIo.shellQuote(moduleFile.absolutePath)}",
+                    RootModuleContract.installCommand(
+                        installerBackend,
+                        moduleFile.absolutePath,
+                    ),
                     RootCommandPolicy.PACKAGE_INSTALL,
                 )
                 shouldVerifyStandardInstallPublication(install) && verifyStandardModuleInstall(
@@ -867,7 +874,7 @@ class UpdateManager(private val context: Context) {
         }.distinct().joinToString(" ", transform = RootFileIo::shellQuote)
         val result = ServiceLifecycleController.executeRoot(
             """
-                z2_root=${RootFileIo.shellQuote(MODULE_UPDATE_DIR)}
+                z2_root=${RootFileIo.shellQuote(RootModuleContract.PENDING_MODULE_DIR)}
                 [ -d "${'$'}z2_root" ] && [ ! -L "${'$'}z2_root" ] &&
                     [ "${'$'}(stat -c %u "${'$'}z2_root" 2>/dev/null)" = 0 ] &&
                     z2_root_mode=${'$'}(stat -c %a "${'$'}z2_root" 2>/dev/null) || exit 1
@@ -896,7 +903,7 @@ class UpdateManager(private val context: Context) {
         val installedRoot = result.stdout.singleOrNull()
             ?.takeIf { result.success && it.startsWith("Z2_STANDARD_INSTALL_ROOT=") }
             ?.removePrefix("Z2_STANDARD_INSTALL_ROOT=")
-            ?.takeIf { it == MODULE_UPDATE_DIR }
+            ?.takeIf { it == RootModuleContract.PENDING_MODULE_DIR }
             ?: return false
         val installedVersion = RootFileIo.readSecureRegularText(
             "$installedRoot/module.prop",

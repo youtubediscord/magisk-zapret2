@@ -5,11 +5,11 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import java.util.concurrent.atomic.AtomicBoolean
 
-/** Canonical APK boundary for the same one-shot purge protocol used by Magisk Action. */
+/** Canonical APK boundary for the same one-shot purge protocol used by module Action. */
 object ModulePurgeController {
 
     private const val PURGE_SCRIPT =
-        "${ServiceLifecycleController.MODULE_DIR}/${ModulePackageContract.PURGE_SCRIPT_PATH}"
+        "${RootModuleContract.ACTIVE_MODULE_DIR}/${ModulePackageContract.PURGE_SCRIPT_PATH}"
     private val purgeInProgress = AtomicBoolean(false)
 
     enum class Status(val wireValue: String) {

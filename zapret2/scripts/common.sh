@@ -327,6 +327,7 @@ STALE_TRACK_FILES=""
 STALE_TRACK_DIAGNOSTIC=""
 STALE_OWNER_PUBLICATION_RETIRED=0
 BOOT_RECOVERY_DIAGNOSTIC=""
+BOOT_INCOMPATIBLE_STATE_RETIRED=0
 
 is_valid_boot_id() {
     local value="$1"
@@ -558,7 +559,7 @@ INSTALLER_TRACKS_RETIRED=0
 # Build/probe journals are private write-ahead logs of one serialized runtime
 # lifecycle operation. They are not part of the installed configuration and
 # must never become an ABI gate between an old live module and a newly staged
-# Magisk release. Once customize.sh owns the exact lifecycle lock, no runtime
+# module release. Once customize.sh owns the exact lifecycle lock, no runtime
 # operation can still own or append one of these files. The installer may
 # therefore retire the bounded canonical files without parsing versioned WAL
 # contents or requiring the old release's partially mutated firewall namespace
@@ -880,14 +881,36 @@ audit_recovery_artifacts() {
 }
 
 
-# Boot may need to retire authenticated state from the previous kernel boot
-# even when the module is disabled or runtime autostart is off.  This path is
-# deliberately cleanup-only: it never creates the state directory, starts the
-# daemon, or installs firewall rules.  Same-boot live/unknown evidence retains
-# the fail-closed behavior of the ordinary lifecycle audit.
+# The root-manager boot entry point is the only boundary allowed to discard an
+# incompatible state generation without parsing it.  The lifecycle lock proves
+# that no current-boot mutation owns the directory, while a kernel reboot has
+# already destroyed every process and netfilter object described by the old
+# files.  Keep the exact held lock until normal release, but retire every other
+# project-owned entry so unsupported schemas can never fence a fresh package.
+discard_incompatible_boot_state() {
+    local lock_name remaining
+    [ "${BOOT_STALE_RUNTIME_RECOVERY:-0}" = 1 ] || return 1
+    caller_holds_exact_lifecycle_lock || return 1
+    state_dir_is_secure || return 1
+    lock_name="${LIFECYCLE_LOCK##*/}"
+    case "$lock_name" in ""|*/*) return 1 ;; esac
+    find "$STATE_DIR" -mindepth 1 -maxdepth 1 ! -name "$lock_name" \
+        -exec rm -rf {} + 2>/dev/null || return 1
+    remaining="$(find "$STATE_DIR" -mindepth 1 -maxdepth 1 ! -name "$lock_name" \
+        -print -quit 2>/dev/null)" || return 1
+    [ -z "$remaining" ] || return 1
+    BOOT_INCOMPATIBLE_STATE_RETIRED=1
+    return 0
+}
+
+# Boot may need to retire state from the previous kernel even when the module
+# is disabled or runtime autostart is off. Recognized current-schema state uses
+# the strict recovery audit. State classified as unsafe is outside the current
+# generation contract and is discarded wholesale by the boot-only boundary.
 recover_boot_stale_runtime_state() {
     local rc=0 diagnostic=""
     BOOT_RECOVERY_DIAGNOSTIC=""
+    BOOT_INCOMPATIBLE_STATE_RETIRED=0
     if [ ! -e "$STATE_DIR" ] && [ ! -L "$STATE_DIR" ]; then
         return 0
     fi
@@ -905,8 +928,13 @@ recover_boot_stale_runtime_state() {
     }
     BOOT_STALE_RUNTIME_RECOVERY=1
     if ! audit_recovery_artifacts lifecycle; then
-        rc=1
-        diagnostic="${RECOVERY_ARTIFACT_DIAGNOSTIC:-unsafe recovery state}"
+        if [ "$RECOVERY_ARTIFACT_CLASS" = unsafe ] &&
+           discard_incompatible_boot_state; then
+            diagnostic=""
+        else
+            rc=1
+            diagnostic="${RECOVERY_ARTIFACT_DIAGNOSTIC:-unsafe recovery state}"
+        fi
     fi
     BOOT_STALE_RUNTIME_RECOVERY=0
     if ! release_lifecycle_lock; then
@@ -1850,7 +1878,7 @@ uninstall_environment_authorized() {
 uninstall_tombstone_allows_start() {
     UNINSTALL_TOMBSTONE_ERROR=""; UNINSTALL_TOMBSTONE_DIAGNOSTIC=""
     if module_removal_pending; then
-        UNINSTALL_TOMBSTONE_ERROR="Magisk module removal marker is present: $MODDIR/remove"
+        UNINSTALL_TOMBSTONE_ERROR="Root-manager module removal marker is present: $MODDIR/remove"
         return 1
     fi
     { [ -e "$UNINSTALL_TOMBSTONE" ] || [ -L "$UNINSTALL_TOMBSTONE" ]; } || return 0
@@ -2677,7 +2705,7 @@ zapret2_delete_simple_jump_all() {
     return 0
 }
 
-# The Magisk removal marker is a durable global start fence. Once that marker
+# The root-manager removal marker is a durable global start fence. Once that marker
 # has been authenticated, uninstall may remove every strictly named Zapret2
 # generation even when its interrupted build journal is unavailable. No broad
 # table flush or rule-number deletion is used: only exact module-created jumps
