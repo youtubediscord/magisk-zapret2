@@ -35,6 +35,8 @@ mkdir -p "$SOURCE/zapret2/bin/arm64-v8a" "$SOURCE/zapret2/bin/armeabi-v7a"
 cp /bin/true "$SOURCE/zapret2/bin/arm64-v8a/nfqws2"
 cp /bin/false "$SOURCE/zapret2/bin/armeabi-v7a/nfqws2"
 printf '%s\n' b78b52c4cd7f843da3ff0848a3430afbd401bdf2 > "$SOURCE/zapret2/upstream-zapret2.commit"
+printf '%s\n' v0.8.1 > "$SOURCE/zapret2/upstream-zapret2.release"
+printf '%064d\n' 0 > "$SOURCE/zapret2/upstream-zapret2.archive.sha256"
 . "$SOURCE/zapret2/scripts/package-contract.sh"
 package_contract_assemble_package "$SOURCE" "$PACKAGE" ||
     fail "cannot assemble installer fixture: $PACKAGE_CONTRACT_CODE $PACKAGE_CONTRACT_DETAIL"

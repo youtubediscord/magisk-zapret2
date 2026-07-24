@@ -121,6 +121,7 @@ main() {
     [ -z "$UNINSTALL_TOMBSTONE_DIAGNOSTIC" ] || log_msg "$UNINSTALL_TOMBSTONE_DIAGNOSTIC"
 
     rc=0
+    STOP_STATUS_COMMITTED=0
     errors=""
     STOP_ERROR_DOMAIN=NONE; STOP_ERROR_CODE=NONE
     STOP_ERROR_STAGE=NONE; STOP_ERROR_RETRYABLE=0
@@ -203,7 +204,9 @@ main() {
         if ! remove_transient_diagnostics; then
             log_msg "WARNING: one or more transient diagnostics could not be removed safely"
         fi
-        if ! write_stop_status stopped ""; then
+        if write_stop_status stopped ""; then
+            STOP_STATUS_COMMITTED=1
+        else
             # Process and firewall cleanup is already verified.  A diagnostic
             # status-write failure must not turn a completed stop into an
             # unverifiable process-cleanup failure after metadata retirement.
@@ -213,10 +216,22 @@ main() {
         write_stop_status error "$errors" >/dev/null 2>&1 || true
     fi
 
-    release_lifecycle_lock
+    receipt_lifecycle_state=idle; receipt_owner_kind=none
+    if [ "$LOCK_HELD" = inherited ]; then
+        receipt_lifecycle_state=owned; receipt_owner_kind=android-mutation
+    fi
+    if ! release_lifecycle_lock; then
+        rc=1
+        STOP_ERROR_DOMAIN=LIFECYCLE; STOP_ERROR_CODE=LIFECYCLE_FAILED
+        STOP_ERROR_STAGE=STOP_LOCK_RELEASE
+        errors="${errors:+$errors; }lifecycle ownership release failed"
+    fi
     trap - HUP INT TERM
     if [ "$rc" -eq 0 ]; then
         log_msg "Zapret2 stopped and owned state is clean"
+        if [ "$STOP_STATUS_COMMITTED" = 1 ]; then
+            emit_committed_status_v6 stopped "$receipt_lifecycle_state" "$receipt_owner_kind" || true
+        fi
         echo "Zapret2 stopped"
     else
         log_msg "ERROR: $errors"

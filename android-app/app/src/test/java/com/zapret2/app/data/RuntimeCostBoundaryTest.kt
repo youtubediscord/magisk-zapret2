@@ -232,7 +232,36 @@ class RuntimeCostBoundaryTest {
             .substringBefore("compiled_source_binding_current() {")
 
         assertTrue(prepare.contains("ensure_compiled_artifact"))
+        assertTrue(prepare.contains("compiled_validation_receipt_current"))
+        assertTrue(prepare.contains("write_compiled_validation_receipt"))
         assertFalse(prepare.contains("compile_preset_artifact"))
+    }
+
+    @Test
+    fun bootStart_hasNoNetworkWaitAndUsesFineGrainedBootBarrier() {
+        val service = repositoryFile("service.sh").readText()
+
+        assertFalse(service.contains("ip route show default"))
+        assertFalse(service.contains("net.dns1"))
+        assertFalse(service.contains("Network wait timeout"))
+        assertFalse(service.contains("sleep 5"))
+        assertTrue(service.contains("sleep 1"))
+    }
+
+    @Test
+    fun lifecyclePublication_doesNotReverifyOrRewriteTheOwnerPhase() {
+        val start = repositoryFile("zapret2/scripts/zapret-start.sh").readText()
+        val launch = start
+            .substringAfter("launch_nfqws2() {")
+            .substringBefore("stop_failed_fallback_launch() {")
+        val commit = start
+            .substringAfter("launch_nfqws2 ||")
+            .substringBefore("TOTAL_RULES=")
+
+        assertFalse(launch.contains("verify_nfqws_pid"))
+        assertTrue(launch.contains("publish_nfqws_owner"))
+        assertFalse(commit.contains("set_owner_phase active"))
+        assertTrue(commit.contains("normal_health_ok"))
     }
 
     @Test

@@ -102,6 +102,8 @@ class ModulePackageContractTest {
             "immutable-file|0644|zapret2/runtime-manifest.tsv",
             "immutable-file|0644|zapret2/lifecycle-contract.version",
             "immutable-file|0644|zapret2/upstream-zapret2.commit",
+            "immutable-file|0644|zapret2/upstream-zapret2.release",
+            "immutable-file|0644|zapret2/upstream-zapret2.archive.sha256",
             "immutable-file|0644|zapret2/strategy-catalogs/tcp.txt",
             "immutable-file|0644|zapret2/strategy-catalogs/udp.txt",
             "immutable-file|0644|zapret2/strategy-catalogs/voice.txt",

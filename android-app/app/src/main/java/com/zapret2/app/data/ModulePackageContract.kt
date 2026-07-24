@@ -69,6 +69,8 @@ internal object ModulePackageContract {
         RUNTIME_MANIFEST_PATH,
         LIFECYCLE_CONTRACT_PATH,
         "zapret2/upstream-zapret2.commit",
+        "zapret2/upstream-zapret2.release",
+        "zapret2/upstream-zapret2.archive.sha256",
         "zapret2/strategy-catalogs/tcp.txt",
         "zapret2/strategy-catalogs/udp.txt",
         "zapret2/strategy-catalogs/voice.txt",

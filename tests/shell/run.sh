@@ -161,6 +161,32 @@ read_compiled_artifact_metadata "$TMP/tcp.argv" || fail "TCP artifact metadata i
     compile_preset_artifact() { return 97; }
     ensure_compiled_artifact "$FIXTURE/presets/TCP only.txt" "TCP only.txt" "$TMP/tcp.argv"
 ) || fail "unchanged compiled preset was rebuilt instead of reusing its bound artifact"
+
+cat > "$FIXTURE/install-generation.meta" <<EOF
+version=1
+module_dir=$MODDIR
+generation=receipt-test
+archive_sha256=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+EOF
+chmod 0600 "$FIXTURE/install-generation.meta"
+write_compiled_validation_receipt "$TMP/tcp.argv" ||
+    fail "validated compiled preset receipt was not published"
+compiled_validation_receipt_current "$TMP/tcp.argv" ||
+    fail "unchanged validated compiled preset receipt was not reused"
+sed 's/generation=receipt-test/generation=next-generation/' \
+    "$FIXTURE/install-generation.meta" > "$FIXTURE/install-generation.meta.next"
+chmod 0600 "$FIXTURE/install-generation.meta.next"
+mv "$FIXTURE/install-generation.meta.next" "$FIXTURE/install-generation.meta"
+assert_fails compiled_validation_receipt_current "$TMP/tcp.argv"
+sed 's/generation=next-generation/generation=receipt-test/' \
+    "$FIXTURE/install-generation.meta" > "$FIXTURE/install-generation.meta.next"
+chmod 0600 "$FIXTURE/install-generation.meta.next"
+mv "$FIXTURE/install-generation.meta.next" "$FIXTURE/install-generation.meta"
+printf '%s\n' '# receipt input changed' >> "$TMP/tcp.argv"
+assert_fails compiled_validation_receipt_current "$TMP/tcp.argv"
+compile_preset_artifact "$FIXTURE/presets/TCP only.txt" "TCP only.txt" "$TMP/tcp.argv" ||
+    fail "TCP-only preset did not recompile after receipt invalidation"
+
 sed '/--filter-tcp=80/a --filter-tcp=443' "$FIXTURE/presets/TCP only.txt" > "$FIXTURE/presets/Multi filter.txt"
 compile_preset_artifact "$FIXTURE/presets/Multi filter.txt" "Multi filter.txt" "$TMP/multi-filter.argv" ||
     fail "multiple filters in one profile did not compile"

@@ -65,6 +65,8 @@ for required in \
     "$ZAPRET_DIR/runtime-manifest.tsv" \
     "$ZAPRET_DIR/lifecycle-contract.version" \
     "$ZAPRET_DIR/upstream-zapret2.commit" \
+    "$ZAPRET_DIR/upstream-zapret2.release" \
+    "$ZAPRET_DIR/upstream-zapret2.archive.sha256" \
     "$ZAPRET_DIR/runtime.ini" \
     "$ZAPRET_DIR/hosts.ini" \
     "$SCRIPT_DIR/common.sh" \

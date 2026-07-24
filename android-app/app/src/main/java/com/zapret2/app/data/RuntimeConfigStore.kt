@@ -398,6 +398,7 @@ object RuntimeConfigStore {
                 content,
                 "Z2_RUNTIME_CANDIDATE",
                 fileMode = "0644",
+                durable = false,
             )
         } catch (_: Exception) {
             false

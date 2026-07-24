@@ -173,6 +173,25 @@ for stale_case in dead cross-boot; do
     release_lifecycle_lock || fail "$stale_case replacement shell lock did not release"
 done
 
+# A lifecycle child of the Android mutation owner must authenticate and reuse
+# that exact live lease. Trying to acquire a second shell lock here deadlocks
+# preset application behind the app's own transaction.
+write_android_owner "$BOOT_A"
+Z2_LOCK_BOOT="$BOOT_A"; Z2_ANDROID_PROCESS=live
+cp "$LIFECYCLE_LOCK_OWNER" "$CASE/inherited-android.before"
+reset_acquire
+export ZAPRET2_LIFECYCLE_TOKEN=android-token
+export ZAPRET2_LIFECYCLE_OWNER_PID=4242
+export ZAPRET2_LIFECYCLE_OWNER_START=424242
+acquire_lifecycle_lock || fail "exact live Android lease was not inherited"
+[ "$LOCK_HELD" = inherited ] || fail "Android lease inheritance was not marked inherited"
+cmp -s "$CASE/inherited-android.before" "$LIFECYCLE_LOCK_OWNER" ||
+    fail "Android lease inheritance modified owner metadata"
+release_lifecycle_lock || fail "inherited Android lease local release failed"
+[ "$LOCK_HELD" = 0 ] || fail "inherited Android lease retained local ownership"
+cmp -s "$CASE/inherited-android.before" "$LIFECYCLE_LOCK_OWNER" ||
+    fail "lifecycle child removed the parent Android lease"
+
 write_android_owner "$BOOT_A"
 Z2_LOCK_BOOT="$BOOT_A"; Z2_ANDROID_PROCESS=live
 cp "$LIFECYCLE_LOCK_OWNER" "$CASE/live.before"

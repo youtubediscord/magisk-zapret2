@@ -98,6 +98,7 @@ LOGFILE_PREVIOUS="$STATE_DIR/nfqws2.log.1"
 LOG_MAX_BYTES=1048576
 CMDLINE_FILE="$STATE_DIR/nfqws2.cmdline"
 COMPILED_ARGV_FILE="$STATE_DIR/nfqws2.argv"
+COMPILED_VALIDATION_RECEIPT="$STATE_DIR/nfqws2.argv.validated"
 STARTUP_LOG="$STATE_DIR/nfqws2.startup.log"
 ERROR_LOG="$STATE_DIR/nfqws2.error"
 DEBUG_LOG="$STATE_DIR/nfqws2-debug.log"
@@ -141,6 +142,7 @@ TRACK_JOURNAL_VERSION=2
 OBSOLETE_FIREWALL_WAL="$STATE_DIR/firewall-teardown.wal"
 
 export STATE_DIR PIDFILE OWNER_STATE LOGFILE LOGFILE_PREVIOUS CMDLINE_FILE COMPILED_ARGV_FILE
+export COMPILED_VALIDATION_RECEIPT
 export STARTUP_LOG ERROR_LOG DEBUG_LOG RUNTIME_OWNER_MARKER STATUS_SNAPSHOT
 export LIFECYCLE_LOCK LIFECYCLE_LOCK_OWNER LIFECYCLE_LOCK_REAPER
 export LIFECYCLE_LOCK_REAPER_RECOVERY LIFECYCLE_LOCK_REAPER_RECOVERY_QUARANTINE
@@ -1690,10 +1692,15 @@ acquire_lifecycle_lock() {
     owner_pid="${ZAPRET2_LIFECYCLE_OWNER_PID:-}"
     owner_start="${ZAPRET2_LIFECYCLE_OWNER_START:-}"
 
-    # A child launched by the lock holder can safely inherit the lock.  It may
-    # never release it: the original holder remains responsible for cleanup.
+    # A child launched by either recognized lock holder can safely inherit the
+    # exact live lock. Android preset mutations deliberately invoke lifecycle
+    # replacement under their cross-process lease, so rejecting that known
+    # owner would deadlock the child behind its own parent transaction. The
+    # child may never remove the lock: the original holder owns cleanup.
     if is_safe_token "$token" && is_decimal "$owner_pid" && is_decimal "$owner_start" &&
-       read_lock_owner && [ "$LOCK_FILE_KIND" = shell ] && lock_owner_alive &&
+       read_lock_owner &&
+       { [ "$LOCK_FILE_KIND" = shell ] || [ "$LOCK_FILE_KIND" = android-mutation ]; } &&
+       lock_owner_alive &&
        [ "$LOCK_FILE_TOKEN" = "$token" ] &&
        [ "$LOCK_FILE_PID" = "$owner_pid" ] &&
        [ "$LOCK_FILE_START" = "$owner_start" ]; then
@@ -2275,8 +2282,12 @@ write_owner_state() {
 publish_nfqws_owner() {
     local pid="$1" start="$2" qnum="$3" phase="$4" argv_sha256 generation
     is_decimal "$pid" && is_decimal "$start" || return 1
-    argv_sha256="$(proc_cmdline_sha256 "$pid")" || return 1
-    verify_nfqws_pid "$pid" "$start" "$argv_sha256" "$qnum" || return 1
+    # This is the single launch-time process proof. verify_nfqws_pid captures
+    # the stable start time and argv digest in the same pass; recomputing both
+    # before owner publication used to double the expensive /proc traversal.
+    verify_nfqws_pid "$pid" "$start" "" "$qnum" capture-argv || return 1
+    start="$VERIFIED_STARTTIME"
+    argv_sha256="$VERIFIED_ARGV_SHA256"
     generation="${PENDING_OWNER_GENERATION:-}"
     [ -n "$generation" ] || generation="$(new_lifecycle_token)" || return 1
     # The authenticated, boot-bound owner is the publication commit marker.
@@ -2324,11 +2335,13 @@ retire_owner_metadata() {
 }
 
 VERIFIED_STARTTIME=""
+VERIFIED_ARGV_SHA256=""
 verify_nfqws_pid() {
     local pid="$1" expected_start="${2:-}" expected_argv_sha256="${3:-}" expected_qnum="${4:-}"
-    local before after cmd_exe binary_exe actual_argv_sha256 argv0 runtime_nfqws2
+    local capture_argv="${5:-}" before after cmd_exe binary_exe actual_argv_sha256="" argv0 runtime_nfqws2
     runtime_nfqws2="${AUDIT_NFQWS2_OVERRIDE:-$NFQWS2}"
     VERIFIED_STARTTIME=""
+    VERIFIED_ARGV_SHA256=""
     is_decimal "$pid" || return 1
     [ "$pid" -gt 0 ] 2>/dev/null || return 1
     before="$(proc_starttime "$pid")" || return 1
@@ -2340,9 +2353,11 @@ verify_nfqws_pid() {
         normalize_qnum "$expected_qnum" || return 1
         pid_cmdline_has_arg "$pid" "--qnum=$QNUM_NORMALIZED" || return 1
     fi
+    if [ -n "$expected_argv_sha256" ] || [ "$capture_argv" = capture-argv ]; then
+        actual_argv_sha256="$(proc_cmdline_sha256 "$pid")" || return 1
+    fi
     if [ -n "$expected_argv_sha256" ]; then
         is_lower_sha256 "$expected_argv_sha256" || return 1
-        actual_argv_sha256="$(proc_cmdline_sha256 "$pid")" || return 1
         [ "$actual_argv_sha256" = "$expected_argv_sha256" ] || return 1
     fi
 
@@ -2357,6 +2372,7 @@ verify_nfqws_pid() {
     after="$(proc_starttime "$pid")" || return 1
     [ "$before" = "$after" ] || return 1
     VERIFIED_STARTTIME="$after"
+    VERIFIED_ARGV_SHA256="$actual_argv_sha256"
     return 0
 }
 
@@ -2428,16 +2444,16 @@ stop_verified_nfqws_pid() {
     local pid="$1" start="$2" expected_argv_sha256="${3:-}" expected_qnum="${4:-}" n=0
     verify_nfqws_pid "$pid" "$start" "$expected_argv_sha256" "$expected_qnum" || return 2
     kill -TERM "$pid" 2>/dev/null || return 1
-    while [ "$n" -lt 5 ]; do
-        sleep 1
+    while [ "$n" -lt 50 ]; do
+        sleep 0.1
         verify_nfqws_pid "$pid" "$start" "$expected_argv_sha256" "$expected_qnum" || return 0
         n=$((n + 1))
     done
     verify_nfqws_pid "$pid" "$start" "$expected_argv_sha256" "$expected_qnum" || return 0
     kill -KILL "$pid" 2>/dev/null || return 1
     n=0
-    while [ "$n" -lt 3 ]; do
-        sleep 1
+    while [ "$n" -lt 30 ]; do
+        sleep 0.1
         verify_nfqws_pid "$pid" "$start" "$expected_argv_sha256" "$expected_qnum" || return 0
         n=$((n + 1))
     done
@@ -3693,4 +3709,76 @@ write_iptables_status() {
     } > "$tmp" || { rm -f "$tmp"; return 1; }
     chmod 0600 "$tmp" 2>/dev/null || { rm -f "$tmp"; return 1; }
     mv -f "$tmp" "$IPTABLES_STATUS" || { rm -f "$tmp"; return 1; }
+}
+
+# Lifecycle mutations already own the expensive process/firewall verification
+# that produces STATUS_*. When explicitly requested by a compatible app, return
+# that committed v6 projection on the same root transport instead of making the
+# app launch zapret-status.sh and re-parse the snapshot immediately afterward.
+emit_committed_status_v6() {
+    local state="$1" lifecycle_state="$2" owner_kind="$3"
+    local owned process active pid pid_verified pid_start generation owner_verified
+    local ipv4 ipv6 rules expected ipv4_rules ipv6_rules ruleset nfqueue queue_bypass
+    [ "${ZAPRET2_EMIT_STATUS_V6:-0}" = 1 ] || return 0
+    case "$lifecycle_state:$owner_kind" in
+        idle:none|owned:android-mutation) ;;
+        *) return 1 ;;
+    esac
+    [ ! -e "$UNINSTALL_TOMBSTONE" ] && [ ! -L "$UNINSTALL_TOMBSTONE" ] ||
+        return 1
+    module_removal_pending && return 1
+    case "$state" in
+        ok)
+            owned=1; process=1; active=1
+            pid="${STATUS_OWN_PID:-}"; pid_verified=1
+            pid_start="${STATUS_OWN_PID_STARTTIME:-}"
+            generation="${STATUS_OWNER_GENERATION:-}"; owner_verified=1
+            ipv4="${STATUS_IPV4_ACTIVE:-0}"; ipv6="${STATUS_IPV6_ACTIVE:-0}"
+            rules="${STATUS_RULES_TOTAL:-0}"; expected="${STATUS_RULES_EXPECTED:-0}"
+            ipv4_rules="${STATUS_IPV4_RULES:-0}"; ipv6_rules="${STATUS_IPV6_RULES:-0}"
+            ruleset=1; nfqueue=1; queue_bypass=1
+            ;;
+        stopped)
+            owned=0; process=0; active=0
+            pid=""; pid_verified=0; pid_start=""; generation=""; owner_verified=0
+            ipv4=0; ipv6=0; rules=0; expected=0; ipv4_rules=0; ipv6_rules=0
+            ruleset=1; nfqueue=0; queue_bypass=0
+            ;;
+        *) return 1 ;;
+    esac
+    cat <<EOF
+Z2_PROTOCOL=6
+Z2_STATUS=$state
+Z2_OWNED=$owned
+Z2_PROCESS=$process
+Z2_ACTIVE=$active
+Z2_PID=$pid
+Z2_PID_VERIFIED=$pid_verified
+Z2_PID_STARTTIME=$pid_start
+Z2_OWNER_GENERATION=$generation
+Z2_OWNER_METADATA_VERIFIED=$owner_verified
+Z2_QNUM=${STATUS_QNUM:-${QNUM:-}}
+Z2_IPV4=$ipv4
+Z2_IPV6=$ipv6
+Z2_RULES=$rules
+Z2_EXPECTED_RULES=$expected
+Z2_IPV4_RULES=$ipv4_rules
+Z2_IPV6_RULES=$ipv6_rules
+Z2_RULESET_VERIFIED=$ruleset
+Z2_NFQUEUE=$nfqueue
+Z2_QUEUE_BYPASS=$queue_bypass
+Z2_UPDATE_BLOCKED=0
+Z2_UNINSTALL_TOMBSTONE=0
+Z2_LIFECYCLE_STATE=$lifecycle_state
+Z2_LIFECYCLE_OWNER_KIND=$owner_kind
+Z2_CHAINS=${STATUS_CHAINS:-0}
+Z2_ANCHORS=${STATUS_ANCHORS:-0}
+Z2_ERROR_SCHEMA=$Z2_ERROR_SCHEMA_VERSION
+Z2_ERROR_STATUS=OK
+Z2_ERROR_DOMAIN=NONE
+Z2_ERROR_STAGE=NONE
+Z2_ERROR_CODE=NONE
+Z2_ERROR_DETAIL=
+Z2_COMPLETE=1
+EOF
 }

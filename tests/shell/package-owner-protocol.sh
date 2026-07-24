@@ -29,6 +29,10 @@ sed '/^owner_protocol|/d' "$GOOD" > "$CASE/zapret2/runtime-manifest.tsv"
 assert_rejected missing
 sed '/^installed-exec|0755|zapret2\/nfqws2$/d' "$GOOD" > "$CASE/zapret2/runtime-manifest.tsv"
 assert_rejected missing-installed-binary-contract
+sed '/^immutable-file|0644|zapret2\/upstream-zapret2\.release$/d' "$GOOD" > "$CASE/zapret2/runtime-manifest.tsv"
+assert_rejected missing-upstream-release
+sed '/^immutable-file|0644|zapret2\/upstream-zapret2\.archive\.sha256$/d' "$GOOD" > "$CASE/zapret2/runtime-manifest.tsv"
+assert_rejected missing-upstream-archive-digest
 { cat "$GOOD"; printf '%s\n' 'installed-exec|0755|zapret2/generated-helper'; } > "$CASE/zapret2/runtime-manifest.tsv"
 assert_rejected arbitrary-installed-executable
 { cat "$GOOD"; printf 'immutable-file|0644|zapret2/tab\tname\n'; } > "$CASE/zapret2/runtime-manifest.tsv"

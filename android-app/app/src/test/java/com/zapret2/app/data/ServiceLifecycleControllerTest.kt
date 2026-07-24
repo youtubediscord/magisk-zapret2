@@ -153,6 +153,77 @@ class ServiceLifecycleControllerTest {
     }
 
     @Test
+    fun lifecycleReceipt_acceptsVerifiedRunningAndStoppedCommitsWithCommandExitZero() {
+        val running = ServiceLifecycleController.parseLifecycleReceipt(
+            ServiceLifecycleController.CommandResult(
+                success = true,
+                stdout = versionSixStatusLines(
+                    healthyStatusLines(),
+                    lifecycleState = "owned",
+                    ownerKind = "android-mutation",
+                    chains = 4,
+                    anchors = 4,
+                ),
+                exitCode = 0,
+            ),
+        )
+        val stopped = ServiceLifecycleController.parseLifecycleReceipt(
+            ServiceLifecycleController.CommandResult(
+                success = true,
+                stdout = versionSixStatusLines(
+                    stoppedStatusLines(),
+                    lifecycleState = "idle",
+                    chains = 0,
+                    anchors = 0,
+                ),
+                exitCode = 0,
+            ),
+        )
+
+        assertTrue(running?.healthy == true)
+        assertTrue(stopped?.fullyStopped == true)
+    }
+
+    @Test
+    fun lifecycleReceipt_rejectsMissingDuplicateOrMalformedV6Payloads() {
+        val valid = versionSixStatusLines(
+            healthyStatusLines(),
+            lifecycleState = "idle",
+            chains = 4,
+            anchors = 4,
+        )
+        val missingProtocol = valid.filterNot { it == "Z2_PROTOCOL=6" }
+        val duplicateStatus = valid.toMutableList().apply {
+            add(lastIndex, "Z2_STATUS=ok")
+        }
+        val unsuccessful = ServiceLifecycleController.CommandResult(
+            success = false,
+            stdout = valid,
+            exitCode = 1,
+        )
+
+        assertNull(
+            ServiceLifecycleController.parseLifecycleReceipt(
+                ServiceLifecycleController.CommandResult(
+                    success = true,
+                    stdout = missingProtocol,
+                    exitCode = 0,
+                ),
+            ),
+        )
+        assertNull(
+            ServiceLifecycleController.parseLifecycleReceipt(
+                ServiceLifecycleController.CommandResult(
+                    success = true,
+                    stdout = duplicateStatus,
+                    exitCode = 0,
+                ),
+            ),
+        )
+        assertNull(ServiceLifecycleController.parseLifecycleReceipt(unsuccessful))
+    }
+
+    @Test
     fun parseStatusOutput_acceptsOnlyCompleteVerifiedHealthyState() {
         val status = ServiceLifecycleController.parseStatusOutput(healthyStatusLines())
 

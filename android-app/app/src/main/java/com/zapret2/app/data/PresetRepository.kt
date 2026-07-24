@@ -310,6 +310,7 @@ internal class RootPresetRunner @Inject constructor() : PresetRunner {
             "$presetsDir/$fileName",
             normalized,
             "__ZAPRET_PRESET_CANDIDATE_EOF__",
+            durable = false,
         )
     }
 

@@ -130,8 +130,6 @@ preflight_files() {
 prepare_options() {
     local capture="$ERROR_LOG.capture.$$" rcfile="$ERROR_LOG.rc.$$" dry_rc preset_file
     [ -f "$NFQWS2" ] && [ -x "$NFQWS2" ] || return 1
-    NFQWS_HELP="$("$NFQWS2" --help 2>&1)"
-    [ -n "$NFQWS_HELP" ] || return 1
     is_safe_preset_file_name "$ACTIVE_PRESET" || return 1
     preset_file="$PRESETS_DIR/$ACTIVE_PRESET"
     state_path_is_managed_file "$COMPILED_ARGV_FILE" || return 1
@@ -152,22 +150,25 @@ prepare_options() {
     preflight_files || return 1
     prepare_private_runtime_file "$STARTUP_LOG" || return 1
     prepare_private_runtime_file "$ERROR_LOG" || return 1
-    rm -f "$capture" "$rcfile" 2>/dev/null
-    umask 077
-    { run_compiled_artifact "$COMPILED_ARGV_FILE" dry-run >/dev/null; printf '%s\n' "$?" > "$rcfile"; } 2>&1 |
-        tail -c 32768 > "$capture"
-    dry_rc="$(cat "$rcfile" 2>/dev/null)"
-    rm -f "$rcfile" 2>/dev/null
-    is_decimal "$dry_rc" || { rm -f "$capture"; return 1; }
-    chmod 0600 "$capture" 2>/dev/null || { rm -f "$capture"; return 1; }
-    mv -f "$capture" "$ERROR_LOG" || { rm -f "$capture"; return 1; }
-    [ "$dry_rc" -eq 0 ] 2>/dev/null || return 1
     compiled_source_binding_current || return 1
+    if compiled_validation_receipt_current "$COMPILED_ARGV_FILE"; then
+        log_debug "Reusing generation-bound nfqws2 preflight receipt"
+    else
+        rm -f "$capture" "$rcfile" 2>/dev/null
+        umask 077
+        { run_compiled_artifact "$COMPILED_ARGV_FILE" dry-run >/dev/null; printf '%s\n' "$?" > "$rcfile"; } 2>&1 |
+            tail -c 32768 > "$capture"
+        dry_rc="$(cat "$rcfile" 2>/dev/null)"
+        rm -f "$rcfile" 2>/dev/null
+        is_decimal "$dry_rc" || { rm -f "$capture"; return 1; }
+        chmod 0600 "$capture" 2>/dev/null || { rm -f "$capture"; return 1; }
+        mv -f "$capture" "$ERROR_LOG" || { rm -f "$capture"; return 1; }
+        [ "$dry_rc" -eq 0 ] 2>/dev/null || return 1
+        write_compiled_validation_receipt "$COMPILED_ARGV_FILE" || return 1
+    fi
     {
         printf '%s\n' "$NFQWS2"
-        if nfqws_daemon_mode_supported; then
-            printf '%s\n' '--daemon' "--pidfile=$PIDFILE"
-        fi
+        printf '%s\n' '--daemon' "--pidfile=$PIDFILE"
         awk 'found { print } $0 == "ARGS" { found=1 }' "$COMPILED_ARGV_FILE"
     } > "$CMDLINE_FILE.tmp.$$" || return 1
     chmod 0600 "$CMDLINE_FILE.tmp.$$" 2>/dev/null && mv -f "$CMDLINE_FILE.tmp.$$" "$CMDLINE_FILE" || {
@@ -362,32 +363,27 @@ handle_signal() {
 }
 
 launch_nfqws2() {
-    local daemon_supported=0 candidate n=0 start
+    local candidate n=0 start
     compiled_source_binding_current || return 1
-    nfqws_daemon_mode_supported && daemon_supported=1
     [ ! -e "$PIDFILE" ] && [ ! -L "$PIDFILE" ] || return 1
     prepare_private_runtime_file "$STARTUP_LOG" || return 1
     prepare_private_runtime_file "$ERROR_LOG" || return 1
-    if [ "$daemon_supported" = 1 ]; then
-        LAUNCH_OWNS_PIDFILE=1
-        run_compiled_artifact "$COMPILED_ARGV_FILE" daemon || return 1
-    else
-        DIAGNOSTICS="${DIAGNOSTICS}daemon options unavailable; using supervised background pid; "
-        run_compiled_artifact "$COMPILED_ARGV_FILE" background || return 1
-    fi
+    LAUNCH_OWNS_PIDFILE=1
+    run_compiled_artifact "$COMPILED_ARGV_FILE" daemon || return 1
     LAUNCHED_PID_START="$(proc_starttime "$LAUNCHED_PID" 2>/dev/null)" || LAUNCHED_PID_START=""
     if [ -n "$LAUNCHED_PID_START" ]; then
         LAUNCHED_ARGV_SHA256="$(proc_cmdline_sha256 "$LAUNCHED_PID" 2>/dev/null)" || LAUNCHED_ARGV_SHA256=""
     fi
     while [ "$n" -lt 10 ]; do
         candidate="$LAUNCHED_PID"
-        if [ "$daemon_supported" = 1 ]; then
-            if read_live_pidfile; then candidate="$LIVE_PIDFILE_PID"; else candidate=""; fi
-        fi
+        if read_live_pidfile; then candidate="$LIVE_PIDFILE_PID"; else candidate=""; fi
         if [ -n "$candidate" ]; then
             start="$(proc_starttime "$candidate")" || start=""
-            if [ -n "$start" ] && verify_nfqws_pid "$candidate" "$start" "" "$QNUM"; then
-                if ! publish_nfqws_owner "$candidate" "$VERIFIED_STARTTIME" "$QNUM" launched; then return 1; fi
+            if [ -n "$start" ]; then
+                if ! publish_nfqws_owner "$candidate" "$start" "$QNUM" active; then
+                    n=$((n + 1)); sleep 1
+                    continue
+                fi
                 NEW_PID_PUBLISHED=1
                 STARTED_PID="$candidate"; STARTED_PID_START="$VERIFIED_STARTTIME"
                 return 0
@@ -505,14 +501,22 @@ main() {
     if [ "$REPLACE" = 0 ] && normal_health_ok; then
         DIAGNOSTICS="already healthy; no process or firewall churn"
         write_ok_status "$HEALTH_RULES" "$HEALTH_PID" "$HEALTH_IPV6" || fail_start "cannot write lifecycle status"
-        release_lifecycle_lock; trap - HUP INT TERM
+        receipt_lifecycle_state=idle; receipt_owner_kind=none
+        if [ "$LOCK_HELD" = inherited ]; then
+            receipt_lifecycle_state=owned; receipt_owner_kind=android-mutation
+        fi
+        release_lifecycle_lock || fail_start "cannot release lifecycle ownership"
+        trap - HUP INT TERM
+        emit_committed_status_v6 ok "$receipt_lifecycle_state" "$receipt_owner_kind" || true
         echo "Zapret2 is already running (PID: $HEALTH_PID)"
         exit 0
     fi
 
+    log_section "Preset preflight"
     prepare_options ||
         fail_start "nfqws2 preflight/dry-run failed" CONFIG PREFLIGHT_FAILED START_NFQWS_PREFLIGHT 0
 
+    log_section "Firewall transaction"
     command -v z2_fw_reconcile_family >/dev/null 2>&1 ||
         fail_start "firewall reconciler is unavailable" \
             FIREWALL FIREWALL_BACKEND_UNAVAILABLE START_FIREWALL_BACKEND 0
@@ -572,13 +576,12 @@ main() {
 
     # Queue bypass keeps traffic flowing between atomic firewall publication
     # and the verified listener becoming ready.
+    log_section "nfqws2 launch"
     launch_nfqws2 ||
         fail_start "nfqws2 did not produce a verified module-owned PID" \
             PROCESS PROCESS_LAUNCH_FAILED START_LAUNCH 1
 
-    set_owner_phase active ||
-        fail_start "cannot mark verified nfqws2 owner active" \
-            PROCESS POSTCONDITION_FAILED START_VERIFY 0
+    log_section "Post-commit verification"
     normal_health_ok ||
         fail_start "post-commit ownership/ruleset verification failed" \
             LIFECYCLE POSTCONDITION_FAILED START_VERIFY 0
@@ -590,8 +593,14 @@ main() {
     write_ok_status "$TOTAL_RULES" "$STARTED_PID" "$IPV6_ACTIVE" || fail_start "cannot atomically write lifecycle status"
     FIREWALL_MUTATED=0
     LAUNCHED_PID=""
-    release_lifecycle_lock; trap - HUP INT TERM
+    receipt_lifecycle_state=idle; receipt_owner_kind=none
+    if [ "$LOCK_HELD" = inherited ]; then
+        receipt_lifecycle_state=owned; receipt_owner_kind=android-mutation
+    fi
+    release_lifecycle_lock || fail_start "cannot release lifecycle ownership"
+    trap - HUP INT TERM
     log_msg "Zapret2 started with verified PID $STARTED_PID"
+    emit_committed_status_v6 ok "$receipt_lifecycle_state" "$receipt_owner_kind" || true
     echo "Zapret2 started (PID: $STARTED_PID)"
     exit 0
 }

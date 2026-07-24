@@ -215,6 +215,7 @@ internal object RootFileIo {
         content: String,
         delimiterPrefix: String,
         fileMode: String = "0644",
+        durable: Boolean = true,
     ): Boolean {
         ModuleMutationCoordinator.requirePrivilegedMutationContext()
         if (path.isBlank() || path.any { it == '\u0000' || it == '\n' || it == '\r' } || content.indexOf('\u0000') >= 0) {
@@ -253,7 +254,9 @@ internal object RootFileIo {
             append(" 2>/dev/null)\" = 0 ] && [ \"${'$'}(stat -c %a ").append(quotedPath)
             append(" 2>/dev/null)\" = ").append(fileMode.removePrefix("0")).append(" ] && ")
             append("[ \"${'$'}(stat -c %h ").append(quotedPath).append(" 2>/dev/null)\" = 1 ]; status=$?; fi\n")
-            append("if [ \"${'$'}status\" -eq 0 ]; then sync; status=$?; fi\n")
+            if (durable) {
+                append("if [ \"${'$'}status\" -eq 0 ]; then sync; status=$?; fi\n")
+            }
             append("if [ \"${'$'}status\" -ne 0 ]; then rm -f ").append(quotedTemp).append("; fi\n")
             append("exit \"${'$'}status\"")
         }

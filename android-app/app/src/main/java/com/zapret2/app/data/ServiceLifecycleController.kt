@@ -524,15 +524,19 @@ object ServiceLifecycleController {
                     error = "Service lifecycle is disabled while an update or full rollback is in progress"
                 )
             }
-            val before = getStatusLocked()
-            if (!before.rootGranted) {
+            // Start/stop need a leading observation for their idempotent no-op
+            // contract. Restart always executes a replacement transaction, so
+            // a separate status process here only duplicates lifecycle-owned
+            // verification and adds seconds to every preset application.
+            val before = if (action == Action.RESTART) null else getStatusLocked()
+            if (before != null && !before.rootGranted) {
                 return LifecycleResult(false, action, before, error = before.error ?: "Root access is required")
             }
 
-            if (action == Action.START && before.healthy) {
+            if (action == Action.START && before?.healthy == true) {
                 return LifecycleResult(true, action, before)
             }
-            if (action == Action.STOP && before.fullyStopped) {
+            if (action == Action.STOP && before?.fullyStopped == true) {
                 return LifecycleResult(true, action, before)
             }
 
@@ -543,7 +547,9 @@ object ServiceLifecycleController {
             }
             val result = withContext(NonCancellable) {
                 val commandResult = executeRoot(
-                    ModuleMutationCoordinator.inheritLifecycleLock("sh \"$script\""),
+                    ModuleMutationCoordinator.inheritLifecycleLock(
+                        "ZAPRET2_EMIT_STATUS_V6=1 sh \"$script\"",
+                    ),
                     RootCommandPolicy.LIFECYCLE,
                 )
                 if (!commandResult.success) {
@@ -558,6 +564,16 @@ object ServiceLifecycleController {
                 }
 
                 val expectedRunning = action != Action.STOP
+                parseLifecycleReceipt(commandResult)
+                    ?.takeIf { it.matchesExpectedState(expectedRunning) }
+                    ?.let { committed ->
+                        return@withContext LifecycleResult(
+                            success = true,
+                            action = action,
+                            status = committed,
+                            command = commandResult,
+                        )
+                    }
                 var status = getStatusLocked()
                 repeat(4) {
                     if (status.matchesExpectedState(expectedRunning)) {
@@ -659,6 +675,29 @@ object ServiceLifecycleController {
             )
         }
         return parsed
+    }
+
+    /**
+     * Lifecycle scripts exit zero after both mutation and verification, even
+     * when the committed state is "stopped". Normalize only a complete v6
+     * receipt through the same strict parser used by status observation.
+     */
+    internal fun parseLifecycleReceipt(result: CommandResult): ServiceStatus? {
+        if (!result.success || !result.rootGranted) return null
+        if (result.stdout.count { it == "Z2_PROTOCOL=6" } != 1) return null
+        val declared = result.stdout
+            .filter { it.startsWith("Z2_STATUS=") }
+            .singleOrNull()
+            ?.substringAfter('=')
+            ?: return null
+        val normalizedExitCode = statusExitCode(declared) ?: return null
+        val parsed = parseStatusCommandResult(
+            result.copy(
+                success = normalizedExitCode == 0,
+                exitCode = normalizedExitCode,
+            ),
+        )
+        return parsed.takeIf { it.metadataComplete }
     }
 
     internal fun statusExitCode(status: String): Int? = when (status.lowercase()) {

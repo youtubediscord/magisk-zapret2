@@ -11,6 +11,78 @@ PRESET_MAX_BYTES=1048576
 STRATEGY_CATALOG_MAX_BYTES=1048576
 COMPILED_ARGV_MAX_BYTES=2097152
 
+command_builder_safe_file_name_byte_length() {
+    local value="$1" LC_ALL=C
+    [ "${#value}" -le 255 ] 2>/dev/null
+}
+
+is_safe_preset_file_name() {
+    local name="$1"
+    [ -n "$name" ] && command_builder_safe_file_name_byte_length "$name" || return 1
+    [ "${name# }" = "$name" ] && [ "${name% }" = "$name" ] || return 1
+    case "$name" in
+        _*|.|..|*/*|*\\*|*"'"*|*'"'*|*.TXT|*.Txt|*.tXt|*.txT|*.TXt|*.TxT|*.tXT) return 1 ;;
+        *.txt) ;;
+        *) return 1 ;;
+    esac
+    case "$name" in *[[:cntrl:]]*) return 1 ;; esac
+    return 0
+}
+
+# Runtime catalog discovery projects only direct, trusted directory entries.
+# Keep it ahead of common.sh and the compiler body: loading several thousand
+# lines of lifecycle helpers to list already-qualified package files made this
+# bounded read take seconds on Android.
+if [ "${1:-}" = --list-presets-machine ]; then
+    [ "$#" -eq 2 ] || { printf 'Z2_PRESET_ERROR\tINVALID_ARGUMENTS\n'; exit 2; }
+    ZAPRET_DIR="${2:-}"
+    case "$ZAPRET_DIR" in
+        /*) ;;
+        *) printf 'Z2_PRESET_ERROR\tUNSAFE_ROOT\n' >&2; exit 2 ;;
+    esac
+    case "$ZAPRET_DIR" in
+        *'/../'*|*'/./'*|*/..|*/.)
+            printf 'Z2_PRESET_ERROR\tUNSAFE_ROOT\n' >&2
+            exit 2
+            ;;
+    esac
+    PRESETS_DIR="$ZAPRET_DIR/presets"
+    [ -d "$PRESETS_DIR" ] && [ ! -L "$PRESETS_DIR" ] || {
+        printf 'Z2_PRESET_ERROR\tPRESET_CATALOG_MISSING\n'
+        exit 2
+    }
+    ready=0
+    quarantined=0
+    total=0
+    for preset_file in "$PRESETS_DIR"/*.txt; do
+        [ -e "$preset_file" ] || [ -L "$preset_file" ] || continue
+        preset_name="${preset_file##*/}"
+        case "$preset_name" in _*) continue ;; esac
+        is_safe_preset_file_name "$preset_name" || continue
+        total=$((total + 1))
+        reason=
+        if [ -L "$preset_file" ]; then
+            reason=PRESET_SYMLINK
+        elif [ ! -f "$preset_file" ]; then
+            reason=PRESET_MISSING
+        elif [ ! -s "$preset_file" ]; then
+            reason=PRESET_EMPTY
+        elif [ ! -r "$preset_file" ]; then
+            reason=PRESET_UNREADABLE
+        fi
+        if [ -z "$reason" ]; then
+            ready=$((ready + 1))
+            printf 'Z2_PRESET\tREADY\tOK\t%s\n' "$preset_name"
+        else
+            quarantined=$((quarantined + 1))
+            printf 'Z2_PRESET\tQUARANTINED\t%s\t%s\n' "$reason" "$preset_name"
+        fi
+    done
+    printf 'Z2_PRESET_SUMMARY\t2\tready=%s\tquarantined=%s\ttotal=%s\n' \
+        "$ready" "$quarantined" "$total"
+    exit 0
+fi
+
 case "${1:-}" in
     --list-presets-machine|--scan-presets-machine|--validate-preset-machine|--preflight-preset-machine|--preview-preset-machine|--validate-strategies-machine)
         COMMAND_BUILDER_CLI_MODE=1
@@ -51,24 +123,6 @@ preset_validation_fail() {
     PRESET_VALIDATION_CODE="$1"
     PRESET_VALIDATION_DETAIL="${2:-}"
     return 1
-}
-
-command_builder_safe_file_name_byte_length() {
-    local value="$1" LC_ALL=C
-    [ "${#value}" -le 255 ] 2>/dev/null
-}
-
-is_safe_preset_file_name() {
-    local name="$1"
-    [ -n "$name" ] && command_builder_safe_file_name_byte_length "$name" || return 1
-    [ "${name# }" = "$name" ] && [ "${name% }" = "$name" ] || return 1
-    case "$name" in
-        _*|.|..|*/*|*\\*|*"'"*|*'"'*|*.TXT|*.Txt|*.tXt|*.txT|*.TXt|*.TxT|*.tXT) return 1 ;;
-        *.txt) ;;
-        *) return 1 ;;
-    esac
-    case "$name" in *[[:cntrl:]]*) return 1 ;; esac
-    return 0
 }
 
 is_safe_dependency_name() {
@@ -502,6 +556,73 @@ compiled_artifact_binding_current() {
     [ "$current_runtime_sha" = "$COMPILED_RUNTIME_SHA256" ]
 }
 
+COMPILED_VALIDATION_RECEIPT_VERSION=1
+
+read_compiled_validation_receipt() {
+    local path="${1:-$COMPILED_VALIDATION_RECEIPT}" size extra
+    local version_line generation_line archive_line argv_line
+    VALIDATED_INSTALL_GENERATION=
+    VALIDATED_INSTALL_ARCHIVE_SHA256=
+    VALIDATED_ARGV_SHA256=
+    state_file_is_secure "$path" && path_mode_is_0600 "$path" &&
+        path_nlink_is_one "$path" || return 1
+    size="$(wc -c < "$path" 2>/dev/null)" || return 1
+    is_decimal "$size" && [ "$size" -gt 0 ] 2>/dev/null &&
+        [ "$size" -le 1024 ] 2>/dev/null || return 1
+    {
+        IFS= read -r version_line &&
+        IFS= read -r generation_line &&
+        IFS= read -r archive_line &&
+        IFS= read -r argv_line
+        if IFS= read -r extra; then return 1; fi
+    } < "$path" || return 1
+    [ "$version_line" = "version=$COMPILED_VALIDATION_RECEIPT_VERSION" ] || return 1
+    case "$generation_line" in install_generation=*) ;; *) return 1 ;; esac
+    case "$archive_line" in install_archive_sha256=*) ;; *) return 1 ;; esac
+    case "$argv_line" in argv_sha256=*) ;; *) return 1 ;; esac
+    VALIDATED_INSTALL_GENERATION="${generation_line#*=}"
+    VALIDATED_INSTALL_ARCHIVE_SHA256="${archive_line#*=}"
+    VALIDATED_ARGV_SHA256="${argv_line#*=}"
+    is_safe_token "$VALIDATED_INSTALL_GENERATION" &&
+        is_lower_sha256 "$VALIDATED_INSTALL_ARCHIVE_SHA256" &&
+        is_lower_sha256 "$VALIDATED_ARGV_SHA256"
+}
+
+compiled_validation_receipt_current() {
+    local artifact="$1" argv_sha256
+    read_install_generation_meta || return 1
+    read_compiled_validation_receipt || return 1
+    [ "$VALIDATED_INSTALL_GENERATION" = "$INSTALL_META_GENERATION" ] &&
+        [ "$VALIDATED_INSTALL_ARCHIVE_SHA256" = "$INSTALL_META_ARCHIVE_SHA256" ] ||
+        return 1
+    argv_sha256="$(sha256sum "$artifact" 2>/dev/null)" || return 1
+    argv_sha256="${argv_sha256%% *}"
+    [ "$argv_sha256" = "$VALIDATED_ARGV_SHA256" ]
+}
+
+write_compiled_validation_receipt() {
+    local artifact="$1" argv_sha256 tmp="$COMPILED_VALIDATION_RECEIPT.tmp.$$"
+    read_install_generation_meta || return 1
+    argv_sha256="$(sha256sum "$artifact" 2>/dev/null)" || return 1
+    argv_sha256="${argv_sha256%% *}"
+    is_lower_sha256 "$argv_sha256" || return 1
+    state_file_target_is_safe "$COMPILED_VALIDATION_RECEIPT" || return 1
+    state_path_is_managed_file "$tmp" || return 1
+    [ ! -e "$tmp" ] && [ ! -L "$tmp" ] || return 1
+    umask 077
+    {
+        printf 'version=%s\n' "$COMPILED_VALIDATION_RECEIPT_VERSION"
+        printf 'install_generation=%s\n' "$INSTALL_META_GENERATION"
+        printf 'install_archive_sha256=%s\n' "$INSTALL_META_ARCHIVE_SHA256"
+        printf 'argv_sha256=%s\n' "$argv_sha256"
+    } > "$tmp" || { rm -f "$tmp"; return 1; }
+    chmod 0600 "$tmp" 2>/dev/null &&
+        mv -f "$tmp" "$COMPILED_VALIDATION_RECEIPT" || {
+            rm -f "$tmp"
+            return 1
+        }
+}
+
 ensure_compiled_artifact() {
     local preset_file="$1" logical_name="$2" artifact="$3"
     if compiled_artifact_binding_current "$artifact" "$preset_file" "$logical_name"; then
@@ -593,13 +714,6 @@ run_compiled_artifact() {
             ;;
         *) return 1 ;;
     esac
-}
-
-nfqws_daemon_mode_supported() {
-    local help_text="${NFQWS_HELP:-}"
-    [ -n "$help_text" ] || help_text="$("$NFQWS2" --help 2>&1)" || return 1
-    case "$help_text" in *--daemon*) ;; *) return 1 ;; esac
-    case "$help_text" in *--pidfile*) return 0 ;; *) return 1 ;; esac
 }
 
 preview_compiled_artifact_machine() {
