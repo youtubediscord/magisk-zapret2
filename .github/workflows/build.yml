@@ -382,7 +382,25 @@ jobs:
       - name: Create ZIP
         env:
           UPSTREAM_ZAPRET2_SHA: ${{ needs.fetch-upstream.outputs.sha }}
+          UPSTREAM_ZAPRET2_TAG: ${{ needs.fetch-upstream.outputs.tag }}
+          UPSTREAM_ZAPRET2_ARCHIVE_SHA256: ${{ needs.fetch-upstream.outputs.archive_sha256 }}
         run: |
+          set -eo pipefail
+          for provenance in UPSTREAM_ZAPRET2_SHA UPSTREAM_ZAPRET2_TAG UPSTREAM_ZAPRET2_ARCHIVE_SHA256; do
+            if [ -z "${!provenance:-}" ]; then
+              echo "Required upstream provenance value $provenance is missing" >&2
+              exit 1
+            fi
+          done
+          package_contract_step() {
+            local action="$1"
+            shift
+            PACKAGE_CONTRACT_CODE=""
+            PACKAGE_CONTRACT_DETAIL=""
+            "$action" "$@" && return 0
+            echo "Package contract check $action failed: ${PACKAGE_CONTRACT_CODE:-UNKNOWN} ${PACKAGE_CONTRACT_DETAIL:-}" >&2
+            return 1
+          }
           VERSION="${{ needs.prepare-version.outputs.version }}"
           VERSION_TAG="${{ needs.prepare-version.outputs.version_tag }}"
           VERSION_CODE="${{ needs.prepare-version.outputs.version_code }}"
@@ -395,7 +413,7 @@ jobs:
 
           . ./zapret2/scripts/package-contract.sh
           PACKAGE_ASSEMBLY_ROOT="$(mktemp -d)"
-          package_contract_assemble_package "$PWD" "$PACKAGE_ASSEMBLY_ROOT"
+          package_contract_step package_contract_assemble_package "$PWD" "$PACKAGE_ASSEMBLY_ROOT"
           rm -f "$ZIP_NAME"
           (
             cd "$PACKAGE_ASSEMBLY_ROOT"
@@ -408,13 +426,13 @@ jobs:
           ZIP_LIST="$(mktemp)"
           zipinfo -1 "$ZIP_NAME" | tee "$ZIP_LIST"
           PACKAGE_VALIDATE_ROOT="$(mktemp -d)"
-          package_contract_validate_zip_names "$PWD" "$ZIP_LIST"
+          package_contract_step package_contract_validate_zip_names "$PWD" "$ZIP_LIST"
           unzip -q "$ZIP_NAME" -d "$PACKAGE_VALIDATE_ROOT"
           sudo chown -R 0:0 "$PACKAGE_VALIDATE_ROOT"
           sudo find "$PACKAGE_VALIDATE_ROOT" -type d -exec chmod 0755 {} +
-          package_contract_validate_all "$PACKAGE_VALIDATE_ROOT" package
-          package_contract_validate_exact_tree "$PACKAGE_VALIDATE_ROOT" package
-          package_contract_validate_modes "$PACKAGE_VALIDATE_ROOT" package
+          package_contract_step package_contract_validate_all "$PACKAGE_VALIDATE_ROOT" package
+          package_contract_step package_contract_validate_exact_tree "$PACKAGE_VALIDATE_ROOT" package
+          package_contract_step package_contract_validate_modes "$PACKAGE_VALIDATE_ROOT" package
           if grep -Eq '^META-INF(/|$)' "$ZIP_LIST"; then
             echo "Recovery flashing metadata must not be published" >&2
             exit 1
@@ -423,10 +441,16 @@ jobs:
           WRAPPER_ACTUAL="$(mktemp)"
           verify_provenance_entry() {
             local entry="$1" expected="$2"
-            test "$(grep -Fxc "$entry" "$ZIP_LIST")" -eq 1
+            if [ "$(grep -Fxc "$entry" "$ZIP_LIST")" -ne 1 ]; then
+              echo "Provenance entry $entry is missing from the published ZIP" >&2
+              return 1
+            fi
             printf '%s\n' "$expected" > "$WRAPPER_EXPECTED"
             unzip -p "$ZIP_NAME" "$entry" > "$WRAPPER_ACTUAL"
-            cmp -s "$WRAPPER_EXPECTED" "$WRAPPER_ACTUAL"
+            if ! cmp -s "$WRAPPER_EXPECTED" "$WRAPPER_ACTUAL"; then
+              echo "Provenance entry $entry does not match the verified upstream value" >&2
+              return 1
+            fi
           }
           verify_provenance_entry 'zapret2/upstream-zapret2.commit' "$UPSTREAM_ZAPRET2_SHA"
           verify_provenance_entry 'zapret2/upstream-zapret2.release' "$UPSTREAM_ZAPRET2_TAG"
