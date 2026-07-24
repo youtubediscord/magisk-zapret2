@@ -279,33 +279,34 @@ prepare_fast_replace_candidate() {
 fast_replace_health_ok() {
     HEALTH_PID=""; HEALTH_PID_START=""; HEALTH_GENERATION=""
     HEALTH_IPV6="$IPV6_ACTIVE"; HEALTH_RULES=$((IPV4_RULES + IPV6_RULES))
-    read_verified_pidfile || return 1
-    read_install_generation_meta &&
-        [ "$OWNER_STATE_INSTALL_GENERATION" = "$INSTALL_META_GENERATION" ] &&
-        [ "$OWNER_STATE_INSTALL_ARCHIVE_SHA256" = "$INSTALL_META_ARCHIVE_SHA256" ] ||
+    [ "${PUBLISHED_PID:-}" = "$STARTED_PID" ] &&
+        [ "${PUBLISHED_START:-}" = "$STARTED_PID_START" ] &&
+        [ "${PUBLISHED_GENERATION:-}" = "$PENDING_OWNER_GENERATION" ] &&
+        [ "${PUBLISHED_FIREWALL_FINGERPRINT:-}" = "$FAST_REPLACE_FIREWALL_FINGERPRINT" ] &&
+        [ "${PUBLISHED_IPV4_RULES:-}" = "$IPV4_RULES" ] &&
+        [ "${PUBLISHED_IPV6_RULES:-}" = "$IPV6_RULES" ] &&
+        [ "${PUBLISHED_INSTALL_GENERATION:-}" = "$INSTALL_META_GENERATION" ] &&
+        [ "${PUBLISHED_INSTALL_ARCHIVE_SHA256:-}" = "$INSTALL_META_ARCHIVE_SHA256" ] ||
         return 1
-    [ "$OWNER_STATE_PHASE" = active ] &&
-        [ "$OWNER_STATE_QNUM" = "$QNUM" ] &&
-        [ "$OWNER_STATE_GENERATION" = "$PENDING_OWNER_GENERATION" ] &&
-        [ "$OWNER_STATE_FIREWALL_FINGERPRINT" = "$FAST_REPLACE_FIREWALL_FINGERPRINT" ] &&
-        [ "$OWNER_STATE_IPV4_RULES" = "$IPV4_RULES" ] &&
-        [ "$OWNER_STATE_IPV6_RULES" = "$IPV6_RULES" ] ||
-        return 1
-    HEALTH_PID="$VERIFIED_PID"
-    HEALTH_PID_START="$VERIFIED_PID_START"
-    HEALTH_GENERATION="$OWNER_STATE_GENERATION"
+    HEALTH_PID="$PUBLISHED_PID"
+    HEALTH_PID_START="$PUBLISHED_START"
+    HEALTH_GENERATION="$PUBLISHED_GENERATION"
     return 0
 }
 
 write_ok_status() {
+    local status_argv status_ipv4_rules status_ipv6_rules
+    status_argv="${PUBLISHED_ARGV_SHA256:-$OWNER_STATE_ARGV_SHA256}"
+    status_ipv4_rules="${PUBLISHED_IPV4_RULES:-$OWNER_STATE_IPV4_RULES}"
+    status_ipv6_rules="${PUBLISHED_IPV6_RULES:-$OWNER_STATE_IPV6_RULES}"
     STATUS_RULES_OK="$1"; STATUS_RULES_FAIL=0; STATUS_RULES_TOTAL="$1"
     STATUS_ERRORS=""; STATUS_OWN_PID="$2"; STATUS_PID_VERIFIED=1; STATUS_QNUM="$QNUM"
     STATUS_OWN_PID_STARTTIME="$HEALTH_PID_START"
-    STATUS_OWN_ARGV_SHA256="$OWNER_STATE_ARGV_SHA256"
+    STATUS_OWN_ARGV_SHA256="$status_argv"
     STATUS_OWNER_GENERATION="$HEALTH_GENERATION"
     STATUS_OWNER_METADATA_VERIFIED=1; STATUS_RULESET_VERIFIED=1; STATUS_RULES_EXPECTED="$1"
     STATUS_IPV4_ACTIVE=1; STATUS_IPV6_ACTIVE="$3"
-    STATUS_IPV4_RULES="$OWNER_STATE_IPV4_RULES"; STATUS_IPV6_RULES="$OWNER_STATE_IPV6_RULES"
+    STATUS_IPV4_RULES="$status_ipv4_rules"; STATUS_IPV6_RULES="$status_ipv6_rules"
     STATUS_CHAINS=$((1 + IPV4_CONNBYTES + STATUS_IPV6_ACTIVE * (1 + IPV6_CONNBYTES)))
     STATUS_ANCHORS="$STATUS_CHAINS"
     STATUS_NFQUEUE_SUPPORTED=1; STATUS_QUEUE_BYPASS_SUPPORTED=1
@@ -442,12 +443,28 @@ handle_signal() {
 
 launch_nfqws2() {
     local candidate n=0 start
-    compiled_source_binding_current || return 1
-    [ ! -e "$PIDFILE" ] && [ ! -L "$PIDFILE" ] || return 1
-    prepare_private_runtime_file "$STARTUP_LOG" || return 1
-    prepare_private_runtime_file "$ERROR_LOG" || return 1
+    LAUNCH_ERROR=""
+    compiled_source_binding_current || {
+        LAUNCH_ERROR="compiled preset source binding changed before launch"
+        return 1
+    }
+    [ ! -e "$PIDFILE" ] && [ ! -L "$PIDFILE" ] || {
+        LAUNCH_ERROR="PID file already exists before launch"
+        return 1
+    }
+    prepare_private_runtime_file "$STARTUP_LOG" || {
+        LAUNCH_ERROR="startup diagnostic file is unavailable"
+        return 1
+    }
+    prepare_private_runtime_file "$ERROR_LOG" || {
+        LAUNCH_ERROR="error diagnostic file is unavailable"
+        return 1
+    }
     LAUNCH_OWNS_PIDFILE=1
-    run_compiled_artifact "$COMPILED_ARGV_FILE" daemon || return 1
+    run_compiled_artifact "$COMPILED_ARGV_FILE" daemon || {
+        LAUNCH_ERROR="nfqws2 rejected the compiled launch artifact"
+        return 1
+    }
     LAUNCHED_PID_START="$(proc_starttime "$LAUNCHED_PID" 2>/dev/null)" || LAUNCHED_PID_START=""
     if [ -n "$LAUNCHED_PID_START" ]; then
         LAUNCHED_ARGV_SHA256="$(proc_cmdline_sha256 "$LAUNCHED_PID" 2>/dev/null)" || LAUNCHED_ARGV_SHA256=""
@@ -459,6 +476,7 @@ launch_nfqws2() {
             start="$(proc_starttime "$candidate")" || start=""
             if [ -n "$start" ]; then
                 if ! publish_nfqws_owner "$candidate" "$start" "$QNUM" active; then
+                    LAUNCH_ERROR="nfqws2 PID appeared but exact owner publication failed"
                     n=$((n + 1)); sleep 1
                     continue
                 fi
@@ -470,6 +488,7 @@ launch_nfqws2() {
         fi
         n=$((n + 1)); sleep 1
     done
+    [ -n "$LAUNCH_ERROR" ] || LAUNCH_ERROR="nfqws2 did not publish a live PID within 10 seconds"
     return 1
 }
 
@@ -613,7 +632,7 @@ main() {
         FIREWALL_MUTATED=1
         log_section "nfqws2 launch"
         launch_nfqws2 ||
-            fail_start "nfqws2 did not produce a verified module-owned PID" \
+            fail_start "nfqws2 launch failed: ${LAUNCH_ERROR:-verified owner was not published}" \
                 PROCESS PROCESS_LAUNCH_FAILED START_LAUNCH 1
         fast_replace_health_ok ||
             fail_start "daemon-only replacement ownership verification failed" \
@@ -658,9 +677,6 @@ main() {
     # never restored from a boot-local transaction journal.
     CONTROLLED_TEARDOWN_STARTED=1
     FIREWALL_MUTATED=1
-    cleanup_owned_firewall ||
-        fail_start "cannot clean the stable Zapret2 firewall namespace" \
-            FIREWALL FIREWALL_CLEANUP_FAILED START_CLEANUP 0
     stop_pidfile_process ||
         fail_start "cannot stop verified previous nfqws2 process" \
             PROCESS PROCESS_STOP_FAILED START_CLEANUP 0
@@ -670,7 +686,7 @@ main() {
             FIREWALL PREFLIGHT_FAILED START_IDENTITY 0
 
     IPV4_NFQUEUE=1; IPV4_QUEUE_BYPASS=1; IPV4_MULTIPORT=1; IPV4_MARK=1
-    if ! z2_fw_reconcile_family iptables precleaned; then
+    if ! z2_fw_reconcile_family iptables audited; then
         fail_start "atomic IPv4 firewall publication failed: ${Z2_FW_ERROR_DETAIL:-unknown firewall backend failure}" \
             FIREWALL "$(firewall_failure_code)" START_FIREWALL_IPV4 1
     fi
@@ -685,7 +701,7 @@ main() {
     IPV6_ACTIVE=0; IPV6_BUILT=0; IPV6_RULES=0
     IPV6_CONNBYTES=0; IPV6_MULTIPORT=1; IPV6_MARK=1
     if z2_fw_tool_available ip6tables && z2_fw_restore_available ip6tables; then
-        if z2_fw_reconcile_family ip6tables precleaned; then
+        if z2_fw_reconcile_family ip6tables audited; then
             IPV6_CONNBYTES="$Z2_FW_CONNBYTES"
             IPV6_RULES="$Z2_FW_RULES"; IPV6_BUILT=1; IPV6_ACTIVE=1
             if [ "$IPV6_CONNBYTES" != 1 ]; then
@@ -705,16 +721,26 @@ main() {
     # and the verified listener becoming ready.
     log_section "nfqws2 launch"
     launch_nfqws2 ||
-        fail_start "nfqws2 did not produce a verified module-owned PID" \
+        fail_start "nfqws2 launch failed: ${LAUNCH_ERROR:-verified owner was not published}" \
             PROCESS PROCESS_LAUNCH_FAILED START_LAUNCH 1
 
-    log_section "Post-commit verification"
-    normal_health_ok ||
-        fail_start "post-commit ownership/ruleset verification failed" \
-            LIFECYCLE POSTCONDITION_FAILED START_VERIFY 0
-    [ "$HEALTH_PID" = "$STARTED_PID" ] && [ "$HEALTH_PID_START" = "$STARTED_PID_START" ] ||
-        fail_start "post-commit PID identity changed"
-    [ "$HEALTH_IPV6" = "$IPV6_ACTIVE" ] || fail_start "post-commit IPv6 state mismatch"
+    log_section "Commit receipt"
+    if ! {
+        [ "${PUBLISHED_PID:-}" = "$STARTED_PID" ] &&
+            [ "${PUBLISHED_START:-}" = "$STARTED_PID_START" ] &&
+            [ "${PUBLISHED_GENERATION:-}" = "$PENDING_OWNER_GENERATION" ] &&
+            [ "${PUBLISHED_IPV4_RULES:-}" = "$IPV4_RULES" ] &&
+            [ "${PUBLISHED_IPV6_RULES:-}" = "$IPV6_RULES" ] &&
+            [ "${PUBLISHED_IPV6_ACTIVE:-}" = "$IPV6_ACTIVE" ]
+    }; then
+        fail_start "published process/firewall receipt is internally inconsistent" \
+            LIFECYCLE POSTCONDITION_FAILED START_COMMIT 0
+    fi
+    HEALTH_PID="$PUBLISHED_PID"
+    HEALTH_PID_START="$PUBLISHED_START"
+    HEALTH_GENERATION="$PUBLISHED_GENERATION"
+    HEALTH_IPV6="$PUBLISHED_IPV6_ACTIVE"
+    HEALTH_RULES=$((PUBLISHED_IPV4_RULES + PUBLISHED_IPV6_RULES))
 
     TOTAL_RULES=$((IPV4_RULES + IPV6_RULES))
     write_ok_status "$TOTAL_RULES" "$STARTED_PID" "$IPV6_ACTIVE" || fail_start "cannot atomically write lifecycle status"

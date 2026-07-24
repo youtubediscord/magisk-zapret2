@@ -2304,7 +2304,14 @@ publish_nfqws_owner() {
     write_numeric_pidfile "$pid" || return 1
     PUBLISHED_PID="$pid"
     PUBLISHED_START="$start"
+    PUBLISHED_ARGV_SHA256="$argv_sha256"
     PUBLISHED_GENERATION="$generation"
+    PUBLISHED_FIREWALL_FINGERPRINT="$OWNER_WRITE_FIREWALL_FINGERPRINT"
+    PUBLISHED_IPV4_RULES="$OWNER_WRITE_IPV4_RULES"
+    PUBLISHED_IPV6_RULES="$OWNER_WRITE_IPV6_RULES"
+    PUBLISHED_IPV6_ACTIVE="$OWNER_WRITE_IPV6_ACTIVE"
+    PUBLISHED_INSTALL_GENERATION="$OWNER_WRITE_INSTALL_GENERATION"
+    PUBLISHED_INSTALL_ARCHIVE_SHA256="$OWNER_WRITE_INSTALL_ARCHIVE_SHA256"
     return 0
 }
 
@@ -2691,10 +2698,15 @@ audit_owned_firewall_for_cleanup() {
         FIREWALL_CLEANUP_PREFLIGHT_ERROR="IPv4 stable namespace has a foreign reference"
         return 1
     }
-    if z2_fw_tool_available ip6tables &&
-       ! z2_fw_cleanup_is_unambiguous ip6tables; then
-        FIREWALL_CLEANUP_PREFLIGHT_ERROR="IPv6 stable namespace has a foreign reference"
+    z2_fw_save_audit iptables || {
+        FIREWALL_CLEANUP_PREFLIGHT_ERROR="IPv4 stable namespace audit could not be retained"
         return 1
+    }
+    if z2_fw_tool_available ip6tables &&
+       { ! z2_fw_cleanup_is_unambiguous ip6tables ||
+         ! z2_fw_save_audit ip6tables; }; then
+            FIREWALL_CLEANUP_PREFLIGHT_ERROR="IPv6 stable namespace has a foreign reference"
+            return 1
     fi
     # Stable chain names are the ownership boundary. Cleanup is idempotent and
     # never touches another chain or a non-exact built-in anchor.
@@ -2702,13 +2714,14 @@ audit_owned_firewall_for_cleanup() {
 }
 
 cleanup_owned_firewall() {
-    local rc=0 result
+    local baseline_mode="${1:-owned}" rc=0 result
+    case "$baseline_mode" in owned|audited) ;; *) return 1;; esac
     command -v z2_fw_cleanup_family >/dev/null 2>&1 || return 1
-    z2_fw_cleanup_family iptables
+    z2_fw_cleanup_family iptables "$baseline_mode"
     result=$?
     [ "$result" = 0 ] || rc=1
     if z2_fw_tool_available ip6tables; then
-        z2_fw_cleanup_family ip6tables || rc=1
+        z2_fw_cleanup_family ip6tables "$baseline_mode" || rc=1
     fi
     if [ -e "$OBSOLETE_FIREWALL_WAL" ] || [ -L "$OBSOLETE_FIREWALL_WAL" ]; then
         state_file_is_secure "$OBSOLETE_FIREWALL_WAL" &&

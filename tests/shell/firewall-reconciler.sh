@@ -87,6 +87,7 @@ count=0
 count=$((count + 1))
 printf '%s\n' "$count" > "$state/restore.count"
 printf '%s\n' "$*" >> "$state/restore.args"
+printf '%s\n' "$payload" > "$state/restore.payload.$count"
 if [ -f "$state/lock.remaining" ]; then
     IFS= read -r remaining < "$state/lock.remaining"
     if [ "$remaining" -gt 0 ]; then
@@ -110,21 +111,35 @@ case " $* " in *' --test '*) exit 0;; esac
     echo 'vendor backend rejected COMMIT' >&2
     exit 1
 }
-printf '%s\n' "$payload" | grep -F -- ':ZAPRET2_OUT ' >/dev/null || exit 1
-: > "$state/chain.out"
-printf '%s\n' "$payload" | grep -F -- '-A ZAPRET2_OUT ' > "$state/rules.out" || :
+if printf '%s\n' "$payload" | grep -Fx -- '-D OUTPUT -j ZAPRET2_OUT' >/dev/null; then
+    rm -f "$state/anchor.out"
+fi
+if printf '%s\n' "$payload" | grep -Fx -- '-D INPUT -j ZAPRET2_IN' >/dev/null; then
+    rm -f "$state/anchor.in"
+fi
+if printf '%s\n' "$payload" | grep -Fx -- '-X ZAPRET2_OUT' >/dev/null; then
+    rm -f "$state/chain.out" "$state/rules.out"
+fi
+if printf '%s\n' "$payload" | grep -Fx -- '-X ZAPRET2_IN' >/dev/null; then
+    rm -f "$state/chain.in" "$state/rules.in"
+fi
+if printf '%s\n' "$payload" | grep -F -- ':ZAPRET2_OUT ' >/dev/null; then
+    : > "$state/chain.out"
+    printf '%s\n' "$payload" | grep -F -- '-A ZAPRET2_OUT ' > "$state/rules.out" || :
+fi
 if printf '%s\n' "$payload" | grep -F -- ':ZAPRET2_IN ' >/dev/null; then
     : > "$state/chain.in"
     printf '%s\n' "$payload" | grep -F -- '-A ZAPRET2_IN ' > "$state/rules.in" || :
-else
-    rm -f "$state/chain.in" "$state/rules.in"
 fi
 printf '%s\n' "$payload" | grep -Fx -- '-A OUTPUT -j ZAPRET2_OUT' >/dev/null &&
     : > "$state/anchor.out"
 if printf '%s\n' "$payload" | grep -Fx -- '-A INPUT -j ZAPRET2_IN' >/dev/null; then
     : > "$state/anchor.in"
-else
-    rm -f "$state/anchor.in"
+fi
+if [ "${Z2_CORRUPT_AFTER_COMMIT:-0}" = 1 ] &&
+   printf '%s\n' "$payload" | grep -F -- ':ZAPRET2_OUT ' >/dev/null; then
+    sed '$d' "$state/rules.out" > "$state/rules.out.corrupt"
+    mv "$state/rules.out.corrupt" "$state/rules.out"
 fi
 EOF
 
@@ -168,6 +183,24 @@ z2_fw_verify_family iptables 1 || fail "published family did not verify"
     fail "final family verification used more than one kernel snapshot"
 grep -Fqx -- '-t mangle -S' "$FW/iptables.args" ||
     fail "final family verification did not use one complete mangle snapshot"
+
+z2_fw_cleanup_is_unambiguous iptables || fail "published baseline audit failed"
+z2_fw_save_audit iptables || fail "published baseline audit was not retained"
+PORTS_TCP=443
+z2_fw_reconcile_family iptables audited ||
+    fail "audited atomic replacement failed"
+[ "$(cat "$FW/restore.count")" = 4 ] ||
+    fail "atomic replacement did not use one test and one commit"
+for command in \
+    '-D OUTPUT -j ZAPRET2_OUT' \
+    '-D INPUT -j ZAPRET2_IN' \
+    '-F ZAPRET2_OUT' \
+    '-X ZAPRET2_OUT' \
+    ':ZAPRET2_OUT - [0:0]'; do
+    grep -Fqx -- "$command" "$FW/restore.payload.4" ||
+        fail "atomic replacement batch omitted: $command"
+done
+PORTS_TCP=80,443
 
 z2_fw_cleanup_family iptables || fail "stable namespace cleanup failed"
 z2_fw_cleanup_family iptables || fail "stable namespace cleanup is not idempotent"
@@ -256,6 +289,22 @@ case "$Z2_FW_ERROR_DETAIL" in
     *) fail "failed COMMIT diagnostic was discarded" ;;
 esac
 unset Z2_RESTORE_FAIL_COMMIT
+
+rm -f "$FW"/*
+Z2_CORRUPT_AFTER_COMMIT=1
+export Z2_CORRUPT_AFTER_COMMIT
+if z2_fw_reconcile_family iptables; then
+    fail "corrupted post-publication topology was accepted"
+fi
+[ "$Z2_FW_FAILURE_CLASS" = POSTCONDITION_FAILED ] ||
+    fail "post-publication mismatch lost its failure class"
+case "$Z2_FW_ERROR_DETAIL" in
+    *'reason=OUT_RULE_COUNT:1'*) ;;
+    *) fail "post-publication mismatch lost its typed reason: $Z2_FW_ERROR_DETAIL" ;;
+esac
+z2_fw_family_absent iptables ||
+    fail "post-publication mismatch did not converge to absent state"
+unset Z2_CORRUPT_AFTER_COMMIT
 
 if find "$STATE" -maxdepth 1 -type f -name 'firewall-*' | grep -q .; then
     fail "firewall transaction left private temporary files"

@@ -33,7 +33,7 @@ class PresetApplicationPerformanceContractTest {
     }
 
     @Test
-    fun lifecycleFirewall_hasOneCleanupOwnerAndOneFinalSnapshotVerification() {
+    fun lifecycleFirewall_usesOneAtomicTransitionAndOneCommitSnapshot() {
         val start = repositoryFile("zapret2/scripts/zapret-start.sh").readText()
         val reconciler = repositoryFile("zapret2/scripts/firewall-reconciler.sh").readText()
         val reconcile = reconciler
@@ -43,9 +43,13 @@ class PresetApplicationPerformanceContractTest {
             .substringAfter("z2_fw_verify_family() {")
             .substringBefore("z2_fw_reconcile_family() {")
 
-        assertTrue(start.contains("z2_fw_reconcile_family iptables precleaned"))
-        assertTrue(start.contains("z2_fw_reconcile_family ip6tables precleaned"))
-        assertFalse(reconcile.contains("z2_fw_verify_family"))
+        assertTrue(start.contains("z2_fw_reconcile_family iptables audited"))
+        assertTrue(start.contains("z2_fw_reconcile_family ip6tables audited"))
+        assertTrue(reconcile.contains("z2_fw_verify_family"))
+        assertFalse(start.contains("z2_fw_reconcile_family iptables precleaned"))
+        assertFalse(reconciler.contains("z2_fw_delete_anchors"))
+        assertFalse(reconciler.contains("z2_fw_drop_chain"))
+        assertTrue(reconciler.contains("z2_fw_emit_baseline_cleanup"))
         assertTrue(verify.contains("\"${'$'}tool\" -t mangle -S"))
         assertFalse(verify.contains(" -C "))
         assertFalse(verify.contains("z2_fw_chain_rule_count"))

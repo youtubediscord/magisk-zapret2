@@ -422,7 +422,7 @@ fi
 
 if ! phase_at_least firewall-clean; then
     if ! audit_owned_firewall_for_cleanup "$STOP_QNUM"; then partial "persisted firewall generation is ambiguous; firewall and listener retained: $FIREWALL_CLEANUP_PREFLIGHT_ERROR"; fi
-    if ! cleanup_owned_firewall || ! firewall_clean; then partial "verified owned firewall cleanup is incomplete; listener retained"; fi
+    if ! cleanup_owned_firewall audited || ! firewall_clean; then partial "verified owned firewall cleanup is incomplete; listener retained"; fi
     write_transaction firewall-clean || failed "cannot advance rollback journal after firewall cleanup"
 else
     firewall_clean || partial "rollback journal says firewall-clean but a clean full snapshot cannot be proved"

@@ -266,7 +266,9 @@ class RuntimeCostBoundaryTest {
         assertFalse(fastCommit.contains("set_owner_phase active"))
         assertTrue(fastCommit.contains("fast_replace_health_ok"))
         assertFalse(fullCommit.contains("set_owner_phase active"))
-        assertTrue(fullCommit.contains("normal_health_ok"))
+        assertFalse(fullCommit.contains("normal_health_ok"))
+        assertTrue(fullCommit.contains("PUBLISHED_PID"))
+        assertTrue(fullCommit.contains("PUBLISHED_GENERATION"))
     }
 
     @Test

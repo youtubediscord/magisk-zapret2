@@ -22,6 +22,14 @@ Z2_FW_LAST_RESTORE_DETAIL=""
 Z2_FW_LAST_FAILURE_CLASS=""
 Z2_FW_RESTORE_WAIT_IPTABLES=unknown
 Z2_FW_RESTORE_WAIT_IP6TABLES=unknown
+Z2_FW_BASELINE_READY=0
+Z2_FW_BASELINE_OUT_CHAIN=0
+Z2_FW_BASELINE_IN_CHAIN=0
+Z2_FW_BASELINE_OUT_ANCHORS=0
+Z2_FW_BASELINE_IN_ANCHORS=0
+Z2_FW_AUDIT_IPTABLES=""
+Z2_FW_AUDIT_IP6TABLES=""
+Z2_FW_VERIFY_DETAIL=""
 
 # iptables-restore gained native xtables-lock waiting later than the oldest
 # Android release supported by the module. Prefer the backend's own lock wait
@@ -194,62 +202,113 @@ z2_fw_tool_available() {
         "$1" -t mangle -L OUTPUT -n >/dev/null 2>&1
 }
 
-z2_fw_cleanup_is_unambiguous() {
-    local tool="$1" listing
+z2_fw_capture_baseline() {
+    local tool="$1" listing plan
+    Z2_FW_BASELINE_READY=0
+    Z2_FW_BASELINE_OUT_CHAIN=0
+    Z2_FW_BASELINE_IN_CHAIN=0
+    Z2_FW_BASELINE_OUT_ANCHORS=0
+    Z2_FW_BASELINE_IN_ANCHORS=0
     listing="$("$tool" -t mangle -S 2>/dev/null)" || return 1
-    printf '%s\n' "$listing" |
+    plan="$(printf '%s\n' "$listing" |
         awk -v out="$Z2_FW_OUT_CHAIN" -v inchain="$Z2_FW_IN_CHAIN" '
+            $1 == "-N" && $2 == out { out_chain++ }
+            $1 == "-N" && $2 == inchain { in_chain++ }
             $1 == "-A" {
                 for (i = 3; i <= NF; i++) {
                     if ($i != "-j" && $i != "--jump" &&
                         $i != "-g" && $i != "--goto") continue
                     target = $(i + 1)
-                    if (target == out &&
-                        !($2 == "OUTPUT" && NF == 4 && $3 == "-j")) bad = 1
-                    if (target == inchain &&
-                        !($2 == "INPUT" && NF == 4 && $3 == "-j")) bad = 1
+                    if (target == out) {
+                        if ($0 == "-A OUTPUT -j " out) out_anchor++
+                        else bad = 1
+                    }
+                    if (target == inchain) {
+                        if ($0 == "-A INPUT -j " inchain) in_anchor++
+                        else bad = 1
+                    }
                 }
             }
-            END { exit bad ? 1 : 0 }
-        '
-}
-
-z2_fw_delete_anchors() {
-    local tool="$1" builtin="$2" chain="$3" count=0
-    while "$tool" -t mangle -C "$builtin" -j "$chain" >/dev/null 2>&1; do
-        [ "$count" -lt 8 ] || return 1
-        "$tool" -t mangle -D "$builtin" -j "$chain" >/dev/null 2>&1 || return 1
-        count=$((count + 1))
-    done
+            END {
+                if (bad || out_chain > 1 || in_chain > 1 ||
+                    out_anchor > 8 || in_anchor > 8 ||
+                    (out_anchor && !out_chain) || (in_anchor && !in_chain))
+                    exit 1
+                printf "%d %d %d %d\n",
+                    out_chain, in_chain, out_anchor, in_anchor
+            }
+        ')" || return 1
+    # The awk producer emits exactly four decimal fields.
+    # shellcheck disable=SC2086
+    set -- $plan
+    [ "$#" = 4 ] || return 1
+    Z2_FW_BASELINE_OUT_CHAIN="$1"
+    Z2_FW_BASELINE_IN_CHAIN="$2"
+    Z2_FW_BASELINE_OUT_ANCHORS="$3"
+    Z2_FW_BASELINE_IN_ANCHORS="$4"
+    Z2_FW_BASELINE_READY=1
     return 0
 }
 
-z2_fw_drop_chain() {
-    local tool="$1" chain="$2"
-    "$tool" -t mangle -S "$chain" >/dev/null 2>&1 || return 0
-    "$tool" -t mangle -F "$chain" >/dev/null 2>&1 || return 1
-    "$tool" -t mangle -X "$chain" >/dev/null 2>&1 || return 1
-    ! "$tool" -t mangle -S "$chain" >/dev/null 2>&1
+z2_fw_cleanup_is_unambiguous() {
+    z2_fw_capture_baseline "$1"
 }
 
-z2_fw_cleanup_family() {
-    local tool="$1" rc=0
-    z2_fw_tool_available "$tool" || return 2
-    z2_fw_cleanup_is_unambiguous "$tool" || return 1
-    z2_fw_delete_anchors "$tool" OUTPUT "$Z2_FW_OUT_CHAIN" || rc=1
-    z2_fw_delete_anchors "$tool" INPUT "$Z2_FW_IN_CHAIN" || rc=1
-    z2_fw_drop_chain "$tool" "$Z2_FW_IN_CHAIN" || rc=1
-    z2_fw_drop_chain "$tool" "$Z2_FW_OUT_CHAIN" || rc=1
-    return "$rc"
+z2_fw_save_audit() {
+    local tool="$1" plan
+    [ "$Z2_FW_BASELINE_READY" = 1 ] || return 1
+    plan="$Z2_FW_BASELINE_OUT_CHAIN $Z2_FW_BASELINE_IN_CHAIN $Z2_FW_BASELINE_OUT_ANCHORS $Z2_FW_BASELINE_IN_ANCHORS"
+    case "$tool" in
+        iptables) Z2_FW_AUDIT_IPTABLES="$plan" ;;
+        ip6tables) Z2_FW_AUDIT_IP6TABLES="$plan" ;;
+        *) return 1 ;;
+    esac
+}
+
+z2_fw_load_audit() {
+    local tool="$1" plan
+    case "$tool" in
+        iptables) plan="$Z2_FW_AUDIT_IPTABLES" ;;
+        ip6tables) plan="$Z2_FW_AUDIT_IP6TABLES" ;;
+        *) return 1 ;;
+    esac
+    # Saved audit plans contain exactly four decimal fields.
+    # shellcheck disable=SC2086
+    set -- $plan
+    [ "$#" = 4 ] || return 1
+    Z2_FW_BASELINE_OUT_CHAIN="$1"
+    Z2_FW_BASELINE_IN_CHAIN="$2"
+    Z2_FW_BASELINE_OUT_ANCHORS="$3"
+    Z2_FW_BASELINE_IN_ANCHORS="$4"
+    Z2_FW_BASELINE_READY=1
 }
 
 z2_fw_family_absent() {
     local tool="$1"
-    z2_fw_tool_available "$tool" || return 2
-    ! "$tool" -t mangle -C OUTPUT -j "$Z2_FW_OUT_CHAIN" >/dev/null 2>&1 &&
-        ! "$tool" -t mangle -C INPUT -j "$Z2_FW_IN_CHAIN" >/dev/null 2>&1 &&
-        ! "$tool" -t mangle -S "$Z2_FW_OUT_CHAIN" >/dev/null 2>&1 &&
-        ! "$tool" -t mangle -S "$Z2_FW_IN_CHAIN" >/dev/null 2>&1
+    command -v "$tool" >/dev/null 2>&1 || return 2
+    z2_fw_capture_baseline "$tool" || return 2
+    [ "$Z2_FW_BASELINE_OUT_CHAIN:$Z2_FW_BASELINE_IN_CHAIN:$Z2_FW_BASELINE_OUT_ANCHORS:$Z2_FW_BASELINE_IN_ANCHORS" = 0:0:0:0 ]
+}
+
+z2_fw_emit_baseline_cleanup() {
+    local n
+    [ "$Z2_FW_BASELINE_READY" = 1 ] || return 1
+    n=0
+    while [ "$n" -lt "$Z2_FW_BASELINE_OUT_ANCHORS" ]; do
+        printf '%s\n' "-D OUTPUT -j $Z2_FW_OUT_CHAIN"
+        n=$((n + 1))
+    done
+    n=0
+    while [ "$n" -lt "$Z2_FW_BASELINE_IN_ANCHORS" ]; do
+        printf '%s\n' "-D INPUT -j $Z2_FW_IN_CHAIN"
+        n=$((n + 1))
+    done
+    if [ "$Z2_FW_BASELINE_IN_CHAIN" = 1 ]; then
+        printf '%s\n' "-F $Z2_FW_IN_CHAIN" "-X $Z2_FW_IN_CHAIN"
+    fi
+    if [ "$Z2_FW_BASELINE_OUT_CHAIN" = 1 ]; then
+        printf '%s\n' "-F $Z2_FW_OUT_CHAIN" "-X $Z2_FW_OUT_CHAIN"
+    fi
 }
 
 z2_fw_emit_batch_rule() {
@@ -272,6 +331,7 @@ z2_fw_write_batch() {
     local path="$1" connbytes="$2"
     {
         printf '%s\n' '*mangle'
+        z2_fw_emit_baseline_cleanup
         printf ':%s - [0:0]\n' "$Z2_FW_OUT_CHAIN"
         [ "$connbytes" != 1 ] || printf ':%s - [0:0]\n' "$Z2_FW_IN_CHAIN"
         z2_fw_emit_batch_rule "$Z2_FW_OUT_CHAIN" tcp out "$PORTS_TCP" "$TCP_PKT_OUT" original "$connbytes"
@@ -282,6 +342,15 @@ z2_fw_write_batch() {
         fi
         printf '%s\n' "-A OUTPUT -j $Z2_FW_OUT_CHAIN"
         [ "$connbytes" != 1 ] || printf '%s\n' "-A INPUT -j $Z2_FW_IN_CHAIN"
+        printf '%s\n' COMMIT
+    } > "$path"
+}
+
+z2_fw_write_cleanup_batch() {
+    local path="$1"
+    {
+        printf '%s\n' '*mangle'
+        z2_fw_emit_baseline_cleanup
         printf '%s\n' COMMIT
     } > "$path"
 }
@@ -356,9 +425,13 @@ z2_fw_expected_rule_count() {
 }
 
 z2_fw_verify_family() {
-    local tool="$1" connbytes="$2" listing
+    local tool="$1" connbytes="$2" listing verification
     local out_tcp out_udp in_tcp in_udp
-    listing="$("$tool" -t mangle -S 2>/dev/null)" || return 1
+    Z2_FW_VERIFY_DETAIL=""
+    listing="$("$tool" -t mangle -S 2>/dev/null)" || {
+        Z2_FW_VERIFY_DETAIL="$tool mangle snapshot command failed"
+        return 1
+    }
     out_tcp="$(z2_fw_emit_batch_rule "$Z2_FW_OUT_CHAIN" tcp out "$PORTS_TCP" "$TCP_PKT_OUT" original "$connbytes")" || return 1
     out_udp="$(z2_fw_emit_batch_rule "$Z2_FW_OUT_CHAIN" udp out "$PORTS_UDP" "$UDP_PKT_OUT" original "$connbytes")" || return 1
     in_tcp=""
@@ -367,7 +440,7 @@ z2_fw_verify_family() {
         in_tcp="$(z2_fw_emit_batch_rule "$Z2_FW_IN_CHAIN" tcp in "$PORTS_TCP" "$TCP_PKT_IN" reply 1)" || return 1
         in_udp="$(z2_fw_emit_batch_rule "$Z2_FW_IN_CHAIN" udp in "$PORTS_UDP" "$UDP_PKT_IN" reply 1)" || return 1
     fi
-    printf '%s\n' "$listing" | awk \
+    verification="$(printf '%s\n' "$listing" | awk \
         -v out="$Z2_FW_OUT_CHAIN" -v inchain="$Z2_FW_IN_CHAIN" \
         -v connbytes="$connbytes" \
         -v out_tcp="$out_tcp" -v out_udp="$out_udp" \
@@ -406,20 +479,35 @@ z2_fw_verify_family() {
         END {
             expected_out=(out_tcp != "") + (out_udp != "")
             expected_in=(in_tcp != "") + (in_udp != "")
-            ok = !bad && out_chain == 1 && out_anchor == 1 &&
-                out_rules == expected_out &&
-                required_seen(out_tcp, out_tcp_seen) &&
-                required_seen(out_udp, out_udp_seen)
+            if (bad) reason="FOREIGN_OR_UNEXPECTED_RULE"
+            else if (out_chain != 1) reason="OUT_CHAIN_COUNT:" out_chain
+            else if (out_anchor != 1) reason="OUT_ANCHOR_COUNT:" out_anchor
+            else if (out_rules != expected_out) reason="OUT_RULE_COUNT:" out_rules
+            else if (!required_seen(out_tcp, out_tcp_seen) ||
+                     !required_seen(out_udp, out_udp_seen))
+                reason="OUT_RULE_MISMATCH"
             if (connbytes == 1) {
-                ok = ok && in_chain == 1 && in_anchor == 1 &&
-                    in_rules == expected_in &&
-                    required_seen(in_tcp, in_tcp_seen) &&
-                    required_seen(in_udp, in_udp_seen)
+                if (reason == "" && in_chain != 1) reason="INPUT_CHAIN_COUNT:" in_chain
+                else if (reason == "" && in_anchor != 1) reason="INPUT_ANCHOR_COUNT:" in_anchor
+                else if (reason == "" && in_rules != expected_in) reason="INPUT_RULE_COUNT:" in_rules
+                else if (reason == "" &&
+                         (!required_seen(in_tcp, in_tcp_seen) ||
+                          !required_seen(in_udp, in_udp_seen)))
+                    reason="INPUT_RULE_MISMATCH"
             } else {
-                ok = ok && in_chain == 0 && in_anchor == 0 && in_rules == 0
+                if (reason == "" &&
+                    (in_chain != 0 || in_anchor != 0 || in_rules != 0))
+                    reason="UNEXPECTED_INPUT_TOPOLOGY"
             }
-            exit ok ? 0 : 1
-        }' || return 1
+            if (reason != "") {
+                print reason
+                exit 1
+            }
+        }')" || {
+        [ -n "$verification" ] || verification=UNKNOWN_TOPOLOGY_MISMATCH
+        Z2_FW_VERIFY_DETAIL="$tool post-publication topology mismatch (connbytes=$connbytes, reason=$verification)"
+        return 1
+    }
     Z2_FW_CONNBYTES="$connbytes"
     Z2_FW_RULES="$(z2_fw_expected_rule_count "$connbytes")" || return 1
     Z2_FW_CHAINS=$((1 + connbytes))
@@ -427,15 +515,71 @@ z2_fw_verify_family() {
     return 0
 }
 
+z2_fw_apply_cleanup() {
+    local tool="$1" restore batch phase rc detail
+    [ "$Z2_FW_BASELINE_READY" = 1 ] || return 1
+    if [ "$Z2_FW_BASELINE_OUT_CHAIN:$Z2_FW_BASELINE_IN_CHAIN:$Z2_FW_BASELINE_OUT_ANCHORS:$Z2_FW_BASELINE_IN_ANCHORS" = 0:0:0:0 ]; then
+        return 0
+    fi
+    restore="$(z2_fw_restore_command "$tool")" || return 2
+    command -v "$restore" >/dev/null 2>&1 || return 3
+    batch="$STATE_DIR/firewall-cleanup.${tool}.$$"
+    state_path_is_managed_file "$batch" || return 1
+    [ ! -e "$batch" ] && [ ! -L "$batch" ] || return 1
+    umask 077
+    if ! z2_fw_write_cleanup_batch "$batch" ||
+       ! chmod 0600 "$batch" 2>/dev/null; then
+        rm -f "$batch" 2>/dev/null
+        return 1
+    fi
+    for phase in test commit; do
+        if z2_fw_run_restore "$restore" "$tool" "$phase" "$batch"; then
+            :
+        else
+            rc=$?
+            detail="${Z2_FW_LAST_RESTORE_DETAIL:-no backend diagnostic}"
+            Z2_FW_FAILURE_CLASS="${Z2_FW_LAST_FAILURE_CLASS:-CLEANUP_FAILED}"
+            Z2_FW_ERROR_DETAIL="$restore atomic cleanup $phase failed (exit=$Z2_FW_LAST_RESTORE_EXIT): $detail"
+            Z2_FW_ERROR_DETAIL="$(z2_fw_normalize_diagnostic "$Z2_FW_ERROR_DETAIL")"
+            rm -f "$batch" 2>/dev/null || true
+            return "$rc"
+        fi
+    done
+    rm -f "$batch" 2>/dev/null || return 1
+    if z2_fw_family_absent "$tool"; then
+        return 0
+    fi
+    Z2_FW_FAILURE_CLASS=POSTCONDITION_FAILED
+    Z2_FW_ERROR_DETAIL="$tool atomic cleanup postcondition failed"
+    return 1
+}
+
+z2_fw_cleanup_family() {
+    local tool="$1" baseline_mode="${2:-owned}"
+    case "$baseline_mode" in
+        owned)
+            command -v "$tool" >/dev/null 2>&1 || return 2
+            z2_fw_capture_baseline "$tool" || return 1
+            ;;
+        audited)
+            command -v "$tool" >/dev/null 2>&1 || return 2
+            z2_fw_load_audit "$tool" || return 1
+            ;;
+        *) return 2 ;;
+    esac
+    z2_fw_restore_available "$tool" || return 3
+    z2_fw_apply_cleanup "$tool"
+}
+
 z2_fw_reconcile_family() {
-    local tool="$1" cleanup_mode="${2:-owned}" apply_rc candidate_detail
-    case "$cleanup_mode" in owned|precleaned) ;; *) return 2 ;; esac
+    local tool="$1" baseline_mode="${2:-owned}" apply_rc candidate_detail verify_detail
+    case "$baseline_mode" in owned|audited) ;; *) return 2 ;; esac
     Z2_FW_BACKEND=""; Z2_FW_CONNBYTES=0
     Z2_FW_RULES=0; Z2_FW_CHAINS=0; Z2_FW_ANCHORS=0
     Z2_FW_FAILURE_CLASS=""; Z2_FW_ERROR_DETAIL=""; Z2_FW_FALLBACK_DETAIL=""
-    z2_fw_tool_available "$tool" || {
+    command -v "$tool" >/dev/null 2>&1 || {
         Z2_FW_FAILURE_CLASS=BACKEND_UNAVAILABLE
-        Z2_FW_ERROR_DETAIL="$tool mangle backend is unavailable"
+        Z2_FW_ERROR_DETAIL="$tool command is unavailable"
         return 2
     }
     z2_fw_restore_available "$tool" || {
@@ -443,10 +587,16 @@ z2_fw_reconcile_family() {
         Z2_FW_ERROR_DETAIL="$tool restore backend is unavailable"
         return 3
     }
-    if [ "$cleanup_mode" = owned ]; then
-        z2_fw_cleanup_family "$tool" || {
+    if [ "$baseline_mode" = audited ]; then
+        z2_fw_load_audit "$tool" || {
             Z2_FW_FAILURE_CLASS=CLEANUP_FAILED
-            Z2_FW_ERROR_DETAIL="cannot clean the $tool stable firewall namespace before publication"
+            Z2_FW_ERROR_DETAIL="$tool authenticated transition baseline is unavailable"
+            return 1
+        }
+    else
+        z2_fw_capture_baseline "$tool" || {
+            Z2_FW_FAILURE_CLASS=CLEANUP_FAILED
+            Z2_FW_ERROR_DETAIL="$tool stable namespace transition preflight failed"
             return 1
         }
     fi
@@ -456,28 +606,31 @@ z2_fw_reconcile_family() {
         apply_rc=$?
     fi
     if [ "$apply_rc" = 0 ]; then
+        if ! z2_fw_verify_family "$tool" 1; then
+            verify_detail="$Z2_FW_VERIFY_DETAIL"
+            z2_fw_cleanup_family "$tool" >/dev/null 2>&1 || true
+            Z2_FW_FAILURE_CLASS=POSTCONDITION_FAILED
+            Z2_FW_ERROR_DETAIL="$verify_detail"
+            return 1
+        fi
         Z2_FW_CONNBYTES=1
-        Z2_FW_RULES="$(z2_fw_expected_rule_count 1)" || return 1
-        Z2_FW_CHAINS=2
-        Z2_FW_ANCHORS=2
         Z2_FW_FAILURE_CLASS=""; Z2_FW_ERROR_DETAIL=""
         return 0
     fi
     candidate_detail="$Z2_FW_ERROR_DETAIL"
-    z2_fw_cleanup_family "$tool" >/dev/null 2>&1 || {
-        Z2_FW_FAILURE_CLASS=CLEANUP_FAILED
-        Z2_FW_ERROR_DETAIL="cannot clean the $tool namespace after failed publication"
-        return 1
-    }
     # Only candidate rejection is a capability signal. A failed COMMIT or a
     # failed postcondition is a publication error and must not silently alter
     # the intended topology.
     [ "$apply_rc" = 4 ] || return 1
     if z2_fw_apply_restore "$tool" 0; then
+        if ! z2_fw_verify_family "$tool" 0; then
+            verify_detail="$Z2_FW_VERIFY_DETAIL"
+            z2_fw_cleanup_family "$tool" >/dev/null 2>&1 || true
+            Z2_FW_FAILURE_CLASS=POSTCONDITION_FAILED
+            Z2_FW_ERROR_DETAIL="$verify_detail"
+            return 1
+        fi
         Z2_FW_CONNBYTES=0
-        Z2_FW_RULES="$(z2_fw_expected_rule_count 0)" || return 1
-        Z2_FW_CHAINS=1
-        Z2_FW_ANCHORS=1
         Z2_FW_FALLBACK_DETAIL="$candidate_detail"
         Z2_FW_FAILURE_CLASS=""; Z2_FW_ERROR_DETAIL=""
         return 0
@@ -486,9 +639,5 @@ z2_fw_reconcile_family() {
         Z2_FW_FAILURE_CLASS=POSTCONDITION_FAILED
         Z2_FW_ERROR_DETAIL="$tool post-publication verification failed (connbytes=0)"
     fi
-    z2_fw_cleanup_family "$tool" >/dev/null 2>&1 || {
-        Z2_FW_FAILURE_CLASS=CLEANUP_FAILED
-        Z2_FW_ERROR_DETAIL="cannot clean the $tool namespace after fallback failure"
-    }
     return 1
 }

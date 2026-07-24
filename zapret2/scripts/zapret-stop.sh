@@ -157,7 +157,7 @@ main() {
         exit 1
     fi
     firewall_detached=0
-    if ! cleanup_owned_firewall; then
+    if ! cleanup_owned_firewall audited; then
         rc=1
         STOP_ERROR_DOMAIN=FIREWALL; STOP_ERROR_CODE=FIREWALL_CLEANUP_FAILED; STOP_ERROR_STAGE=STOP_FIREWALL
         if [ -n "$errors" ]; then errors="$errors; owned firewall cleanup failed"

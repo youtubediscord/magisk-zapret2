@@ -95,6 +95,30 @@ case "$1" in
             [ "$1" = fast-mismatch ] && [ "$FAST_REPLACE_READY" = 0 ]
         fi
         ;;
+    published-fast)
+        STARTED_PID=4321
+        STARTED_PID_START=98765
+        PENDING_OWNER_GENERATION=request-generation
+        PUBLISHED_PID="$STARTED_PID"
+        PUBLISHED_START="$STARTED_PID_START"
+        PUBLISHED_GENERATION="$PENDING_OWNER_GENERATION"
+        PUBLISHED_FIREWALL_FINGERPRINT=matching-firewall
+        PUBLISHED_IPV4_RULES=4
+        PUBLISHED_IPV6_RULES=4
+        PUBLISHED_INSTALL_GENERATION=install-generation
+        PUBLISHED_INSTALL_ARCHIVE_SHA256=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+        FAST_REPLACE_FIREWALL_FINGERPRINT=matching-firewall
+        IPV4_RULES=4
+        IPV6_RULES=4
+        IPV6_ACTIVE=1
+        INSTALL_META_GENERATION=install-generation
+        INSTALL_META_ARCHIVE_SHA256=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+        read_verified_pidfile() { exit 91; }
+        read_install_generation_meta() { exit 92; }
+        fast_replace_health_ok
+        [ "$HEALTH_PID:$HEALTH_PID_START:$HEALTH_GENERATION" = \
+            "$STARTED_PID:$STARTED_PID_START:$PENDING_OWNER_GENERATION" ]
+        ;;
     *) exit 2 ;;
 esac
 EOF
@@ -133,5 +157,7 @@ Z2_START_TEST_LOG="$LOG" STATE_DIR="$STATE" sh "$SCRIPTS/scenario.sh" fast-match
     fail "matching authenticated firewall topology did not select daemon-only replacement"
 Z2_START_TEST_LOG="$LOG" STATE_DIR="$STATE" sh "$SCRIPTS/scenario.sh" fast-mismatch ||
     fail "changed firewall topology did not fall back to the full transaction"
+Z2_START_TEST_LOG="$LOG" STATE_DIR="$STATE" sh "$SCRIPTS/scenario.sh" published-fast ||
+    fail "published owner receipt was re-read instead of consumed directly"
 
 echo "Transactional start shell tests passed"
