@@ -102,6 +102,13 @@ z2_fw_lock_retry_pause() {
     sleep 1
 }
 
+z2_fw_diagnostic_is_connbytes_unsupported() {
+    case "$1" in
+        *[Cc]onnbytes*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
 z2_fw_run_restore() {
     local restore="$1" tool="$2" phase="$3" batch="$4"
     local capture wait_supported=0 attempts=0 rc=1 cleanup_rc=0 detail
@@ -719,10 +726,25 @@ z2_fw_reconcile_family() {
         return 0
     fi
     candidate_detail="$Z2_FW_ERROR_DETAIL"
-    # Only candidate rejection is a capability signal. A failed COMMIT or a
-    # failed postcondition is a publication error and must not silently alter
-    # the intended topology.
-    [ "$apply_rc" = 4 ] || return 1
+    # Candidate rejection is a capability signal. So is a COMMIT failure that
+    # names the connbytes extension: iptables-restore --test validates in
+    # userspace only, so a kernel without the connbytes match (or its required
+    # revision) accepts the test phase and rejects the ruleset only at COMMIT.
+    # Legacy restore submits the whole table in one atomic replace, so a
+    # rejected COMMIT leaves the pre-transaction state; post-publication
+    # verification still gates the fallback result. Any other COMMIT or
+    # postcondition failure is a publication error and must not silently
+    # alter the intended topology.
+    case "$apply_rc" in
+        4) ;;
+        *)
+            # Match the raw backend stderr: the wrapped detail always
+            # contains a "connbytes=1" marker of its own.
+            [ "$Z2_FW_FAILURE_CLASS" = PUBLICATION_FAILED ] &&
+                z2_fw_diagnostic_is_connbytes_unsupported "$Z2_FW_LAST_RESTORE_DETAIL" ||
+                return 1
+            ;;
+    esac
     if z2_fw_apply_restore "$tool" 0; then
         if ! z2_fw_verify_family "$tool" 0; then
             verify_detail="$Z2_FW_VERIFY_DETAIL"

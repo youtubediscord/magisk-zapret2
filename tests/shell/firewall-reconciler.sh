@@ -121,6 +121,12 @@ fi
     exit 1
 }
 case " $* " in *' --test '*) exit 0;; esac
+if [ "${Z2_RESTORE_REJECT_CONNBYTES_COMMIT:-0}" = 1 ] &&
+   printf '%s\n' "$payload" | grep -q -- '-m connbytes'; then
+    echo 'Warning: Extension connbytes revision 0 not supported, missing kernel module?' >&2
+    echo 'iptables-restore: line 10 failed' >&2
+    exit 1
+fi
 [ "${Z2_RESTORE_FAIL_COMMIT:-0}" != 1 ] || {
     echo 'vendor backend rejected COMMIT' >&2
     exit 1
@@ -252,6 +258,24 @@ case "$Z2_FW_FALLBACK_DETAIL" in
 esac
 unset Z2_RESTORE_REJECT_CONNBYTES
 z2_fw_cleanup_family iptables || fail "fallback cleanup failed"
+
+rm -f "$FW"/*
+Z2_RESTORE_REJECT_CONNBYTES_COMMIT=1
+export Z2_RESTORE_REJECT_CONNBYTES_COMMIT
+z2_fw_reconcile_family iptables ||
+    fail "commit-time kernel connbytes rejection did not fall back"
+[ "$Z2_FW_CONNBYTES:$Z2_FW_RULES:$Z2_FW_CHAINS:$Z2_FW_ANCHORS" = 0:2:1:1 ] ||
+    fail "commit-time connbytes fallback metadata changed"
+[ -f "$FW/anchor.out" ] && [ ! -f "$FW/anchor.in" ] ||
+    fail "commit-time connbytes fallback published an input anchor"
+[ "$(cat "$FW/restore.count")" = 4 ] ||
+    fail "commit-time connbytes fallback did not use one extra test and commit"
+case "$Z2_FW_FALLBACK_DETAIL" in
+    *'commit failed'*'connbytes revision 0 not supported'*) ;;
+    *) fail "commit-time connbytes fallback diagnostic was not preserved" ;;
+esac
+unset Z2_RESTORE_REJECT_CONNBYTES_COMMIT
+z2_fw_cleanup_family iptables || fail "commit-time fallback cleanup failed"
 
 rm -f "$FW"/*
 Z2_RESTORE_WAIT_SUPPORTED=0
