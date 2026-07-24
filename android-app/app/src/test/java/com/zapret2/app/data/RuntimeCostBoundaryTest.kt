@@ -70,12 +70,10 @@ class RuntimeCostBoundaryTest {
     @Test
     fun machineStatus_usesBoundOwnerSnapshotAndNeverFallsBackToGlobalProcScan() {
         val source = repositoryFile("zapret2/scripts/zapret-status.sh").readText()
-        val fallback = source
-            .substringAfter("A status poll is an observer, not a recovery audit.")
-            .substringBefore("Z2_IPV4=0")
 
-        assertTrue(fallback.contains("[ \"\$MACHINE\" != 1 ]"))
-        assertTrue(fallback.contains("scan_exact_owned_nfqws"))
+        assertFalse(source.contains("scan_exact_owned_nfqws"))
+        assertFalse(source.contains("owned_family_present"))
+        assertFalse(source.contains("owner_family_generation_healthy"))
         assertTrue(source.contains("STATUS_FILE_OWNER_GENERATION"))
         assertTrue(source.contains("Z2_FAST_SNAPSHOT=1"))
     }
@@ -130,8 +128,18 @@ class RuntimeCostBoundaryTest {
         assertFalse(repository.contains("Z2_MUTATION_STATE"))
         assertTrue(status.contains("--machine-v5"))
         assertTrue(status.contains("classify_lifecycle_lock"))
-        assertTrue(status.contains("acquire_lifecycle_lock"))
+        assertFalse(status.contains("acquire_lifecycle_lock"))
+        assertFalse(status.contains("release_lifecycle_lock"))
+        assertFalse(status.contains("scan_exact_owned_nfqws"))
+        assertFalse(status.contains("owned_family_present"))
+        assertFalse(status.contains("owner_family_generation_healthy"))
         assertTrue(status.contains("Z2_LIFECYCLE_STATE"))
+        assertTrue(
+            status.contains(
+                "if [ \"\$Z2_FAST_SNAPSHOT\" = 0 ] && " +
+                    "[ \"\$STATUS_FILE_IPV6_ACTIVE\" = 1 ]; then",
+            ),
+        )
         val networkStats = repositoryFile(
             "android-app/app/src/main/java/com/zapret2/app/data/NetworkStatsManager.kt",
         ).readText()

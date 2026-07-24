@@ -5,11 +5,28 @@ ROOT=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
 CASE="${Z2_TEST_TMP:?}/lifecycle-status-v5"
 STATE="$CASE/state"
 OUTPUT="$CASE/status.out"
+AUDIT_MARKER="$CASE/deep-firewall-audit.called"
+FAKE_BIN="$CASE/fake-bin"
 
 fail() { echo "FAIL: lifecycle-status-v5: $*" >&2; exit 1; }
 
 mkdir -p "$STATE"
 chmod 0700 "$STATE"
+mkdir -p "$FAKE_BIN"
+for tool in iptables ip6tables; do
+    printf '#!/bin/sh\n: > "%s"\nexit 99\n' "$AUDIT_MARKER" > "$FAKE_BIN/$tool"
+    chmod 0755 "$FAKE_BIN/$tool"
+done
+PATH="$FAKE_BIN:$PATH"
+export PATH
+
+if grep -Fq "acquire_lifecycle_lock" "$ROOT/zapret2/scripts/zapret-status.sh"; then
+    fail "v5 status observer still acquires the mutation lock"
+fi
+if grep -Eq 'scan_exact_owned_nfqws|owned_family_present|owner_family_generation_healthy' \
+    "$ROOT/zapret2/scripts/zapret-status.sh"; then
+    fail "status observer still contains a deep process or firewall audit"
+fi
 
 run_status() {
     rc=0
@@ -26,6 +43,8 @@ run_status() {
 }
 
 run_status
+[ ! -e "$AUDIT_MARKER" ] ||
+    fail "machine status invoked a deep firewall audit"
 
 mkdir "$STATE/lifecycle.lock"
 printf 'foreign=unsafe\n' > "$STATE/lifecycle.lock/owner"

@@ -26,6 +26,9 @@ run_status() {
     [ "$(tail -n 1 "$OUTPUT")" = "Z2_COMPLETE=1" ] ||
         fail "v4 status completion marker is missing or non-terminal"
     grep -Fxq "Z2_PROTOCOL=4" "$OUTPUT" || fail "v4 protocol marker is missing"
+    if grep -Fq "acquire_lifecycle_lock" "$ROOT/zapret2/scripts/zapret-status.sh"; then
+        fail "status observer still acquires the mutation lock"
+    fi
 }
 
 sleep 30 &
@@ -54,10 +57,12 @@ wait "$owner_pid" 2>/dev/null || true
 owner_pid=""
 
 run_status
-grep -Fxq "Z2_LIFECYCLE_STATE=recovered" "$OUTPUT" ||
-    fail "proven stale owner was not recovered by the serialized status boundary"
-[ ! -e "$STATE/lifecycle.lock" ] && [ ! -L "$STATE/lifecycle.lock" ] ||
-    fail "recovered stale owner remained published"
+grep -Fxq "Z2_LIFECYCLE_STATE=recovery_failed" "$OUTPUT" ||
+    fail "proven stale owner was not reported for explicit recovery"
+[ -d "$STATE/lifecycle.lock" ] ||
+    fail "read-only status removed a proven stale owner"
+
+rm -rf "$STATE/lifecycle.lock"
 
 boot_id=$(cat /proc/sys/kernel/random/boot_id)
 mkdir "$STATE/lifecycle.lock"
@@ -66,10 +71,12 @@ printf 'version=1\nkind=android-mutation\npid=2147483647\nstarttime=1\nboot_id=%
 chmod 0600 "$STATE/lifecycle.lock/owner"
 
 run_status
-grep -Fxq "Z2_LIFECYCLE_STATE=recovered" "$OUTPUT" ||
-    fail "proven stale Android owner was not recovered"
-[ ! -e "$STATE/lifecycle.lock" ] && [ ! -L "$STATE/lifecycle.lock" ] ||
-    fail "recovered stale Android owner remained published"
+grep -Fxq "Z2_LIFECYCLE_STATE=recovery_failed" "$OUTPUT" ||
+    fail "proven stale Android owner was not reported for explicit recovery"
+[ -d "$STATE/lifecycle.lock" ] ||
+    fail "read-only status removed a proven stale Android owner"
+
+rm -rf "$STATE/lifecycle.lock"
 
 mkdir "$STATE/lifecycle.lock"
 printf 'foreign=unsafe\n' > "$STATE/lifecycle.lock/owner"

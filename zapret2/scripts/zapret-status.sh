@@ -1,8 +1,7 @@
 #!/system/bin/sh
-# Serialized status derived from exact lifecycle, process, and ruleset ownership.
-# Machine v4/v5 may retire only a proven-stale lifecycle owner through
-# common.sh's shared acquisition/recovery protocol before observing runtime
-# state. Machine v5 is the complete app-facing service-health contract.
+# Read-only status derived from bounded lifecycle, owner, and snapshot metadata.
+# Machine observers never acquire or recover the mutation lock. Explicit
+# lifecycle operations own recovery and any deep firewall audit.
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 . "$SCRIPT_DIR/common.sh"
@@ -18,16 +17,8 @@ case "${1:-}" in
     *) echo "ERROR: usage: $0 [--machine|--machine-v3|--machine-v4|--machine-v5]" >&2; exit 2 ;;
 esac
 
-STATUS_LOCK_HELD=0
 Z2_LIFECYCLE_STATE=unknown
 Z2_LIFECYCLE_OWNER_KIND=unknown
-
-cleanup_status_lock() {
-    if [ "$STATUS_LOCK_HELD" = 1 ]; then
-        release_lifecycle_lock >/dev/null 2>&1 || true
-        STATUS_LOCK_HELD=0
-    fi
-}
 
 emit_lifecycle_barrier() {
     local state="$1" kind="$2" code detail
@@ -43,7 +34,7 @@ emit_lifecycle_barrier() {
         *)
             state=recovery_failed
             code=LIFECYCLE_RECOVERY_FAILED
-            detail="A proven stale lifecycle owner could not be recovered safely"
+            detail="A proven stale lifecycle owner requires an explicit lifecycle operation"
             ;;
     esac
     z2_error_set LIFECYCLE "$code" LIFECYCLE_OBSERVE "$detail" || exit 2
@@ -79,47 +70,33 @@ emit_lifecycle_barrier() {
     echo "Z2_COMPLETE=1"
 }
 
-prepare_v4_status_lock() {
-    local observed
+observe_lifecycle_state() {
     classify_lifecycle_lock
-    observed="$LIFECYCLE_OBSERVED_STATE"
     Z2_LIFECYCLE_OWNER_KIND="$LIFECYCLE_OBSERVED_KIND"
-    case "$observed" in
+    case "$LIFECYCLE_OBSERVED_STATE" in
+        idle)
+            Z2_LIFECYCLE_STATE=idle
+            Z2_LIFECYCLE_OWNER_KIND=none
+            return 0
+            ;;
         active|ambiguous)
-            Z2_LIFECYCLE_STATE="$observed"
+            Z2_LIFECYCLE_STATE="$LIFECYCLE_OBSERVED_STATE"
             return 1
             ;;
-        idle|stale) ;;
+        stale)
+            Z2_LIFECYCLE_STATE=recovery_failed
+            return 1
+            ;;
         *)
             Z2_LIFECYCLE_STATE=ambiguous
             Z2_LIFECYCLE_OWNER_KIND=unknown
             return 1
             ;;
     esac
-
-    LIFECYCLE_LOCK_WAIT_SECONDS=3
-    if acquire_lifecycle_lock; then
-        STATUS_LOCK_HELD=1
-        Z2_LIFECYCLE_STATE=idle
-        [ "$observed" != stale ] || Z2_LIFECYCLE_STATE=recovered
-        Z2_LIFECYCLE_OWNER_KIND=none
-        return 0
-    fi
-    abort_lifecycle_lock_acquire >/dev/null 2>&1 || true
-    classify_lifecycle_lock
-    Z2_LIFECYCLE_OWNER_KIND="$LIFECYCLE_OBSERVED_KIND"
-    case "$LIFECYCLE_OBSERVED_STATE" in
-        active) Z2_LIFECYCLE_STATE=active ;;
-        ambiguous) Z2_LIFECYCLE_STATE=ambiguous ;;
-        *) Z2_LIFECYCLE_STATE=recovery_failed ;;
-    esac
-    return 1
 }
 
 case "$MACHINE_VERSION" in 4|5)
-    trap cleanup_status_lock EXIT
-    trap 'cleanup_status_lock; exit 2' HUP INT TERM
-    if ! prepare_v4_status_lock; then
+    if ! observe_lifecycle_state; then
         emit_lifecycle_barrier "$Z2_LIFECYCLE_STATE" "$Z2_LIFECYCLE_OWNER_KIND"
         exit 2
     fi
@@ -160,21 +137,9 @@ if read_verified_pidfile && [ "$OWNER_STATE_PHASE" = active ] &&
     Z2_OWNER_METADATA_VERIFIED=1
     Z2_PROCESS=1
 else
-    # A status poll is an observer, not a recovery audit. Full /proc discovery
-    # belongs to start/stop/recovery; running it every few seconds makes Android
-    # root IPC scale with every process on the device.
-    if [ "$MACHINE" != 1 ]; then
-        scan_exact_owned_nfqws >/dev/null 2>&1
-        Z2_ORPHANS="$OWNED_SCAN_PIDS"
-        set -- $OWNED_SCAN_PIDS
-        if [ "$#" -eq 1 ]; then
-            Z2_PID="$1"
-            Z2_PID_STARTTIME="$(proc_starttime "$1" 2>/dev/null)"
-            Z2_PROCESS=1
-        elif [ "$#" -gt 1 ]; then
-            Z2_PROCESS=1
-        fi
-    fi
+    # Status is an observer, not a recovery audit. Full /proc discovery belongs
+    # to start/stop/recovery and must never run on an ordinary status query.
+    :
 fi
 
 Z2_IPV4=0
@@ -189,7 +154,7 @@ Z2_FAST_SNAPSHOT=0
 # The module lifecycle boundary is the single firewall authority. Bind its
 # durable snapshot to the exact live owner generation so app polling never
 # needs a second owner.meta/iptables interpreter.
-if [ "$MACHINE" = 1 ] && [ "$Z2_OWNER_METADATA_VERIFIED" = 1 ] &&
+if [ "$Z2_OWNER_METADATA_VERIFIED" = 1 ] &&
    [ "$STATUS_FILE_STATUS" = ok ] &&
    [ "$STATUS_FILE_OWN_PID" = "$Z2_PID" ] &&
    [ "$STATUS_FILE_OWN_PID_STARTTIME" = "$Z2_PID_STARTTIME" ] &&
@@ -210,7 +175,7 @@ if [ "$MACHINE" = 1 ] && [ "$Z2_OWNER_METADATA_VERIFIED" = 1 ] &&
     Z2_IPV6_RULES="$STATUS_FILE_IPV6_RULES"
     IPV4_VERIFIED="$Z2_IPV4"
     [ "$Z2_IPV6" = 0 ] || IPV6_VERIFIED=1
-elif [ "$MACHINE" = 1 ] && [ "$Z2_PROCESS" = 0 ] &&
+elif [ "$Z2_PROCESS" = 0 ] &&
      [ ! -e "$PIDFILE" ] && [ ! -L "$PIDFILE" ] &&
      [ ! -e "$OWNER_STATE" ] && [ ! -L "$OWNER_STATE" ] &&
      [ "$STATUS_FILE_STATUS" = stopped ] &&
@@ -220,29 +185,7 @@ elif [ "$MACHINE" = 1 ] && [ "$Z2_PROCESS" = 0 ] &&
     IPV4_VERIFIED=1
 fi
 
-if [ "$Z2_FAST_SNAPSHOT" = 0 ] && command -v iptables >/dev/null 2>&1; then
-    if owned_family_present iptables; then
-        Z2_IPV4=1
-        Z2_IPV4_RULES=$(( $(chain_owned_rule_count iptables "$ZAPRET2_OUT") + $(chain_owned_rule_count iptables "$ZAPRET2_IN") ))
-        if [ "$Z2_OWNER_METADATA_VERIFIED" = 1 ] && [ "$OWNER_STATE_SCHEMA_VERSION" = "$OWNER_STATE_VERSION" ] &&
-           owner_family_generation_healthy iptables ipv4; then IPV4_VERIFIED=1; fi
-    elif zapret2_namespace_present iptables; then
-        # A detached failed-build generation is owned residue even without a
-        # publishable owner.meta. Never report this kernel state as stopped.
-        Z2_IPV4=1
-    fi
-fi
-
-if [ "$Z2_FAST_SNAPSHOT" = 0 ] && command -v ip6tables >/dev/null 2>&1; then
-    if owned_family_present ip6tables; then
-        Z2_IPV6=1
-        Z2_IPV6_RULES=$(( $(chain_owned_rule_count ip6tables "$ZAPRET2_OUT") + $(chain_owned_rule_count ip6tables "$ZAPRET2_IN") ))
-        if [ "$Z2_OWNER_METADATA_VERIFIED" = 1 ] && [ "$OWNER_STATE_SCHEMA_VERSION" = "$OWNER_STATE_VERSION" ] &&
-           owner_family_generation_healthy ip6tables ipv6; then IPV6_VERIFIED=1; fi
-    elif zapret2_namespace_present ip6tables; then
-        Z2_IPV6=1
-    fi
-elif [ "$STATUS_FILE_IPV6_ACTIVE" = 1 ]; then
+if [ "$Z2_FAST_SNAPSHOT" = 0 ] && [ "$STATUS_FILE_IPV6_ACTIVE" = 1 ]; then
     IPV6_UNKNOWN=1
 fi
 
@@ -355,16 +298,6 @@ emit_machine() {
     # Terminal sentinel lets strict callers reject truncated shell output.
     echo "Z2_COMPLETE=1"
 }
-
-case "$MACHINE_VERSION:$STATUS_LOCK_HELD" in 4:1|5:1)
-    if release_lifecycle_lock; then
-        STATUS_LOCK_HELD=0
-    else
-        emit_lifecycle_barrier recovery_failed "$Z2_LIFECYCLE_OWNER_KIND"
-        exit 2
-    fi
-    ;;
-esac
 
 if [ "$MACHINE" = 1 ]; then
     emit_machine

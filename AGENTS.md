@@ -240,6 +240,10 @@ The module's typed machine-status payload is the sole app-facing lifecycle and
 firewall-health contract. Android code may strictly parse and project that
 payload, but must not independently reinterpret `owner.meta`, reconstruct
 firewall topology, or run a competing `iptables` health audit.
+Status observers must never acquire, recover, or publish the lifecycle mutation
+lock. They classify existing ownership read-only and consume bounded snapshots;
+stale-owner recovery and deep firewall inspection belong only to explicit
+lifecycle operations.
 
 Never replace files in the active Magisk module tree. Every module package
 install or update must go through Magisk's pending `modules_update` path and
