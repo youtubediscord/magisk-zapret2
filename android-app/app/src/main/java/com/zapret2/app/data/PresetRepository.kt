@@ -52,22 +52,30 @@ internal object PresetMachineProtocol {
                     val fileName = fields[3]
                     if (!PresetNamePolicy.isValid(fileName)) return null
                     val record = when {
-                        status == "VALID" && reason == "OK" -> ScanRecord(fileName, null)
+                        status in setOf("VALID", "READY") && reason == "OK" ->
+                            ScanRecord(fileName, status, null)
                         status == "QUARANTINED" && reason != "OK" ->
-                            ScanRecord(fileName, PresetIssue.fromWireCode(reason))
+                            ScanRecord(fileName, status, PresetIssue.fromWireCode(reason))
                         else -> return null
                     }
                     records += record
                 }
 
                 SUMMARY -> {
-                    if (fields.size != 5 || fields[1] != "1" || summary != null) return null
+                    if (fields.size != 5 || fields[1] !in setOf("1", "2") || summary != null) return null
                     val values = fields.drop(2).mapNotNull { field ->
                         val separator = field.indexOf('=')
                         if (separator <= 0) null else field.substring(0, separator) to field.substring(separator + 1)
                     }.toMap()
+                    val version = fields[1]
+                    val availableKey = when (version) {
+                        "1" -> "valid"
+                        "2" -> "ready"
+                        else -> return null
+                    }
                     summary = ScanSummary(
-                        valid = values["valid"]?.toIntOrNull() ?: return null,
+                        version = version,
+                        available = values[availableKey]?.toIntOrNull() ?: return null,
                         quarantined = values["quarantined"]?.toIntOrNull() ?: return null,
                         total = values["total"]?.toIntOrNull() ?: return null,
                     )
@@ -79,9 +87,11 @@ internal object PresetMachineProtocol {
 
         val finalSummary = summary ?: return null
         if (records.map(ScanRecord::fileName).distinct().size != records.size) return null
-        if (finalSummary.valid < 0 || finalSummary.quarantined < 0 || finalSummary.total < 0) return null
+        if (finalSummary.available < 0 || finalSummary.quarantined < 0 || finalSummary.total < 0) return null
         if (finalSummary.total != records.size) return null
-        if (finalSummary.valid != records.count { it.issue == null }) return null
+        val expectedAvailableStatus = if (finalSummary.version == "1") "VALID" else "READY"
+        if (records.any { it.issue == null && it.status != expectedAvailableStatus }) return null
+        if (finalSummary.available != records.count { it.issue == null }) return null
         if (finalSummary.quarantined != records.count { it.issue != null }) return null
 
         val available = records
@@ -166,8 +176,13 @@ internal object PresetMachineProtocol {
         }
     }
 
-    private data class ScanRecord(val fileName: String, val issue: PresetIssue?)
-    private data class ScanSummary(val valid: Int, val quarantined: Int, val total: Int)
+    private data class ScanRecord(val fileName: String, val status: String, val issue: PresetIssue?)
+    private data class ScanSummary(
+        val version: String,
+        val available: Int,
+        val quarantined: Int,
+        val total: Int,
+    )
 }
 
 internal interface PresetMutationGate {
@@ -175,7 +190,7 @@ internal interface PresetMutationGate {
 }
 
 internal interface PresetRunner {
-    suspend fun scanPresets(): List<String>?
+    suspend fun listPresets(): List<String>?
     suspend fun validatePreset(candidateFileName: String, logicalFileName: String): PresetValidation
     suspend fun previewPreset(candidateFileName: String, logicalFileName: String): PresetPreviewOutcome
     suspend fun loadSelection(): PresetSelection?
@@ -203,9 +218,9 @@ internal class RootPresetRunner @Inject constructor() : PresetRunner {
     private val presetsDir = "$zapretDir/presets"
     private val commandBuilder = "$zapretDir/scripts/command-builder.sh"
 
-    override suspend fun scanPresets(): List<String>? {
+    override suspend fun listPresets(): List<String>? {
         val result = ServiceLifecycleController.executeRoot(
-            "/system/bin/sh ${RootFileIo.shellQuote(commandBuilder)} --scan-presets-machine " +
+            "/system/bin/sh ${RootFileIo.shellQuote(commandBuilder)} --list-presets-machine " +
                 RootFileIo.shellQuote(zapretDir),
         )
         return result.stdout.takeIf { result.success }
@@ -381,7 +396,7 @@ internal class TransactionalPresetRepository @Inject constructor(
 ) : PresetRepository {
 
     override suspend fun loadCatalog(): PresetCatalog? = withContext(Dispatchers.IO) {
-        val discovery = runner.scanPresets()?.let(PresetMachineProtocol::parseDiscovery)
+        val discovery = runner.listPresets()?.let(PresetMachineProtocol::parseDiscovery)
             ?: return@withContext null
         val selection = runner.loadSelection() ?: return@withContext null
         PresetCatalog(
@@ -392,7 +407,6 @@ internal class TransactionalPresetRepository @Inject constructor(
 
     override suspend fun readCompatible(fileName: String): String? = withContext(Dispatchers.IO) {
         if (!PresetNamePolicy.isValid(fileName)) return@withContext null
-        if (runner.validatePreset(fileName, fileName) != PresetValidation.Compatible) return@withContext null
         (runner.snapshotFile(fileName) as? PresetFileSnapshot.Present)?.content
     }
 
@@ -435,11 +449,6 @@ internal class TransactionalPresetRepository @Inject constructor(
     override suspend fun apply(fileName: String): PresetMutationOutcome = safelyMutate {
         if (!PresetNamePolicy.isValid(fileName)) {
             return@safelyMutate PresetMutationOutcome.Rejected(PresetIssue.UNSAFE_PRESET_NAME)
-        }
-        when (val validation = runner.validatePreset(fileName, fileName)) {
-            PresetValidation.Compatible -> Unit
-            is PresetValidation.Quarantined -> return@safelyMutate PresetMutationOutcome.Rejected(validation.issue)
-            PresetValidation.ProtocolFailure -> return@safelyMutate PresetMutationOutcome.IoFailed
         }
         val oldConfig = runner.snapshotActiveConfig() ?: return@safelyMutate PresetMutationOutcome.IoFailed
         val wasRunning = runner.isServiceRunning() ?: return@safelyMutate PresetMutationOutcome.IoFailed

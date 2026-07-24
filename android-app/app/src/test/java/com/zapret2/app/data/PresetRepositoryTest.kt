@@ -27,6 +27,22 @@ class PresetRepositoryTest {
     }
 
     @Test
+    fun runtimeDiscovery_acceptsReadyCatalogWithoutRequalifyingPublishedPresets() {
+        val discovery = requireNotNull(
+            PresetMachineProtocol.parseDiscovery(
+                listOf(
+                    "Z2_PRESET\tREADY\tOK\tone.txt",
+                    "Z2_PRESET\tREADY\tOK\ttwo.txt",
+                    "Z2_PRESET_SUMMARY\t2\tready=2\tquarantined=0\ttotal=2",
+                ),
+            ),
+        )
+
+        assertEquals(listOf("one.txt", "two.txt"), discovery.available.map(PresetEntry::fileName))
+        assertEquals(0, discovery.quarantinedCount)
+    }
+
+    @Test
     fun machineProtocol_failsClosedOnCountMismatchDuplicateOrUnexpectedLine() {
         assertNull(
             PresetMachineProtocol.parseDiscovery(
@@ -140,18 +156,18 @@ class PresetRepositoryTest {
     }
 
     @Test
-    fun apply_revalidatesInsideMutationAndDoesNotMutateRejectedPreset() = runBlocking {
+    fun applyTrustsAlreadyQualifiedPresetAndDoesNotRepeatDeepValidation() = runBlocking {
         val runner = FakePresetRunner(validation = PresetValidation.Quarantined(PresetIssue.DEPENDENCY_MISSING))
         val gate = RecordingGate()
         val repository = TransactionalPresetRepository(runner, gate)
 
-        val result = repository.apply("broken.txt")
+        val result = repository.apply("published.txt")
 
-        assertEquals(PresetMutationOutcome.Rejected(PresetIssue.DEPENDENCY_MISSING), result)
+        assertEquals(PresetMutationOutcome.Applied, result)
         assertEquals(1, gate.calls)
-        assertEquals(1, runner.validationCalls)
-        assertEquals(0, runner.configWrites)
-        assertEquals(0, runner.restartCalls)
+        assertEquals(0, runner.validationCalls)
+        assertEquals(1, runner.configWrites)
+        assertEquals(1, runner.restartCalls)
     }
 
     @Test
@@ -393,7 +409,7 @@ class PresetRepositoryTest {
     }
 
     @Test
-    fun successfulApplyPersistsOnlyAfterRevalidation() = runBlocking {
+    fun successfulApplyPersistsWithoutRevalidatingPublishedBytes() = runBlocking {
         val runner = FakePresetRunner(validation = PresetValidation.Compatible, restartSucceeds = true)
         val repository = TransactionalPresetRepository(runner, RecordingGate())
 
@@ -401,7 +417,7 @@ class PresetRepositoryTest {
 
         assertEquals(PresetMutationOutcome.Applied, result)
         assertEquals(ActivePresetConfig("good.txt"), runner.config)
-        assertEquals(listOf("validate", "snapshot-config", "write-config", "restart"), runner.events)
+        assertEquals(listOf("snapshot-config", "write-config", "restart"), runner.events)
     }
 
     private class RecordingGate : PresetMutationGate {
@@ -433,7 +449,7 @@ class PresetRepositoryTest {
         var replaceCalls = 0
         var snapshotFileCalls = 0
 
-        override suspend fun scanPresets(): List<String>? = null
+        override suspend fun listPresets(): List<String>? = null
 
         override suspend fun validatePreset(candidateFileName: String, logicalFileName: String): PresetValidation {
             events += "validate"

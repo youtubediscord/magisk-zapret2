@@ -134,6 +134,16 @@ object ModuleMutationCoordinator {
         return buildInheritedLifecycleCommand(command, lease)
     }
 
+    /**
+     * Authenticates a read-only status query as belonging to the mutation in this coroutine.
+     * The status script may observe that exact lease as caller-owned, but never acquires,
+     * recovers, releases, or otherwise mutates lifecycle ownership.
+     */
+    internal fun inheritLifecycleObservation(command: String): String {
+        val lease = threadOwnership.get()?.lease ?: return command
+        return buildInheritedLifecycleCommand(command, lease)
+    }
+
     internal fun buildInheritedLifecycleCommand(
         command: String,
         lease: LifecycleMutationLockProtocol.Lease,

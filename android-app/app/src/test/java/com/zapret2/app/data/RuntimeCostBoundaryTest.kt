@@ -55,6 +55,36 @@ class RuntimeCostBoundaryTest {
     }
 
     @Test
+    fun apkCatalogListsQualifiedPresetsWithoutRunningTheReleaseScanner() {
+        val repository = repositoryFile(
+            "android-app/app/src/main/java/com/zapret2/app/data/PresetRepository.kt",
+        ).readText()
+        val runner = repository
+            .substringAfter("override suspend fun listPresets()")
+            .substringBefore("override suspend fun validatePreset(")
+        val read = repository
+            .substringAfter("override suspend fun readCompatible(")
+            .substringBefore("override suspend fun preview(")
+        val apply = repository
+            .substringAfter("override suspend fun apply(")
+            .substringBefore("override suspend fun save(")
+        val profiles = repositoryFile(
+            "android-app/app/src/main/java/com/zapret2/app/data/ProfileRepository.kt",
+        ).readText()
+        val strategies = profiles
+            .substringAfter("override suspend fun loadStrategies(")
+            .substringBefore("override suspend fun loadListEntries(")
+
+        assertTrue(runner.contains("--list-presets-machine"))
+        assertFalse(runner.contains("--scan-presets-machine"))
+        assertFalse(read.contains("validatePreset"))
+        assertFalse(apply.contains("validatePreset"))
+        assertTrue(repository.substringAfter("override suspend fun save(").contains("validatePreset"))
+        assertTrue(strategies.contains("readPublishedRegularText"))
+        assertFalse(strategies.contains("validate-strategies-machine"))
+    }
+
+    @Test
     fun shellContract_keepsExhaustiveByteComparisonOutsidePublication() {
         val source = repositoryFile("zapret2/scripts/package-contract.sh").readText()
         val runtimeComparison = source
@@ -93,7 +123,7 @@ class RuntimeCostBoundaryTest {
 
     @Test
     fun canonicalStagingRelease_forcesLegacyApkIntoItsMagiskFallback() {
-        assertEquals("5", ModulePackageContract.LIFECYCLE_CONTRACT_VERSION)
+        assertEquals("6", ModulePackageContract.LIFECYCLE_CONTRACT_VERSION)
         assertTrue(
             repositoryFile("service.sh").readText()
                 .contains("Module package generations are activated only by Magisk at boot."),
@@ -123,11 +153,22 @@ class RuntimeCostBoundaryTest {
             "android-app/app/src/main/java/com/zapret2/app/data/Zapret2ModuleRepository.kt",
         ).readText()
         val status = repositoryFile("zapret2/scripts/zapret-status.sh").readText()
+        val common = repositoryFile("zapret2/scripts/common.sh").readText()
+        val controller = repositoryFile(
+            "android-app/app/src/main/java/com/zapret2/app/data/ServiceLifecycleController.kt",
+        ).readText()
 
         assertFalse(repository.contains("lifecycle.lock"))
         assertFalse(repository.contains("Z2_MUTATION_STATE"))
-        assertTrue(status.contains("--machine-v5"))
+        assertTrue(status.contains("--machine-v6"))
         assertTrue(status.contains("classify_lifecycle_lock"))
+        assertTrue(status.contains("lifecycle_lock_is_owned_by_caller"))
+        assertTrue(common.contains("lifecycle_lock_is_owned_by_caller"))
+        assertTrue(
+            controller.contains(
+                "inheritLifecycleObservation(buildStatusCommand(version = 6))",
+            ),
+        )
         assertFalse(status.contains("acquire_lifecycle_lock"))
         assertFalse(status.contains("release_lifecycle_lock"))
         assertFalse(status.contains("scan_exact_owned_nfqws"))

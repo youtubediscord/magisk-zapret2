@@ -1,6 +1,7 @@
 package com.zapret2.app.viewmodel
 
 import com.zapret2.app.R
+import com.zapret2.app.data.LifecycleErrorContract
 import com.zapret2.app.data.ModuleInstallState
 import com.zapret2.app.data.ModuleMutationState
 import com.zapret2.app.data.ModuleEnvironmentSnapshot
@@ -106,6 +107,10 @@ class ModuleServiceStatusPolicyTest {
             ServiceLifecycleController.LifecycleState.ACTIVE.toModuleMutationState(),
         )
         assertEquals(
+            ModuleMutationState.IN_PROGRESS,
+            ServiceLifecycleController.LifecycleState.OWNED.toModuleMutationState(),
+        )
+        assertEquals(
             ModuleMutationState.BLOCKED,
             ServiceLifecycleController.LifecycleState.AMBIGUOUS.toModuleMutationState(),
         )
@@ -120,6 +125,18 @@ class ModuleServiceStatusPolicyTest {
                 canStopService = false,
             ),
         )
+        val active = ServiceLifecycleController.ServiceStatus(
+            rootGranted = true,
+            processRunning = false,
+            lifecycleState = ServiceLifecycleController.LifecycleState.ACTIVE,
+            lifecycleError = LifecycleErrorContract.error(
+                domain = "LIFECYCLE",
+                code = "LIFECYCLE_ACTIVE",
+                stage = "LIFECYCLE_OBSERVE",
+                detail = "Another verified lifecycle owner is active",
+            ),
+        )
+        assertNull(projectedLifecycleDiagnostic(active))
     }
 
     private fun statusWithoutQuery(

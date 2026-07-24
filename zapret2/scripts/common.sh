@@ -1527,6 +1527,17 @@ classify_lifecycle_lock() {
     return 0
 }
 
+# Caller-relative identity check for a previously classified live Android lease.
+# This is authentication only: observers never acquire, recover, or release the lock.
+lifecycle_lock_is_owned_by_caller() {
+    [ "$LIFECYCLE_OBSERVED_STATE" = active ] &&
+        [ "$LOCK_FILE_KIND" = android-mutation ] &&
+        [ -n "${ZAPRET2_LIFECYCLE_TOKEN:-}" ] &&
+        [ "${ZAPRET2_LIFECYCLE_TOKEN:-}" = "$LOCK_FILE_TOKEN" ] &&
+        [ "${ZAPRET2_LIFECYCLE_OWNER_PID:-}" = "$LOCK_FILE_PID" ] &&
+        [ "${ZAPRET2_LIFECYCLE_OWNER_START:-}" = "$LOCK_FILE_START" ]
+}
+
 read_lifecycle_gate() {
     local key value
     GATE_FILE_PID=""; GATE_FILE_START=""; GATE_FILE_TOKEN=""

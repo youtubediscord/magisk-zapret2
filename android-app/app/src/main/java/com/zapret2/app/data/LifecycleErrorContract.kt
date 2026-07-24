@@ -50,7 +50,8 @@ data class LifecycleError(
 
 internal object LifecycleErrorContract {
     const val SCHEMA_VERSION = "1"
-    const val STATUS_PROTOCOL_VERSION = "5"
+    const val STATUS_PROTOCOL_VERSION = "6"
+    const val LEGACY_TOPOLOGY_STATUS_PROTOCOL_VERSION = "5"
     const val LEGACY_LIFECYCLE_STATUS_PROTOCOL_VERSION = "4"
     const val LEGACY_STATUS_PROTOCOL_VERSION = "3"
     const val STATUS_OK = "OK"
