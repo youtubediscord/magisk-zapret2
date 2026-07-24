@@ -1,0 +1,4 @@
+interface:
+  display_name: "Build Zapret2 Locally"
+  short_description: "Build stable or dev Zapret2 locally"
+  default_prompt: "Use $build-zapret2-locally to build and verify Zapret2 stable or dev artifacts entirely on the local machine."
