@@ -224,6 +224,40 @@ class ServiceLifecycleControllerTest {
     }
 
     @Test
+    fun parseStatusOutput_acceptsCallerOwnedVersionSixTransaction() {
+        val status = ServiceLifecycleController.parseStatusOutput(
+            versionSixStatusLines(
+                healthyStatusLines(),
+                lifecycleState = "owned",
+                ownerKind = "android-mutation",
+                chains = 4,
+                anchors = 4,
+            ),
+        )
+
+        assertTrue(status.metadataComplete)
+        assertTrue(status.healthy)
+        assertEquals(ServiceLifecycleController.LifecycleState.OWNED, status.lifecycleState)
+        assertEquals("android-mutation", status.lifecycleOwnerKind)
+        assertFalse(status.updateBlocked)
+    }
+
+    @Test
+    fun parseStatusOutput_rejectsCallerOwnedStateFromLegacyProtocol() {
+        val status = ServiceLifecycleController.parseStatusOutput(
+            versionFiveStatusLines(
+                healthyStatusLines(),
+                lifecycleState = "owned",
+                ownerKind = "android-mutation",
+                chains = 4,
+                anchors = 4,
+            ),
+        )
+
+        assertFalse(status.metadataComplete)
+    }
+
+    @Test
     fun parseStatusOutput_rejectsIncompleteOrContradictoryVersionFiveTopologyFacts() {
         val missing = versionFiveStatusLines(
             healthyStatusLines(),
@@ -831,6 +865,20 @@ class ServiceLifecycleControllerTest {
             add(lastIndex, "Z2_CHAINS=$chains")
             add(lastIndex, "Z2_ANCHORS=$anchors")
         }
+
+    private fun versionSixStatusLines(
+        base: List<String>,
+        lifecycleState: String,
+        ownerKind: String = "none",
+        chains: Int,
+        anchors: Int,
+    ): List<String> = versionFiveStatusLines(
+        base = base,
+        lifecycleState = lifecycleState,
+        ownerKind = ownerKind,
+        chains = chains,
+        anchors = anchors,
+    ).map { if (it == "Z2_PROTOCOL=5") "Z2_PROTOCOL=6" else it }
 
     private fun lifecycleBarrierStatusLines(
         lifecycleState: String,

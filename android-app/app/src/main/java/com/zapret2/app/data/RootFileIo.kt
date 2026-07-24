@@ -63,6 +63,36 @@ internal object RootFileIo {
         return result.out.joinToString("\n").takeIf { '\u0000' !in it }
     }
 
+    /**
+     * Reads a release-qualified immutable asset without re-hashing its bytes.
+     *
+     * Exhaustive byte and semantic validation belongs to release qualification. The active
+     * generation receipt is the authority for packaged assets; this runtime boundary only keeps
+     * the read bounded and proves that the root-owned regular file did not change identity while
+     * it was being read.
+     */
+    fun readPublishedRegularText(path: String, maxBytes: Int): String? {
+        if (path.isBlank() || maxBytes <= 0) return null
+        val quoted = shellQuote(path)
+        val command = """
+            [ -f $quoted ] && [ ! -L $quoted ] || exit 1
+            z2_meta=${'$'}(stat -c '%d:%i:%u:%a:%h:%s' $quoted 2>/dev/null) || exit 1
+            IFS=: read -r z2_device z2_inode z2_uid z2_mode z2_links z2_size <<EOF
+            ${'$'}z2_meta
+            EOF
+            [ "${'$'}z2_uid" = 0 ] && [ "${'$'}z2_links" = 1 ] || exit 1
+            [ "${'$'}z2_mode" = 644 ] || exit 1
+            case "${'$'}z2_size" in ''|*[!0-9]*) exit 1 ;; esac
+            [ "${'$'}z2_size" -gt 0 ] && [ "${'$'}z2_size" -le $maxBytes ] || exit 1
+            cat $quoted || exit 1
+            z2_after=${'$'}(stat -c '%d:%i:%u:%a:%h:%s' $quoted 2>/dev/null) || exit 1
+            [ "${'$'}z2_after" = "${'$'}z2_meta" ]
+        """.trimIndent()
+        val result = RootCommandExecutor.execute(command)
+        if (!result.isSuccess) return null
+        return result.out.joinToString("\n").takeIf { '\u0000' !in it }
+    }
+
     fun ensureDirectory(path: String): Boolean {
         ModuleMutationCoordinator.requirePrivilegedMutationContext()
         val quoted = shellQuote(path)

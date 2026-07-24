@@ -14,7 +14,8 @@ case "${1:-}" in
     --machine-v3) MACHINE=1; MACHINE_VERSION=3 ;;
     --machine-v4) MACHINE=1; MACHINE_VERSION=4 ;;
     --machine-v5) MACHINE=1; MACHINE_VERSION=5 ;;
-    *) echo "ERROR: usage: $0 [--machine|--machine-v3|--machine-v4|--machine-v5]" >&2; exit 2 ;;
+    --machine-v6) MACHINE=1; MACHINE_VERSION=6 ;;
+    *) echo "ERROR: usage: $0 [--machine|--machine-v3|--machine-v4|--machine-v5|--machine-v6]" >&2; exit 2 ;;
 esac
 
 Z2_LIFECYCLE_STATE=unknown
@@ -62,10 +63,11 @@ emit_lifecycle_barrier() {
     echo "Z2_UNINSTALL_TOMBSTONE=0"
     echo "Z2_LIFECYCLE_STATE=$state"
     echo "Z2_LIFECYCLE_OWNER_KIND=$kind"
-    if [ "$MACHINE_VERSION" = 5 ]; then
+    case "$MACHINE_VERSION" in 5|6)
         echo "Z2_CHAINS=0"
         echo "Z2_ANCHORS=0"
-    fi
+        ;;
+    esac
     z2_error_emit_machine
     echo "Z2_COMPLETE=1"
 }
@@ -80,6 +82,10 @@ observe_lifecycle_state() {
             return 0
             ;;
         active|ambiguous)
+            if [ "$MACHINE_VERSION" = 6 ] && lifecycle_lock_is_owned_by_caller; then
+                Z2_LIFECYCLE_STATE=owned
+                return 0
+            fi
             Z2_LIFECYCLE_STATE="$LIFECYCLE_OBSERVED_STATE"
             return 1
             ;;
@@ -95,7 +101,7 @@ observe_lifecycle_state() {
     esac
 }
 
-case "$MACHINE_VERSION" in 4|5)
+case "$MACHINE_VERSION" in 4|5|6)
     if ! observe_lifecycle_state; then
         emit_lifecycle_barrier "$Z2_LIFECYCLE_STATE" "$Z2_LIFECYCLE_OWNER_KIND"
         exit 2
@@ -263,7 +269,7 @@ else
 fi
 
 emit_machine() {
-    case "$MACHINE_VERSION" in 3|4|5) echo "Z2_PROTOCOL=$MACHINE_VERSION" ;; esac
+    case "$MACHINE_VERSION" in 3|4|5|6) echo "Z2_PROTOCOL=$MACHINE_VERSION" ;; esac
     echo "Z2_STATUS=$Z2_STATUS"
     echo "Z2_OWNED=$Z2_OWNED"
     echo "Z2_PROCESS=$Z2_PROCESS"
@@ -285,16 +291,17 @@ emit_machine() {
     echo "Z2_QUEUE_BYPASS=$Z2_QUEUE_BYPASS"
     echo "Z2_UPDATE_BLOCKED=$Z2_UPDATE_BLOCKED"
     echo "Z2_UNINSTALL_TOMBSTONE=$Z2_UNINSTALL_TOMBSTONE"
-    case "$MACHINE_VERSION" in 4|5)
+    case "$MACHINE_VERSION" in 4|5|6)
         echo "Z2_LIFECYCLE_STATE=$Z2_LIFECYCLE_STATE"
         echo "Z2_LIFECYCLE_OWNER_KIND=$Z2_LIFECYCLE_OWNER_KIND"
         ;;
     esac
-    if [ "$MACHINE_VERSION" = 5 ]; then
+    case "$MACHINE_VERSION" in 5|6)
         echo "Z2_CHAINS=$Z2_CHAINS"
         echo "Z2_ANCHORS=$Z2_ANCHORS"
-    fi
-    case "$MACHINE_VERSION" in 3|4|5) z2_error_emit_machine ;; esac
+        ;;
+    esac
+    case "$MACHINE_VERSION" in 3|4|5|6) z2_error_emit_machine ;; esac
     # Terminal sentinel lets strict callers reject truncated shell output.
     echo "Z2_COMPLETE=1"
 }

@@ -456,7 +456,7 @@ package_contract_validate_lifecycle_contract() {
     local file="$root/$relative"
     package_contract_check_regular "$file" "$relative" || return 1
     [ "$(wc -l < "$file" 2>/dev/null)" = 1 ] &&
-        [ "$(cat "$file" 2>/dev/null)" = 5 ] || {
+        [ "$(cat "$file" 2>/dev/null)" = 6 ] || {
         package_contract_fail "LIFECYCLE_CONTRACT_INVALID" "$relative"
         return 1
     }

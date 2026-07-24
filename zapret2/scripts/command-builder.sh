@@ -12,7 +12,7 @@ STRATEGY_CATALOG_MAX_BYTES=1048576
 COMPILED_ARGV_MAX_BYTES=2097152
 
 case "${1:-}" in
-    --scan-presets-machine|--validate-preset-machine|--preflight-preset-machine|--preview-preset-machine|--validate-strategies-machine)
+    --list-presets-machine|--scan-presets-machine|--validate-preset-machine|--preflight-preset-machine|--preview-preset-machine|--validate-strategies-machine)
         COMMAND_BUILDER_CLI_MODE=1
         [ "$1" != --validate-strategies-machine ] || COMMAND_BUILDER_ERROR_PREFIX=Z2_STRATEGIES_ERROR
         ZAPRET_DIR="${2:-}"
@@ -550,6 +550,46 @@ scan_presets_machine() {
     printf 'Z2_PRESET_SUMMARY\t1\tvalid=%s\tquarantined=%s\ttotal=%s\n' "$valid" "$quarantined" "$total"
 }
 
+# Runtime discovery is deliberately not package qualification. Published
+# presets were exhaustively qualified before release, and app-authored changes
+# are qualified before their atomic replacement. Listing therefore performs
+# only bounded directory-entry checks; the deep scanner remains a release/CI
+# boundary and must never occupy the APK's shared root transport.
+list_presets_machine() {
+    local preset_file preset_name ready=0 quarantined=0 total=0 reason
+    [ -d "$PRESETS_DIR" ] && [ ! -L "$PRESETS_DIR" ] || {
+        printf 'Z2_PRESET_ERROR\tPRESET_CATALOG_MISSING\n'; return 2;
+    }
+    for preset_file in "$PRESETS_DIR"/*.txt; do
+        [ -e "$preset_file" ] || [ -L "$preset_file" ] || continue
+        preset_name="${preset_file##*/}"
+        case "$preset_name" in _*) continue ;; esac
+        # Unsafe names are not representable in the app protocol and remain
+        # invisible rather than invalidating the complete trusted catalog.
+        is_safe_preset_file_name "$preset_name" || continue
+        total=$((total + 1))
+        reason=
+        if [ -L "$preset_file" ]; then
+            reason=PRESET_SYMLINK
+        elif [ ! -f "$preset_file" ]; then
+            reason=PRESET_MISSING
+        elif [ ! -s "$preset_file" ]; then
+            reason=PRESET_EMPTY
+        elif [ ! -r "$preset_file" ]; then
+            reason=PRESET_UNREADABLE
+        fi
+        if [ -z "$reason" ]; then
+            ready=$((ready + 1))
+            printf 'Z2_PRESET\tREADY\tOK\t%s\n' "$preset_name"
+        else
+            quarantined=$((quarantined + 1))
+            printf 'Z2_PRESET\tQUARANTINED\t%s\t%s\n' "$reason" "$preset_name"
+        fi
+    done
+    printf 'Z2_PRESET_SUMMARY\t2\tready=%s\tquarantined=%s\ttotal=%s\n' \
+        "$ready" "$quarantined" "$total"
+}
+
 validate_preset_machine() {
     if validate_preset_file "$1" "$2"; then
         printf 'Z2_PRESET_VALIDATION\t1\tOK\t%s\n' "$2"; return 0
@@ -622,6 +662,10 @@ validate_strategy_catalogs_machine() {
 
 if [ "$COMMAND_BUILDER_CLI_MODE" -eq 1 ]; then
     case "$1" in
+        --list-presets-machine)
+            [ "$#" -eq 2 ] || { printf 'Z2_PRESET_ERROR\tINVALID_ARGUMENTS\n'; exit 2; }
+            list_presets_machine; exit $?
+            ;;
         --scan-presets-machine)
             [ "$#" -eq 2 ] || { printf 'Z2_PRESET_ERROR\tINVALID_ARGUMENTS\n'; exit 2; }
             scan_presets_machine; exit $?

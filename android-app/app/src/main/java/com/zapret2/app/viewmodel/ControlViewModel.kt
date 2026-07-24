@@ -76,6 +76,8 @@ internal fun projectedControlStatus(
     canStopService: Boolean,
 ): ControlStatus = when {
     !serviceStatus.rootGranted -> serviceStatus.rootAccessState.toControlStatus()
+    serviceStatus.lifecycleState == ServiceLifecycleController.LifecycleState.OWNED ->
+        ControlStatus.LIFECYCLE_BUSY
     serviceStatus.lifecycleState == ServiceLifecycleController.LifecycleState.ACTIVE ->
         ControlStatus.LIFECYCLE_BUSY
     serviceStatus.lifecycleState in setOf(
@@ -141,7 +143,9 @@ internal fun ModuleServiceAccess.statusWithoutQuery(): ControlStatus? = when (th
 
 internal fun ServiceLifecycleController.LifecycleState.toModuleMutationState(): ModuleMutationState =
     when (this) {
-        ServiceLifecycleController.LifecycleState.ACTIVE -> ModuleMutationState.IN_PROGRESS
+        ServiceLifecycleController.LifecycleState.OWNED,
+        ServiceLifecycleController.LifecycleState.ACTIVE,
+        -> ModuleMutationState.IN_PROGRESS
         ServiceLifecycleController.LifecycleState.AMBIGUOUS,
         ServiceLifecycleController.LifecycleState.RECOVERY_FAILED,
         -> ModuleMutationState.BLOCKED
@@ -150,6 +154,18 @@ internal fun ServiceLifecycleController.LifecycleState.toModuleMutationState(): 
         ServiceLifecycleController.LifecycleState.UNKNOWN,
         -> ModuleMutationState.IDLE
     }
+
+internal fun projectedLifecycleDiagnostic(
+    serviceStatus: ServiceLifecycleController.ServiceStatus,
+): String? = serviceStatus.lifecycleError
+    ?.takeUnless { error ->
+        error.isNone ||
+            serviceStatus.lifecycleState in setOf(
+                ServiceLifecycleController.LifecycleState.OWNED,
+                ServiceLifecycleController.LifecycleState.ACTIVE,
+            )
+    }
+    ?.diagnosticText()
 
 enum class ControlDialogKind {
     UPDATE,
@@ -1643,9 +1659,7 @@ class ControlViewModel @Inject constructor(
                         moduleVersion = environment.displayedVersion,
                         nfqueueSupported = environment.nfqueueSupported,
                         hasAuthoritativeRuntimeSettings = false,
-                        moduleDiagnostic = serviceStatus.lifecycleError
-                            ?.takeUnless { error -> error.isNone }
-                            ?.diagnosticText(),
+                        moduleDiagnostic = projectedLifecycleDiagnostic(serviceStatus),
                     )
                 }
             }
@@ -1700,9 +1714,7 @@ class ControlViewModel @Inject constructor(
                     hasAuthoritativeRuntimeSettings = current.hasAuthoritativeRuntimeSettings &&
                         environment.activeState == ModuleInstallState.READY &&
                         lifecycleMutationState == ModuleMutationState.IDLE,
-                    moduleDiagnostic = serviceStatus.lifecycleError
-                        ?.takeUnless { error -> error.isNone }
-                        ?.diagnosticText()
+                    moduleDiagnostic = projectedLifecycleDiagnostic(serviceStatus)
                         ?: current.moduleDiagnostic.takeUnless {
                             serviceStatus.metadataComplete &&
                                 current.hasAuthoritativeRuntimeSettings

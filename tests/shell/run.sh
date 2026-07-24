@@ -21,6 +21,7 @@ assert_unsafe_machine_root() {
 [ "$(id -u)" = 0 ] || fail "run as root so ownership checks are real"
 
 assert_unsafe_machine_root --scan-presets-machine Z2_PRESET_ERROR
+assert_unsafe_machine_root --list-presets-machine Z2_PRESET_ERROR
 assert_unsafe_machine_root --validate-preset-machine Z2_PRESET_ERROR
 assert_unsafe_machine_root --preflight-preset-machine Z2_PRESET_ERROR
 assert_unsafe_machine_root --preview-preset-machine Z2_PRESET_ERROR
@@ -65,6 +66,12 @@ PRESET_TOTAL="$(find "$ROOT/zapret2/presets" -maxdepth 1 -type f -name '*.txt' |
 grep -Fxq "Z2_PRESET_SUMMARY$(printf '\t')1$(printf '\t')valid=$PRESET_TOTAL$(printf '\t')quarantined=0$(printf '\t')total=$PRESET_TOTAL" "$PRESET_SCAN" ||
     fail "preset summary does not match the packaged catalog"
 
+PRESET_LIST="$TMP/presets.list"
+sh "$ROOT/zapret2/scripts/command-builder.sh" --list-presets-machine "$ROOT/zapret2" > "$PRESET_LIST" ||
+    fail "trusted preset catalog could not be listed"
+grep -Fxq "Z2_PRESET_SUMMARY$(printf '\t')2$(printf '\t')ready=$PRESET_TOTAL$(printf '\t')quarantined=0$(printf '\t')total=$PRESET_TOTAL" "$PRESET_LIST" ||
+    fail "trusted preset list does not match the packaged catalog"
+
 # These read-only commands run while the app's shared root-command gate is
 # occupied. They must remain shell-builtin parsers rather than spawning one
 # grep process for every catalog section, preset name, or dependency.
@@ -81,6 +88,11 @@ PATH="$NO_GREP_BIN:$PATH" sh "$ROOT/zapret2/scripts/command-builder.sh" \
     --scan-presets-machine "$ROOT/zapret2" > "$NO_GREP_SCAN" ||
     fail "preset scan still depends on per-preset grep processes"
 cmp "$PRESET_SCAN" "$NO_GREP_SCAN" >/dev/null || fail "fork-free preset scan output changed"
+NO_GREP_LIST="$TMP/presets.no-grep.list"
+PATH="$NO_GREP_BIN:$PATH" sh "$ROOT/zapret2/scripts/command-builder.sh" \
+    --list-presets-machine "$ROOT/zapret2" > "$NO_GREP_LIST" ||
+    fail "trusted preset list depends on deep validation tools"
+cmp "$PRESET_LIST" "$NO_GREP_LIST" >/dev/null || fail "fork-free preset list output changed"
 
 FIXTURE="$TMP/compiler"
 cp -R "$ROOT/zapret2" "$FIXTURE"
@@ -198,6 +210,7 @@ Z2_TEST_TMP="$TMP" sh "$ROOT/tests/shell/boot-recovery.sh"
 Z2_TEST_TMP="$TMP" sh "$ROOT/tests/shell/lifecycle-lock-owner.sh"
 Z2_TEST_TMP="$TMP" sh "$ROOT/tests/shell/lifecycle-status-v4.sh"
 Z2_TEST_TMP="$TMP" sh "$ROOT/tests/shell/lifecycle-status-v5.sh"
+Z2_TEST_TMP="$TMP" sh "$ROOT/tests/shell/lifecycle-status-v6.sh"
 Z2_TEST_TMP="$TMP" sh "$ROOT/tests/shell/package-owner-protocol.sh"
 Z2_TEST_TMP="$TMP" sh "$ROOT/tests/shell/runtime-config-contract.sh"
 Z2_TEST_TMP="$TMP" sh "$ROOT/tests/shell/release-generation.sh"

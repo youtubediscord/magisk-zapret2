@@ -34,6 +34,7 @@ object ServiceLifecycleController {
     enum class LifecycleState {
         IDLE,
         RECOVERED,
+        OWNED,
         ACTIVE,
         AMBIGUOUS,
         RECOVERY_FAILED,
@@ -125,6 +126,7 @@ object ServiceLifecycleController {
                     lifecycleState in setOf(
                         LifecycleState.IDLE,
                         LifecycleState.RECOVERED,
+                        LifecycleState.OWNED,
                         LifecycleState.UNKNOWN,
                     ) &&
                     rulesetVerified &&
@@ -143,6 +145,7 @@ object ServiceLifecycleController {
                     lifecycleState in setOf(
                         LifecycleState.IDLE,
                         LifecycleState.RECOVERED,
+                        LifecycleState.OWNED,
                         LifecycleState.UNKNOWN,
                     ) &&
                     !hasOwnedState &&
@@ -586,11 +589,18 @@ object ServiceLifecycleController {
     }
 
     private suspend fun getStatusLocked(): ServiceStatus {
-        val current = executeRoot(buildStatusCommand(version = 5))
-        val compatible = if (current.isUnsupportedMachineProtocol()) {
-            executeRoot(buildStatusCommand(version = 4))
+        val current = executeRoot(
+            ModuleMutationCoordinator.inheritLifecycleObservation(buildStatusCommand(version = 6)),
+        )
+        val topologyCompatible = if (current.isUnsupportedMachineProtocol()) {
+            executeRoot(buildStatusCommand(version = 5))
         } else {
             current
+        }
+        val compatible = if (topologyCompatible.isUnsupportedMachineProtocol()) {
+            executeRoot(buildStatusCommand(version = 4))
+        } else {
+            topologyCompatible
         }
         val legacy = if (compatible.isUnsupportedMachineProtocol()) {
             executeRoot(buildStatusCommand(version = 3))
@@ -690,14 +700,18 @@ object ServiceLifecycleController {
         val versionedProtocol = protocolVersion in setOf(
             LifecycleErrorContract.LEGACY_STATUS_PROTOCOL_VERSION,
             LifecycleErrorContract.LEGACY_LIFECYCLE_STATUS_PROTOCOL_VERSION,
+            LifecycleErrorContract.LEGACY_TOPOLOGY_STATUS_PROTOCOL_VERSION,
             LifecycleErrorContract.STATUS_PROTOCOL_VERSION,
         )
         val lifecycleProtocol = protocolVersion in setOf(
             LifecycleErrorContract.LEGACY_LIFECYCLE_STATUS_PROTOCOL_VERSION,
+            LifecycleErrorContract.LEGACY_TOPOLOGY_STATUS_PROTOCOL_VERSION,
             LifecycleErrorContract.STATUS_PROTOCOL_VERSION,
         )
-        val topologyProtocol =
-            protocolVersion == LifecycleErrorContract.STATUS_PROTOCOL_VERSION
+        val topologyProtocol = protocolVersion in setOf(
+            LifecycleErrorContract.LEGACY_TOPOLOGY_STATUS_PROTOCOL_VERSION,
+            LifecycleErrorContract.STATUS_PROTOCOL_VERSION,
+        )
         val requiredFields = when {
             topologyProtocol -> legacyRequiredFields +
                 setOf(
@@ -749,6 +763,7 @@ object ServiceLifecycleController {
         val lifecycleState = when (values["Z2_LIFECYCLE_STATE"]) {
             "idle" -> LifecycleState.IDLE
             "recovered" -> LifecycleState.RECOVERED
+            "owned" -> LifecycleState.OWNED
             "active" -> LifecycleState.ACTIVE
             "ambiguous" -> LifecycleState.AMBIGUOUS
             "recovery_failed" -> LifecycleState.RECOVERY_FAILED
@@ -757,6 +772,8 @@ object ServiceLifecycleController {
         val lifecycleOwnerKind = values["Z2_LIFECYCLE_OWNER_KIND"].orEmpty()
         val lifecycleValid = !lifecycleProtocol || (
             lifecycleState != LifecycleState.UNKNOWN &&
+                (lifecycleState != LifecycleState.OWNED ||
+                    protocolVersion == LifecycleErrorContract.STATUS_PROTOCOL_VERSION) &&
                 lifecycleOwnerKind in setOf("none", "shell", "android-mutation", "unknown") &&
                 lifecyclePayloadSemanticsAreValid(
                     lifecycleState,
@@ -836,6 +853,7 @@ object ServiceLifecycleController {
         LifecycleState.IDLE,
         LifecycleState.RECOVERED,
         -> ownerKind == "none" && !updateBlocked
+        LifecycleState.OWNED -> ownerKind == "android-mutation" && !updateBlocked
         LifecycleState.ACTIVE ->
             ownerKind in setOf("shell", "android-mutation") && updateBlocked
         LifecycleState.AMBIGUOUS -> ownerKind == "unknown" && updateBlocked
@@ -1057,6 +1075,7 @@ object ServiceLifecycleController {
 
     private fun buildStatusCommand(version: Int): String {
         val argument = when (version) {
+            6 -> "--machine-v6"
             5 -> "--machine-v5"
             4 -> "--machine-v4"
             3 -> "--machine-v3"
