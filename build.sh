@@ -6,7 +6,7 @@
 set -e
 
 REQUESTED_VERSION="${1:-}"
-OUTPUT_DIR="${2:-dist}"
+OUTPUT_DIR="${2:-.artifacts/module}"
 
 VERSION_METADATA=$(sh tools/release-version.sh)
 VERSION=$(printf '%s\n' "$VERSION_METADATA" | sed -n 's/^version=//p')

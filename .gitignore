@@ -1,4 +1,5 @@
 CLAUDE.md
+AGENTS.md
 /.claude
 /.codex/
 .env
@@ -12,6 +13,7 @@ android-app/local.properties
 local.properties
 /.test-tmp-*/
 /.tmp-*/
+/.artifacts/
 /keystore.jks
 /signing.properties
 /keystore.properties
