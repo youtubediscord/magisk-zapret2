@@ -88,9 +88,6 @@
     <string name="control_not_available">Нет данных</string>
     <string name="control_settings">Настройки</string>
     <string name="control_autostart">Автозапуск при загрузке</string>
-    <string name="control_packet_interception">Перехват пакетов</string>
-    <string name="control_outgoing_packets">Исходящие пакеты</string>
-    <string name="control_incoming_packets">Входящие пакеты</string>
     <string name="control_network">Сеть</string>
     <string name="control_network_type">Тип сети</string>
     <string name="network_type_wifi">Wi-Fi</string>
@@ -143,8 +140,6 @@
     <string name="control_error_details">Подробности ошибки</string>
     <string name="control_copied">Скопировано в буфер обмена</string>
     <string name="control_copy_failed">Не удалось скопировать в буфер обмена</string>
-    <string name="control_packet_count">Количество пакетов</string>
-    <string name="control_packet_range">Введите значение от 1 до 999 999 999</string>
     <string name="control_status_degraded">Служба работает с ошибками</string>
     <string name="control_status_root_denied">Разрешите root-доступ в root-менеджере</string>
     <string name="control_status_root_manager_unavailable">Root-менеджер недоступен</string>
@@ -161,7 +156,6 @@
     <string name="control_module_state_ready">Готов к работе</string>
     <string name="control_module_state_disabled">Отключён в root-менеджере</string>
     <string name="control_module_state_removal_pending">Ожидает удаления</string>
-    <string name="control_module_state_updating">Выполняется обновление или восстановление</string>
     <string name="control_module_state_lifecycle_blocked">Требуется восстановление состояния lifecycle</string>
     <string name="control_module_state_installed_reboot">Установлен; требуется перезагрузка</string>
     <string name="control_module_state_update_reboot">Обновление установлено; требуется перезагрузка</string>
@@ -187,8 +181,6 @@
     <string name="control_service_expected_state_error">Служба не перешла в ожидаемое состояние</string>
     <string name="control_autostart_save_failed">Не удалось сохранить настройку автозапуска</string>
     <string name="control_module_update_in_progress">Запись в модуль заблокирована обновлением, восстановлением, отключением или удалением.</string>
-    <string name="control_packet_out_save_failed">Не удалось сохранить число исходящих пакетов</string>
-    <string name="control_packet_in_save_failed">Не удалось сохранить число входящих пакетов</string>
     <string name="control_runtime_rollback_failed">Изменение runtime завершилось ошибкой, а предыдущую конфигурацию восстановить не удалось. Перезагрузите устройство перед повтором и проверьте диагностику.</string>
     <string name="control_app_up_to_date">Установлена актуальная версия приложения</string>
     <string name="control_update_check_failed">Не удалось проверить обновления</string>

@@ -1,6 +1,10 @@
 # Preset: Default v5 (game filter)
 # BuiltinVersion: 2.25
 # Description:
+# NFQWS2_TCP_PKT_OUT=20
+# NFQWS2_TCP_PKT_IN=10
+# NFQWS2_UDP_PKT_OUT=20
+# NFQWS2_UDP_PKT_IN=10
 
 --lua-init=@lua/zapret-lib.lua
 --lua-init=@lua/zapret-antidpi.lua

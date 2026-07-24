@@ -24,31 +24,24 @@ LOG=${Z2_START_TEST_LOG:?}
 log_error() { printf 'log:%s\n' "$1" >> "$LOG"; }
 rollback_legacy_migration() { echo legacy >> "$LOG"; return 0; }
 release_lifecycle_lock() { echo release >> "$LOG"; return 0; }
-discard_prior_snapshot() { echo discard >> "$LOG"; return 0; }
-cleanup_probe_artifacts() { echo probe-clean >> "$LOG"; return 0; }
 write_ok_status() { echo status-ok >> "$LOG"; return 0; }
+set_owner_phase() { return 0; }
+restore_status_facts() { return 0; }
+snapshot_owned_state() {
+    SNAP_PID=""; SNAP_PID_START=""; SNAP_GENERATION=""; SNAP_PID_VERIFIED=0
+    SNAP_IPV4=0; SNAP_IPV6=0; SNAP_RULES=0; SNAP_CHAINS=0; SNAP_ANCHORS=0
+}
+write_iptables_status() { echo status-error >> "$LOG"; return 0; }
 
 case "$1" in
     pre)
         CONTROLLED_TEARDOWN_STARTED=0
-        PRIOR_HEALTHY=1; PRIOR_TORN_DOWN=0; PRIOR_GENERATION=prior-generation
         rollback_start() { echo unexpected-rollback >> "$LOG"; return 0; }
-        restore_prior_healthy_generation() { echo unexpected-restore >> "$LOG"; return 0; }
         fail_start preflight-failure
         ;;
     post|signal)
         CONTROLLED_TEARDOWN_STARTED=1; FIREWALL_MUTATED=1
-        PRIOR_HEALTHY=1; PRIOR_TORN_DOWN=1; PRIOR_GENERATION=prior-generation
-        PRIOR_QNUM=200; PRIOR_ARGV_SHA256=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; PRIOR_IPV6=0
         rollback_start() { echo rollback-new >> "$LOG"; FIREWALL_MUTATED=0; return 0; }
-        restore_prior_healthy_generation() {
-            [ "$PRIOR_GENERATION" = prior-generation ] && [ "$PRIOR_QNUM" = 200 ] &&
-                [ "$PRIOR_ARGV_SHA256" = aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa ] && [ "$PRIOR_IPV6" = 0 ] || return 1
-            echo exact-prior-restored >> "$LOG"
-            HEALTH_RULES=4; HEALTH_PID=42; HEALTH_IPV6=0
-            PRIOR_TORN_DOWN=0
-            return 0
-        }
         if [ "$1" = signal ]; then handle_signal TERM; else fail_start post-teardown-failure; fi
         ;;
     mismatch)
@@ -89,7 +82,8 @@ run_failure pre
 
 run_failure post
 grep -Fxq rollback-new "$LOG" || fail "post-teardown failure did not roll back new state"
-grep -Fxq exact-prior-restored "$LOG" || fail "post-teardown failure did not restore exact prior state"
+! grep -Fq exact-prior-restored "$LOG" ||
+    fail "post-teardown failure restored an obsolete generation"
 
 run_failure mismatch
 grep -Fxq metadata-rejected "$LOG" || fail "install generation mismatch was not checked"
@@ -97,6 +91,6 @@ grep -Fxq metadata-rejected "$LOG" || fail "install generation mismatch was not 
 
 run_failure signal
 grep -Fxq rollback-new "$LOG" || fail "signal did not roll back new state"
-grep -Fxq exact-prior-restored "$LOG" || fail "signal did not restore exact prior state"
+! grep -Fq exact-prior-restored "$LOG" || fail "signal restored an obsolete generation"
 
 echo "Transactional start shell tests passed"

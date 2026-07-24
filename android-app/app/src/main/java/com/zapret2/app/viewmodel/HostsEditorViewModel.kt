@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 
 enum class HostsEditorOperation { LOAD, SAVE, RESET }
@@ -72,8 +73,7 @@ class HostsEditorViewModel @Inject constructor(
     private val restoredBaseline = restoreBounded(KEY_BASELINE)
     private val restoredEditorState = restoredDraft != null && restoredBaseline != null
     private var baselineContent = restoredBaseline.orEmpty()
-    private var hasEnteredScreen = false
-    private var refreshAfterOperation = false
+    private val initialLoadRequested = AtomicBoolean(false)
     private val restoredResult = savedStateHandle.restoreEnumNameOrRemove<HostsEditorResult>(KEY_RESULT)
     private val _uiState = MutableStateFlow(
         HostsEditorUiState(
@@ -89,6 +89,11 @@ class HostsEditorViewModel @Inject constructor(
         if (!restoredEditorState) {
             savedStateHandle.remove<String>(KEY_DRAFT)
             savedStateHandle.remove<String>(KEY_BASELINE)
+        }
+    }
+
+    fun ensureLoaded() {
+        if (initialLoadRequested.compareAndSet(false, true) && !restoredEditorState) {
             loadHosts()
         }
     }
@@ -105,21 +110,6 @@ class HostsEditorViewModel @Inject constructor(
 
     fun revalidateHosts() {
         loadHosts(preserveUnsavedDraft = true, clearResult = true)
-    }
-
-    fun onScreenEntered() {
-        val firstEntry = !hasEnteredScreen
-        hasEnteredScreen = true
-        if (firstEntry && !restoredEditorState) return
-        if (_uiState.value.operation == null) {
-            loadHosts(preserveUnsavedDraft = true, clearResult = false)
-        } else {
-            refreshAfterOperation = true
-        }
-    }
-
-    fun onScreenStopped() {
-        refreshAfterOperation = false
     }
 
     private fun loadHosts(preserveUnsavedDraft: Boolean, clearResult: Boolean) {
@@ -164,7 +154,6 @@ class HostsEditorViewModel @Inject constructor(
                 }
                 publishResult(HostsEditorResult.READ_FAILED)
             }
-            runPendingRefresh()
         }
     }
 
@@ -295,7 +284,6 @@ class HostsEditorViewModel @Inject constructor(
                     HostsMutationOutcome.Blocked -> HostsEditorResult.SAVE_BLOCKED
                 },
             )
-            runPendingRefresh()
         }
     }
 
@@ -374,14 +362,7 @@ class HostsEditorViewModel @Inject constructor(
                     HostsMutationOutcome.Blocked -> HostsEditorResult.RESET_BLOCKED
                 },
             )
-            runPendingRefresh()
         }
-    }
-
-    private fun runPendingRefresh() {
-        if (!refreshAfterOperation || _uiState.value.operation != null) return
-        refreshAfterOperation = false
-        loadHosts(preserveUnsavedDraft = true, clearResult = false)
     }
 
     private fun restoreHostsOrFalse(snapshot: HostsOverlaySnapshot): Boolean = try {

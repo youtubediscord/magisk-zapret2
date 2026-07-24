@@ -275,7 +275,7 @@ mkdir -p "$LIVE/system/etc" "$LIVE_STATE"
 chmod 0700 "$LIVE_STATE"
 
 # A standard Magisk update is staged below modules_update while the currently
-# installed service can remain live. Owner v7 must authenticate against the
+# installed service can remain live. Current owner metadata must authenticate against the
 # exact packaged live path, never the candidate/staging binary, and the
 # installer must neither stop nor rewrite that live publication.
 rm -f "$LIVE/disable"
@@ -293,7 +293,7 @@ kill -0 "$LIVE_TEST_PID" 2>/dev/null || fail "live owner fixture process did not
     SCRIPT_DIR="$LIVE/zapret2/scripts"
     export STATE_DIR MODDIR ZAPRET_DIR SCRIPT_DIR
     . "$LIVE/zapret2/scripts/common.sh"
-    QNUM=200; PORTS_TCP=80,443; PORTS_UDP=443; PKT_OUT=20; PKT_IN=10; DESYNC_MARK=0x40000000
+    QNUM=200; PORTS_TCP=80,443; PORTS_UDP=443; TCP_PKT_OUT=20; TCP_PKT_IN=10; UDP_PKT_OUT=20; UDP_PKT_IN=10; PKT_OUT=20; PKT_IN=10; DESYNC_MARK=0x40000000
     FIREWALL_TAG=AbCdEf1234; ZAPRET2_OUT=Z2O_AbCdEf1234; ZAPRET2_IN=Z2I_AbCdEf1234
     IPV4_CONNBYTES=1; IPV4_MULTIPORT=1; IPV4_MARK=1
     IPV6_CONNBYTES=1; IPV6_MULTIPORT=1; IPV6_MARK=1
@@ -302,7 +302,7 @@ kill -0 "$LIVE_TEST_PID" 2>/dev/null || fail "live owner fixture process did not
     owner_argv_sha256=$(proc_cmdline_sha256 "$LIVE_TEST_PID") || exit 43
     write_owner_state "$LIVE_TEST_PID" "$owner_starttime" "$owner_argv_sha256" 200 running-modules-update active || exit 44
     write_numeric_pidfile "$LIVE_TEST_PID" || exit 45
-) || fail "could not publish exact live owner v7 fixture"
+) || fail "could not publish exact live owner v8 fixture"
 grep -Fxq "exe=$LIVE/zapret2/nfqws2" "$LIVE_STATE/owner.meta" || fail "live owner fixture used a non-canonical exe"
 cp "$LIVE_STATE/owner.meta" "$CASE/running-owner.before"
 run_installer || fail "standard modules_update install rejected a valid running live owner"
@@ -322,6 +322,7 @@ chmod 0644 "$LIVE/system/etc/hosts"
 cat > "$MOCK/iptables" <<'EOF'
 #!/bin/sh
 case "$*" in
+    *' -L OUTPUT -n') exit 0 ;;
     *' -F '*|*' -X '*|*' -D '*) exit 0 ;;
     *'-S ZAPRET2_OUT'|*'-S ZAPRET2_IN'|*'-S ZAPRET2_PROBE') exit 1 ;;
     *'-S OUTPUT'|*'-S INPUT') exit 0 ;;

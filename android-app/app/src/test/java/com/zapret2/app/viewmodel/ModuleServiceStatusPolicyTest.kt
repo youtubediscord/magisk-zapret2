@@ -100,7 +100,7 @@ class ModuleServiceStatusPolicyTest {
         )
 
         assertFalse(state.isModuleOperational)
-        assertEquals(R.string.control_module_state_updating, state.moduleStateLabelRes)
+        assertEquals(R.string.control_service_lifecycle_busy, state.moduleStateLabelRes)
         assertNull(statusWithoutQuery(state.moduleInstallState, state.pendingModuleState))
         assertEquals(
             ModuleMutationState.IN_PROGRESS,

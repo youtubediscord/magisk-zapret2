@@ -123,6 +123,7 @@ class ModulePackageContractTest {
             "immutable-exec|0755|uninstall.sh",
             "immutable-exec|0755|action.sh",
             "immutable-exec|0755|zapret2/scripts/common.sh",
+            "immutable-exec|0755|zapret2/scripts/firewall-reconciler.sh",
             "immutable-exec|0755|zapret2/scripts/command-builder.sh",
             "immutable-exec|0755|zapret2/scripts/package-contract.sh",
             "immutable-exec|0755|zapret2/scripts/runtime-config.sh",

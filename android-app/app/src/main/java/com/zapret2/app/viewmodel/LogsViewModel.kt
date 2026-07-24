@@ -18,13 +18,11 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.concurrent.atomic.AtomicBoolean
@@ -44,7 +42,7 @@ private enum class LogClearOutcome { CLEARED, FAILED, BLOCKED }
 
 data class LogsUiState(
     val currentTab: LogTab = LogTab.COMMAND,
-    val commandLoadState: LogsLoadState = LogsLoadState.LOADING,
+    val commandLoadState: LogsLoadState = LogsLoadState.IDLE,
     val outputLoadState: LogsLoadState = LogsLoadState.IDLE,
     val cmdline: String = "",
     val rawCmdline: String = "",
@@ -101,19 +99,26 @@ class LogsViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(LogsUiState())
     val uiState: StateFlow<LogsUiState> = _uiState.asStateFlow()
 
-    private var pollingJob: Job? = null
     private var commandLoadJob: Job? = null
     private var outputLoadJob: Job? = null
     private var screenStarted = false
     private val clearInProgress = AtomicBoolean(false)
     private var commandLoadGeneration = 0L
     private var outputLoadGeneration = 0L
+    private var loadedOutputTab: LogTab? = null
     init {
         viewModelScope.launch {
             serviceEventBus.serviceRestarted.collect {
                 if (screenStarted) {
-                    loadCmdline()
-                    if (_uiState.value.currentTab != LogTab.COMMAND) loadLogs()
+                    loadCurrentTab(force = true)
+                } else {
+                    loadedOutputTab = null
+                    _uiState.update {
+                        it.copy(
+                            commandLoadState = LogsLoadState.IDLE,
+                            outputLoadState = LogsLoadState.IDLE,
+                        )
+                    }
                 }
             }
         }
@@ -122,41 +127,60 @@ class LogsViewModel @Inject constructor(
     fun onScreenStarted() {
         if (screenStarted) return
         screenStarted = true
-        loadCmdline()
-        if (_uiState.value.currentTab != LogTab.COMMAND) {
-            loadLogs(showLoading = true)
-            startPolling()
-        }
+        loadCurrentTab(force = false)
     }
 
     fun onScreenStopped() {
         screenStarted = false
-        stopPolling()
         commandLoadGeneration++
         outputLoadGeneration++
         commandLoadJob?.cancel()
         commandLoadJob = null
         outputLoadJob?.cancel()
         outputLoadJob = null
+        _uiState.update {
+            it.copy(
+                commandLoadState = if (it.commandLoadState == LogsLoadState.LOADING) {
+                    LogsLoadState.IDLE
+                } else {
+                    it.commandLoadState
+                },
+                outputLoadState = if (it.outputLoadState == LogsLoadState.LOADING) {
+                    LogsLoadState.IDLE
+                } else {
+                    it.outputLoadState
+                },
+            )
+        }
     }
 
     fun selectTab(tab: LogTab) {
         if (clearInProgress.get()) return
-        outputLoadGeneration++
-        _uiState.update { it.copy(currentTab = tab) }
-        when (tab) {
-            LogTab.COMMAND -> {
-                stopPolling()
-                loadCmdline()
+        if (tab == LogTab.COMMAND) {
+            outputLoadGeneration++
+            outputLoadJob?.cancel()
+            outputLoadJob = null
+            _uiState.update {
+                if (it.outputLoadState == LogsLoadState.LOADING) {
+                    it.copy(outputLoadState = LogsLoadState.IDLE)
+                } else {
+                    it
+                }
             }
-
-            LogTab.LOGS,
-            LogTab.WARNINGS,
-            -> {
-                loadLogs(showLoading = true)
-                if (screenStarted) startPolling()
+        } else {
+            commandLoadGeneration++
+            commandLoadJob?.cancel()
+            commandLoadJob = null
+            _uiState.update {
+                if (it.commandLoadState == LogsLoadState.LOADING) {
+                    it.copy(commandLoadState = LogsLoadState.IDLE)
+                } else {
+                    it
+                }
             }
         }
+        _uiState.update { it.copy(currentTab = tab) }
+        loadCurrentTab(force = false)
     }
 
     fun setFilter(text: String) {
@@ -169,8 +193,7 @@ class LogsViewModel @Inject constructor(
 
     fun refresh() {
         if (!screenStarted || clearInProgress.get()) return
-        loadCmdline()
-        loadLogs(showLoading = true)
+        loadCurrentTab(force = true)
     }
 
     fun clearMessage() {
@@ -227,7 +250,7 @@ class LogsViewModel @Inject constructor(
                 if (tab != _uiState.value.currentTab) {
                     _uiState.update { it.copy(message = resultMessage) }
                     if (screenStarted && _uiState.value.currentTab != LogTab.COMMAND) {
-                        loadLogs(showLoading = true)
+                        loadCurrentTab(force = true)
                     }
                     return@launch
                 }
@@ -309,12 +332,34 @@ class LogsViewModel @Inject constructor(
             }
             val result = fetchLogsSafely(tab)
             if (generation == outputLoadGeneration && tab == _uiState.value.currentTab) {
-                applyLogResult(result)
+                applyLogResult(tab, result)
             }
         }
     }
 
-    private fun applyLogResult(result: LogFetchResult) {
+    private fun loadCurrentTab(force: Boolean) {
+        if (!screenStarted) return
+        val state = _uiState.value
+        when (state.currentTab) {
+            LogTab.COMMAND -> {
+                if (force || state.commandLoadState in setOf(LogsLoadState.IDLE, LogsLoadState.ERROR)) {
+                    loadCmdline()
+                }
+            }
+            LogTab.LOGS,
+            LogTab.WARNINGS,
+            -> {
+                if (force || loadedOutputTab != state.currentTab ||
+                    state.outputLoadState in setOf(LogsLoadState.IDLE, LogsLoadState.ERROR)
+                ) {
+                    loadLogs(showLoading = true)
+                }
+            }
+        }
+    }
+
+    private fun applyLogResult(tab: LogTab, result: LogFetchResult) {
+        loadedOutputTab = tab.takeIf { result is LogFetchResult.Content }
         _uiState.update {
             when (result) {
                 is LogFetchResult.Content -> it.copy(
@@ -328,28 +373,6 @@ class LogsViewModel @Inject constructor(
                 )
             }
         }
-    }
-
-    private fun startPolling() {
-        if (!screenStarted) return
-        pollingJob?.cancel()
-        pollingJob = viewModelScope.launch {
-            while (isActive) {
-                delay(3_000)
-                val tab = _uiState.value.currentTab
-                if (tab == LogTab.COMMAND) continue
-                val generation = ++outputLoadGeneration
-                val result = fetchLogsSafely(tab)
-                if (generation == outputLoadGeneration && tab == _uiState.value.currentTab) {
-                    applyLogResult(result)
-                }
-            }
-        }
-    }
-
-    private fun stopPolling() {
-        pollingJob?.cancel()
-        pollingJob = null
     }
 
     private fun fetchCmdline(): CommandFetchResult = when (val result = logRepository.readCommandLine()) {
@@ -416,7 +439,6 @@ class LogsViewModel @Inject constructor(
     }
 
     override fun onCleared() {
-        stopPolling()
         commandLoadJob?.cancel()
         outputLoadJob?.cancel()
         super.onCleared()

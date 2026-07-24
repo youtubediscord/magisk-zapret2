@@ -94,6 +94,8 @@ trap 'rm -rf -- "$TEMP_DIR"' EXIT HUP INT TERM
 
 readonly RELEASE_JSON="$TEMP_DIR/release.json"
 api_get "$API_ROOT/releases/latest" > "$RELEASE_JSON"
+jq -e '.draft == false and .prerelease == false' "$RELEASE_JSON" >/dev/null \
+    || fail "GitHub latest endpoint returned a non-stable release"
 
 RELEASE_TAG="$(jq -er '.tag_name' "$RELEASE_JSON")"
 readonly RELEASE_TAG

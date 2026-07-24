@@ -172,8 +172,8 @@ the upgrade/removal rule; the dependency must not be described as stable.
 | Flow | Android owner | Shell/module owner | Integrity and recovery contract |
 | --- | --- | --- | --- |
 | Root and module discovery | `ServiceLifecycleController`, `ControlDiagnosticsRepository` | module path and executable package contract | Root denial/unavailable/failure/timeout are distinct; missing, disabled, removal-pending, update/recovery, partial, unreadable and unsupported ABI are distinct |
-| Status and firewall ownership | `ServiceLifecycleController`, `NetworkStatsManager`, `OwnerStateSchema` | `zapret-status.sh`, `common.sh` | Owner schema v7 has exactly 33 fields including a fixed-size process-command SHA-256, firewall tag and generation-bound chains; current boot/PID/starttime/spec/fingerprint must reconcile, while same-boot v6 is accepted by Android only as read-only compatibility evidence. The Android reader requires a root-owned mode-0700 state directory plus a root-owned mode-0600 regular single-link owner file whose identity and SHA-256 remain stable across the bounded read. Its independent live iptables proof reconstructs every ordinal payload from the owner contract and requires exact protocol, direction, ports/ranges, packet bound, connbytes, multiport, mark/mask/negation, NFQUEUE queue and bypass semantics before RUNNING |
-| Start/stop/restart | `ServiceLifecycleController`, `ModuleMutationCoordinator` | `zapret-start.sh`, `zapret-stop.sh`, `zapret-restart.sh`, installed wrappers | Cross-process lifecycle lease, exact owned-state verification, transactional startup and idempotent cleanup |
+| Status and firewall ownership | `ServiceLifecycleController`, `NetworkStatsManager`, `OwnerStateSchema` | `zapret-status.sh`, `common.sh`, `firewall-reconciler.sh` | Owner schema v8 records the fixed-size process-command SHA-256, stable chain identity, and four preset-owned TCP/UDP incoming/outgoing packet bounds; current boot/PID/starttime/spec/fingerprint must reconcile. The Android reader requires a root-owned mode-0700 state directory plus a root-owned mode-0600 regular single-link owner file whose identity and SHA-256 remain stable across the bounded read. The module lifecycle boundary verifies the exact direct-chain protocol, direction, port union, packet bound, connbytes, mark/mask/negation, NFQUEUE queue and bypass semantics before RUNNING |
+| Start/stop/restart | `ServiceLifecycleController`, `ModuleMutationCoordinator` | `zapret-start.sh`, `zapret-stop.sh`, `zapret-restart.sh`, `firewall-reconciler.sh`, installed wrappers | Cross-process lifecycle lease, exact owned-state verification, idempotent cleanup, and whole-batch `iptables-restore` publication into one stable namespace. Boot-local firewall WAL, probe chains, prior-generation restoration, and global filesystem sync are absent; persistent mutations retain their own bounded durability barriers |
 | Runtime/preset/profile/host mutations | typed repositories plus `ModuleMutationCoordinator` | `runtime.ini`, active preset TXT, command builder and lifecycle scripts | Validate before mutation, compare the exact source snapshot, atomically replace, restart only when the service was running, and restore the prior TXT/runtime/process/firewall state on failure. The raw preset editor and profile editor always project the same TXT source |
 | Full rollback | `ServiceLifecycleController` | `zapret-full-rollback.sh`, installed wrapper | Durable transaction, disable fence, protected hosts backup, exact terminal machine result and resumable cleanup |
 | Irreversible clean purge | `ModulePurgeController`, `ControlViewModel` | `scripts/lifecycle/purge-contract.sh`, `scripts/lifecycle/zapret-purge.sh`, Magisk `action.sh`, `uninstall.sh` | One canonical two-phase/one-time protocol shared by APK and Magisk; verified process/firewall teardown precedes allowlisted removal of module, state, install/update/recovery and legacy artifacts; APK bytes are preserved while app-owned data is reset; reboot is mandatory |
@@ -187,7 +187,7 @@ the upgrade/removal rule; the dependency must not be described as stable.
 
 ## Protocol invariants
 
-- owner state: v6, exact 33-field current writer; v3–v5 are read-only recovery input.
+- owner state: v8, exact current writer and parser; unsupported schemas are rejected.
 - lifecycle mutation lease: cross-process owner identity and release proof.
 - update lock: v2 current writer; legacy versions are parser/recovery input only.
 - update transaction: v3 current writer with monotonic phases and owner/digest CAS.
@@ -212,7 +212,7 @@ the upgrade/removal rule; the dependency must not be described as stable.
   `0600`/`0644`; Lua, blob, hostlist and ipset references remain direct children of
   their exact protected module roots, and machine infrastructure failures never emit
   the exact user-content `INVALID` record.
-- protected text, owner-v6 identity, and update transaction/cleanup reads bind parsed
+- protected text, owner-v8 identity, and update transaction/cleanup reads bind parsed
   content to stable before/after SHA-256 evidence; hostlist search derives its count
   and bounded page from one file pass instead of combining two independently changing reads.
 - release metadata, module archives, downloads, digest passes, and imported hostlists use
@@ -292,8 +292,6 @@ pass evidence until executed against the synchronized tree.
 
 ## Intentional compatibility allowlist
 
-- Owner v3/v4/v5 parsers exist only to classify already-persisted runtime state; no
-  current writer emits them. There is no legacy package-update recovery parser.
 - API-specific `values-v26`, `values-v27`, `values-v29`, `values-v31` and night themes
   exist only for correct platform bar/startup behavior on API 24+.
 - The final resource tree contains only eight reachable file-backed launcher/provider/backup-policy
@@ -304,9 +302,9 @@ pass evidence until executed against the synchronized tree.
 - `FileProvider` exists only for a private cache-backed APK installation URI.
 - `config.sh` and the old temporary user configuration may be read only by the
   explicit migration/bootstrap path, never as live runtime fallback.
-- The module shell surface has no declaration-only production functions after removal
-  of ten superseded config, firewall-health, teardown and legacy-migration helpers;
-  current lifecycle code uses the owner-v6 and journal-bound paths above.
+- The module shell surface uses owner v8 plus one stable, idempotently
+  reconstructible firewall namespace. Whole-batch restore replaces the former
+  generation-chain and teardown-journal machinery.
 
 ## Android security source audit
 

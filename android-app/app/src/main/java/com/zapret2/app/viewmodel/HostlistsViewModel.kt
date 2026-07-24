@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 
 data class HostlistUiModel(val filename: String, val entryCount: Int, val sizeBytes: Long)
@@ -74,23 +75,10 @@ class HostlistsViewModel @Inject constructor(
     val uiState: StateFlow<HostlistsUiState> = _uiState.asStateFlow()
     private var loadJob: Job? = null
     private var loadGeneration = 0L
-    private var hasEnteredScreen = false
-    private var refreshAfterOperation = false
-    init { loadData() }
+    private val initialLoadRequested = AtomicBoolean(false)
 
-    fun onScreenEntered() {
-        val firstEntry = !hasEnteredScreen
-        hasEnteredScreen = true
-        if (firstEntry) return
-        if (!_uiState.value.isLoading && !_uiState.value.isImporting) {
-            loadData()
-        } else {
-            refreshAfterOperation = true
-        }
-    }
-
-    fun onScreenStopped() {
-        refreshAfterOperation = false
+    fun ensureLoaded() {
+        if (initialLoadRequested.compareAndSet(false, true)) loadData()
     }
 
     fun loadData() {
@@ -148,7 +136,6 @@ class HostlistsViewModel @Inject constructor(
                 }
             }
             loadJob = null
-            runPendingRefresh()
         }
     }
 
@@ -210,12 +197,9 @@ class HostlistsViewModel @Inject constructor(
             }
             savedStateHandle[KEY_IMPORT_RESULT] = result.name
             _uiState.update { it.copy(isImporting = false, importResult = result) }
-            val refreshRequested = refreshAfterOperation
-            refreshAfterOperation = false
             if (result == HostlistImportResult.IMPORTED ||
                 result == HostlistImportResult.UPDATED ||
-                result == HostlistImportResult.ROLLBACK_FAILED ||
-                refreshRequested
+                result == HostlistImportResult.ROLLBACK_FAILED
             ) {
                 loadData()
             }
@@ -225,12 +209,6 @@ class HostlistsViewModel @Inject constructor(
     fun clearImportResult() {
         savedStateHandle.remove<String>(KEY_IMPORT_RESULT)
         _uiState.update { it.copy(importResult = null) }
-    }
-
-    private fun runPendingRefresh() {
-        if (!refreshAfterOperation || _uiState.value.isLoading || _uiState.value.isImporting) return
-        refreshAfterOperation = false
-        loadData()
     }
 
     private data class HostlistsLoadResult(

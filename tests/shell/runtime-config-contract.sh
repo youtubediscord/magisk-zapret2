@@ -53,8 +53,6 @@ if [ "${1:-}" = --values ]; then
     printf 'debug\t%s\n' "$DEBUG"
     printf 'qnum\t%s\n' "$QNUM"
     printf 'desync_mark\t%s\n' "$DESYNC_MARK"
-    printf 'pkt_out\t%s\n' "$PKT_OUT"
-    printf 'pkt_in\t%s\n' "$PKT_IN"
     printf 'active_preset\t%s\n' "$ACTIVE_PRESET"
     printf 'nfqws_uid\t%s\n' "$NFQWS_UID"
     printf 'log_mode\t%s\n' "$LOG_MODE"

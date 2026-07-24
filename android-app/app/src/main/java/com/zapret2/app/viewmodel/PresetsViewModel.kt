@@ -15,6 +15,7 @@ import com.zapret2.app.data.PresetNamePolicy
 import com.zapret2.app.data.PresetPreviewOutcome
 import com.zapret2.app.data.PresetRepository
 import com.zapret2.app.data.ServiceEventBus
+import com.zapret2.app.data.ServiceEventSource
 import com.zapret2.app.ui.UiText
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
@@ -85,22 +86,14 @@ class PresetsViewModel @Inject constructor(
     )
     val uiState: StateFlow<PresetsUiState> = _uiState.asStateFlow()
     private val operationInProgress = AtomicBoolean(false)
-    private var refreshAfterOperation = false
+    private val initialLoadRequested = AtomicBoolean(false)
+
+    fun ensureLoaded() {
+        if (initialLoadRequested.compareAndSet(false, true)) loadPresets()
+    }
 
     fun clearMessage() {
         _uiState.update { it.copy(message = null) }
-    }
-
-    fun onScreenEntered() {
-        if (operationInProgress.get()) {
-            refreshAfterOperation = true
-        } else {
-            loadPresets()
-        }
-    }
-
-    fun onScreenStopped() {
-        refreshAfterOperation = false
     }
 
     fun loadPresets() {
@@ -167,8 +160,10 @@ class PresetsViewModel @Inject constructor(
 
     internal suspend fun applyPresetNow(fileName: String) {
         val outcome = repository.apply(fileName)
-        finishMutation(outcome, fileName, keepOperation = true)
-        loadPresetsNow()
+        if (outcome in setOf(PresetMutationOutcome.Saved, PresetMutationOutcome.Applied)) {
+            _uiState.update { it.copy(activePresetFile = fileName) }
+        }
+        finishMutation(outcome, fileName)
     }
 
     fun openPresetEditor(fileName: String) {
@@ -332,9 +327,17 @@ class PresetsViewModel @Inject constructor(
         if (outcome is PresetMutationOutcome.Saved || outcome is PresetMutationOutcome.SavedAndApplied) {
             persistEditorState(null)
             _uiState.update { it.copy(editingPreset = null) }
+        } else if (outcome == PresetMutationOutcome.SourceChanged) {
+            revalidateEditorSource(fileName)
+        } else if (outcome == PresetMutationOutcome.RollbackFailed) {
+            val editor = _uiState.value.editingPreset
+            if (editor?.fileName == fileName) {
+                val invalidated = editor.copy(hasAuthoritativeBaseline = false)
+                persistEditorState(invalidated)
+                _uiState.update { it.copy(editingPreset = invalidated) }
+            }
         }
-        finishMutation(outcome, fileName, keepOperation = true)
-        loadPresetsNow()
+        finishMutation(outcome, fileName)
     }
 
     private fun launchOperation(block: suspend () -> Unit) {
@@ -362,15 +365,8 @@ class PresetsViewModel @Inject constructor(
                 }
             } finally {
                 operationInProgress.set(false)
-                runPendingRefresh()
             }
         }
-    }
-
-    private fun runPendingRefresh() {
-        if (!refreshAfterOperation || operationInProgress.get()) return
-        refreshAfterOperation = false
-        loadPresets()
     }
 
     private suspend fun revalidateEditor(catalog: PresetCatalog): PresetEditorState? {
@@ -396,6 +392,31 @@ class PresetsViewModel @Inject constructor(
         )
     }
 
+    private suspend fun revalidateEditorSource(fileName: String) {
+        val editor = _uiState.value.editingPreset
+        if (editor?.fileName != fileName) return
+        val source = try {
+            repository.readCompatible(fileName)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            null
+        }
+        val revalidated = if (source == null) {
+            editor.copy(hasAuthoritativeBaseline = false)
+        } else {
+            editor.copy(
+                baselineContent = source,
+                hasAuthoritativeBaseline = true,
+                previewStatus = PresetPreviewUiStatus.IDLE,
+                commandPreview = null,
+                previewIssue = null,
+            )
+        }
+        persistEditorState(revalidated)
+        _uiState.update { it.copy(editingPreset = revalidated) }
+    }
+
     private fun beginOperation(operation: PresetsOperation, text: UiText, clearLoadError: Boolean = false) {
         _uiState.update {
             it.copy(
@@ -419,7 +440,7 @@ class PresetsViewModel @Inject constructor(
         if (outcome is PresetMutationOutcome.Applied ||
             outcome is PresetMutationOutcome.SavedAndApplied
         ) {
-            serviceEventBus.notifyServiceRestarted()
+            serviceEventBus.notifyServiceRestarted(ServiceEventSource.PRESETS)
         }
         val issue = (outcome as? PresetMutationOutcome.Rejected)?.issue
         savedStateHandle[LAST_OUTCOME_KEY] = outcome.durable.name

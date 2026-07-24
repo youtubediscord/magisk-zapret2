@@ -74,7 +74,6 @@ stop_interrupted() {
 }
 
 firewall_is_clean() {
-    [ "${TEARDOWN_COMMIT_PROVEN:-0}" = 1 ] && return 0
     command -v iptables >/dev/null 2>&1 || return 1
     owned_family_absent iptables || return 1
     if command -v ip6tables >/dev/null 2>&1; then

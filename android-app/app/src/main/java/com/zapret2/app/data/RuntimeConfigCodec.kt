@@ -122,11 +122,6 @@ internal object RuntimeConfigCodec {
     fun sanitizeValue(value: String): String =
         normalizeLineEndings(value).replace('\n', ' ').trim()
 
-    fun positiveCountOrNull(value: String?): Int? {
-        val canonical = value?.takeIf { it.matches(Regex("[1-9][0-9]{0,8}")) } ?: return null
-        return canonical.toIntOrNull()
-    }
-
     private fun countExactSections(content: String, sectionName: String): Int =
         normalizeLineEndings(content).lineSequence().count { rawLine ->
             val line = rawLine.trim()

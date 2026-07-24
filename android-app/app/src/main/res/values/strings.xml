@@ -88,9 +88,6 @@
     <string name="control_not_available">N/A</string>
     <string name="control_settings">Settings</string>
     <string name="control_autostart">Autostart on boot</string>
-    <string name="control_packet_interception">Packet interception</string>
-    <string name="control_outgoing_packets">Outgoing packets</string>
-    <string name="control_incoming_packets">Incoming packets</string>
     <string name="control_network">Network</string>
     <string name="control_network_type">Network type</string>
     <string name="network_type_wifi">Wi-Fi</string>
@@ -143,8 +140,6 @@
     <string name="control_error_details">Error details</string>
     <string name="control_copied">Copied to clipboard</string>
     <string name="control_copy_failed">Could not copy to the clipboard</string>
-    <string name="control_packet_count">Packet count</string>
-    <string name="control_packet_range">Enter a value from 1 to 999,999,999</string>
     <string name="control_status_degraded">Service degraded</string>
     <string name="control_status_root_denied">Grant root access in your root manager</string>
     <string name="control_status_root_manager_unavailable">Root manager unavailable</string>
@@ -161,7 +156,6 @@
     <string name="control_module_state_ready">Ready</string>
     <string name="control_module_state_disabled">Disabled in root manager</string>
     <string name="control_module_state_removal_pending">Removal pending</string>
-    <string name="control_module_state_updating">Update or recovery in progress</string>
     <string name="control_module_state_lifecycle_blocked">Lifecycle state requires recovery</string>
     <string name="control_module_state_installed_reboot">Installed; reboot required</string>
     <string name="control_module_state_update_reboot">Update installed; reboot required</string>
@@ -187,8 +181,6 @@
     <string name="control_service_expected_state_error">Service did not reach the expected state</string>
     <string name="control_autostart_save_failed">Could not save the autostart setting</string>
     <string name="control_module_update_in_progress">Module writes are blocked by an update, recovery, disable, or removal.</string>
-    <string name="control_packet_out_save_failed">Could not save the outgoing packet count</string>
-    <string name="control_packet_in_save_failed">Could not save the incoming packet count</string>
     <string name="control_runtime_rollback_failed">The runtime change failed and the previous configuration could not be restored. Reboot before retrying and inspect diagnostics.</string>
     <string name="control_app_up_to_date">The app is up to date</string>
     <string name="control_update_check_failed">Update check failed</string>
@@ -478,8 +470,6 @@
     <string name="about_maintainer" translatable="false">youtubediscord</string>
     <string name="hosts_system_path" translatable="false">/system/etc/hosts</string>
     <string name="term_nfqueue" translatable="false">NFQUEUE</string>
-    <string name="term_pkt_out" translatable="false">PKT_OUT</string>
-    <string name="term_pkt_in" translatable="false">PKT_IN</string>
     <string name="term_iptables" translatable="false">iptables</string>
     <string name="term_pid" translatable="false">PID</string>
     <string name="term_cpu" translatable="false">CPU</string>

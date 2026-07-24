@@ -10,8 +10,8 @@ import com.zapret2.app.R
 import com.zapret2.app.data.ArtifactValidationReason
 import com.zapret2.app.data.DownloadFailureReason
 import com.zapret2.app.data.LifecycleErrorContract
-import com.zapret2.app.data.MAX_PACKET_COUNT
 import com.zapret2.app.data.ModuleInstallState
+import com.zapret2.app.data.ModuleEnvironmentSnapshot
 import com.zapret2.app.data.ModuleMutationState
 import com.zapret2.app.data.ModuleMutationCoordinator
 import com.zapret2.app.data.ModulePurgeAppDataCleaner
@@ -27,6 +27,7 @@ import com.zapret2.app.data.diagnosticText
 import com.zapret2.app.data.diagnosticTextOrNull
 import com.zapret2.app.data.RuntimeLogRepository
 import com.zapret2.app.data.ServiceEventBus
+import com.zapret2.app.data.ServiceEventSource
 import com.zapret2.app.data.ServiceLifecycleController
 import com.zapret2.app.data.UpdateFailure
 import com.zapret2.app.data.UpdateManager
@@ -40,10 +41,8 @@ import com.zapret2.app.ui.labelRes
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.concurrent.atomic.AtomicBoolean
@@ -116,7 +115,7 @@ internal val ModuleInstallState.labelRes: Int
 internal val ControlUiState.moduleStateLabelRes: Int
     get() = when {
         moduleMutationState == ModuleMutationState.IN_PROGRESS ->
-            R.string.control_module_state_updating
+            R.string.control_service_lifecycle_busy
         moduleMutationState == ModuleMutationState.BLOCKED ->
             R.string.control_module_state_lifecycle_blocked
         pendingModuleState == PendingModuleState.READY &&
@@ -170,16 +169,10 @@ internal fun projectedLifecycleDiagnostic(
 enum class ControlDialogKind {
     UPDATE,
     ERROR,
-    PACKET,
     FULL_ROLLBACK_CONFIRM,
     FULL_ROLLBACK_RESULT,
     MODULE_PURGE_CONFIRM,
     MODULE_PURGE_RESULT,
-}
-
-enum class PacketTarget(@param:StringRes val titleRes: Int) {
-    OUT(R.string.term_pkt_out),
-    IN(R.string.term_pkt_in),
 }
 
 enum class ControlErrorKind(@param:StringRes val titleRes: Int) {
@@ -370,8 +363,6 @@ data class ControlUiState(
     val canStopService: Boolean = false,
     val showQuicBanner: Boolean = false,
     val iptablesDetail: NetworkStatsManager.IptablesDetail = NetworkStatsManager.IptablesDetail(),
-    val pktOut: Int = 20,
-    val pktIn: Int = 10,
     val hasRootAccess: Boolean = false,
     val rootAccessState: ServiceLifecycleController.RootAccessState? = null,
     val moduleInstallState: ModuleInstallState = ModuleInstallState.UNKNOWN,
@@ -388,8 +379,6 @@ data class ControlUiState(
     val pendingDialog: ControlDialogKind? = null,
     val updateRelease: UpdateManager.Release? = null,
     val errorDialog: ControlErrorDialog? = null,
-    val packetTarget: PacketTarget? = null,
-    val packetDraft: String = "",
     val fullRollback: FullRollbackUiState = FullRollbackUiState.Idle,
     val modulePurge: ModulePurgeUiState = ModulePurgeUiState.Idle,
     val lastResult: ControlLastResult? = null,
@@ -438,8 +427,6 @@ data class ProcessStats(
 )
 
 private const val KEY_DIALOG_KIND = "control_dialog_kind"
-private const val KEY_PACKET_TARGET = "control_packet_target"
-private const val KEY_PACKET_DRAFT = "control_packet_draft"
 private const val KEY_ERROR_KIND = "control_error_kind"
 private const val KEY_ERROR_DETAIL_RESOURCE = "control_error_detail_resource"
 private const val KEY_ERROR_DETAIL_DYNAMIC = "control_error_detail_dynamic"
@@ -572,15 +559,6 @@ private fun SavedStateHandle.persistControlErrorDetails(details: UiText) {
 
 internal fun restoreControlUiState(savedStateHandle: SavedStateHandle): ControlUiState {
     val dialogKind = savedStateHandle.restoreEnumNameOrRemove<ControlDialogKind>(KEY_DIALOG_KIND)
-    val packetTarget = savedStateHandle.restoreEnumNameOrRemove<PacketTarget>(KEY_PACKET_TARGET)
-    val packetDraft = if (dialogKind == ControlDialogKind.PACKET && packetTarget != null) {
-        savedStateHandle.restoreTypedOrRemove<String>(KEY_PACKET_DRAFT)
-            .orEmpty()
-            .filter(Char::isDigit)
-            .take(MAX_PACKET_COUNT.toString().length)
-    } else {
-        ""
-    }
     val errorKind = savedStateHandle.restoreEnumNameOrRemove<ControlErrorKind>(KEY_ERROR_KIND)
     val errorDetails = restoreControlErrorDetails(savedStateHandle)
     val rollbackResult = if (dialogKind == ControlDialogKind.FULL_ROLLBACK_RESULT) {
@@ -646,7 +624,6 @@ internal fun restoreControlUiState(savedStateHandle: SavedStateHandle): ControlU
         modulePurge is ModulePurgeUiState.Confirmation -> ControlDialogKind.MODULE_PURGE_CONFIRM
         else -> when (dialogKind) {
             ControlDialogKind.UPDATE -> ControlDialogKind.UPDATE
-            ControlDialogKind.PACKET -> ControlDialogKind.PACKET.takeIf { packetTarget != null }
             ControlDialogKind.ERROR -> ControlDialogKind.ERROR.takeIf {
                 errorKind != null && errorDetails != null
             }
@@ -661,8 +638,6 @@ internal fun restoreControlUiState(savedStateHandle: SavedStateHandle): ControlU
     canonicalizeRestoredControlState(
         savedStateHandle = savedStateHandle,
         dialog = restoredDialog,
-        packetTarget = packetTarget,
-        packetDraft = packetDraft,
         errorKind = errorKind,
         errorDetails = errorDetails,
         fullRollback = fullRollback,
@@ -670,8 +645,6 @@ internal fun restoreControlUiState(savedStateHandle: SavedStateHandle): ControlU
     )
     return ControlUiState(
         pendingDialog = restoredDialog,
-        packetTarget = packetTarget.takeIf { restoredDialog == ControlDialogKind.PACKET },
-        packetDraft = packetDraft,
         errorDialog = if (
             restoredDialog == ControlDialogKind.ERROR && errorKind != null && errorDetails != null
         ) {
@@ -688,8 +661,6 @@ internal fun restoreControlUiState(savedStateHandle: SavedStateHandle): ControlU
 private fun canonicalizeRestoredControlState(
     savedStateHandle: SavedStateHandle,
     dialog: ControlDialogKind?,
-    packetTarget: PacketTarget?,
-    packetDraft: String,
     errorKind: ControlErrorKind?,
     errorDetails: UiText?,
     fullRollback: FullRollbackUiState,
@@ -698,13 +669,6 @@ private fun canonicalizeRestoredControlState(
     if (dialog == null) savedStateHandle.remove<String>(KEY_DIALOG_KIND)
     else savedStateHandle[KEY_DIALOG_KIND] = dialog.name
 
-    if (dialog != ControlDialogKind.PACKET) {
-        savedStateHandle.remove<String>(KEY_PACKET_TARGET)
-        savedStateHandle.remove<String>(KEY_PACKET_DRAFT)
-    } else {
-        savedStateHandle[KEY_PACKET_TARGET] = checkNotNull(packetTarget).name
-        savedStateHandle[KEY_PACKET_DRAFT] = packetDraft
-    }
     if (dialog != ControlDialogKind.ERROR) {
         savedStateHandle.remove<String>(KEY_ERROR_KIND)
         savedStateHandle.remove<Int>(KEY_ERROR_DETAIL_RESOURCE)
@@ -762,8 +726,6 @@ internal class FullRollbackOperationCoordinator(
 
         savedStateHandle[KEY_ROLLBACK_IN_PROGRESS] = true
         savedStateHandle.remove<String>(KEY_DIALOG_KIND)
-        savedStateHandle.remove<String>(KEY_PACKET_TARGET)
-        savedStateHandle.remove<String>(KEY_PACKET_DRAFT)
         savedStateHandle.remove<String>(KEY_ERROR_KIND)
         savedStateHandle.remove<Int>(KEY_ERROR_DETAIL_RESOURCE)
         savedStateHandle.remove<String>(KEY_ERROR_DETAIL_DYNAMIC)
@@ -830,8 +792,6 @@ internal class ModulePurgeOperationCoordinator(
 
         savedStateHandle[KEY_PURGE_IN_PROGRESS] = true
         savedStateHandle.remove<String>(KEY_DIALOG_KIND)
-        savedStateHandle.remove<String>(KEY_PACKET_TARGET)
-        savedStateHandle.remove<String>(KEY_PACKET_DRAFT)
         savedStateHandle.remove<String>(KEY_ERROR_KIND)
         savedStateHandle.remove<Int>(KEY_ERROR_DETAIL_RESOURCE)
         savedStateHandle.remove<String>(KEY_ERROR_DETAIL_DYNAMIC)
@@ -897,9 +857,10 @@ class ControlViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(restoreControlUiState(savedStateHandle))
     val uiState: StateFlow<ControlUiState> = _uiState.asStateFlow()
 
-    private var pollingJob: Job? = null
     private var screenStarted = false
-    private var initialLoadFinished = false
+    private var statusInvalidated = false
+    private val initializationRequested = AtomicBoolean(false)
+    private val initializationFinished = AtomicBoolean(false)
     private val toggleInProgress = AtomicBoolean(false)
     private val settingMutationInProgress = AtomicBoolean(false)
     private val updateCheckInProgress = AtomicBoolean(false)
@@ -916,11 +877,10 @@ class ControlViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            serviceEventBus.serviceRestarted.collect {
-                pollStatusOnce()
+            serviceEventBus.serviceRestarted.collect { source ->
+                if (source != ServiceEventSource.CONTROL) statusInvalidated = true
             }
         }
-        loadInitialState()
         if (_uiState.value.fullRollback is FullRollbackUiState.InProgress) {
             startFullRollback(FullRollbackLaunchReason.RESTORED)
         } else if (_uiState.value.modulePurge is ModulePurgeUiState.InProgress) {
@@ -928,19 +888,21 @@ class ControlViewModel @Inject constructor(
         }
     }
 
+    fun ensureInitialized() {
+        if (initializationRequested.compareAndSet(false, true)) loadInitialState()
+    }
+
     fun onScreenStarted() {
         if (screenStarted) return
         screenStarted = true
-        if (initialLoadFinished) {
-            _uiState.update { it.copy(hasAuthoritativeRuntimeSettings = false) }
-            startPolling(refreshImmediately = true)
+        if (statusInvalidated) {
+            statusInvalidated = false
+            viewModelScope.launch { refreshServiceStatusOnce() }
         }
     }
 
     fun onScreenStopped() {
         screenStarted = false
-        pollingJob?.cancel()
-        pollingJob = null
     }
 
     fun clearMessage() {
@@ -949,54 +911,6 @@ class ControlViewModel @Inject constructor(
 
     private fun publishMessage(message: UiText) {
         _uiState.update { it.copy(message = message) }
-    }
-
-    fun showPacketDialog(target: PacketTarget) {
-        if (_uiState.value.isFullRollbackInProgress || _uiState.value.isModulePurgeInProgress) return
-        if (rejectConflictingOperation()) return
-        if (rejectUnavailableSettingMutation()) return
-        val draft = when (target) {
-            PacketTarget.OUT -> _uiState.value.pktOut
-            PacketTarget.IN -> _uiState.value.pktIn
-        }.toString()
-        savedStateHandle[KEY_DIALOG_KIND] = ControlDialogKind.PACKET.name
-        savedStateHandle[KEY_PACKET_TARGET] = target.name
-        savedStateHandle[KEY_PACKET_DRAFT] = draft
-        clearPersistedError()
-        clearPersistedRollback()
-        clearPersistedPurge()
-        savedStateHandle.remove<Boolean>(KEY_ROLLBACK_IN_PROGRESS)
-        savedStateHandle.remove<Boolean>(KEY_PURGE_IN_PROGRESS)
-        _uiState.update {
-            it.copy(
-                pendingDialog = ControlDialogKind.PACKET,
-                updateRelease = null,
-                errorDialog = null,
-                packetTarget = target,
-                packetDraft = draft,
-                fullRollback = FullRollbackUiState.Idle,
-                modulePurge = ModulePurgeUiState.Idle,
-            )
-        }
-    }
-
-    fun updatePacketDraft(value: String) {
-        if (_uiState.value.pendingDialog != ControlDialogKind.PACKET) return
-        val sanitized = value.filter(Char::isDigit).take(MAX_PACKET_COUNT.toString().length)
-        savedStateHandle[KEY_PACKET_DRAFT] = sanitized
-        _uiState.update { it.copy(packetDraft = sanitized) }
-    }
-
-    fun confirmPacketDialog() {
-        val state = _uiState.value
-        if (state.pendingDialog != ControlDialogKind.PACKET) return
-        val target = state.packetTarget ?: return
-        val value = state.packetDraft.toIntOrNull()?.takeIf { it in 1..MAX_PACKET_COUNT } ?: return
-        dismissDialog()
-        when (target) {
-            PacketTarget.OUT -> adjustPktOut(value)
-            PacketTarget.IN -> adjustPktIn(value)
-        }
     }
 
     fun dismissDialog() {
@@ -1011,8 +925,6 @@ class ControlViewModel @Inject constructor(
                 pendingDialog = null,
                 updateRelease = null,
                 errorDialog = null,
-                packetTarget = null,
-                packetDraft = "",
                 fullRollback = FullRollbackUiState.Idle,
                 modulePurge = ModulePurgeUiState.Idle,
             )
@@ -1024,8 +936,6 @@ class ControlViewModel @Inject constructor(
         val state = _uiState.value
         if (!state.canFullRollback || state.pendingDialog != null) return
         savedStateHandle[KEY_DIALOG_KIND] = ControlDialogKind.FULL_ROLLBACK_CONFIRM.name
-        savedStateHandle.remove<String>(KEY_PACKET_TARGET)
-        savedStateHandle.remove<String>(KEY_PACKET_DRAFT)
         clearPersistedError()
         clearPersistedRollback()
         clearPersistedPurge()
@@ -1036,8 +946,6 @@ class ControlViewModel @Inject constructor(
                 pendingDialog = ControlDialogKind.FULL_ROLLBACK_CONFIRM,
                 updateRelease = null,
                 errorDialog = null,
-                packetTarget = null,
-                packetDraft = "",
                 fullRollback = FullRollbackUiState.Confirmation,
                 modulePurge = ModulePurgeUiState.Idle,
             )
@@ -1055,8 +963,6 @@ class ControlViewModel @Inject constructor(
                     pendingDialog = null,
                     updateRelease = null,
                     errorDialog = null,
-                    packetTarget = null,
-                    packetDraft = "",
                     fullRollback = FullRollbackUiState.InProgress,
                     modulePurge = ModulePurgeUiState.Idle,
                 )
@@ -1110,8 +1016,6 @@ class ControlViewModel @Inject constructor(
                 pendingDialog = ControlDialogKind.FULL_ROLLBACK_RESULT,
                 updateRelease = null,
                 errorDialog = null,
-                packetTarget = null,
-                packetDraft = "",
                 fullRollback = FullRollbackUiState.Result(
                     outcome = result.outcome,
                     rebootRequired = result.rebootRequired,
@@ -1128,8 +1032,6 @@ class ControlViewModel @Inject constructor(
         val state = _uiState.value
         if (!state.canPurgeModule || state.pendingDialog != null) return
         savedStateHandle[KEY_DIALOG_KIND] = ControlDialogKind.MODULE_PURGE_CONFIRM.name
-        savedStateHandle.remove<String>(KEY_PACKET_TARGET)
-        savedStateHandle.remove<String>(KEY_PACKET_DRAFT)
         clearPersistedError()
         clearPersistedRollback()
         clearPersistedPurge()
@@ -1140,8 +1042,6 @@ class ControlViewModel @Inject constructor(
                 pendingDialog = ControlDialogKind.MODULE_PURGE_CONFIRM,
                 updateRelease = null,
                 errorDialog = null,
-                packetTarget = null,
-                packetDraft = "",
                 fullRollback = FullRollbackUiState.Idle,
                 modulePurge = ModulePurgeUiState.Confirmation,
             )
@@ -1159,8 +1059,6 @@ class ControlViewModel @Inject constructor(
                     pendingDialog = null,
                     updateRelease = null,
                     errorDialog = null,
-                    packetTarget = null,
-                    packetDraft = "",
                     fullRollback = FullRollbackUiState.Idle,
                     modulePurge = ModulePurgeUiState.InProgress,
                 )
@@ -1217,8 +1115,6 @@ class ControlViewModel @Inject constructor(
                 pendingDialog = ControlDialogKind.MODULE_PURGE_RESULT,
                 updateRelease = null,
                 errorDialog = null,
-                packetTarget = null,
-                packetDraft = "",
                 fullRollback = FullRollbackUiState.Idle,
                 modulePurge = ModulePurgeUiState.Result(
                     outcome = result.outcome,
@@ -1232,8 +1128,6 @@ class ControlViewModel @Inject constructor(
 
     private fun showUpdateDialog(release: UpdateManager.Release) {
         savedStateHandle[KEY_DIALOG_KIND] = ControlDialogKind.UPDATE.name
-        savedStateHandle.remove<String>(KEY_PACKET_TARGET)
-        savedStateHandle.remove<String>(KEY_PACKET_DRAFT)
         clearPersistedError()
         clearPersistedRollback()
         clearPersistedPurge()
@@ -1242,8 +1136,6 @@ class ControlViewModel @Inject constructor(
                 pendingDialog = ControlDialogKind.UPDATE,
                 updateRelease = release,
                 errorDialog = null,
-                packetTarget = null,
-                packetDraft = "",
                 fullRollback = FullRollbackUiState.Idle,
                 modulePurge = ModulePurgeUiState.Idle,
             )
@@ -1264,8 +1156,6 @@ class ControlViewModel @Inject constructor(
         }
         savedStateHandle[KEY_DIALOG_KIND] = ControlDialogKind.ERROR.name
         savedStateHandle[KEY_ERROR_KIND] = kind.name
-        savedStateHandle.remove<String>(KEY_PACKET_TARGET)
-        savedStateHandle.remove<String>(KEY_PACKET_DRAFT)
         clearPersistedRollback()
         clearPersistedPurge()
         savedStateHandle.persistControlErrorDetails(safeDetails)
@@ -1274,8 +1164,6 @@ class ControlViewModel @Inject constructor(
                 pendingDialog = ControlDialogKind.ERROR,
                 updateRelease = null,
                 errorDialog = ControlErrorDialog(kind, safeDetails),
-                packetTarget = null,
-                packetDraft = "",
                 fullRollback = FullRollbackUiState.Idle,
                 modulePurge = ModulePurgeUiState.Idle,
             )
@@ -1284,8 +1172,6 @@ class ControlViewModel @Inject constructor(
 
     private fun clearPersistedDialog() {
         savedStateHandle.remove<String>(KEY_DIALOG_KIND)
-        savedStateHandle.remove<String>(KEY_PACKET_TARGET)
-        savedStateHandle.remove<String>(KEY_PACKET_DRAFT)
         clearPersistedError()
         clearPersistedRollback()
         clearPersistedPurge()
@@ -1353,18 +1239,6 @@ class ControlViewModel @Inject constructor(
                 }
                 val coreValues = runtimeConfig?.values.orEmpty()
                 if (stableModuleConfig && coreValues.isEmpty()) throw EnvironmentProbeException()
-                val pktOut = if (stableModuleConfig) {
-                    RuntimeConfigStore.positiveCountOrNull(coreValues["pkt_out"])
-                        ?: throw EnvironmentProbeException()
-                } else {
-                    20
-                }
-                val pktIn = if (stableModuleConfig) {
-                    RuntimeConfigStore.positiveCountOrNull(coreValues["pkt_in"])
-                        ?: throw EnvironmentProbeException()
-                } else {
-                    10
-                }
                 val unsupportedWifiOnlyWasEnabled = coreValues["wifi_only"] == "1"
                 var runtimeMutationDiagnostic: String? = null
                 val wifiOnlyNormalized = if (!unsupportedWifiOnlyWasEnabled) {
@@ -1395,8 +1269,6 @@ class ControlViewModel @Inject constructor(
                         nfqueueSupported = environment?.nfqueueSupported == true,
                         moduleVersion = environment?.displayedVersion.orEmpty(),
                         autostart = coreValues["autostart"] != "0",
-                        pktOut = pktOut,
-                        pktIn = pktIn,
                         hasAuthoritativeRuntimeSettings = stableModuleConfig,
                         moduleDiagnostic = runtimeMutationDiagnostic,
                         showQuicBanner = showQuicBanner,
@@ -1407,7 +1279,7 @@ class ControlViewModel @Inject constructor(
                     publishMessage(UiText.Resource(R.string.control_wifi_only_disable_failed))
                 }
 
-                checkStatus()
+                if (rootAccess.granted) checkStatus()
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
@@ -1437,26 +1309,12 @@ class ControlViewModel @Inject constructor(
                 if (_uiState.value.pendingDialog == ControlDialogKind.UPDATE) {
                     revalidateRestoredUpdateDialog()
                 }
-                initialLoadFinished = true
-                if (screenStarted && viewModelScope.coroutineContext[Job]?.isActive == true) {
-                    startPolling(refreshImmediately = false)
-                }
+                initializationFinished.set(true)
             }
         }
     }
 
-    private fun startPolling(refreshImmediately: Boolean) {
-        pollingJob?.cancel()
-        pollingJob = viewModelScope.launch {
-            if (refreshImmediately) pollStatusOnce()
-            while (isActive) {
-                delay(if (_uiState.value.isRunning) 3000L else 10000L)
-                pollStatusOnce()
-            }
-        }
-    }
-
-    private suspend fun pollStatusOnce() {
+    private suspend fun refreshServiceStatusOnce() {
         if (exclusiveActionInProgress.get()) return
         try {
             checkStatus()
@@ -1479,138 +1337,25 @@ class ControlViewModel @Inject constructor(
     )
 
     private suspend fun checkStatus(): ServiceSnapshot {
-        val snapshot = refreshStatus()
-        if (_uiState.value.isModuleOperational && !_uiState.value.hasAuthoritativeRuntimeSettings) {
-            revalidateRuntimeSettings()
-        }
-        return snapshot
-    }
-
-    private suspend fun revalidateRuntimeSettings(): Boolean {
-        val runtime = try {
-            withContext(Dispatchers.IO) { RuntimeConfigStore.readCore() }
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (error: Exception) {
-            _uiState.update {
-                it.copy(
-                    hasAuthoritativeRuntimeSettings = false,
-                    moduleDiagnostic = LifecycleErrorContract.error(
-                        domain = "CONFIG",
-                        code = "RUNTIME_INSPECT_FAILED",
-                        stage = "RUNTIME_INSPECT",
-                        detail = "${error.javaClass.simpleName}: ${error.message}",
-                    ).diagnosticText(),
-                )
-            }
-            return false
-        }
-        if (runtime !is RuntimeConfigReadResult.Valid) {
-            _uiState.update {
-                it.copy(
-                    hasAuthoritativeRuntimeSettings = false,
-                    moduleDiagnostic = runtime.diagnosticText(),
-                )
-            }
-            return false
-        }
-        val coreValues = runtime.values
-        val autostart = when (coreValues["autostart"]) {
-            "0" -> false
-            "1" -> true
-            else -> return false
-        }
-        val pktOut = RuntimeConfigStore.positiveCountOrNull(coreValues["pkt_out"])
-            ?: return false
-        val pktIn = RuntimeConfigStore.positiveCountOrNull(coreValues["pkt_in"])
-            ?: return false
-        val reconciledState = _uiState.updateAndGet { state ->
-            if (!state.isModuleOperational || !state.hasRootAccess) {
-                state.copy(hasAuthoritativeRuntimeSettings = false)
-            } else {
-                state.copy(
-                    autostart = autostart,
-                    pktOut = pktOut,
-                    pktIn = pktIn,
-                    hasAuthoritativeRuntimeSettings = true,
-                    moduleDiagnostic = null,
-                )
-            }
-        }
-        return reconciledState.hasAuthoritativeRuntimeSettings
+        return refreshStatus()
     }
 
     /**
      * Status recovery acquires ModuleMutationCoordinator before the lifecycle controller. Never
      * wrap this method in a view-model mutex: settings saves intentionally keep the module
-     * coordinator while restarting, and a reverse wait here would deadlock polling against saves.
+     * coordinator while restarting, and a reverse wait here would deadlock observation against saves.
+     * Installation metadata is retained from the initialization/publication boundary; an ordinary
+     * status read consumes only the module's typed lifecycle snapshot.
      */
     private suspend fun refreshStatus(): ServiceSnapshot {
         val refreshId = statusRefreshSequence.incrementAndGet()
-        val rootAccess = ServiceLifecycleController.checkRootAccess()
-        if (!rootAccess.granted) {
-            if (rootAccess.state == ServiceLifecycleController.RootAccessState.BUSY) {
-                val current = _uiState.value
-                if (refreshId == statusRefreshSequence.get()) {
-                    _uiState.update {
-                        it.copy(
-                            status = ControlStatus.ROOT_OPERATION_BUSY,
-                            rootAccessState = rootAccess.state,
-                        )
-                    }
-                }
-                return ServiceSnapshot(
-                    isRunning = current.isRunning,
-                    canStopService = current.canStopService,
-                )
-            }
-            if (refreshId == statusRefreshSequence.get()) {
-                _uiState.update {
-                    it.copy(
-                        isRunning = false,
-                        canStopService = false,
-                        status = rootAccess.state.toControlStatus(),
-                        hasRootAccess = false,
-                        rootAccessState = rootAccess.state,
-                        hasAuthoritativeRuntimeSettings = false,
-                        moduleDiagnostic = rootAccess.lifecycleError
-                            ?.takeUnless { error -> error.isNone }
-                            ?.diagnosticText(),
-                        iptablesActive = false,
-                        nfqueueRulesCount = 0,
-                        iptablesDetail = NetworkStatsManager.IptablesDetail(),
-                        processStats = ProcessStats(),
-                    )
-                }
-            }
-            return ServiceSnapshot(isRunning = false, canStopService = false)
-        }
-
-        val environment = moduleRepository.reconcileEnvironment()
-        if (environment == null) {
-            if (refreshId == statusRefreshSequence.get()) {
-                _uiState.update {
-                    it.copy(
-                        isRunning = false,
-                        canStopService = false,
-                        status = ControlStatus.UNAVAILABLE,
-                        hasRootAccess = true,
-                        rootAccessState = ServiceLifecycleController.RootAccessState.GRANTED,
-                        moduleInstallState = ModuleInstallState.UNKNOWN,
-                        pendingModuleState = PendingModuleState.NONE,
-                        moduleMutationState = ModuleMutationState.IDLE,
-                        moduleVersion = "",
-                        nfqueueSupported = false,
-                        hasAuthoritativeRuntimeSettings = false,
-                        iptablesActive = false,
-                        nfqueueRulesCount = 0,
-                        iptablesDetail = NetworkStatsManager.IptablesDetail(),
-                        processStats = ProcessStats(),
-                    )
-                }
-            }
-            return ServiceSnapshot(isRunning = false, canStopService = false)
-        }
+        val cachedEnvironment = _uiState.value
+        val environment = ModuleEnvironmentSnapshot(
+            activeState = cachedEnvironment.moduleInstallState,
+            pendingState = cachedEnvironment.pendingModuleState,
+            nfqueueSupported = cachedEnvironment.nfqueueSupported,
+            activeVersion = cachedEnvironment.moduleVersion,
+        )
 
         val statusWithoutQuery = environment.serviceAccess.statusWithoutQuery()
         if (statusWithoutQuery != null) {
@@ -1626,8 +1371,8 @@ class ControlViewModel @Inject constructor(
                         nfqueueRulesCount = 0,
                         iptablesDetail = NetworkStatsManager.IptablesDetail(),
                         processStats = ProcessStats(),
-                        hasRootAccess = true,
-                        rootAccessState = ServiceLifecycleController.RootAccessState.GRANTED,
+                        hasRootAccess = cachedEnvironment.hasRootAccess,
+                        rootAccessState = cachedEnvironment.rootAccessState,
                         moduleInstallState = environment.activeState,
                         pendingModuleState = environment.pendingState,
                         moduleMutationState = ModuleMutationState.IDLE,
@@ -1731,8 +1476,16 @@ class ControlViewModel @Inject constructor(
 
     fun refreshStatusManually() {
         if (!screenStarted) return
+        val state = _uiState.value
+        if (state.moduleInstallState == ModuleInstallState.UNKNOWN || !state.hasRootAccess) {
+            if (!initializationFinished.get()) return
+            initializationRequested.set(false)
+            initializationFinished.set(false)
+            ensureInitialized()
+            return
+        }
         viewModelScope.launch {
-            pollStatusOnce()
+            refreshServiceStatusOnce()
         }
     }
 
@@ -1791,7 +1544,9 @@ class ControlViewModel @Inject constructor(
                             },
                         ),
                     )
-                    if (!shouldStop) serviceEventBus.notifyServiceRestarted()
+                    if (!shouldStop) {
+                        serviceEventBus.notifyServiceRestarted(ServiceEventSource.CONTROL)
+                    }
                 } else {
                     val diagnostic = lifecycleResult.diagnosticText()
                         .ifBlank { readServiceFailureLogs() }
@@ -1845,40 +1600,6 @@ class ControlViewModel @Inject constructor(
                 ),
             ).also { success ->
                 if (success) _uiState.update { it.copy(autostart = enabled) }
-            }
-        }
-    }
-
-    fun adjustPktOut(value: Int) {
-        if (rejectConflictingOperation()) return
-        if (rejectUnavailableSettingMutation()) return
-        if (value !in 1..MAX_PACKET_COUNT) return
-        if (_uiState.value.pktOut == value) return
-        launchSettingMutation(R.string.control_packet_out_save_failed) {
-            handleRuntimeMutation(
-                RuntimeConfigStore.upsertCoreValue("pkt_out", value.toString()),
-            ).also { success ->
-                if (success) {
-                    _uiState.update { it.copy(pktOut = value) }
-                    restartService()
-                }
-            }
-        }
-    }
-
-    fun adjustPktIn(value: Int) {
-        if (rejectConflictingOperation()) return
-        if (rejectUnavailableSettingMutation()) return
-        if (value !in 1..MAX_PACKET_COUNT) return
-        if (_uiState.value.pktIn == value) return
-        launchSettingMutation(R.string.control_packet_in_save_failed) {
-            handleRuntimeMutation(
-                RuntimeConfigStore.upsertCoreValue("pkt_in", value.toString()),
-            ).also { success ->
-                if (success) {
-                    _uiState.update { it.copy(pktIn = value) }
-                    restartService()
-                }
             }
         }
     }
@@ -2205,7 +1926,7 @@ class ControlViewModel @Inject constructor(
 
     private suspend fun refreshStatusAfterUpdate() {
         delay(UPDATE_STATUS_REFRESH_DELAY_MS)
-        if (screenStarted) pollStatusOnce()
+        if (screenStarted) refreshServiceStatusOnce()
     }
 
     private suspend fun restartService() {
@@ -2215,7 +1936,7 @@ class ControlViewModel @Inject constructor(
             val result = ServiceLifecycleController.restart()
             val verifiedState = refreshStatus()
             if (result.success && verifiedState.isRunning) {
-                serviceEventBus.notifyServiceRestarted()
+                serviceEventBus.notifyServiceRestarted(ServiceEventSource.CONTROL)
                 return
             }
             val diagnostic = result.diagnosticText()
@@ -2235,11 +1956,6 @@ class ControlViewModel @Inject constructor(
                 details = UiText.Resource(R.string.control_restart_unhealthy),
             )
         }
-    }
-
-    override fun onCleared() {
-        pollingJob?.cancel()
-        super.onCleared()
     }
 
 }

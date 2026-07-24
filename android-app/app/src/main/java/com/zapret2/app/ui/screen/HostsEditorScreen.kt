@@ -47,7 +47,6 @@ import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.zapret2.app.ui.theme.SizeTokens
 import com.zapret2.app.ui.theme.SpacingTokens
@@ -84,9 +83,8 @@ fun HostsEditorScreen(
     val editorTextColor = MaterialTheme.colorScheme.onSurface
     val editorTextStyle = remember(editorTextColor) { MonospaceStyle.copy(color = editorTextColor) }
 
-    LifecycleStartEffect(activeViewModel) {
-        activeViewModel?.onScreenEntered()
-        onStopOrDispose { activeViewModel?.onScreenStopped() }
+    LaunchedEffect(activeViewModel) {
+        activeViewModel?.ensureLoaded()
     }
 
     LaunchedEffect(

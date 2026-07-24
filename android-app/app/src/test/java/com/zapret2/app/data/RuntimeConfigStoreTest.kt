@@ -20,8 +20,6 @@ class RuntimeConfigStoreTest {
         debug=0
         qnum=200
         desync_mark=0x40000000
-        pkt_out=20
-        pkt_in=10
         active_preset=Default v1 (game filter).txt
         nfqws_uid=0:0
         log_mode=none
@@ -101,8 +99,6 @@ class RuntimeConfigStoreTest {
         val pairs = RuntimeConfigStore.CoreSettingsUpdate(
             activePreset = "Default v1 (game filter).txt",
             logMode = "file",
-            pktOut = 20,
-            pktIn = 10,
             autostart = true,
             wifiOnly = false,
             desyncMark = "0x40000000",
@@ -113,8 +109,6 @@ class RuntimeConfigStoreTest {
             linkedMapOf(
                 "active_preset" to "Default v1 (game filter).txt",
                 "log_mode" to "file",
-                "pkt_out" to "20",
-                "pkt_in" to "10",
                 "autostart" to "1",
                 "wifi_only" to "0",
                 "desync_mark" to "0x40000000",
@@ -126,32 +120,31 @@ class RuntimeConfigStoreTest {
 
     @Test
     fun coreSettingsUpdate_omitsUnspecifiedFieldsWithoutInventingDefaults() {
-        val pairs = RuntimeConfigStore.CoreSettingsUpdate(pktOut = 21, autostart = false).toCorePairs()
+        val pairs = RuntimeConfigStore.CoreSettingsUpdate(autostart = false).toCorePairs()
 
-        assertEquals(mapOf("pkt_out" to "21", "autostart" to "0"), pairs)
-        assertFalse(pairs.containsKey("pkt_in"))
+        assertEquals(mapOf("autostart" to "0"), pairs)
         assertTrue(RuntimeConfigStore.CoreSettingsUpdate().toCorePairs().isEmpty())
     }
 
     @Test
     fun coreTextEdits_ignoreCaseOrWhitespaceDecoySections() {
-        val content = "[CORE]\npkt_out=91\n[ core ]\npkt_out=92\n$completeRuntime\n"
+        val content = "[CORE]\nautostart=0\n[ core ]\nautostart=0\n$completeRuntime\n"
 
         val parsed = RuntimeConfigCodec.parseSection(content, "core")
         assertTrue(parsed is RuntimeConfigSectionResult.Valid)
-        assertEquals("20", (parsed as RuntimeConfigSectionResult.Valid).values["pkt_out"])
+        assertEquals("1", (parsed as RuntimeConfigSectionResult.Valid).values["autostart"])
         val updated = RuntimeConfigCodec.upsertSectionValues(
             content = content,
             sectionName = "core",
-            updates = mapOf("pkt_out" to "21"),
+            updates = mapOf("autostart" to "0"),
         )
         val updatedSection = RuntimeConfigCodec.parseSection(updated, "core")
         assertEquals(
-            "21",
-            (updatedSection as RuntimeConfigSectionResult.Valid).values["pkt_out"],
+            "0",
+            (updatedSection as RuntimeConfigSectionResult.Valid).values["autostart"],
         )
-        assertTrue(updated.contains("[CORE]\npkt_out=91"))
-        assertTrue(updated.contains("[ core ]\npkt_out=92"))
+        assertTrue(updated.contains("[CORE]\nautostart=0"))
+        assertTrue(updated.contains("[ core ]\nautostart=0"))
         val candidate = Files.createTempFile("runtime-decoy-", ".ini").toFile()
         try {
             candidate.writeText(updated)
@@ -180,18 +173,6 @@ class RuntimeConfigStoreTest {
                 )
             }
         }
-    }
-
-    @Test
-    fun positiveCountParser_preservesTheFullRuntimeContractRange() {
-        assertEquals(999_999_999, MAX_PACKET_COUNT)
-        assertEquals(1, RuntimeConfigStore.positiveCountOrNull("1"))
-        assertEquals(101, RuntimeConfigStore.positiveCountOrNull("101"))
-        assertEquals(999_999_999, RuntimeConfigStore.positiveCountOrNull("999999999"))
-        assertEquals(null, RuntimeConfigStore.positiveCountOrNull(null))
-        assertEquals(null, RuntimeConfigStore.positiveCountOrNull("0"))
-        assertEquals(null, RuntimeConfigStore.positiveCountOrNull("01"))
-        assertEquals(null, RuntimeConfigStore.positiveCountOrNull("1000000000"))
     }
 
     private fun fixtureCases(): List<Pair<File, String>> {

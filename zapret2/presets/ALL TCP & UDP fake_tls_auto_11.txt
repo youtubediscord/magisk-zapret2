@@ -1,6 +1,10 @@
 # Preset: ALL TCP & UDP fake_tls_auto_11
 # BuiltinVersion: 2.24
 # Description:
+# NFQWS2_TCP_PKT_OUT=20
+# NFQWS2_TCP_PKT_IN=10
+# NFQWS2_UDP_PKT_OUT=20
+# NFQWS2_UDP_PKT_IN=10
 
 --lua-init=@lua/zapret-lib.lua
 --lua-init=@lua/zapret-antidpi.lua

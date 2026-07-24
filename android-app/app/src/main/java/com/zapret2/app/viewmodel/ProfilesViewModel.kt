@@ -6,8 +6,10 @@ import com.zapret2.app.data.PresetDurableOutcome
 import com.zapret2.app.data.PresetMutationOutcome
 import com.zapret2.app.data.PresetProfileDocument
 import com.zapret2.app.data.ProfileListEntry
+import com.zapret2.app.data.ProfileMutationResult
 import com.zapret2.app.data.ProfileRepository
 import com.zapret2.app.data.ServiceEventBus
+import com.zapret2.app.data.ServiceEventSource
 import com.zapret2.app.data.StrategyCatalogEntry
 import com.zapret2.app.R
 import com.zapret2.app.ui.UiText
@@ -45,12 +47,13 @@ class ProfilesViewModel @Inject constructor(
     private val serviceEventBus: ServiceEventBus,
 ) : ViewModel() {
     private val busy = AtomicBoolean(false)
+    private val initialLoadRequested = AtomicBoolean(false)
     private val _uiState = MutableStateFlow(ProfilesUiState())
     val uiState: StateFlow<ProfilesUiState> = _uiState.asStateFlow()
 
-    fun onScreenEntered() = load()
-
-    fun onScreenStopped() = Unit
+    fun ensureLoaded() {
+        if (initialLoadRequested.compareAndSet(false, true)) load()
+    }
 
     fun load() {
         if (!busy.compareAndSet(false, true)) return
@@ -206,22 +209,21 @@ class ProfilesViewModel @Inject constructor(
 
     fun clearMessage() = _uiState.update { it.copy(message = null) }
 
-    private fun mutate(block: suspend (PresetProfileDocument) -> PresetMutationOutcome) {
+    private fun mutate(block: suspend (PresetProfileDocument) -> ProfileMutationResult) {
         val document = _uiState.value.document ?: return
         if (!busy.compareAndSet(false, true)) return
         _uiState.update { it.copy(isLoading = true, message = null) }
         viewModelScope.launch {
             try {
-                val outcome = block(document)
+                val result = block(document)
+                val outcome = result.outcome
                 if (outcome.durable in setOf(PresetDurableOutcome.APPLIED, PresetDurableOutcome.SAVED_AND_APPLIED)) {
-                    serviceEventBus.notifyServiceRestarted()
+                    serviceEventBus.notifyServiceRestarted(ServiceEventSource.PROFILES)
                 }
-                val refreshed = if (
-                    outcome.durable in SUCCESS_OUTCOMES || outcome == PresetMutationOutcome.SourceChanged
-                ) {
-                    repository.loadActive()
-                } else {
-                    document
+                val refreshed = when {
+                    outcome.durable in SUCCESS_OUTCOMES -> result.publishedDocument
+                    outcome == PresetMutationOutcome.SourceChanged -> repository.loadActive()
+                    else -> document
                 }
                 _uiState.update {
                     it.copy(

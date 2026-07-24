@@ -214,8 +214,6 @@ if [ "$mode" = inspect-machine ]; then
     printf 'Z2_RUNTIME_CORE\tdebug\t%s\n' "$DEBUG"
     printf 'Z2_RUNTIME_CORE\tqnum\t%s\n' "$QNUM"
     printf 'Z2_RUNTIME_CORE\tdesync_mark\t%s\n' "$DESYNC_MARK"
-    printf 'Z2_RUNTIME_CORE\tpkt_out\t%s\n' "$PKT_OUT"
-    printf 'Z2_RUNTIME_CORE\tpkt_in\t%s\n' "$PKT_IN"
     printf 'Z2_RUNTIME_CORE\tactive_preset\t%s\n' "$ACTIVE_PRESET"
     printf 'Z2_RUNTIME_CORE\tnfqws_uid\t%s\n' "$NFQWS_UID"
     printf 'Z2_RUNTIME_CORE\tlog_mode\t%s\n' "$LOG_MODE"
@@ -283,8 +281,6 @@ fi
     echo 'debug=0'
     echo 'qnum=200'
     echo 'desync_mark=0x40000000'
-    echo 'pkt_out=20'
-    echo 'pkt_in=10'
     echo 'active_preset=Default v1 (game filter).txt'
     echo 'nfqws_uid=0:0'
     echo 'log_mode=none'

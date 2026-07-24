@@ -4,8 +4,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.security.MessageDigest
 
-const val MAX_PACKET_COUNT = 999_999_999
-
 sealed interface RuntimeConfigReadResult {
     data class Valid(
         val values: Map<String, String>,
@@ -71,8 +69,6 @@ object RuntimeConfigStore {
     data class CoreSettingsUpdate(
         val activePreset: String? = null,
         val logMode: String? = null,
-        val pktOut: Int? = null,
-        val pktIn: Int? = null,
         val autostart: Boolean? = null,
         val wifiOnly: Boolean? = null,
         val desyncMark: String? = null,
@@ -82,8 +78,6 @@ object RuntimeConfigStore {
             val values = linkedMapOf<String, String>()
             activePreset?.let { values["active_preset"] = it }
             logMode?.let { values["log_mode"] = it }
-            pktOut?.let { values["pkt_out"] = it.toString() }
-            pktIn?.let { values["pkt_in"] = it.toString() }
             autostart?.let { values["autostart"] = if (it) "1" else "0" }
             wifiOnly?.let { values["wifi_only"] = if (it) "1" else "0" }
             desyncMark?.let { values["desync_mark"] = it }
@@ -270,7 +264,7 @@ object RuntimeConfigStore {
         }
         val expectedKeys = setOf(
             "schema_version", "config_format", "runtime_source", "autostart", "wifi_only",
-            "debug", "qnum", "desync_mark", "pkt_out", "pkt_in", "active_preset",
+            "debug", "qnum", "desync_mark", "active_preset",
             "nfqws_uid", "log_mode",
         )
         val counts = corePairs.groupingBy { it.first }.eachCount()
@@ -402,8 +396,5 @@ object RuntimeConfigStore {
     private fun normalizeLineEndings(text: String): String {
         return text.replace("\r\n", "\n").replace('\r', '\n')
     }
-
-    internal fun positiveCountOrNull(value: String?): Int? =
-        RuntimeConfigCodec.positiveCountOrNull(value)
 
 }

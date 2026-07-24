@@ -151,6 +151,10 @@ printf 'example.com\n' > "$candidate_root/lists/list.txt"
 candidate="$candidate_root/presets/_Safe.candidate.1.txt"
 write_valid_candidate() {
     printf '%s\n' \
+        '# NFQWS2_TCP_PKT_OUT=20' \
+        '# NFQWS2_TCP_PKT_IN=10' \
+        '# NFQWS2_UDP_PKT_OUT=20' \
+        '# NFQWS2_UDP_PKT_IN=10' \
         '--lua-init=@lua/core.lua' \
         '--blob=x:@bin/blob.bin' \
         '--name=Safe profile' \

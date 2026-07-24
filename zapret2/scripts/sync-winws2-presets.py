@@ -17,6 +17,12 @@ LIST_OPTION = re.compile(
     r"(?P<prefix>@?lists/)(?P<name>[^,]+)"
 )
 BLOB_OPTION = re.compile(r"--blob=([^:]+):(.+)")
+CAPTURE_POLICY = (
+    "# NFQWS2_TCP_PKT_OUT=20",
+    "# NFQWS2_TCP_PKT_IN=10",
+    "# NFQWS2_UDP_PKT_OUT=20",
+    "# NFQWS2_UDP_PKT_IN=10",
+)
 
 # Exact filename normalization only.  A broad list is never substituted for a
 # narrower source dependency because that would change profile matching.
@@ -118,6 +124,24 @@ def with_common_blobs(lines: list[str], common_blobs: list[str]) -> list[str]:
     return compact_blank_lines(global_lines + [""] + common_blobs + [""] + profile_lines)
 
 
+def with_android_capture_policy(lines: list[str]) -> list[str]:
+    """Make the imported TXT the sole source of its kernel capture limits."""
+    existing = [line for line in lines if line.startswith("# NFQWS2_")]
+    if existing:
+        if tuple(existing) != CAPTURE_POLICY:
+            raise ValueError("preset has an incomplete or unsupported capture policy")
+        return lines
+    header_end = 0
+    while header_end < len(lines) and (
+        lines[header_end].startswith("#") or not lines[header_end]
+    ):
+        header_end += 1
+    prefix = lines[:header_end]
+    while prefix and not prefix[-1]:
+        prefix.pop()
+    return compact_blank_lines(prefix + list(CAPTURE_POLICY) + [""] + lines[header_end:])
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("source", type=Path, help="zapretgui builtin/winws2 directory")
@@ -147,7 +171,10 @@ def main() -> int:
     try:
         common_blobs = collect_common_blobs(imported_lines)
         imported = {
-            name: "\n".join(with_common_blobs(lines, common_blobs)).rstrip() + "\n"
+            name: "\n".join(
+                with_android_capture_policy(with_common_blobs(lines, common_blobs))
+            ).rstrip()
+            + "\n"
             for name, lines in imported_lines.items()
         }
     except ValueError as error:
